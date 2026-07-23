@@ -1,0 +1,140 @@
+.search-or-create {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.search-or-create-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 15px;
+  text-align: left;
+}
+
+.search-or-create-field input,
+.search-or-create-field select {
+  font-size: 16px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.search-or-create-hint {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.search-or-create-error {
+  margin: 0;
+  font-size: 14px;
+  color: crimson;
+}
+
+.search-or-create-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.search-or-create-results li + li {
+  border-top: 1px solid var(--border);
+}
+
+.search-or-create-results button {
+  width: 100%;
+  text-align: left;
+  padding: 12px;
+  border: none;
+  background: none;
+  color: var(--text-h);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.search-or-create-results button:hover,
+.search-or-create-results button:focus-visible {
+  background: var(--accent-bg, rgba(29, 78, 216, 0.08));
+}
+
+.search-or-create-add-new {
+  align-self: flex-start;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--accent);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.search-or-create-heading {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.search-or-create-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.search-or-create-actions button {
+  flex: 1;
+  font-size: 16px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.search-or-create-actions button[type='submit'] {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+}
+
+.search-or-create-actions button[type='button'] {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-h);
+}
+
+.search-or-create-actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.search-or-create-selected {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.search-or-create-selected button {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.search-or-create-prompt {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
