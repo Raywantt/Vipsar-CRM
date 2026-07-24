@@ -5,6 +5,7 @@ import SiteDetailsSection from '../components/SiteDetailsSection'
 import ClientDetailsSection from '../components/ClientDetailsSection'
 import AdditionalContactsSection from '../components/AdditionalContactsSection'
 import SalesProgressSection from '../components/SalesProgressSection'
+import LeadStageSection from '../components/LeadStageSection'
 import './LeadDetail.css'
 
 const SOURCE_LABELS = {
@@ -25,6 +26,7 @@ function LeadDetail() {
   const [otherParty, setOtherParty] = useState(null)
   const [site, setSite] = useState(null)
   const [siteContacts, setSiteContacts] = useState([])
+  const [stageHistory, setStageHistory] = useState([])
   const [areas, setAreas] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -51,7 +53,7 @@ function LeadDetail() {
         return
       }
 
-      const [partyResult, otherPartyResult, siteResult, contactsResult, areasResult, productsResult] =
+      const [partyResult, otherPartyResult, siteResult, contactsResult, stageHistoryResult, areasResult, productsResult] =
         await Promise.all([
           leadRow.party_id
             ? supabase.from('parties').select('*').eq('id', leadRow.party_id).single()
@@ -68,6 +70,11 @@ function LeadDetail() {
                 .select('id, role, party_id, parties(name, party_type)')
                 .eq('site_id', leadRow.site_id)
             : Promise.resolve({ data: [], error: null }),
+          supabase
+            .from('stage_history')
+            .select('id, stage, changed_at, employees(name)')
+            .eq('lead_id', leadRow.id)
+            .order('changed_at', { ascending: true }),
           supabase.from('areas').select('id, area_name, city').order('area_name'),
           supabase.from('products').select('id, name, category').order('name'),
         ])
@@ -79,6 +86,7 @@ function LeadDetail() {
       setOtherParty(otherPartyResult.data ?? null)
       setSite(siteResult.data ?? null)
       setSiteContacts(contactsResult.data ?? [])
+      setStageHistory(stageHistoryResult.data ?? [])
       setAreas(areasResult.data ?? [])
       setProducts(productsResult.data ?? [])
       setLoading(false)
@@ -119,6 +127,15 @@ function LeadDetail() {
         )}
         <li>Created: {new Date(lead.created_at).toLocaleDateString()}</li>
       </ul>
+
+      <LeadStageSection
+        lead={lead}
+        stageHistory={stageHistory}
+        onStageChanged={(updatedLead, historyRow) => {
+          setLead(updatedLead)
+          if (historyRow) setStageHistory((prev) => [...prev, historyRow])
+        }}
+      />
 
       {site && <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />}
 
