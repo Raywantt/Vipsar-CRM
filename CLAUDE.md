@@ -33,8 +33,9 @@ create components), `LeadQuickCapture` (quick-capture lead intake at
 workaround. `OwnerDashboard` is still a placeholder.
 
 Phase 4 done: `ActivityLog` (DPR replacement) at the now-free `/activity`
-route. Not in scope for this pass: lead stage changes, `stage_history`
-logging, or a screen listing past activities.
+route. Lead stage changes and `stage_history` logging (originally deferred
+from this phase) were added afterward to `LeadDetail`, not `ActivityLog` —
+see below. A screen listing past activities is still not built.
 
 ## Stack
 
@@ -130,10 +131,19 @@ at least one of the three fields filled.
 
 The "add more details" enrichment screen at `/leads/:id`, reachable from the
 lead ID link on `LeadQuickCapture`'s success screen. Read-only summary
-(source/stage/party/site/created) plus up to four independent sections, each
+(source/stage/party/site/created) plus up to five independent sections, each
 with its own Save button and saving/error/success state (saving one never
 touches the others):
 
+* **Stage** (`LeadStageSection.jsx`, always shown) — `current_stage` selector
+  (suggested new/hot/rfq/quote/negotiation/won/lost + "Other…" free text,
+  same pattern as `site_stage`). Every change updates `leads.current_stage`
+  and inserts a `stage_history` row (`lead_id`, `stage`, `changed_by`,
+  `changed_at`); the full history renders underneath as a read-only
+  timeline, oldest to newest. Setting the stage to `lost` immediately opens
+  an inline `loss_reasons` prompt (reason + optional competitor name) with
+  **no skip option** — "Save reason" is the only way to dismiss it, since a
+  rep must always account for why a lead was lost.
 * **Site details** (`SiteDetailsSection.jsx`, if `site_id` set) — plain edit
   form (not `SiteSearchOrCreate`'s find-or-create, since the site already
   exists) for Area/locality/house no./pincode/site_stage. Reuses
@@ -225,8 +235,8 @@ means a fresh session.
 0. ✅ Environment + scaffold (done)
 1. ✅ Supabase project, schema, RLS policies (`Schema/rls_policies.sql`) — confirm they've actually been run
 2. ✅ Employee login (Supabase Auth): login screen, AuthContext, protected/role-based routing
-3. ✅ Party/site/lead intake screens (search-before-create pattern): `PartySearchOrCreate`, `SiteSearchOrCreate`, quick-capture lead intake (`LeadQuickCapture`), and the "add more details" enrichment screen (`LeadDetail`) all done
-4. ✅ DPR / activity logging (`ActivityLog` at `/activity`) — lead stage changes, `stage_history` logging, and a past-activities list are still not built
+3. ✅ Party/site/lead intake screens (search-before-create pattern): `PartySearchOrCreate`, `SiteSearchOrCreate`, quick-capture lead intake (`LeadQuickCapture`), and the "add more details" enrichment screen (`LeadDetail`, including lead stage changes + `stage_history` logging, added after Phase 4) all done
+4. ✅ DPR / activity logging (`ActivityLog` at `/activity`) — a screen listing past activities is still not built
 5. ⬅️ current — Dashboards (replaces manually-tallied Weekly Update / Monthly Prospects / Yearly Performance sheets)
 6. PWA polish (installable, offline-tolerant for field use)
 7. Deploy + pilot with 1-2 sales execs before full rollout
