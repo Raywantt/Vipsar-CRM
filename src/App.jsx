@@ -1,6 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import OfflineIndicator from './components/OfflineIndicator'
+import InstallPrompt from './components/InstallPrompt'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import LeadQuickCapture from './pages/LeadQuickCapture'
@@ -26,6 +28,8 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <OfflineIndicator />
+        <InstallPrompt />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route
