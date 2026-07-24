@@ -165,7 +165,9 @@ CREATE TABLE leads (
 -- ---------- STEP 7: ACTIVITY / PLANNING / HISTORY ----------
 
 -- Append-only activity log — replaces the DPR sheet.
--- Needs EITHER a party OR a lead — same "at least one anchor" rule.
+-- Needs EITHER a party OR a lead — same "at least one anchor" rule —
+-- except 'office_day', which isn't tied to any one party/lead and can
+-- leave both NULL.
 CREATE TABLE activities (
   id              SERIAL PRIMARY KEY,
   employee_id     INTEGER NOT NULL REFERENCES employees(id),
@@ -178,7 +180,9 @@ CREATE TABLE activities (
   leads_generated INTEGER,   -- only used for 'office_day' entries
   created_at      TIMESTAMP DEFAULT now(),
 
-  CONSTRAINT activity_needs_an_anchor CHECK (party_id IS NOT NULL OR lead_id IS NOT NULL)
+  CONSTRAINT activity_needs_an_anchor CHECK (
+    activity_type = 'office_day' OR party_id IS NOT NULL OR lead_id IS NOT NULL
+  )
 );
 
 -- Forward-looking plan — replaces the Monthly Plans sheet.

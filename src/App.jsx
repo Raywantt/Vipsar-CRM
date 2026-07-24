@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import OwnerDashboard from './pages/OwnerDashboard'
 import LeadQuickCapture from './pages/LeadQuickCapture'
 import LeadDetail from './pages/LeadDetail'
+import ActivityLog from './pages/ActivityLog'
 import './App.css'
 
 const roleHome = {
@@ -50,6 +51,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
                 <LeadDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/activity"
+            element={
+              <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
+                <ActivityLog />
               </ProtectedRoute>
             }
           />
