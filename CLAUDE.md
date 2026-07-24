@@ -102,12 +102,10 @@ mistake later.
 4. DPR / activity logging (mobile-first, replaces the old Google Form)
 5. Dashboards (replaces manually-tallied Weekly Update / Monthly Prospects / Yearly Performance sheets)
 6. PWA polish (installable, offline-tolerant for field use)
-7. Deploy + pilot with 1-2 sales execs before full rollout — **before deploying**:
-   remove the two unprotected `/dev/*` routes (`/dev/site-search`,
-   `/dev/lead-capture`) from `App.jsx` entirely, and drop `'owner'` from
-   `/activity`'s `allowedRoles` (should be `['sales_executive']` only). See
-   the "Temporary state" note under Structure below for exactly what to
-   revert.
+7. Deploy + pilot with 1-2 sales execs before full rollout — **before
+   deploying**: drop `'owner'` from `/activity`'s `allowedRoles` (should be
+   `['sales_executive']` only). See the "Temporary state" note under
+   Structure below for exactly what to revert.
 
 ### Users of this app
 
@@ -141,11 +139,8 @@ their role" — look up an employee's role via `useAuth()`, don't re-query
 
 **Temporary state currently in `App.jsx`, needs cleanup:** `/activity`'s
 `allowedRoles` includes `'owner'` (should be `['sales_executive']` only)
-because there's still just one real test account (the owner's). Also two
-unprotected dev-only routes, `/dev/site-search` and `/dev/lead-capture`,
-exist purely so these screens could be checked without real login — remove
-both once a sales_executive test account exists and each screen has been
-confirmed end-to-end through its real protected route.
+because there's still just one real test account (the owner's) — remove
+once a sales_executive test account exists.
 
 ### Search-before-create components
 

@@ -4,7 +4,6 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import OwnerDashboard from './pages/OwnerDashboard'
 import LeadQuickCapture from './pages/LeadQuickCapture'
-import DevSiteSearchTest from './pages/DevSiteSearchTest'
 import './App.css'
 
 const roleHome = {
@@ -45,10 +44,6 @@ function App() {
               </ProtectedRoute>
             }
           />
-          {/* TEMPORARY — remove once SiteSearchOrCreate is confirmed working */}
-          <Route path="/dev/site-search" element={<DevSiteSearchTest />} />
-          {/* TEMPORARY — remove once LeadQuickCapture is confirmed working */}
-          <Route path="/dev/lead-capture" element={<LeadQuickCapture />} />
           <Route path="/" element={<RoleRedirect />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
