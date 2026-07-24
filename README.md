@@ -38,7 +38,7 @@ follow-up date) where applicable.
 
 ```
 src/
-  components/   reusable UI pieces (ProtectedRoute, PartySearchOrCreate,
+  components/   reusable UI pieces (ProtectedRoute, AppNav, PartySearchOrCreate,
                 SiteSearchOrCreate, LeadSearchSelect, the four LeadDetail
                 *Section components)
   pages/        top-level views (Login, OwnerDashboard, LeadQuickCapture,

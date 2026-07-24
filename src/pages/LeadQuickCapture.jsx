@@ -14,7 +14,7 @@ const SOURCE_OPTIONS = [
 const SOURCE_LABELS = Object.fromEntries(SOURCE_OPTIONS.map((o) => [o.value, o.label]))
 
 function LeadQuickCapture() {
-  const { employee, signOut } = useAuth()
+  const { employee } = useAuth()
 
   const [sourceType, setSourceType] = useState(null)
   const [clientParty, setClientParty] = useState(null)
@@ -116,9 +116,6 @@ function LeadQuickCapture() {
     <main className="lead-capture">
       <div className="lead-capture-header">
         <h1>New Lead</h1>
-        <button type="button" onClick={signOut}>
-          Log out
-        </button>
       </div>
 
       <div className="lead-capture-source">

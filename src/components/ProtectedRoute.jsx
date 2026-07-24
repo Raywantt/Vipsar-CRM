@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import AppNav from './AppNav'
 
 const roleHome = {
   owner: '/dashboard',
@@ -34,7 +35,12 @@ function ProtectedRoute({ allowedRoles, children }) {
     return <Navigate to={roleHome[employee.role] ?? '/login'} replace />
   }
 
-  return children
+  return (
+    <>
+      <AppNav />
+      {children}
+    </>
+  )
 }
 
 export default ProtectedRoute

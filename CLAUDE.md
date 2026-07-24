@@ -47,7 +47,7 @@ logging, or a screen listing past activities.
 
 ```
 src/
-  components/   reusable UI pieces (ProtectedRoute, PartySearchOrCreate,
+  components/   reusable UI pieces (ProtectedRoute, AppNav, PartySearchOrCreate,
                 SiteSearchOrCreate, LeadSearchSelect, the four LeadDetail
                 *Section components)
   pages/        top-level views (Login, OwnerDashboard, LeadQuickCapture,
@@ -65,8 +65,11 @@ owner), `/` redirects based on auth + role. `ProtectedRoute` handles the
 redirect-to-login and role gating; `AuthContext` is the single source of
 truth for "who's logged in and what's their role" — look up an employee's
 role via `useAuth()`, don't re-query `employees` directly in a component.
-No nav menu exists yet — `/activity` is reachable only by direct URL, not
-linked from anywhere in the app.
+`ProtectedRoute` also renders `AppNav` (`src/components/AppNav.jsx`) above
+`children` once auth/role checks pass, so every logged-in screen gets the
+same nav bar (New Lead / Activity Log / Dashboard-if-owner + Log out)
+without each page wiring it up itself — don't add a per-page logout button,
+`AppNav` is the only one now.
 
 ### Search-before-create components
 
