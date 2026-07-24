@@ -36,9 +36,9 @@ function App() {
           <Route
             path="/activity"
             element={
-              // TEMPORARY: 'owner' included so the only existing test account
-              // can verify this screen. Remove 'owner' once a sales_executive
-              // test account exists — this screen is sales-exec-only by design.
+              // 'owner' included deliberately: an owner can also personally log
+              // leads via quick-capture, not just sales execs. Not a testing
+              // workaround — see CLAUDE.md's Current state section.
               <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
                 <LeadQuickCapture />
               </ProtectedRoute>

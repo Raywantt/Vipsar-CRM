@@ -30,9 +30,16 @@ planned.
 Phase 3 in progress: `PartySearchOrCreate` and `SiteSearchOrCreate` (search-
 before-create components) exist. `LeadQuickCapture` (at `/activity`) is the
 first real lead-intake screen — replaces the old `ActivityScreen` placeholder
-as the sales_executive landing page. `OwnerDashboard` is still a placeholder.
-The "add more details" follow-up screen (structured editing of a
-quick-captured lead) is not built yet.
+as the sales_executive landing page. `/activity` deliberately also allows
+`owner` (not just `sales_executive`) — an owner can personally log leads via
+quick-capture too, this isn't a testing workaround. `OwnerDashboard` is still
+a placeholder. The "add more details" follow-up screen (structured editing of
+a quick-captured lead) is not built yet.
+
+Note: the `/activity` path name is a holdover from the Phase 2 placeholder
+it replaced, and will collide in meaning with Phase 4's "DPR / activity
+logging" once that's built — consider renaming the route (e.g. `/leads/new`)
+before then to avoid confusion between the two different "activity" features.
 
 ## Domain model
 
@@ -102,10 +109,7 @@ mistake later.
 4. DPR / activity logging (mobile-first, replaces the old Google Form)
 5. Dashboards (replaces manually-tallied Weekly Update / Monthly Prospects / Yearly Performance sheets)
 6. PWA polish (installable, offline-tolerant for field use)
-7. Deploy + pilot with 1-2 sales execs before full rollout — **before
-   deploying**: drop `'owner'` from `/activity`'s `allowedRoles` (should be
-   `['sales_executive']` only). See the "Temporary state" note under
-   Structure below for exactly what to revert.
+7. Deploy + pilot with 1-2 sales execs before full rollout
 
 ### Users of this app
 
@@ -131,16 +135,11 @@ src/
 ```
 
 Routing is set up in `App.jsx` (`react-router-dom`): `/login`, `/dashboard`
-(owner-only), `/activity` (sales_executive-only), `/` redirects based on
+(owner-only), `/activity` (sales_executive and owner), `/` redirects based on
 auth + role. `ProtectedRoute` handles the redirect-to-login and role gating;
 `AuthContext` is the single source of truth for "who's logged in and what's
 their role" — look up an employee's role via `useAuth()`, don't re-query
 `employees` directly in a component.
-
-**Temporary state currently in `App.jsx`, needs cleanup:** `/activity`'s
-`allowedRoles` includes `'owner'` (should be `['sales_executive']` only)
-because there's still just one real test account (the owner's) — remove
-once a sales_executive test account exists.
 
 ### Search-before-create components
 
@@ -172,7 +171,8 @@ three lead-intake source types (item 3 in the roadmap) depend on them.
 
 ### LeadQuickCapture (`src/pages/LeadQuickCapture.jsx`)
 
-The sales_executive landing screen at `/activity` — deliberately not a
+The sales_executive landing screen at `/activity` (owner can access it too,
+to personally log leads) — deliberately not a
 structured form. Three optional fields (Client name, Site nickname, Other's
 name) plus a required Scanning/Lixil/Referral tap-select (three buttons, not
 a dropdown). Validation is exactly `lead_needs_an_anchor`: at least one of
