@@ -28,18 +28,13 @@ exist. Employee accounts are created manually in the Supabase dashboard
 planned.
 
 Phase 3 in progress: `PartySearchOrCreate` and `SiteSearchOrCreate` (search-
-before-create components) exist. `LeadQuickCapture` (at `/activity`) is the
+before-create components) exist. `LeadQuickCapture` (at `/leads/new`) is the
 first real lead-intake screen — replaces the old `ActivityScreen` placeholder
-as the sales_executive landing page. `/activity` deliberately also allows
+as the sales_executive landing page. `/leads/new` deliberately also allows
 `owner` (not just `sales_executive`) — an owner can personally log leads via
 quick-capture too, this isn't a testing workaround. `OwnerDashboard` is still
 a placeholder. The "add more details" follow-up screen (structured editing of
 a quick-captured lead) is not built yet.
-
-Note: the `/activity` path name is a holdover from the Phase 2 placeholder
-it replaced, and will collide in meaning with Phase 4's "DPR / activity
-logging" once that's built — consider renaming the route (e.g. `/leads/new`)
-before then to avoid confusion between the two different "activity" features.
 
 ## Domain model
 
@@ -135,7 +130,7 @@ src/
 ```
 
 Routing is set up in `App.jsx` (`react-router-dom`): `/login`, `/dashboard`
-(owner-only), `/activity` (sales_executive and owner), `/` redirects based on
+(owner-only), `/leads/new` (sales_executive and owner), `/` redirects based on
 auth + role. `ProtectedRoute` handles the redirect-to-login and role gating;
 `AuthContext` is the single source of truth for "who's logged in and what's
 their role" — look up an employee's role via `useAuth()`, don't re-query
@@ -171,7 +166,7 @@ three lead-intake source types (item 3 in the roadmap) depend on them.
 
 ### LeadQuickCapture (`src/pages/LeadQuickCapture.jsx`)
 
-The sales_executive landing screen at `/activity` (owner can access it too,
+The sales_executive landing screen at `/leads/new` (owner can access it too,
 to personally log leads) — deliberately not a
 structured form. Three optional fields (Client name, Site nickname, Other's
 name) plus a required Scanning/Lixil/Referral tap-select (three buttons, not

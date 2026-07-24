@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 
 const roleHome = {
   owner: '/dashboard',
-  sales_executive: '/activity',
+  sales_executive: '/leads/new',
 }
 
 function ProtectedRoute({ allowedRoles, children }) {

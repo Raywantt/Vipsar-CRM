@@ -8,7 +8,7 @@ import './App.css'
 
 const roleHome = {
   owner: '/dashboard',
-  sales_executive: '/activity',
+  sales_executive: '/leads/new',
 }
 
 function RoleRedirect() {
@@ -34,7 +34,7 @@ function App() {
             }
           />
           <Route
-            path="/activity"
+            path="/leads/new"
             element={
               // 'owner' included deliberately: an owner can also personally log
               // leads via quick-capture, not just sales execs. Not a testing
