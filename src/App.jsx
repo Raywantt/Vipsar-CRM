@@ -2,10 +2,11 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
-import OwnerDashboard from './pages/OwnerDashboard'
+import Dashboard from './pages/Dashboard'
 import LeadQuickCapture from './pages/LeadQuickCapture'
 import LeadDetail from './pages/LeadDetail'
 import ActivityLog from './pages/ActivityLog'
+import Settings from './pages/Settings'
 import './App.css'
 
 const roleHome = {
@@ -30,8 +31,8 @@ function App() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['owner']}>
-                <OwnerDashboard />
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
+                <Dashboard />
               </ProtectedRoute>
             }
           />
@@ -59,6 +60,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
                 <ActivityLog />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute allowedRoles={['owner']}>
+                <Settings />
               </ProtectedRoute>
             }
           />

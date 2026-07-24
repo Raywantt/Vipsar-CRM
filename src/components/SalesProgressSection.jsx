@@ -9,6 +9,8 @@ function SalesProgressSection({ lead, products, onSaved }) {
   const [quoteSent, setQuoteSent] = useState(lead.quote_sent ?? false)
   const [quoteSentAt, setQuoteSentAt] = useState(lead.quote_sent_at ?? '')
   const [quoteValue, setQuoteValue] = useState(lead.quote_value ?? '')
+  const [closureProbability, setClosureProbability] = useState(lead.closure_probability ?? '')
+  const [estimatedCloseDate, setEstimatedCloseDate] = useState(lead.estimated_close_date ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [savedAt, setSavedAt] = useState(null)
@@ -27,6 +29,8 @@ function SalesProgressSection({ lead, products, onSaved }) {
         quote_sent: quoteSent,
         quote_sent_at: quoteSent ? quoteSentAt || null : null,
         quote_value: quoteSent && quoteValue !== '' ? Number(quoteValue) : null,
+        closure_probability: closureProbability !== '' ? Number(closureProbability) : null,
+        estimated_close_date: estimatedCloseDate || null,
       })
       .eq('id', lead.id)
       .select()
@@ -92,6 +96,27 @@ function SalesProgressSection({ lead, products, onSaved }) {
           </label>
         </>
       )}
+
+      <label className="search-or-create-field">
+        Closure probability (%)
+        <input
+          type="number"
+          min="0"
+          max="100"
+          step="1"
+          value={closureProbability}
+          onChange={(e) => setClosureProbability(e.target.value)}
+        />
+      </label>
+
+      <label className="search-or-create-field">
+        Estimated close date
+        <input
+          type="date"
+          value={estimatedCloseDate}
+          onChange={(e) => setEstimatedCloseDate(e.target.value)}
+        />
+      </label>
 
       {error && <p className="search-or-create-error">{error}</p>}
       {savedAt && !error && <p className="lead-section-success">Saved.</p>}

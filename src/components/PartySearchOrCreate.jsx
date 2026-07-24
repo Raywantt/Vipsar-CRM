@@ -4,11 +4,21 @@ import { useAuth } from '../contexts/AuthContext'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
 import './SearchOrCreate.css'
 
-const PARTY_TYPES = ['client', 'architect', 'builder', 'firm', 'other']
+const DEFAULT_PARTY_TYPES = ['client', 'architect', 'builder', 'firm', 'other', 'pmc']
 const MIN_QUERY_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 350
 
-function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', allowCreate = true, onSelect }) {
+// typeOptions lets a caller narrow which party_type values are offered in
+// the create form (e.g. "Other's name" excludes client/firm, adds pmc). A
+// single-value list hides the Type field entirely and uses that value
+// directly — the Client name field doesn't need to ask, it's always 'client'.
+function PartySearchOrCreate({
+  label = 'Party',
+  defaultPartyType = 'client',
+  allowCreate = true,
+  typeOptions = DEFAULT_PARTY_TYPES,
+  onSelect,
+}) {
   const { employee } = useAuth()
 
   const [name, setName] = useState('')
@@ -81,7 +91,7 @@ function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', all
     setCreating(true)
     setNewName(name.trim())
     setNewMobile(mobile.trim())
-    setNewPartyType(defaultPartyType)
+    setNewPartyType(typeOptions.includes(defaultPartyType) ? defaultPartyType : typeOptions[0])
     setCreateError(null)
   }
 
@@ -146,16 +156,18 @@ function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', all
           Mobile
           <input value={newMobile} onChange={(e) => setNewMobile(e.target.value)} />
         </label>
-        <label className="search-or-create-field">
-          Type
-          <select value={newPartyType} onChange={(e) => setNewPartyType(e.target.value)}>
-            {PARTY_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-        </label>
+        {typeOptions.length > 1 && (
+          <label className="search-or-create-field">
+            Type
+            <select value={newPartyType} onChange={(e) => setNewPartyType(e.target.value)}>
+              {typeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {createError && <p className="search-or-create-error">{createError}</p>}
         <div className="search-or-create-actions">
           <button type="button" onClick={handleCreate} disabled={saving || !newName.trim()}>

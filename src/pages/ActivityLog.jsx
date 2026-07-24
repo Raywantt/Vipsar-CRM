@@ -4,17 +4,8 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import LeadSearchSelect from '../components/LeadSearchSelect'
+import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import './ActivityLog.css'
-
-const ACTIVITY_TYPES = [
-  { value: 'site_visit', label: 'Site Visit' },
-  { value: 'call', label: 'Call' },
-  { value: 'rfq_raised', label: 'RFQ Raised' },
-  { value: 'office_day', label: 'Office Day' },
-  { value: 'booking_update', label: 'Booking Update' },
-]
-
-const ACTIVITY_LABELS = Object.fromEntries(ACTIVITY_TYPES.map((o) => [o.value, o.label]))
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10)
@@ -47,9 +38,24 @@ function ActivityLog() {
   }, [])
 
   const isOfficeDay = activityType === 'office_day'
+  const isSiteVisit = activityType === 'site_visit'
+  // Party is only offered as an anchor alongside Site Visit/Booking Update —
+  // Call and RFQ Raised must be tied to a lead, since there's no party
+  // picker to fall back on for them.
+  const showPartyPicker = activityType === 'site_visit' || activityType === 'booking_update'
   const needsAnchor = activityType && !isOfficeDay
-  const canSubmit =
-    Boolean(activityType) && (!needsAnchor || Boolean(selectedLead || selectedParty)) && !submitting
+  const anchorSatisfied = isOfficeDay || (showPartyPicker ? Boolean(selectedLead || selectedParty) : Boolean(selectedLead))
+  const canSubmit = Boolean(activityType) && anchorSatisfied && !submitting
+
+  function selectActivityType(value) {
+    setActivityType(value)
+    if (value !== 'site_visit' && value !== 'booking_update') {
+      setSelectedParty(null)
+    }
+    if (value !== 'site_visit') {
+      setAccompaniedBy('')
+    }
+  }
 
   function resetForm() {
     setActivityType(null)
@@ -162,7 +168,7 @@ function ActivityLog() {
                 ? 'activity-log-type-btn activity-log-type-btn-active'
                 : 'activity-log-type-btn'
             }
-            onClick={() => setActivityType(opt.value)}
+            onClick={() => selectActivityType(opt.value)}
           >
             {opt.label}
           </button>
@@ -172,7 +178,9 @@ function ActivityLog() {
       {needsAnchor && (
         <>
           <LeadSearchSelect onSelect={setSelectedLead} />
-          <PartySearchOrCreate label="Party" allowCreate={false} onSelect={setSelectedParty} />
+          {showPartyPicker && (
+            <PartySearchOrCreate label="Party" allowCreate={false} onSelect={setSelectedParty} />
+          )}
         </>
       )}
 
@@ -216,19 +224,21 @@ function ActivityLog() {
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} />
       </label>
 
-      <label className="activity-log-field">
-        Accompanied by (optional)
-        <select value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)}>
-          <option value="">— Not specified —</option>
-          {employees
-            .filter((e) => e.id !== employee?.id)
-            .map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-              </option>
-            ))}
-        </select>
-      </label>
+      {isSiteVisit && (
+        <label className="activity-log-field">
+          Accompanied by (optional)
+          <select value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)}>
+            <option value="">— Not specified —</option>
+            {employees
+              .filter((e) => e.id !== employee?.id)
+              .map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
 
       {submitError && <p className="activity-log-error">{submitError}</p>}
 

@@ -24,9 +24,12 @@ function AppNav() {
         <NavLink to="/activity" className={navLinkClass}>
           Activity Log
         </NavLink>
+        <NavLink to="/dashboard" className={navLinkClass}>
+          Dashboard
+        </NavLink>
         {employee?.role === 'owner' && (
-          <NavLink to="/dashboard" className={navLinkClass}>
-            Dashboard
+          <NavLink to="/settings" className={navLinkClass}>
+            Settings
           </NavLink>
         )}
       </div>

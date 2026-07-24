@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
+import { useAuth } from '../contexts/AuthContext'
 import SiteDetailsSection from '../components/SiteDetailsSection'
 import ClientDetailsSection from '../components/ClientDetailsSection'
 import AdditionalContactsSection from '../components/AdditionalContactsSection'
@@ -20,6 +21,7 @@ const EMPTY = { data: null, error: null }
 
 function LeadDetail() {
   const { id } = useParams()
+  const { employee } = useAuth()
 
   const [lead, setLead] = useState(null)
   const [party, setParty] = useState(null)
@@ -41,7 +43,7 @@ function LeadDetail() {
 
       const { data: leadRow, error: leadError } = await supabase
         .from('leads')
-        .select('*')
+        .select('*, employees!owner_employee_id(name)')
         .eq('id', id)
         .single()
 
@@ -103,6 +105,11 @@ function LeadDetail() {
   if (loadError) return <p style={{ padding: 24, color: 'crimson' }}>{loadError}</p>
   if (!lead) return <p style={{ padding: 24 }}>Lead not found.</p>
 
+  // RLS already refuses the actual UPDATE for a non-owning sales exec — this
+  // is the UI-level mirror of that, so they see a clear read-only notice
+  // instead of full edit forms that would just fail silently on save.
+  const canEdit = employee?.role === 'owner' || lead.owner_employee_id === employee?.id
+
   return (
     <main className="lead-detail">
       <Link to="/leads/new" className="lead-detail-back">
@@ -113,6 +120,7 @@ function LeadDetail() {
       <ul className="lead-detail-summary">
         <li>Source: {SOURCE_LABELS[lead.source_type] ?? lead.source_type}</li>
         <li>Stage: {lead.current_stage ?? 'new'}</li>
+        <li>Owner: {lead.employees?.name ?? 'Unassigned'}</li>
         {party && (
           <li>
             Party: {party.name} ({party.party_type})
@@ -128,29 +136,42 @@ function LeadDetail() {
         <li>Created: {new Date(lead.created_at).toLocaleDateString()}</li>
       </ul>
 
-      <LeadStageSection
-        lead={lead}
-        stageHistory={stageHistory}
-        onStageChanged={(updatedLead, historyRow) => {
-          setLead(updatedLead)
-          if (historyRow) setStageHistory((prev) => [...prev, historyRow])
-        }}
-      />
+      {canEdit ? (
+        <>
+          <LeadStageSection
+            lead={lead}
+            stageHistory={stageHistory}
+            onStageChanged={(updatedLead, historyRow) => {
+              setLead((prev) => ({ ...prev, ...updatedLead }))
+              if (historyRow) setStageHistory((prev) => [...prev, historyRow])
+            }}
+          />
 
-      {site && <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />}
+          {site && <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />}
 
-      {party && <ClientDetailsSection party={party} onSaved={setParty} />}
+          {party && <ClientDetailsSection party={party} onSaved={setParty} />}
 
-      {site && (
-        <AdditionalContactsSection
-          site={site}
-          otherParty={otherParty}
-          siteContacts={siteContacts}
-          onContactAdded={(contact) => setSiteContacts((prev) => [...prev, contact])}
-        />
+          {site && (
+            <AdditionalContactsSection
+              site={site}
+              otherParty={otherParty}
+              siteContacts={siteContacts}
+              onContactAdded={(contact) => setSiteContacts((prev) => [...prev, contact])}
+            />
+          )}
+
+          <SalesProgressSection
+            lead={lead}
+            products={products}
+            onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
+          />
+        </>
+      ) : (
+        <p className="lead-detail-readonly">
+          This lead belongs to {lead.employees?.name ?? 'another sales exec'} — you can view the summary above, but
+          only they or an owner can make changes to it.
+        </p>
       )}
-
-      <SalesProgressSection lead={lead} products={products} onSaved={setLead} />
     </main>
   )
 }

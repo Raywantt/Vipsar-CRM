@@ -135,7 +135,12 @@ function LeadQuickCapture() {
         ))}
       </div>
 
-      <PartySearchOrCreate label="Client name" defaultPartyType="client" onSelect={setClientParty} />
+      <PartySearchOrCreate
+        label="Client name"
+        defaultPartyType="client"
+        typeOptions={['client']}
+        onSelect={setClientParty}
+      />
 
       <label className="lead-capture-field">
         Site nickname
@@ -149,6 +154,7 @@ function LeadQuickCapture() {
       <PartySearchOrCreate
         label="Other's name (architect / PMC / anyone else)"
         defaultPartyType="architect"
+        typeOptions={['architect', 'builder', 'pmc', 'other']}
         onSelect={setOtherParty}
       />
 

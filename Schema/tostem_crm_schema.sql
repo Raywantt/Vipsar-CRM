@@ -66,7 +66,7 @@ CREATE TABLE products (
 CREATE TABLE parties (
   id                  SERIAL PRIMARY KEY,
   party_type          TEXT NOT NULL CHECK (party_type IN
-                        ('client','architect','builder','firm','other')),
+                        ('client','architect','builder','firm','other','pmc')),
   name                TEXT NOT NULL,
   mobile              TEXT,               -- often unknown for Lixil/referral leads — fine, nullable
   address             TEXT,
@@ -216,7 +216,13 @@ CREATE TABLE targets (
   employee_id   INTEGER NOT NULL REFERENCES employees(id),
   period_type   TEXT NOT NULL CHECK (period_type IN ('week','month','year')),
   period_value  TEXT NOT NULL,     -- e.g. '2026-07' or '2026-W28'
-  metric_name   TEXT NOT NULL,     -- 'calling','scanning','meetings','rfq','quote','order_value'
+  metric_name   TEXT NOT NULL,     -- matches activities.activity_type
+                                    -- ('site_visit','call','rfq_raised',
+                                    -- 'office_day','booking_update') plus
+                                    -- 'order_value' — the Dashboard only
+                                    -- knows how to compute an "actual" for
+                                    -- these six, so the app-layer form keeps
+                                    -- the list closed instead of free text
   target_value  DECIMAL(14,2) NOT NULL
 );
 

@@ -20,18 +20,19 @@
 -- everything is granted to `authenticated`, not `anon`.
 --
 -- SELECT/INSERT/UPDATE go to every table. DELETE is granted only on
--- employees, areas, sites, site_contacts, parties, and products — the
--- six tables that actually have an owner_only_delete policy (STEP
--- C/E/F below); RLS still restricts the grant to 'owner' rows in
--- practice. activities, leads, plans, and targets get NO delete grant
--- at all — they have no delete policy either, so they're non-
--- deletable at both layers, by design, not by omission.
+-- employees, areas, sites, site_contacts, parties, products, leads,
+-- activities, plans, and targets — the ten tables that actually have
+-- an owner_only_delete policy (STEP C/D/E/F below); RLS still
+-- restricts the grant to 'owner' rows in practice. stage_history and
+-- loss_reasons get NO delete grant at all — they have no delete
+-- policy either, so they're permanently non-deletable at both layers,
+-- for everyone including owner, by design (STEP G).
 --
 -- The sequence GRANT is easy to miss and causes its own 42501: SERIAL
 -- columns need USAGE on their backing sequence for INSERT to work.
 -- ------------------------------------------------------------
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO authenticated;
-GRANT DELETE ON employees, areas, sites, site_contacts, parties, products TO authenticated;
+GRANT DELETE ON employees, areas, sites, site_contacts, parties, products, leads, activities, plans, targets TO authenticated;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 
 -- So the same grants automatically apply to any table added later.
@@ -103,10 +104,14 @@ CREATE POLICY "owner_only_delete" ON employees
 
 
 -- ------------------------------------------------------------
--- STEP D: "OWN DATA OR OWNER ROLE" POLICIES
+-- STEP D: "OWN DATA OR OWNER ROLE" POLICIES, OWNER-ONLY DELETE
 -- Same shape on all four tables: a logged-in user can see/insert/
 -- update a row if it's theirs, OR if their role is 'owner'. Only the
--- "owning" column differs per table.
+-- "owning" column differs per table. DELETE is narrower than that —
+-- owner only, no "own data" exception, same owner_only_delete pattern
+-- used everywhere else in this file (a sales exec can create/edit
+-- their own leads/activities/plans/targets, but only an owner can
+-- remove one).
 --
 -- `parties` deliberately does NOT live here despite having a
 -- created_by column — it was originally grouped with this pattern,
@@ -138,6 +143,11 @@ CREATE POLICY "own_data_or_owner_role_update" ON activities
     OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
   );
 
+CREATE POLICY "owner_only_delete" ON activities
+  FOR DELETE USING (
+    (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+  );
+
 -- leads.owner_employee_id — who's carrying the opportunity
 CREATE POLICY "own_data_or_owner_role_select" ON leads
   FOR SELECT USING (
@@ -158,6 +168,11 @@ CREATE POLICY "own_data_or_owner_role_update" ON leads
   ) WITH CHECK (
     owner_employee_id = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
     OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+  );
+
+CREATE POLICY "owner_only_delete" ON leads
+  FOR DELETE USING (
+    (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
   );
 
 -- plans.employee_id — whose plan this is
@@ -182,6 +197,11 @@ CREATE POLICY "own_data_or_owner_role_update" ON plans
     OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
   );
 
+CREATE POLICY "owner_only_delete" ON plans
+  FOR DELETE USING (
+    (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+  );
+
 -- targets.employee_id — whose target this is
 CREATE POLICY "own_data_or_owner_role_select" ON targets
   FOR SELECT USING (
@@ -202,6 +222,11 @@ CREATE POLICY "own_data_or_owner_role_update" ON targets
   ) WITH CHECK (
     employee_id = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
     OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+  );
+
+CREATE POLICY "owner_only_delete" ON targets
+  FOR DELETE USING (
+    (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
   );
 
 

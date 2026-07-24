@@ -1,0 +1,140 @@
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.settings-header h1 {
+  font-size: 28px;
+  margin: 0 0 4px;
+}
+
+.settings-header p {
+  margin: 0;
+}
+
+.settings-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-card h2 {
+  font-size: 18px;
+  margin: 0;
+  color: var(--text-h);
+}
+
+.settings-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.settings-field input,
+.settings-field select {
+  font-size: 15px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  font-family: inherit;
+}
+
+.settings-card > button {
+  align-self: flex-start;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.settings-card > button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settings-table-wrap {
+  overflow-x: auto;
+}
+
+.settings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.settings-table th,
+.settings-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.settings-table select {
+  font-size: 14px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.settings-table button {
+  margin-left: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-h);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.settings-table button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settings-danger {
+  border-color: crimson !important;
+  color: crimson !important;
+}
+
+.settings-error {
+  margin: 0;
+  font-size: 14px;
+  color: crimson;
+}
+
+.settings-success {
+  margin: 0;
+  font-size: 14px;
+  color: seagreen;
+}
+
+.settings-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}

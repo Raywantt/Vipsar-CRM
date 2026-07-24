@@ -1,12 +1,8 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import './SearchOrCreate.css'
-
-// current_stage is deliberately free text on the leads table (not a CHECK
-// enum) — this is just the app-layer suggested list, with an "other" escape
-// hatch for anything not covered here (same pattern as SITE_STAGE_OPTIONS).
-const LEAD_STAGE_OPTIONS = ['new', 'hot', 'rfq', 'quote', 'negotiation', 'won', 'lost']
 
 const LOSS_REASON_OPTIONS = ['price', 'competitor', 'timeline', 'budget_cut', 'site_delay', 'other']
 
