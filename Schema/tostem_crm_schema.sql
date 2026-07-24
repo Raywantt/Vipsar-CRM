@@ -133,6 +133,13 @@ CREATE TABLE leads (
   source_type          TEXT NOT NULL CHECK (source_type IN
                           ('scanning','lixil','referral_architect','referral_other','showroom_walkin')),
   referred_by_party_id INTEGER REFERENCES parties(id) ON DELETE SET NULL,  -- who gets referral credit
+  other_party_id       INTEGER REFERENCES parties(id) ON DELETE SET NULL,
+                        -- the "other" party captured at quick-capture intake,
+                        -- if any, regardless of source_type or whether they
+                        -- became the referrer above. Purely for traceability —
+                        -- e.g. surfacing them as a suggested site_contacts
+                        -- link later — not a business/reporting field like
+                        -- referred_by_party_id is.
   external_reference_id TEXT,   -- Lixil's own case/lead number, if given
 
   lead_generated_at    DATE,

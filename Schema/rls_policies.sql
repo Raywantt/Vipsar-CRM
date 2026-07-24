@@ -206,20 +206,25 @@ CREATE POLICY "own_data_or_owner_role_update" ON targets
 
 
 -- ------------------------------------------------------------
--- STEP E: AUTHENTICATED READ/WRITE, OWNER-RESTRICTED MODIFY
+-- STEP E: AUTHENTICATED READ/WRITE, OWNER-RESTRICTED DELETE
 -- areas, sites, site_contacts, parties: any authenticated employee can
 -- read and create rows (these fill in progressively as scanning/
 -- intake happens — parties included, so search-before-create actually
--- finds rows other reps created), but only an owner can update or
--- delete an existing row.
+-- finds rows other reps created). DELETE stays owner-only on all four.
+-- UPDATE differs per table: areas and site_contacts stay owner-only
+-- (shared master data / append-style join rows respectively), but
+-- sites and parties use "own data or owner role" instead — the Lead
+-- enrichment screen (Phase 3) needs a rep to edit the site they
+-- discovered or the party they created, not just an owner.
 -- ------------------------------------------------------------
 
--- parties
+-- parties.created_by — who first added this person/firm
 -- Drops the old "own data or owner role" policies from an earlier
 -- version of this file — safe to run even if they were never applied.
 DROP POLICY IF EXISTS "own_data_or_owner_role_select" ON parties;
 DROP POLICY IF EXISTS "own_data_or_owner_role_insert" ON parties;
 DROP POLICY IF EXISTS "own_data_or_owner_role_update" ON parties;
+DROP POLICY IF EXISTS "owner_only_update" ON parties;
 
 CREATE POLICY "authenticated_select" ON parties
   FOR SELECT USING (true);
@@ -227,11 +232,16 @@ CREATE POLICY "authenticated_select" ON parties
 CREATE POLICY "authenticated_insert" ON parties
   FOR INSERT WITH CHECK (true);
 
-CREATE POLICY "owner_only_update" ON parties
+-- NOTE: created_by is nullable in the schema. A party row with a NULL
+-- created_by is only editable by 'owner' — the equality check can
+-- never match NULL.
+CREATE POLICY "own_data_or_owner_role_update" ON parties
   FOR UPDATE USING (
-    (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+    created_by = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+    OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
   ) WITH CHECK (
-    (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+    created_by = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+    OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
   );
 
 CREATE POLICY "owner_only_delete" ON parties
@@ -258,18 +268,25 @@ CREATE POLICY "owner_only_delete" ON areas
     (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
   );
 
--- sites
+-- sites.discovered_by — who found/logged this site
+DROP POLICY IF EXISTS "owner_only_update" ON sites;
+
 CREATE POLICY "authenticated_select" ON sites
   FOR SELECT USING (true);
 
 CREATE POLICY "authenticated_insert" ON sites
   FOR INSERT WITH CHECK (true);
 
-CREATE POLICY "owner_only_update" ON sites
+-- NOTE: discovered_by is nullable in the schema. A site row with a
+-- NULL discovered_by is only editable by 'owner' — the equality check
+-- can never match NULL.
+CREATE POLICY "own_data_or_owner_role_update" ON sites
   FOR UPDATE USING (
-    (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+    discovered_by = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+    OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
   ) WITH CHECK (
-    (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+    discovered_by = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+    OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
   );
 
 CREATE POLICY "owner_only_delete" ON sites

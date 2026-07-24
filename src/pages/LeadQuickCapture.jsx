@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
@@ -72,8 +73,9 @@ function LeadQuickCapture() {
         owner_employee_id: employee?.id ?? null,
         source_type: sourceType,
         referred_by_party_id: referredByPartyId,
+        other_party_id: otherParty?.id ?? null,
       })
-      .select('id, source_type, site_id, party_id, referred_by_party_id')
+      .select('id, source_type, site_id, party_id, referred_by_party_id, other_party_id')
       .single()
 
     setSubmitting(false)
@@ -95,7 +97,9 @@ function LeadQuickCapture() {
       <main className="lead-capture">
         <h1>Lead captured</h1>
         <ul className="lead-capture-summary">
-          <li>Lead ID: {createdLead.id}</li>
+          <li>
+            Lead ID: <Link to={`/leads/${createdLead.id}`}>{createdLead.id}</Link>
+          </li>
           <li>Source: {SOURCE_LABELS[createdLead.source_type]}</li>
           {clientParty && <li>Client: {clientParty.name}</li>}
           {otherParty && <li>Other: {otherParty.name}</li>}

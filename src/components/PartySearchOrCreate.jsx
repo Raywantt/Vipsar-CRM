@@ -8,10 +8,11 @@ const PARTY_TYPES = ['client', 'architect', 'builder', 'firm', 'other']
 const MIN_QUERY_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 350
 
-function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', onSelect }) {
+function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', allowCreate = true, onSelect }) {
   const { employee } = useAuth()
 
-  const [query, setQuery] = useState('')
+  const [name, setName] = useState('')
+  const [mobile, setMobile] = useState('')
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState(null)
@@ -25,8 +26,10 @@ function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', onS
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    const term = query.trim()
-    if (term.length < MIN_QUERY_LENGTH) {
+    const nameTerm = name.trim()
+    const mobileTerm = mobile.trim()
+
+    if (nameTerm.length < MIN_QUERY_LENGTH) {
       setResults([])
       setSearchError(null)
       setSearching(false)
@@ -37,11 +40,15 @@ function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', onS
     setSearching(true)
 
     const timeout = setTimeout(async () => {
-      const cleaned = sanitizeForIlike(term)
+      const orParts = [`name.ilike.%${sanitizeForIlike(nameTerm)}%`]
+      if (mobileTerm.length >= MIN_QUERY_LENGTH) {
+        orParts.push(`mobile.ilike.%${sanitizeForIlike(mobileTerm)}%`)
+      }
+
       const { data, error } = await supabase
         .from('parties')
         .select('id, name, mobile, party_type')
-        .or(`name.ilike.%${cleaned}%,mobile.ilike.%${cleaned}%`)
+        .or(orParts.join(','))
         .order('name')
         .limit(8)
 
@@ -60,19 +67,20 @@ function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', onS
       active = false
       clearTimeout(timeout)
     }
-  }, [query])
+  }, [name, mobile])
 
   function selectExisting(party) {
     setSelected(party)
     setResults([])
-    setQuery('')
+    setName('')
+    setMobile('')
     onSelect?.(party)
   }
 
   function startCreate() {
     setCreating(true)
-    setNewName(query.trim())
-    setNewMobile('')
+    setNewName(name.trim())
+    setNewMobile(mobile.trim())
     setNewPartyType(defaultPartyType)
     setCreateError(null)
   }
@@ -102,7 +110,8 @@ function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', onS
     setCreating(false)
     setSelected(data)
     setResults([])
-    setQuery('')
+    setName('')
+    setMobile('')
     onSelect?.(data)
   }
 
@@ -166,11 +175,23 @@ function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', onS
         {label}
         <input
           type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name or mobile…"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Search by name…"
         />
       </label>
+
+      {name.trim().length > 0 && (
+        <label className="search-or-create-field">
+          Mobile number (optional)
+          <input
+            type="text"
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value)}
+            placeholder="Helps confirm the right match"
+          />
+        </label>
+      )}
 
       {searching && <p className="search-or-create-hint">Searching…</p>}
       {searchError && <p className="search-or-create-error">{searchError}</p>}
@@ -188,9 +209,9 @@ function PartySearchOrCreate({ label = 'Party', defaultPartyType = 'client', onS
         </ul>
       )}
 
-      {query.trim().length >= MIN_QUERY_LENGTH && !searching && (
+      {allowCreate && name.trim().length >= MIN_QUERY_LENGTH && !searching && (
         <button type="button" className="search-or-create-add-new" onClick={startCreate}>
-          + Add new {label.toLowerCase()} "{query.trim()}"
+          + Add new {label.toLowerCase()} "{name.trim()}"
         </button>
       )}
     </div>

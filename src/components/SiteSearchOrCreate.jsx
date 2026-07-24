@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
+import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import './SearchOrCreate.css'
 
-const STAGE_OPTIONS = ['foundation', 'structure', 'finishing', 'completed']
 const MIN_QUERY_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 350
 
@@ -227,7 +227,7 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
                 Site stage
                 <select value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
                   <option value="">— Not specified —</option>
-                  {STAGE_OPTIONS.map((stage) => (
+                  {SITE_STAGE_OPTIONS.map((stage) => (
                     <option key={stage} value={stage}>
                       {stage}
                     </option>

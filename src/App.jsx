@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import OwnerDashboard from './pages/OwnerDashboard'
 import LeadQuickCapture from './pages/LeadQuickCapture'
+import LeadDetail from './pages/LeadDetail'
 import './App.css'
 
 const roleHome = {
@@ -41,6 +42,14 @@ function App() {
               // workaround — see CLAUDE.md's Current state section.
               <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
                 <LeadQuickCapture />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/leads/:id"
+            element={
+              <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
+                <LeadDetail />
               </ProtectedRoute>
             }
           />
