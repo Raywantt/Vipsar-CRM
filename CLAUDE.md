@@ -5,110 +5,36 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 A CRM for a Tostem window & door dealership: tracking leads, quotes, orders,
-and installs. Built as a React + Vite PWA, with Supabase planned as the
-backend and Vercel planned for hosting.
+and installs. Built as a React + Vite PWA, with Supabase as the backend and
+Vercel planned for hosting. Used by sales executives mostly from a phone in
+the field, often with poor signal — favor mobile-first layouts, don't assume
+a reliable connection.
 
 ## Current state
 
-Phase 1 done: a real Supabase project exists, `Schema/tostem_crm_schema.sql`
-has been run against it, and the app connects via `src/lib/supabaseClient.js`
-(reads `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` from `.env` — see `.env.example`
-for the variable names). `Schema/rls_policies.sql` has the full Row Level
-Security + grants for every table — check with the user whether it's actually
-been run in the live Supabase project before assuming it has (don't infer
-this from the file's presence alone). The `employees.auth_user_id` foreign
-key to `auth.users` has been written into `tostem_crm_schema.sql` too — same
-caveat, confirm the `ALTER TABLE ... ADD CONSTRAINT fk_auth_user` has
-actually been run before assuming it.
+Phase 1 done: Supabase project created, `Schema/tostem_crm_schema.sql` run
+against it, app connects via `src/lib/supabaseClient.js` (reads
+`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` from `.env`; see `.env.example`).
+`Schema/rls_policies.sql` has full RLS + grants for every table, and
+`tostem_crm_schema.sql` includes the `employees.auth_user_id → auth.users`
+FK — for both, confirm with the user they've actually been run in the live
+project, don't assume from the file's presence alone.
 
-Phase 2 done: email/password login via Supabase Auth, an `AuthContext` that
-resolves the logged-in `employees` row, protected/role-based routing all
-exist. Employee accounts are created manually in the Supabase dashboard
-(Auth → Users), not via self-signup — there's no signup screen and none is
-planned.
+Phase 2 done: email/password login (Supabase Auth), `AuthContext` resolving
+the logged-in `employees` row, and protected/role-based routing. Employee
+accounts are created manually in the Supabase dashboard (Auth → Users) — no
+self-signup screen, none planned.
 
-Phase 3 in progress: `PartySearchOrCreate` and `SiteSearchOrCreate` (search-
-before-create components) exist. `LeadQuickCapture` (at `/leads/new`) is the
-first real lead-intake screen — replaces the old `ActivityScreen` placeholder
-as the sales_executive landing page. `/leads/new` deliberately also allows
-`owner` (not just `sales_executive`) — an owner can personally log leads via
-quick-capture too, this isn't a testing workaround. `OwnerDashboard` is still
-a placeholder. The "add more details" follow-up screen (structured editing of
-a quick-captured lead) is not built yet.
+Phase 3 done: `PartySearchOrCreate`/`SiteSearchOrCreate` (search-before-
+create components), `LeadQuickCapture` (quick-capture lead intake at
+`/leads/new`), and `LeadDetail` (the "add more details" screen at
+`/leads/:id`). `/leads/new` deliberately allows `owner` too, not just
+`sales_executive` — an owner can personally log leads, not a testing
+workaround. `OwnerDashboard` is still a placeholder.
 
-## Domain model
-
-Four core entities, all independent, linked by foreign keys — never by retyping names or addresses:
-
-* `parties` — every person/firm we deal with (client, architect, builder, firm). One row per person, ever.
-* `sites` — a physical property/project. Independent of parties; can exist with zero known contacts (e.g. a plot spotted while scanning, owner unknown).
-* `site_contacts` — many-to-many join between sites and parties, with a role (owner/architect/builder/project_manager/site_staff/other). Fills in progressively as contacts are discovered — this is how "unknown until later" gets resolved.
-* `leads` — one row per opportunity. Requires EITHER `site_id` OR `party_id`, never both mandatory. Which one is known first depends on the lead source (see below).
-
-Full schema and comments: `Schema/tostem_crm_schema.sql`.
-
-### Why leads can start with just a site OR just a party
-
-Three lead sources, each surfaces different information first:
-
-* Scanning (sales exec finds a plot in person) → site known, party usually unknown at first.
-* Lixil-provided leads → only a client name (sometimes a number) — party known, no site yet.
-* Architect referrals → architect's details + client's name — party known (often two parties), no site yet.
-
-`leads.source_type` records which of these it was. Never make `site_id` or `party_id` NOT NULL on `leads` — both must stay optional, enforced instead by the `lead_needs_an_anchor` CHECK constraint (at least one required).
-
-### Access model (Row Level Security)
-
-Full policies live in `Schema/rls_policies.sql` — this is just the shape, so
-you don't have to re-read the whole SQL file to remember the design:
-
-* `activities`, `leads`, `parties`, `plans`, `targets` — "own data or owner
-  role": SELECT/INSERT/UPDATE allowed if the row is yours (by employee_id /
-  owner_employee_id / created_by) OR your role is `'owner'`. No DELETE grant
-  and no DELETE policy on any of these five — non-deletable by design.
-* `employees` — SELECT open to all authenticated; INSERT/UPDATE/DELETE
-  `'owner'`-only with **no self-update exception**. This is deliberate: a
-  sales exec must never be able to write their own `employees` row, or they
-  could set their own `role` to `'owner'`.
-* `areas`, `sites`, `site_contacts` — SELECT/INSERT open to all authenticated
-  (they fill in progressively during intake); UPDATE/DELETE `'owner'`-only.
-* `products` — SELECT open to all; INSERT/UPDATE/DELETE `'owner'`-only.
-* `stage_history` — SELECT/INSERT open to all; no UPDATE/DELETE policy at
-  all — permanently append-only.
-* `loss_reasons` — SELECT `'owner'`-only; INSERT open to all; no
-  UPDATE/DELETE policy.
-
-Two layers have to agree for a write to succeed: the table-level GRANT (Step
-A of `rls_policies.sql`) and the RLS policy itself. DELETE is only granted at
-all on `employees`, `areas`, `sites`, `site_contacts`, `products` — the five
-tables with an `owner_only_delete` policy; the other five tables get no
-DELETE grant, so they can't become deletable even if a policy were added by
-mistake later.
-
-### Design decisions — don't reverse these without discussion
-
-* No GPS, no geocoding API, no fuzzy-matching database extension (pg_trgm). Deliberately dropped as unnecessary/costly for v1. Duplicate-checking is a "search before create" UI pattern (search parties by name/mobile, search sites by locality/plot number before creating a new row) — a human decides, the database doesn't auto-merge or block.
-* No UNIQUE constraint on `parties.mobile`. Shared household/family numbers are common; a hard constraint would reject valid entries.
-* `current_stage` and `site_stage` are free text, not a CHECK enum. The dealer's own stage vocabulary is specific and still evolving — standardize the list at the application layer, not the database layer.
-* Budget constraint: stay on free tiers as long as possible (Supabase free tier, Vercel free tier). Don't reach for a paid API/service to solve a problem that a simpler free approach already covers.
-
-### Roadmap
-
-0. ✅ Environment + scaffold (done)
-1. ✅ Supabase project, schema, RLS policies (`Schema/rls_policies.sql`) — confirm they've actually been run
-2. ✅ Employee login (Supabase Auth): login screen, AuthContext, protected/role-based routing
-3. ⬅️ current — Party/site/lead intake screens (search-before-create pattern):
-   `PartySearchOrCreate` ✅, `SiteSearchOrCreate` ✅, quick-capture lead intake
-   (`LeadQuickCapture`) ✅ — structured "add more details" follow-up screen
-   (editing a quick-captured lead's full site/party details) not started yet
-4. DPR / activity logging (mobile-first, replaces the old Google Form)
-5. Dashboards (replaces manually-tallied Weekly Update / Monthly Prospects / Yearly Performance sheets)
-6. PWA polish (installable, offline-tolerant for field use)
-7. Deploy + pilot with 1-2 sales execs before full rollout
-
-### Users of this app
-
-Sales executives, mostly using it from a phone in the field — often with poor signal. Favor mobile-first layouts and don't assume a reliable connection.
+Phase 4 done: `ActivityLog` (DPR replacement) at the now-free `/activity`
+route. Not in scope for this pass: lead stage changes, `stage_history`
+logging, or a screen listing past activities.
 
 ## Stack
 
@@ -121,91 +47,143 @@ Sales executives, mostly using it from a phone in the field — often with poor 
 
 ```
 src/
-  components/   reusable UI pieces (ProtectedRoute, PartySearchOrCreate, SiteSearchOrCreate)
-  pages/        top-level views (Login, OwnerDashboard, LeadQuickCapture, ...)
+  components/   reusable UI pieces (ProtectedRoute, PartySearchOrCreate,
+                SiteSearchOrCreate, LeadSearchSelect, the four LeadDetail
+                *Section components)
+  pages/        top-level views (Login, OwnerDashboard, LeadQuickCapture,
+                LeadDetail, ActivityLog, ...)
   contexts/     AuthContext — session + employee (id/name/role) lookup
   hooks/        custom React hooks
-  lib/          integrations & utilities (supabaseClient.js, sanitizeForIlike.js)
+  lib/          integrations & utilities (supabaseClient.js, sanitizeForIlike.js,
+                siteStageOptions.js)
   assets/       images, icons, etc.
 ```
 
 Routing is set up in `App.jsx` (`react-router-dom`): `/login`, `/dashboard`
-(owner-only), `/leads/new` (sales_executive and owner), `/` redirects based on
-auth + role. `ProtectedRoute` handles the redirect-to-login and role gating;
-`AuthContext` is the single source of truth for "who's logged in and what's
-their role" — look up an employee's role via `useAuth()`, don't re-query
-`employees` directly in a component.
+(owner-only), `/leads/new`, `/leads/:id`, `/activity` (sales_executive and
+owner), `/` redirects based on auth + role. `ProtectedRoute` handles the
+redirect-to-login and role gating; `AuthContext` is the single source of
+truth for "who's logged in and what's their role" — look up an employee's
+role via `useAuth()`, don't re-query `employees` directly in a component.
+No nav menu exists yet — `/activity` is reachable only by direct URL, not
+linked from anywhere in the app.
 
 ### Search-before-create components
 
 `PartySearchOrCreate` and `SiteSearchOrCreate` (`src/components/`) share one
-UX pattern and stylesheet (`SearchOrCreate.css`, classes prefixed
-`search-or-create-`) and the `sanitizeForIlike` helper (`src/lib/sanitizeForIlike.js`,
-strips `%_,()` before building a PostgREST `.or()` ILIKE filter — comma/parens
-are filter-syntax delimiters, `%`/`_` are ILIKE wildcards). Neither uses an
-inner `<form>` — Create is a plain button + onClick, not onSubmit — because
-Phase 3's lead intake screen embeds both inside one larger form, and nested
-`<form>` elements are invalid HTML.
+UX pattern and stylesheet (`SearchOrCreate.css`, `search-or-create-` prefix)
+and the `sanitizeForIlike` helper (`src/lib/sanitizeForIlike.js`, strips
+`%_,()` before building a PostgREST `.or()` ILIKE filter — comma/parens are
+filter-syntax delimiters, `%`/`_` are ILIKE wildcards). Neither uses an inner
+`<form>` (Create is a button+onClick, not onSubmit) since the lead intake
+screen embeds both inside one larger form and nested `<form>`s are invalid
+HTML.
 
 * `PartySearchOrCreate` — debounced ILIKE search on `parties` name/mobile,
-  pick existing or create inline, calls `onSelect(party | null)`. It's the
-  reason `parties`' RLS had to move off the "own data or owner role" pattern
-  (see Access model above) — that pattern made a rep's own search invisible
-  to every other rep, defeating duplicate checking.
-* `SiteSearchOrCreate` — requires an Area picked first (dropdown sourced from
-  `areas`), then debounced search on `sites.locality`/`house_no` scoped to
-  that `area_id`, pick existing or create inline (locality, house/plot no.,
-  site_stage — a preset dropdown with an "Other…" free-text fallback, since
-  `site_stage` is deliberately not a CHECK enum). Calls `onSelect(site | null)`.
-  Accepts an optional `discoveredVia` prop so the lead-intake screen can pass
-  through which of `leads.source_type`'s values triggered the site creation
-  (Scanning, in particular) without exposing it as a user-facing field here.
+  pick existing or create inline, `onSelect(party | null)`. The reason
+  `parties`' RLS moved off "own data or owner role" (own-search invisibility
+  broke duplicate checking across reps).
+* `SiteSearchOrCreate` — Area picked first (from `areas`), then debounced
+  search on `sites.locality`/`house_no` scoped to that `area_id`; site_stage
+  is a preset dropdown + "Other…" free text (deliberately not a CHECK enum).
+  `onSelect(site | null)`. Optional `discoveredVia` prop passes through
+  `source_type` (e.g. Scanning) without exposing it as a field.
 
-Reuse these rather than writing another search input — site_contacts and all
-three lead-intake source types (item 3 in the roadmap) depend on them.
+Reuse these for any future party/site picker — don't write another search input.
 
 ### LeadQuickCapture (`src/pages/LeadQuickCapture.jsx`)
 
-The sales_executive landing screen at `/leads/new` (owner can access it too,
-to personally log leads) — deliberately not a
-structured form. Three optional fields (Client name, Site nickname, Other's
-name) plus a required Scanning/Lixil/Referral tap-select (three buttons, not
-a dropdown). Validation is exactly `lead_needs_an_anchor`: at least one of
-the three name/nickname fields must be filled.
+The sales_executive landing screen at `/leads/new` (owner can access too) —
+deliberately not a structured form: three optional fields (Client name, Site
+nickname, Other's name) plus a required Scanning/Lixil/Referral tap-select
+(three buttons, not a dropdown). Validation is exactly `lead_needs_an_anchor`:
+at least one of the three fields filled.
 
-* Quick-select maps to `source_type`/`discovered_via` as `scanning`, `lixil`,
-  or `referral_architect` — there's no UI option for `referral_other` or
-  `showroom_walkin` here; those aren't reachable from this screen.
-* Client name and Other's name each go through their own
-  `PartySearchOrCreate` instance (`defaultPartyType` `'client'` and
-  `'architect'` respectively — just a pre-selected default, the rep can
-  still change it in the create-form dropdown).
-* Site nickname does **not** go through `SiteSearchOrCreate` — it's a direct
-  insert of just `{ nickname, discovered_via, discovered_by }`, everything
-  else NULL. Nicknames are personal/free-text, so there's nothing structured
-  to search against yet; the "add more details" follow-up screen (not built)
-  is where the structured `sites` fields get filled in.
-* `party_id` on the lead = client's party if given, else other's party.
-  `referred_by_party_id` is only ever set when source is `referral_architect`
-  **and** both a client and an other's-name party exist — otherwise it stays
-  NULL, even if an "other" party was resolved (that party still gets
-  created, it's just not linked to this particular lead). This is a known,
-  deliberate edge case, not a bug — don't add extra linking logic here
-  without checking with the user first.
-* No DB transaction wraps the two inserts (site, then lead) — if the site
-  insert succeeds but the lead insert fails, the site row is orphaned. The
-  error message surfaces the site's id when this happens so it's not a
-  silent loss, but nothing auto-cleans it up.
+* Quick-select maps to `source_type`/`discovered_via` as
+  `scanning`/`lixil`/`referral_architect` only — `referral_other`/
+  `showroom_walkin` aren't reachable here.
+* Client name and Other's name each use their own `PartySearchOrCreate`
+  (`defaultPartyType` `'client'`/`'architect'` — just a pre-selected default,
+  changeable in the create form).
+* Site nickname is a direct insert of `{nickname, discovered_via,
+  discovered_by}` (not via `SiteSearchOrCreate` — nicknames are free text,
+  nothing structured to search yet); `LeadDetail`'s Site details section is
+  where the structured `sites` fields get filled in later.
+* `party_id` = client's party if given, else other's party.
+  `referred_by_party_id` is set only when source is `referral_architect`
+  **and** both a client and other party exist — otherwise NULL even if an
+  "other" party was resolved (it's still created, just not linked to this
+  lead). Deliberate edge case — don't add extra linking logic without
+  checking with the user first.
+* `leads.other_party_id` (distinct from `referred_by_party_id`) is always set
+  when an "other" party is resolved, regardless of source — purely so
+  `LeadDetail` can later suggest linking that party as a site contact, even
+  in the non-referral case where they'd otherwise be untraceable.
+* No DB transaction wraps the site+lead inserts — if the site succeeds but
+  the lead fails, the site row is orphaned (error message surfaces the site
+  id, but nothing auto-cleans up).
 
-### Gotcha: this project's shared browser session
+### LeadDetail (`src/pages/LeadDetail.jsx`)
 
-The Browser-pane dev preview persists its Supabase session in localStorage
-per-origin, shared across every tab opened against it — including tabs a
-human tester and Claude open independently. A login done for one manual
-test silently carries over into later "unauthenticated" checks, easily
-producing a false-positive real write. Always confirm which state a test
-tab is actually in (expect `permission denied` from an intentionally
-logged-out check) rather than assuming a fresh tab means a fresh session.
+The "add more details" enrichment screen at `/leads/:id`, reachable from the
+lead ID link on `LeadQuickCapture`'s success screen. Read-only summary
+(source/stage/party/site/created) plus up to four independent sections, each
+with its own Save button and saving/error/success state (saving one never
+touches the others):
+
+* **Site details** (`SiteDetailsSection.jsx`, if `site_id` set) — plain edit
+  form (not `SiteSearchOrCreate`'s find-or-create, since the site already
+  exists) for Area/locality/house no./pincode/site_stage. Reuses
+  `SITE_STAGE_OPTIONS` (`src/lib/siteStageOptions.js`, shared with
+  `SiteSearchOrCreate`).
+* **Client details** (`ClientDetailsSection.jsx`, if `party_id` set) — edits
+  mobile/address/city.
+* **Additional contacts** (`AdditionalContactsSection.jsx`, if `site_id`
+  set) — lists existing `site_contacts`; surfaces `other_party_id` as a
+  pre-filled suggestion if not yet linked; repeatable "+ Add another
+  contact" via `PartySearchOrCreate` + role + optional firm name (updates
+  `parties.firm_name`).
+* **Sales progress** (`SalesProgressSection.jsx`, always shown) — product
+  dropdown, RFQ raised (checkbox+date), quote sent (checkbox+date+value),
+  straight fields on `leads`.
+
+`sites`/`parties` UPDATE had to move off owner-only RLS to "own data or
+owner role" for Site/Client details to work for a regular sales exec — a
+real blocker found while building this screen, not preemptive.
+
+### ActivityLog (`src/pages/ActivityLog.jsx`)
+
+DPR replacement at `/activity`. Tap one of Site Visit/Call/RFQ Raised/Office
+Day/Booking Update; every type except Office Day then shows `LeadSearchSelect`
+(select-only, scoped to the current employee's own leads via `owner_employee_id`)
+alongside `PartySearchOrCreate` with `allowCreate={false}` — pick a lead, a
+party, or both, at least one required. Office Day skips this step entirely
+(matches the loosened `activity_needs_an_anchor` CHECK — see
+`Schema/tostem_crm_schema.sql`).
+
+* Common fields: notes (textarea), accompanied-by (optional, `employees`
+  dropdown excluding yourself). Office Day additionally gets a numeric
+  "leads generated" field.
+* If a lead is selected (any type), an optional "update next follow-up date"
+  field updates `leads.next_followup_date` when filled in.
+* RFQ Raised + a selected lead also sets that lead's `rfq_raised = true` and
+  `rfq_raised_at` to today.
+* Booking Update + a selected lead shows an optional `order_value` field,
+  applied to the lead if filled in.
+* Lead side effects run as separate UPDATE calls after the `activities`
+  insert succeeds; a failure there surfaces as a warning on the success
+  screen without blocking the activity itself from being logged.
+* Not in scope for this pass: lead stage changes, `stage_history` logging,
+  or a screen listing past activities.
+
+`LeadSearchSelect` (`src/components/LeadSearchSelect.jsx`) is select-only
+(no create) — fetches the employee's own leads once, filters client-side by
+linked party name / site nickname / locality. Embedding `parties` from
+`leads` needs an explicit FK hint (`parties!party_id(...)`) — `leads` has
+three FKs to `parties` (`party_id`, `referred_by_party_id`, `other_party_id`),
+so a bare `parties(...)` embed fails with "more than one relationship was
+found." `PartySearchOrCreate` gained an `allowCreate` prop (default `true`)
+for this screen's selection-only use — existing callers are unaffected.
 
 ## Commands
 
@@ -224,8 +202,30 @@ or restart the terminal so the system PATH update takes effect.
 `.claude/launch.json` and `.claude/dev-server.cmd` exist so the preview tooling
 can start the dev server reliably even before PATH is fully refreshed.
 
+The Browser-pane dev preview persists its Supabase session in localStorage
+per-origin, shared across every tab — including tabs a human tester and
+Claude open independently. A login for one manual test silently carries over
+into later "unauthenticated" checks, producing false-positive real writes.
+Confirm which state a test tab is actually in (expect `permission denied`
+from an intentionally logged-out check) rather than assuming a fresh tab
+means a fresh session.
+
 ## Conventions
 
 - Secrets (Supabase URL/keys, etc.) go in a git-ignored `.env` file — never commit them. `.env.example` documents the required variable names with placeholders.
 - Keep the `Schema/` folder as reference material; don't auto-apply it to a live database.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
+- Row Level Security (full policies in `Schema/rls_policies.sql`): `activities`/`leads`/`plans`/`targets` use "own data or owner role" (by `employee_id`/`owner_employee_id`, or role=`'owner'`), with no DELETE at all. `employees`: SELECT open, INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`: SELECT/INSERT open to all (needed for search-before-create across reps), UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts`: SELECT/INSERT open, UPDATE/DELETE owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products`: SELECT open, else owner-only. `stage_history`: SELECT/INSERT open, no UPDATE/DELETE ever (append-only). `loss_reasons`: SELECT owner-only, INSERT open, no UPDATE/DELETE. A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is only granted on the six tables with an `owner_only_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`).
+
+## Roadmap
+
+0. ✅ Environment + scaffold (done)
+1. ✅ Supabase project, schema, RLS policies (`Schema/rls_policies.sql`) — confirm they've actually been run
+2. ✅ Employee login (Supabase Auth): login screen, AuthContext, protected/role-based routing
+3. ✅ Party/site/lead intake screens (search-before-create pattern): `PartySearchOrCreate`, `SiteSearchOrCreate`, quick-capture lead intake (`LeadQuickCapture`), and the "add more details" enrichment screen (`LeadDetail`) all done
+4. ✅ DPR / activity logging (`ActivityLog` at `/activity`) — lead stage changes, `stage_history` logging, and a past-activities list are still not built
+5. ⬅️ current — Dashboards (replaces manually-tallied Weekly Update / Monthly Prospects / Yearly Performance sheets)
+6. PWA polish (installable, offline-tolerant for field use)
+7. Deploy + pilot with 1-2 sales execs before full rollout
+
+For domain model, lead-sourcing logic, and locked-in design decisions, see DECISIONS.md.

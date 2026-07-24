@@ -15,10 +15,16 @@ Phase 2 done: email/password login via Supabase Auth, with protected/
 role-based routing (owner vs. sales_executive). Employee accounts are
 created manually in the Supabase dashboard — there's no self-signup screen.
 
-Phase 3 in progress: party/site search-before-create, and a quick-capture
-lead intake screen (the sales_executive's landing page) that creates
-parties/sites/leads from three optional fields plus a required source
-quick-select.
+Phase 3 done: party/site search-before-create, a quick-capture lead intake
+screen (the sales_executive's landing page) that creates parties/sites/leads
+from three optional fields plus a required source quick-select, and a lead
+enrichment screen for filling in full site/party/sales-progress details
+after the fact.
+
+Phase 4 done: activity logging (DPR replacement) at `/activity` — Site
+Visit/Call/RFQ Raised/Office Day/Booking Update, linked to an existing lead
+and/or party, with side effects on the lead (RFQ raised, order value, next
+follow-up date) where applicable.
 
 ## Stack
 
@@ -32,11 +38,15 @@ quick-select.
 
 ```
 src/
-  components/   reusable UI pieces (ProtectedRoute, PartySearchOrCreate, SiteSearchOrCreate)
-  pages/        top-level views (Login, OwnerDashboard, LeadQuickCapture, ...)
+  components/   reusable UI pieces (ProtectedRoute, PartySearchOrCreate,
+                SiteSearchOrCreate, LeadSearchSelect, the four LeadDetail
+                *Section components)
+  pages/        top-level views (Login, OwnerDashboard, LeadQuickCapture,
+                LeadDetail, ActivityLog, ...)
   contexts/     AuthContext — session + employee (id/name/role) lookup
   hooks/        custom React hooks
-  lib/          integrations & utilities (supabaseClient.js, sanitizeForIlike.js)
+  lib/          integrations & utilities (supabaseClient.js, sanitizeForIlike.js,
+                siteStageOptions.js)
   assets/       images, icons, etc.
   App.jsx       root component + routes
   main.jsx      React entry point
