@@ -12,7 +12,7 @@ function AppNav() {
   return (
     <nav className="app-nav">
       <div className="app-nav-top">
-        <span className="app-nav-brand">Tostem CRM</span>
+        <span className="app-nav-brand">VIPSAR CRM</span>
         <button type="button" className="app-nav-logout" onClick={signOut}>
           Log out
         </button>

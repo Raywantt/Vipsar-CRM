@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Tostem CRM',
-        short_name: 'Tostem CRM',
+        name: 'VIPSAR CRM',
+        short_name: 'VIPSAR CRM',
         description: 'CRM for managing Tostem window & door dealership sales, quotes, and installs.',
         theme_color: '#1d4ed8',
         background_color: '#ffffff',

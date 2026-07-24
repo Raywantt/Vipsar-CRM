@@ -79,7 +79,7 @@ function InstallPrompt() {
     return (
       <div className="install-prompt">
         <span className="install-prompt-text">
-          Install Tostem CRM for quick, one-tap access.
+          Install VIPSAR CRM for quick, one-tap access.
         </span>
         <div className="install-prompt-actions">
           <button type="button" className="install-prompt-install" onClick={handleInstallClick}>

@@ -33,7 +33,7 @@ function Login() {
   return (
     <main className="login">
       <form className="login-form" onSubmit={handleSubmit}>
-        <h1>Tostem CRM</h1>
+        <h1>VIPSAR CRM</h1>
         <label className="login-field">
           Email
           <input
