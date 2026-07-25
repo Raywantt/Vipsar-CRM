@@ -10,6 +10,13 @@ Vercel planned for hosting. Used by sales executives mostly from a phone in
 the field, often with poor signal — favor mobile-first layouts, don't assume
 a reliable connection.
 
+The app's own display name (browser tab title, PWA manifest name/short_name,
+login heading, nav brand) is **VIPSAR CRM** — VIPSAR is the dealership
+itself; Tostem is the window/door product line it sells. Don't conflate the
+two or "fix" one to match the other: schema/doc language ("Tostem CRM
+schema", "a Tostem window & door dealership") describes the product domain
+and predates the rename, not the app's own brand name.
+
 ## Current state
 
 Phase 1 done: Supabase project created, `Schema/tostem_crm_schema.sql` run
@@ -80,6 +87,30 @@ ones, and deleting a lead. See the Dashboard, LeadDetail, and new Settings
 sections below for specifics — including what Settings *can't* do yet
 (create an Auth login) and why.
 
+Phase 6 done: PWA installability. Full icon set generated from the brand
+logo (`public/icon-192.png`, `icon-512.png` purpose `any`,
+`icon-maskable-512.png` purpose `maskable`, `apple-touch-icon.png`, and a
+regenerated `favicon.svg` replacing the old placeholder blue "T") plus
+`vite.config.js`'s `vite-plugin-pwa` manifest wired to reference them and a
+workbox config scoped to app-shell files only (no `runtimeCaching` rule for
+the Supabase API — those requests always hit the network honestly, never
+served stale from cache). `InstallPrompt.jsx` (Chrome/Android
+`beforeinstallprompt` banner + an iOS-Safari-specific "Add to Home Screen"
+hint, both dismissible for the rest of the session via `sessionStorage`) and
+`OfflineIndicator.jsx` (a banner on `online`/`offline` events warning that
+submissions won't save) both mount globally in `App.jsx`, above routing, so
+they show even on `/login`. See the PWA installability section below for
+implementation specifics and how this was verified (including deliberately
+killing the preview server to prove the app shell loads with zero network).
+
+App rename (post-Phase 6): the app's own display name changed from "Tostem
+CRM" to **VIPSAR CRM** across `index.html`'s title, the manifest's
+`name`/`short_name`, `AppNav`'s brand text, `Login`'s heading, and
+`InstallPrompt`'s banner copy — see "What this is" above for the VIPSAR vs.
+Tostem distinction this reflects. The manifest's `description` field and all
+`Schema/`/doc references to "Tostem" describing the product line were left
+alone — only the app's own name-as-brand moved.
+
 ## Stack
 
 - React 19 + Vite
@@ -96,7 +127,8 @@ src/
                 *Section components, DateRangeSelector, ActivityCountsCard,
                 LeadsBySourceCard, ClosureForecastCard, TargetsVsActualsCard,
                 SetTargetForm, LeadsListCard, LeadsByCategoryCard, PartiesCard,
-                AddEmployeeForm, ManageEmployeesSection, DeleteLeadSection)
+                AddEmployeeForm, ManageEmployeesSection, DeleteLeadSection,
+                InstallPrompt, OfflineIndicator)
   pages/        top-level views (Login, Dashboard, LeadQuickCapture,
                 LeadDetail, ActivityLog, Settings, ...)
   contexts/     AuthContext — session + employee (id/name/role) lookup
@@ -537,6 +569,77 @@ by `SetTargetForm` and `PartySearchOrCreate`), and everything that requires
 the sales-exec account's own login (same limitation noted for the interface
 simplification pass above).
 
+### PWA installability (`src/components/InstallPrompt.jsx`, `OfflineIndicator.jsx`)
+
+Icons were generated from `src/assets/VIPSAR PWA icon design.pdf` — the
+brand asset actually present in the repo (a raw `logo-source.png` was never
+added despite that being the original plan). The PDF's artwork already had
+rounded corners baked in, which is wrong for a maskable icon (Android
+expects a flat, full-bleed square and applies its own mask shape), so the
+"V" mark was extracted pixel-precise (exact fill colors sampled from the
+PDF's vector path/Type3 glyph: `#0f1216` background, `#f8f5ee` mark) and
+recomposited onto a plain full-bleed square with no pre-rounding, at
+matching proportions across all sizes. Confirmed the mark sits well inside
+the maskable 80%-diameter safe-zone circle (measured half-diagonal ≈0.27×
+icon size, vs. the 0.4× limit) — same generation script, not hand-tuned per
+size. The regeneration script itself was a one-off (Python + Pillow, run
+from the scratchpad), not checked into the repo — regenerate by hand if the
+logo ever changes.
+
+`vite.config.js`'s `workbox.globPatterns` is scoped to
+`**/*.{js,css,html,svg,png,ico,webmanifest}` — this precaches the app shell
+only. No `runtimeCaching` rule was added for Supabase, so API calls are
+untouched by the service worker and always hit the network (fail honestly
+offline instead of silently serving stale data). `devOptions.enabled: true`
+was tried, to get a service worker running under `npm run dev` too, and then
+reverted — workbox's dev-mode precache went stale on every source edit
+(kept serving an old `index.html` after an unrelated change), which is worse
+than no SW in dev. **Test real PWA/offline behavior via
+`npm run build && npm run preview`, not `npm run dev`** — see the
+`tostem-crm-preview` launch config below.
+
+* `InstallPrompt.jsx` — Chrome/Android: listens for `beforeinstallprompt`,
+  captures the event, shows a dismissible banner whose Install button
+  replays the captured event's `.prompt()`. iOS Safari: detected via UA
+  sniffing specifically (excludes Chrome/Firefox/Edge-on-iOS, which report
+  `CriOS`/`FxiOS`/`EdgiOS` in the UA; handles iPadOS 13+'s Mac-spoofed UA via
+  a `platform === 'MacIntel' && maxTouchPoints > 1` fallback), shows a "Tap
+  Share, then Add to Home Screen" hint since `beforeinstallprompt` never
+  fires there. Both dismissals are `sessionStorage`-backed (key per
+  platform), not shown again for the rest of the session; the whole
+  component renders nothing if already running standalone
+  (`display-mode: standalone` or `navigator.standalone`).
+* `OfflineIndicator.jsx` — sticky banner driven by `window`'s `online`/
+  `offline` events, warns that submissions won't save until reconnected.
+  Deliberately no background sync / auto-retry of failed submissions once
+  reconnected, and no special handling for iOS's more aggressive
+  cache-clearing on inactive PWAs — both real but bigger pieces, explicitly
+  out of scope for this pass.
+* Both mount globally in `App.jsx`, above `<Routes>` and outside
+  `ProtectedRoute`/`AppNav` entirely — so they show on `/login` too, not
+  just logged-in screens.
+
+Verified via a production build served with `vite preview`: manifest,
+all four icons, and `apple-touch-icon` all resolve with correct
+content-type; the service worker registers, activates, and takes control of
+the page. Then — instead of relying on devtools network throttling —
+**the actual preview server process was killed** and the tab reloaded: every
+request (HTML/JS/CSS/icons) still returned 200, served entirely from the
+service worker's cache, proving the app shell genuinely loads with zero
+signal rather than just passing a simulated-offline check. The Install
+banner was exercised end-to-end by dispatching a synthetic
+`beforeinstallprompt` (Chrome's real installability heuristics don't fire it
+reliably from a single automated page load) — Install correctly called
+`.prompt()` and hid the banner; dismiss correctly persisted across a reload.
+The offline banner was verified the same way, via dispatched `online`/
+`offline` events. iOS-Safari detection was unit-verified against 6 real
+device UA strings (iPhone Safari, iPadOS's Mac-spoofed UA, iPhone Chrome,
+Android Chrome, desktop Safari, desktop Chrome) — all correct. Not
+verified: an actual screenshot of the iOS hint rendering (this environment
+can't convincingly spoof `navigator.userAgent`) — real iPhone verification
+(Share → Add to Home Screen, airplane mode) was left to the user, as planned
+going in.
+
 ## Commands
 
 - `npm run dev` — start dev server (default port 5173)
@@ -553,6 +656,10 @@ or restart the terminal so the system PATH update takes effect.
 
 `.claude/launch.json` and `.claude/dev-server.cmd` exist so the preview tooling
 can start the dev server reliably even before PATH is fully refreshed.
+`.claude/preview-server.cmd` is a second launch config (`tostem-crm-preview`,
+port 4173) that runs `npm run build && npm run preview` — use this one, not
+the plain dev server, to test real PWA/service-worker/offline behavior (see
+the PWA installability section above for why).
 
 The Browser-pane dev preview persists its Supabase session in localStorage
 per-origin, shared across every tab — including tabs a human tester and
@@ -587,7 +694,14 @@ means a fresh session.
    visibility everywhere, `LeadDetail` read-only enforcement, and an
    owner-only Settings page for employee management + lead deletion) —
    see Current state for both.
-6. ⬅️ current — PWA polish (installable, offline-tolerant for field use)
-7. Deploy + pilot with 1-2 sales execs before full rollout
+6. ✅ PWA polish (installable, offline-tolerant for field use): full icon
+   set, `vite-plugin-pwa` manifest + app-shell-only precaching, a Chrome/
+   Android install banner, an iOS Safari "Add to Home Screen" hint, and an
+   offline indicator banner — see Current state and the PWA installability
+   section above. Out of scope for this pass: background sync/auto-retry of
+   failed submissions, and iOS's more aggressive cache-clearing on inactive
+   PWAs (both bigger pieces for later). A separate follow-up renamed the
+   app's own display name to VIPSAR CRM — see Current state.
+7. ⬅️ current — Deploy + pilot with 1-2 sales execs before full rollout
 
 For domain model, lead-sourcing logic, and locked-in design decisions, see DECISIONS.md.

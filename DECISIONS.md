@@ -1,6 +1,6 @@
 # DECISIONS.md
 
-Domain model, lead-sourcing logic, and locked-in design decisions for the Tostem CRM — split out of CLAUDE.md to keep that file lean. See CLAUDE.md for stack/structure/commands/conventions.
+Domain model, lead-sourcing logic, and locked-in design decisions for VIPSAR CRM — split out of CLAUDE.md to keep that file lean. See CLAUDE.md for stack/structure/commands/conventions.
 
 ## Domain model
 

@@ -1,9 +1,9 @@
-# Tostem CRM
+# VIPSAR CRM
 
-A CRM (Customer Relationship Management) app built for a Tostem window & door
-dealership. It's meant to help the team track leads, quotes, orders, and
-installs for window and door sales in one place, and to be installable as a
-Progressive Web App (PWA) on desktop and mobile.
+A CRM (Customer Relationship Management) app built for VIPSAR, a Tostem
+window & door dealership. It's meant to help the team track leads, quotes,
+orders, and installs for window and door sales in one place, and to be
+installable as a Progressive Web App (PWA) on desktop and mobile.
 
 ## Status
 
@@ -55,6 +55,18 @@ create an Auth login by itself — that still needs a manual step in the
 Supabase dashboard, since automating it safely needs server-side
 infrastructure (a Supabase Edge Function) this project doesn't have yet.
 
+Phase 6 done: PWA installability — a full icon set (including a maskable
+variant for Android and an apple-touch-icon for iOS), a `vite-plugin-pwa`
+manifest that precaches the app shell only (not API calls), a Chrome/Android
+install banner, an iOS Safari "Add to Home Screen" hint, and an offline
+indicator banner warning that submissions won't save until reconnected. See
+CLAUDE.md for implementation details and how this was verified.
+
+The app's own display name was then renamed from "Tostem CRM" to **VIPSAR
+CRM** (title, manifest, nav brand, login heading) — VIPSAR is the
+dealership itself; Tostem remains the window/door product line it sells and
+is unchanged in the schema and domain-level docs.
+
 ## Stack
 
 - **React + Vite** — frontend app and dev/build tooling
@@ -72,7 +84,8 @@ src/
                 *Section components, DateRangeSelector, ActivityCountsCard,
                 LeadsBySourceCard, ClosureForecastCard, TargetsVsActualsCard,
                 SetTargetForm, LeadsListCard, LeadsByCategoryCard, PartiesCard,
-                AddEmployeeForm, ManageEmployeesSection, DeleteLeadSection)
+                AddEmployeeForm, ManageEmployeesSection, DeleteLeadSection,
+                InstallPrompt, OfflineIndicator)
   pages/        top-level views (Login, Dashboard, LeadQuickCapture,
                 LeadDetail, ActivityLog, Settings, ...)
   contexts/     AuthContext — session + employee (id/name/role) lookup
