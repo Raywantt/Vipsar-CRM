@@ -1,15 +1,17 @@
 import { useState } from 'react'
-import { updateEmployeeRole, updateEmployeeActive } from '../lib/employeeQueries'
+import { updateEmployeeRole, updateEmployeeActive, updateEmployeeMobile } from '../lib/employeeQueries'
 import '../pages/Settings.css'
 
 const ROLE_OPTIONS = ['sales_executive', 'owner']
 
 function EmployeeRow({ emp, isSelf, onUpdated }) {
   const [role, setRole] = useState(emp.role)
+  const [mobile, setMobile] = useState(emp.mobile ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
   const roleDirty = role !== emp.role
+  const mobileDirty = mobile.trim() !== (emp.mobile ?? '')
 
   async function handleSaveRole() {
     setSaving(true)
@@ -20,6 +22,19 @@ function EmployeeRow({ emp, isSelf, onUpdated }) {
       setError(error.message)
       return
     }
+    onUpdated(data)
+  }
+
+  async function handleSaveMobile() {
+    setSaving(true)
+    setError(null)
+    const { data, error } = await updateEmployeeMobile(emp.id, mobile.trim())
+    setSaving(false)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    setMobile(data.mobile ?? '')
     onUpdated(data)
   }
 
@@ -39,6 +54,14 @@ function EmployeeRow({ emp, isSelf, onUpdated }) {
     <>
       <tr>
         <td>{emp.name}</td>
+        <td>
+          <input value={mobile} onChange={(e) => setMobile(e.target.value)} disabled={saving} />
+          {mobileDirty && (
+            <button type="button" onClick={handleSaveMobile} disabled={saving}>
+              Save
+            </button>
+          )}
+        </td>
         <td>
           <select value={role} onChange={(e) => setRole(e.target.value)} disabled={isSelf || saving}>
             {ROLE_OPTIONS.map((r) => (
@@ -62,7 +85,7 @@ function EmployeeRow({ emp, isSelf, onUpdated }) {
       </tr>
       {error && (
         <tr>
-          <td colSpan={4} className="settings-error">
+          <td colSpan={5} className="settings-error">
             {error}
           </td>
         </tr>
@@ -84,6 +107,7 @@ function ManageEmployeesSection({ employees, currentEmployeeId, onUpdated }) {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Mobile</th>
                 <th>Role</th>
                 <th>Status</th>
                 <th></th>

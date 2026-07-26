@@ -2,11 +2,10 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
+import { LOSS_REASON_OPTIONS } from '../lib/lossReasonOptions'
 import './SearchOrCreate.css'
 
-const LOSS_REASON_OPTIONS = ['price', 'competitor', 'timeline', 'budget_cut', 'site_delay', 'other']
-
-function LeadStageSection({ lead, stageHistory, onStageChanged }) {
+function LeadStageSection({ lead, onStageChanged }) {
   const { employee } = useAuth()
 
   const [selectedStage, setSelectedStage] = useState(
@@ -159,19 +158,6 @@ function LeadStageSection({ lead, stageHistory, onStageChanged }) {
         </div>
       )}
       {lossSaved && <p className="lead-section-success">Loss reason saved.</p>}
-
-      {stageHistory.length > 0 && (
-        <div>
-          <p className="lead-section-subhead">History</p>
-          <ul className="lead-detail-contacts">
-            {stageHistory.map((h) => (
-              <li key={h.id}>
-                {h.stage} — {h.employees?.name ?? 'Unknown'} — {new Date(h.changed_at).toLocaleString()}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </section>
   )
 }

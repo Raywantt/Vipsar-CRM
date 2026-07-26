@@ -111,6 +111,81 @@ Tostem distinction this reflects. The manifest's `description` field and all
 `Schema/`/doc references to "Tostem" describing the product line were left
 alone — only the app's own name-as-brand moved.
 
+`employees.mobile` added (schema + live DB, via a manually-run `ALTER TABLE`
+— the anon key this app runs on can't execute DDL, so schema/DB changes that
+aren't done through the Supabase dashboard's SQL Editor have to be handed to
+the user as a migration statement rather than applied automatically).
+Surfaced in `AddEmployeeForm`/`ManageEmployeesSection` (owner-only, same
+pattern as the existing role/active-status editing) and now also selected by
+`AuthContext` (`id, name, mobile, role`) so any component can read
+`employee.mobile` via `useAuth()` without a separate query.
+
+Home screen (first of an ongoing "polish/finetune" pass, not a numbered
+phase): a new `/` landing screen (`src/pages/Home.jsx`) that all roles now
+land on after login, replacing the old per-role redirect
+(`owner → /dashboard`, `sales_executive → /leads/new`) that used to be
+copy-pasted across `Login.jsx`, `App.jsx`, and `ProtectedRoute.jsx` — all
+three now just redirect to `/`. Home's shortcuts (currently New Lead,
+Activity Log, Dashboard — identical for both roles) come from a role-keyed
+config, `HOME_TILES` in `src/lib/homeTiles.js`, rather than inline
+`isOwner`-style JSX branching like every other role-aware page in this app
+(`Dashboard.jsx`/`LeadDetail.jsx`/`Settings.jsx`) uses — deliberate,
+requested groundwork: more roles are planned later, each potentially with a
+home screen that looks substantially different, and a role-keyed data map
+means adding one is a new entry in `HOME_TILES`, not a rewrite of
+`Home.jsx`. A fourth planned tile, **Followups** (personal reminders for a
+sales exec plus owner-assigned follow-ups — nothing like this exists yet;
+`leads.next_followup_date` is currently write-only, set from `ActivityLog`
+but never read back anywhere), was deliberately deferred to its own future
+prompt — don't build it as a side effect of an unrelated change. Home also
+has a top-right corner area, visually separate from the three tiles, with
+**Settings** (owner-only, same `isOwner` check `AppNav` already uses) and a
+new **Account** link (`/account`, `src/pages/Account.jsx` — both roles, a
+minimal read-only Name/Role/Mobile/Email display plus a Log out button that
+calls the same `signOut()` `AppNav`'s existing logout button already uses;
+no self-service editing, wasn't asked for). `AppNav` briefly gained a `Home`
+NavLink too, then lost it again one round later along with the rest of its
+link row — see the routing paragraph below for where that ended up.
+
+CRM UI/data benchmarking (research pass, no code): compared this app's
+navigation/layout/flow against Zoho/Salesforce/HubSpot, and separately
+grepped the schema against `src/` for columns/tables with zero UI — not
+tied to a roadmap phase, just a checkpoint before the next round of polish.
+Findings and the resulting roadmap (bottom tab bar, a unified per-lead
+activity timeline, a Kanban board, plus deferred items: global search, a
+`plans`-table screen, funnel/loss-reason/product-mix reporting) aren't
+duplicated here — see the three items actually built below. The biggest
+"schema exists, no UI" findings if picked up later: the `plans` table is
+100% unused anywhere in `src/`, and `stage_history`/`loss_reasons` are
+collected but never fed into a funnel or loss-reason report.
+
+Bottom tab bar + unified activity timeline + Kanban board (the first three
+items off that roadmap, one round after it): fixes the "no way back to
+Home" gap the brand-only top bar left (see the routing paragraph below),
+gives a lead's own page a merged view of everything that happened on it
+(previously `activities` was never queried on `LeadDetail` at all — only
+`stage_history` was, so logged site visits/calls/RFQs/booking updates were
+invisible there), and adds a read-only board visualization of the existing
+"Leads by stage" data alongside its table view. See the routing paragraph,
+the LeadDetail section, and the Dashboard section below for specifics.
+
+Global search + three reporting cards (the last two roadmap items, one
+round after A/B/C): a new **Search** tab on `BottomNav`
+(`src/pages/Search.jsx`) searching parties/sites/leads at once, replacing
+the reality of five separate scoped search boxes with no way to search
+everything together; and three new Reports-tab cards, all built from data
+already being collected with zero new data entry — a sales funnel +
+avg-days-in-stage (`SalesFunnelCard.jsx`, from `stage_history`), a
+**owner-only** "why we lose" breakdown (`LossReasonsCard.jsx`, from
+`loss_reasons` — RLS itself restricts SELECT to owners, not a UI choice),
+and a "Leads by product" card (reuses `LeadsByCategoryCard.jsx`, no new
+component). See the Search and Dashboard sections below for specifics,
+including a real data-completeness bug caught and fixed during live
+verification of the funnel card (see the Dashboard section's Sales funnel
+bullet). The two remaining roadmap items — a `plans`-table screen and
+role-differentiated Home content — are still open; `plans` in particular is
+still 100% unused anywhere in `src/`.
+
 ## Stack
 
 - React 19 + Vite
@@ -122,39 +197,63 @@ alone — only the app's own name-as-brand moved.
 
 ```
 src/
-  components/   reusable UI pieces (ProtectedRoute, AppNav, PartySearchOrCreate,
-                SiteSearchOrCreate, LeadSearchSelect, the four LeadDetail
-                *Section components, DateRangeSelector, ActivityCountsCard,
+  components/   reusable UI pieces (ProtectedRoute, AppNav, BottomNav,
+                PartySearchOrCreate, SiteSearchOrCreate, LeadSearchSelect,
+                the four LeadDetail *Section components plus
+                LeadActivityTimeline, DateRangeSelector, ActivityCountsCard,
                 LeadsBySourceCard, ClosureForecastCard, TargetsVsActualsCard,
-                SetTargetForm, LeadsListCard, LeadsByCategoryCard, PartiesCard,
-                AddEmployeeForm, ManageEmployeesSection, DeleteLeadSection,
-                InstallPrompt, OfflineIndicator)
-  pages/        top-level views (Login, Dashboard, LeadQuickCapture,
-                LeadDetail, ActivityLog, Settings, ...)
-  contexts/     AuthContext — session + employee (id/name/role) lookup
+                SetTargetForm, LeadsListCard, LeadsByCategoryCard,
+                LeadStageBoard, SalesFunnelCard, LossReasonsCard,
+                PartiesCard, AddEmployeeForm, ManageEmployeesSection,
+                DeleteLeadSection, InstallPrompt, OfflineIndicator)
+  pages/        top-level views (Login, Home, Account, Search, Dashboard,
+                LeadQuickCapture, LeadDetail, ActivityLog, Settings, ...)
+  contexts/     AuthContext — session + employee (id/name/mobile/role) lookup
   hooks/        custom React hooks
   lib/          integrations & utilities (supabaseClient.js, sanitizeForIlike.js,
-                siteStageOptions.js, leadStageOptions.js, activityTypes.js,
-                sourceTypeOptions.js, dateRanges.js, dashboardQueries.js,
-                format.js, targetMetrics.js, targetPeriods.js, targetQueries.js,
-                partyQueries.js, employeeQueries.js)
+                siteStageOptions.js, leadStageOptions.js, lossReasonOptions.js,
+                activityTypes.js, sourceTypeOptions.js, dateRanges.js,
+                dashboardQueries.js, searchQueries.js, format.js,
+                targetMetrics.js, targetPeriods.js, targetQueries.js,
+                partyQueries.js, employeeQueries.js, homeTiles.js)
   assets/       images, icons, etc.
 ```
 
-Routing is set up in `App.jsx` (`react-router-dom`): `/login`, `/dashboard`,
-`/leads/new`, `/leads/:id`, `/activity` — all four post-login routes allow
-both `sales_executive` and `owner` — plus `/settings` (**owner-only**) and
-`/` which redirects based on auth + role. `ProtectedRoute` handles the
-redirect-to-login and role gating; `AuthContext` is the single source of
-truth for "who's logged in and what's their role" — look up an employee's
-role via `useAuth()`, don't re-query `employees` directly in a component.
-`ProtectedRoute` also renders `AppNav` (`src/components/AppNav.jsx`) above
-`children` once auth/role checks pass, so every logged-in screen gets the
-same nav bar (New Lead / Activity Log / Dashboard / Settings-if-owner + Log
-out) without each page wiring it up itself — don't add a per-page logout
-button, `AppNav` is the only one now. Settings is the one nav link that's
-still conditional on role (`employee?.role === 'owner'`) — everything else
-on the nav is universal now, see the interface simplification pass above.
+Routing is set up in `App.jsx` (`react-router-dom`): `/` (Home, all roles —
+the landing page after login), `/account`, `/search`, `/dashboard`,
+`/leads/new`, `/leads/:id`, `/activity` — all allow both `sales_executive`
+and `owner` — plus `/settings` (**owner-only**). `ProtectedRoute` handles the
+redirect-to-login and role gating (redirecting to `/` on a role mismatch,
+e.g. a sales exec hitting `/settings`); `AuthContext` is the single source
+of truth for "who's logged in and what's their role" — look up an
+employee's role via `useAuth()`, don't re-query `employees` directly in a
+component. `ProtectedRoute` renders `AppNav` (top) and `BottomNav`
+(`src/components/BottomNav.jsx`, fixed bottom) around `{children}`
+(wrapped in a plain `.app-body` div purely so one shared CSS rule —
+`ProtectedRoute.css` — can pad every page's bottom clearance for the fixed
+bar, instead of touching all 7 pages' own CSS files) once auth/role checks
+pass. `AppNav` went through three rounds: full link row → brand + Log out +
+Settings → brand + Log out only, at which point there was **no nav-bar way
+back to `/`** at all (a real gap, hit almost immediately after the third
+round). `BottomNav` is the fix, following the mobile-CRM-standard pattern
+(a persistent bottom tab bar, not a return to a top link row) surfaced by
+the CRM UI benchmarking pass above: **Home** / **Search** / **Account** /
+**Settings** (owner-only, same `employee?.role === 'owner'` check `AppNav`
+used to carry) — **Search** (`src/pages/Search.jsx`) was added one round
+later, deliberately placed here rather than a Home tile or an `AppNav`
+entry, to keep every piece of primary navigation in the one place this app
+has been consolidating toward all along. Active tab highlighted the same
+way `.app-nav-settings-active` used to. Sized off one shared CSS var,
+`--bottom-nav-height` (`src/index.css`),
+so the bar's own height and every page's clearance padding can't drift
+apart; also accounts for `env(safe-area-inset-bottom)` (requires
+`viewport-fit=cover` on `index.html`'s viewport meta, added alongside this)
+so it doesn't sit under the iOS home-indicator gesture area on this
+already-installable PWA. `AppNav` itself is back to just brand + Log out —
+Settings moved to `BottomNav` instead of existing in both places. Home
+(`src/pages/Home.jsx`) dropped its own top-right Settings/Account corner
+links for the same reason — redundant once both are globally one tap away
+on every screen, not just Home.
 
 ### Search-before-create components
 
@@ -182,6 +281,29 @@ HTML.
   `source_type` (e.g. Scanning) without exposing it as a field.
 
 Reuse these for any future party/site picker — don't write another search input.
+
+### Search (`src/pages/Search.jsx`)
+
+Global search, reachable via `BottomNav`'s **Search** tab, both roles.
+Deliberately **not** built on `PartySearchOrCreate`/`SiteSearchOrCreate` —
+this searches across all three entities at once and neither party nor site
+results are meant to be created inline here (this is a lookup screen, not
+an intake screen). `src/lib/searchQueries.js`'s `searchAll(term)` is a
+two-step query, not embedded-relation ILIKE filtering (no precedent for
+that anywhere in this codebase, and it's fragile PostgREST syntax): first
+searches `parties` (name/mobile) and `sites` (nickname/locality/house_no)
+directly — same `.or()` + `sanitizeForIlike` pattern as the search-before-
+create components, just without `SiteSearchOrCreate`'s hard area scope
+(global search shouldn't require picking an area first) — then takes the
+matched party/site ids and finds every `leads` row linked to any of them
+via a plain `.or('party_id.in.(...),site_id.in.(...)')`, fully precedented,
+RLS applies normally. Results render in three sections: **Leads** are
+clickable (`<Link to="/leads/:id">`) since that's the one entity with a
+real detail page; **Parties**/**Sites** are read-only lookup rows — **there
+is no `/parties/:id` or `/sites/:id` page anywhere in this app** (confirmed
+before building this), so those results can't link anywhere, matching the
+existing "search before create" duplicate-check use case rather than
+pretending to be a navigation target.
 
 ### LeadQuickCapture (`src/pages/LeadQuickCapture.jsx`)
 
@@ -239,15 +361,32 @@ existing state (`setLead((prev) => ({ ...prev, ...updated }))`) rather than
 replacing it wholesale — a plain replace would silently drop `lead.employees`
 (the owner's name) after the first edit.
 
+* **Activity** (`LeadActivityTimeline.jsx`, always shown, right after the
+  summary block and **before** the `canEdit` gate — so even a read-only
+  viewer sees it) — a merged, newest-first feed of `stage_history` (append-
+  only stage changes) and `activities` filtered by `lead_id` (site visits,
+  calls, RFQs, booking updates logged via `ActivityLog`). Before this
+  existed, `LeadDetail` never queried `activities` at all — everything
+  logged against a lead was invisible on the lead's own page. Newest-first
+  is a deliberate departure from the old stage-only list's oldest-first
+  order (matches how every CRM benchmarked above orders a record's activity
+  feed); this is a new unified component, not an extension of the old one.
+  **Known RLS asymmetry, not a bug**: `stage_history` SELECT is open to
+  everyone, but `activities` SELECT is "own data or owner role" — so a
+  sales exec viewing a colleague's lead sees the full stage history but an
+  empty activity feed for activities they didn't log themselves. Same
+  category as the existing `PartiesCard` "Worked with" caveat below.
 * **Stage** (`LeadStageSection.jsx`, always shown) — `current_stage` selector
   (suggested new/hot/rfq/quote/negotiation/won/lost + "Other…" free text,
   same pattern as `site_stage`). Every change updates `leads.current_stage`
   and inserts a `stage_history` row (`lead_id`, `stage`, `changed_by`,
-  `changed_at`); the full history renders underneath as a read-only
-  timeline, oldest to newest. Setting the stage to `lost` immediately opens
-  an inline `loss_reasons` prompt (reason + optional competitor name) with
-  **no skip option** — "Save reason" is the only way to dismiss it, since a
-  rep must always account for why a lead was lost.
+  `changed_at`) — no longer rendered inline here now that
+  `LeadActivityTimeline` covers it (see above); this section only owns
+  changing the stage and the loss-reason prompt. Setting the stage to
+  `lost` immediately opens an inline `loss_reasons` prompt (reason +
+  optional competitor name) with **no skip option** — "Save reason" is the
+  only way to dismiss it, since a rep must always account for why a lead
+  was lost.
 * **Site details** (`SiteDetailsSection.jsx`, if `site_id` set) — plain edit
   form (not `SiteSearchOrCreate`'s find-or-create, since the site already
   exists) for Area/locality/house no./pincode/site_stage. Reuses
@@ -402,22 +541,89 @@ first.
   advance. A successful insert is appended straight into `Dashboard.jsx`'s
   `targets` state (`onTargetCreated`) so the table above updates immediately,
   no reload needed.
-* **Leads by stage / by area / by site stage** (`LeadsByCategoryCard.jsx`,
-  one generic component reused 3×) — count + `order_value` sum, grouped by
-  `current_stage` / the lead's site's area / the lead's site's `site_stage`.
-  Pipeline snapshots like Closure forecast, **not** date-range-scoped —
-  "how many leads are in each category right now", not "how many arrived in
-  a period" — fed by one shared unbounded query, `fetchLeadsForBreakdown` in
-  `dashboardQueries.js` (`current_stage, order_value, site_id,
-  sites(site_stage, area_id, areas(area_name))`), fetched once and reused
-  across all three cards. `categoryOrder` (optional prop) pins a fixed set
-  of buckets in a fixed order, shown even at zero count, so "no leads at
-  this stage" is visible rather than the row not existing — Stage uses
-  `LEAD_STAGE_OPTIONS` (`src/lib/leadStageOptions.js`, extracted out of
-  `LeadStageSection.jsx` so the two can't drift), Site Stage uses
-  `SITE_STAGE_OPTIONS` plus `'Not set'`/`'No site'`; Area has no fixed list
-  (areas come from a table, not a suggested list) so its buckets are
-  discovered from the data and sorted by count desc instead.
+* **Leads by stage / by area / by site stage / by product**
+  (`LeadsByCategoryCard.jsx`, one generic component now reused 4×) — count +
+  `order_value` sum, grouped by `current_stage` / the lead's site's area /
+  the lead's site's `site_stage` / `products.name`. Pipeline snapshots like
+  Closure forecast, **not** date-range-scoped — "how many leads are in each
+  category right now", not "how many arrived in a period" — fed by one
+  shared unbounded query, `fetchLeadsForBreakdown` in `dashboardQueries.js`
+  (now also selects `owner_employee_id, parties!party_id(name),
+  employees!owner_employee_id(name)`, `sites(nickname, locality, ...)`, and
+  `products!product_id(name, category)` on top of the original columns —
+  added incrementally for the Kanban board and Product card below, but
+  harmless extra fields for the other table cards too, same "redundant but
+  harmless" pattern as the Owner column shown everywhere), fetched once and
+  reused across all four cards plus the board. `categoryOrder` (optional
+  prop) pins a fixed set of buckets in a fixed order, shown even at zero
+  count, so "no leads at this stage" is visible rather than the row not
+  existing — Stage uses `LEAD_STAGE_OPTIONS` (`src/lib/leadStageOptions.js`,
+  extracted out of `LeadStageSection.jsx` so the two can't drift), Site
+  Stage uses `SITE_STAGE_OPTIONS` plus `'Not set'`/`'No site'`; Area and
+  Product have no fixed list (both come from a table, not a suggested list)
+  so their buckets are discovered from the data and sorted by count desc
+  instead — Product falls back to `'Not specified'`, matching
+  `SalesProgressSection`'s own "— Not specified —" label for an unset
+  `product_id`.
+* **Leads by stage — Table/Board toggle** (`stageView` state in
+  `Dashboard.jsx`, default `'table'`) — the Stage instance specifically
+  (not Area/Site Stage, which have no meaningful "pipeline" reading) can
+  switch to `LeadStageBoard.jsx`, a **read-only** Kanban-style board:
+  columns = `LEAD_STAGE_OPTIONS`, same order as the table's
+  `categoryOrder`; each column header shows the stage name + count +
+  summed `order_value` (same aggregate the table already computes,
+  rendered differently); each card is a `<Link to="/leads/:id">` (party
+  name → site nickname/locality → `'(no party)'` fallback chain, matching
+  `LeadsListCard`'s), showing order value and — owner-only — the lead's
+  owner name. Deliberately **not** drag-and-drop: a card click opens
+  `LeadDetail`, where the actual stage change happens through the existing,
+  already-correct flow (mandatory loss-reason prompt, `stage_history`
+  logging, ownership checks) — reimplementing that as a drop-to-change
+  interaction was considered and explicitly deferred, not an oversight.
+  Toggle buttons reuse the existing `.dashboard-range-btn`/`-active` style
+  (the same one This Week/This Month already use), not a new button style.
+  Columns scroll horizontally (`overflow-x: auto`, same convention as
+  `.dashboard-table-wrap`); each column's card list scrolls independently
+  past a max-height.
+* **Sales funnel** (`SalesFunnelCard.jsx`) — reach-count + avg-days-in-stage
+  per `LEAD_STAGE_OPTIONS` stage, from `fetchStageHistoryForFunnel` in
+  `dashboardQueries.js` (`stage_history` joined to `leads(owner_employee_id)`).
+  `stage_history` SELECT is open to *everyone* (unlike `leads`/`activities`)
+  — the embedded `leads` comes back `null` for a sales exec's rows on leads
+  they don't own (RLS on the embed), dropped client-side to get the same
+  "own data or owner role" scoping every other card gets for free; exact
+  same trick `fetchWonStageHistory`/`computeOrderValueActuals`
+  (`TargetsVsActualsCard.jsx`) already established — this is the only other
+  place in the codebase that needed it. **Real bug caught during live
+  verification, not hypothetical**: `stage_history` only logs the
+  *destination* of an explicit stage change — a lead that goes straight
+  `new → lost` gets exactly one row (`'lost'`), never a `'new'` row, since
+  the initial `'new'` is a DB default, not a logged "change". An
+  implementation that only reads `stage_history` therefore silently
+  undercounts `'new'` (and any lead untouched since creation has *zero*
+  history rows at all). Fixed by seeding every lead's reached-set with both
+  `'new'` (true for all of them, by schema default) and its own
+  `current_stage` from `breakdownLeads` (already fetched, already
+  RLS-scoped normally), *then* widening with whatever's actually in
+  `stage_history` — avg-days-in-stage is unaffected, since it only reflects
+  actual logged transitions, which is the correct thing to measure there.
+  One team-wide table, deliberately **no** per-employee breakdown — funnel
+  shape is a whole-pipeline metric, not a per-rep tally like the other
+  cards.
+* **Why we lose** (`LossReasonsCard.jsx`, **owner-only** — `{isOwner && ...}`
+  in `Dashboard.jsx`, and the fetch itself is skipped entirely for a sales
+  exec rather than firing a request that RLS would just return empty) —
+  count per `reason`, fixed bucket order via `LOSS_REASON_OPTIONS`
+  (`src/lib/lossReasonOptions.js`, extracted out of `LeadStageSection.jsx`
+  the same way `LEAD_STAGE_OPTIONS`/`SITE_STAGE_OPTIONS` were, so the "why
+  was this lost" prompt and this report can't drift apart), plus a small
+  named-competitors list below (from `loss_reasons.competitor_name` —
+  captured on every loss already, displayed nowhere until this card).
+  `loss_reasons` SELECT requires `role = 'owner'` in RLS itself (see the RLS
+  convention below) — this card being owner-only is a hard constraint the
+  policy enforces, not a UI-layer nicety like `SetTargetForm`'s gating.
+  Verified live against a genuine second `sales_executive` session (not
+  just reasoned through) — the card is correctly absent entirely.
 * **Parties** (`PartiesCard.jsx`, the third tab) — every party ever created
   (`fetchAllParties` in `src/lib/partyQueries.js` — `parties` SELECT is open
   to everyone, so this is the same full directory regardless of role), with

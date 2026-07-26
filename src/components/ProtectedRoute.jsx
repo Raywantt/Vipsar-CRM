@@ -1,11 +1,8 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import AppNav from './AppNav'
-
-const roleHome = {
-  owner: '/dashboard',
-  sales_executive: '/leads/new',
-}
+import BottomNav from './BottomNav'
+import './ProtectedRoute.css'
 
 function ProtectedRoute({ allowedRoles, children }) {
   const { session, employee, employeeError, loading } = useAuth()
@@ -32,13 +29,14 @@ function ProtectedRoute({ allowedRoles, children }) {
   }
 
   if (allowedRoles && !allowedRoles.includes(employee.role)) {
-    return <Navigate to={roleHome[employee.role] ?? '/login'} replace />
+    return <Navigate to="/" replace />
   }
 
   return (
     <>
       <AppNav />
-      {children}
+      <div className="app-body">{children}</div>
+      <BottomNav />
     </>
   )
 }

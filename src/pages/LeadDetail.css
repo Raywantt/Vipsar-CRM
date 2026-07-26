@@ -106,3 +106,39 @@
   gap: 6px;
   font-size: 14px;
 }
+
+.lead-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lead-timeline-entry {
+  padding: 6px 0 6px 12px;
+  border-left: 3px solid var(--border);
+}
+
+.lead-timeline-entry-stage {
+  border-left-color: var(--accent);
+}
+
+.lead-timeline-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.lead-timeline-meta {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.lead-timeline-notes {
+  margin: 4px 0 0;
+  font-size: 14px;
+}

@@ -9,6 +9,7 @@ const ROLE_OPTIONS = [
 
 function AddEmployeeForm({ onCreated }) {
   const [name, setName] = useState('')
+  const [mobile, setMobile] = useState('')
   const [role, setRole] = useState('sales_executive')
   const [authUserId, setAuthUserId] = useState('')
   const [saving, setSaving] = useState(false)
@@ -24,6 +25,7 @@ function AddEmployeeForm({ onCreated }) {
 
     const { data, error } = await insertEmployee({
       name: name.trim(),
+      mobile: mobile.trim(),
       role,
       authUserId: authUserId.trim(),
     })
@@ -37,6 +39,7 @@ function AddEmployeeForm({ onCreated }) {
 
     setSavedAt(Date.now())
     setName('')
+    setMobile('')
     setAuthUserId('')
     setRole('sales_executive')
     onCreated(data)
@@ -60,6 +63,11 @@ function AddEmployeeForm({ onCreated }) {
       </label>
 
       <label className="settings-field">
+        Mobile
+        <input value={mobile} onChange={(e) => setMobile(e.target.value)} />
+      </label>
+
+      <label className="settings-field">
         Role
         <select value={role} onChange={(e) => setRole(e.target.value)}>
           {ROLE_OPTIONS.map((r) => (
@@ -71,7 +79,7 @@ function AddEmployeeForm({ onCreated }) {
       </label>
 
       <label className="settings-field">
-        Auth User ID (UUID, optional)
+        Auth User ID (UUID)
         <input
           value={authUserId}
           onChange={(e) => setAuthUserId(e.target.value)}

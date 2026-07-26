@@ -1,28 +1,18 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import OfflineIndicator from './components/OfflineIndicator'
 import InstallPrompt from './components/InstallPrompt'
 import Login from './pages/Login'
+import Home from './pages/Home'
+import Account from './pages/Account'
+import Search from './pages/Search'
 import Dashboard from './pages/Dashboard'
 import LeadQuickCapture from './pages/LeadQuickCapture'
 import LeadDetail from './pages/LeadDetail'
 import ActivityLog from './pages/ActivityLog'
 import Settings from './pages/Settings'
 import './App.css'
-
-const roleHome = {
-  owner: '/dashboard',
-  sales_executive: '/leads/new',
-}
-
-function RoleRedirect() {
-  const { session, employee, loading } = useAuth()
-
-  if (loading) return <p style={{ padding: 24 }}>Loading…</p>
-  if (!session || !employee) return <Navigate to="/login" replace />
-  return <Navigate to={roleHome[employee.role] ?? '/login'} replace />
-}
 
 function App() {
   return (
@@ -75,7 +65,30 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="/" element={<RoleRedirect />} />
+          <Route
+            path="/account"
+            element={
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
+                <Account />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
+                <Home />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/search"
+            element={
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
+                <Search />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

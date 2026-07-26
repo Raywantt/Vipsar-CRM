@@ -18,6 +18,7 @@ CREATE TABLE employees (
   id              SERIAL PRIMARY KEY,
   auth_user_id    UUID UNIQUE,   -- links to Supabase's auth.users(id)
   name            TEXT NOT NULL,
+  mobile          TEXT,
   office_location TEXT,
   role            TEXT NOT NULL DEFAULT 'sales_executive'
                     CHECK (role IN ('owner','sales_executive')),

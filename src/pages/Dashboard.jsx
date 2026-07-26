@@ -7,6 +7,9 @@ import ClosureForecastCard from '../components/ClosureForecastCard'
 import TargetsVsActualsCard from '../components/TargetsVsActualsCard'
 import LeadsListCard from '../components/LeadsListCard'
 import LeadsByCategoryCard from '../components/LeadsByCategoryCard'
+import LeadStageBoard from '../components/LeadStageBoard'
+import SalesFunnelCard from '../components/SalesFunnelCard'
+import LossReasonsCard from '../components/LossReasonsCard'
 import PartiesCard from '../components/PartiesCard'
 import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
@@ -17,6 +20,8 @@ import {
   fetchNewLeadsBySource,
   fetchClosureForecast,
   fetchLeadsForBreakdown,
+  fetchStageHistoryForFunnel,
+  fetchLossReasons,
 } from '../lib/dashboardQueries'
 import { fetchEmployees, fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
 import { fetchAllParties, fetchPartyEmployeeLinks } from '../lib/partyQueries'
@@ -40,6 +45,10 @@ function areaCategory(lead) {
   return lead.sites?.areas?.area_name ?? 'No area set'
 }
 
+function productCategory(lead) {
+  return lead.products?.name ?? 'Not specified'
+}
+
 const TABS = [
   { value: 'reports', label: 'Reports' },
   { value: 'leads', label: null }, // label resolved per-role below
@@ -51,6 +60,7 @@ function Dashboard() {
   const isOwner = employee?.role === 'owner'
 
   const [activeTab, setActiveTab] = useState('reports')
+  const [stageView, setStageView] = useState('table')
 
   const [preset, setPreset] = useState('week')
   const [customStart, setCustomStart] = useState(todayISO())
@@ -63,6 +73,8 @@ function Dashboard() {
   const [targets, setTargets] = useState([])
   const [wonStageHistory, setWonStageHistory] = useState([])
   const [breakdownLeads, setBreakdownLeads] = useState([])
+  const [funnelStageHistory, setFunnelStageHistory] = useState([])
+  const [lossReasons, setLossReasons] = useState([])
   const [parties, setParties] = useState([])
   const [partyEmployeeLinks, setPartyEmployeeLinks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -157,6 +169,32 @@ function Dashboard() {
 
   useEffect(() => {
     let active = true
+    fetchStageHistoryForFunnel().then(({ data, error }) => {
+      if (!active) return
+      if (!error) setFunnelStageHistory(data ?? [])
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isOwner) {
+      setLossReasons([])
+      return
+    }
+    let active = true
+    fetchLossReasons().then(({ data, error }) => {
+      if (!active) return
+      if (!error) setLossReasons(data ?? [])
+    })
+    return () => {
+      active = false
+    }
+  }, [isOwner])
+
+  useEffect(() => {
+    let active = true
     fetchAllParties().then(({ data, error }) => {
       if (!active) return
       if (!error) setParties(data ?? [])
@@ -235,13 +273,37 @@ function Dashboard() {
             onTargetCreated={(row) => setTargets((prev) => [...prev, row])}
           />
 
-          <LeadsByCategoryCard
-            title="Leads by stage"
-            categoryHeading="Stage"
-            leads={breakdownLeads}
-            getCategory={stageCategory}
-            categoryOrder={LEAD_STAGE_OPTIONS}
-          />
+          <div className="dashboard-board-toggle">
+            <button
+              type="button"
+              className={stageView === 'table' ? 'dashboard-range-btn dashboard-range-btn-active' : 'dashboard-range-btn'}
+              onClick={() => setStageView('table')}
+            >
+              Table
+            </button>
+            <button
+              type="button"
+              className={stageView === 'board' ? 'dashboard-range-btn dashboard-range-btn-active' : 'dashboard-range-btn'}
+              onClick={() => setStageView('board')}
+            >
+              Board
+            </button>
+          </div>
+
+          {stageView === 'table' ? (
+            <LeadsByCategoryCard
+              title="Leads by stage"
+              categoryHeading="Stage"
+              leads={breakdownLeads}
+              getCategory={stageCategory}
+              categoryOrder={LEAD_STAGE_OPTIONS}
+            />
+          ) : (
+            <section className="dashboard-card">
+              <h2>Leads by stage</h2>
+              <LeadStageBoard leads={breakdownLeads} isOwner={isOwner} />
+            </section>
+          )}
 
           <LeadsByCategoryCard
             title="Leads by area"
@@ -257,6 +319,17 @@ function Dashboard() {
             getCategory={siteStageCategory}
             categoryOrder={[...SITE_STAGE_OPTIONS, 'Not set', 'No site']}
           />
+
+          <LeadsByCategoryCard
+            title="Leads by product"
+            categoryHeading="Product"
+            leads={breakdownLeads}
+            getCategory={productCategory}
+          />
+
+          <SalesFunnelCard stageHistory={funnelStageHistory} leads={breakdownLeads} />
+
+          {isOwner && <LossReasonsCard lossReasons={lossReasons} />}
         </>
       )}
 

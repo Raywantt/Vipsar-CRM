@@ -3,11 +3,6 @@ import { Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 
-const roleHome = {
-  owner: '/dashboard',
-  sales_executive: '/leads/new',
-}
-
 function Login() {
   const { session, employee, loading } = useAuth()
   const [email, setEmail] = useState('')
@@ -16,7 +11,7 @@ function Login() {
   const [submitting, setSubmitting] = useState(false)
 
   if (!loading && session && employee) {
-    return <Navigate to={roleHome[employee.role] ?? '/'} replace />
+    return <Navigate to="/" replace />
   }
 
   async function handleSubmit(event) {
@@ -33,7 +28,7 @@ function Login() {
   return (
     <main className="login">
       <form className="login-form" onSubmit={handleSubmit}>
-        <h1>VIPSAR CRM</h1>
+        <h1>VIPSAR</h1>
         <label className="login-field">
           Email
           <input

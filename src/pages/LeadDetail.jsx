@@ -7,6 +7,7 @@ import ClientDetailsSection from '../components/ClientDetailsSection'
 import AdditionalContactsSection from '../components/AdditionalContactsSection'
 import SalesProgressSection from '../components/SalesProgressSection'
 import LeadStageSection from '../components/LeadStageSection'
+import LeadActivityTimeline from '../components/LeadActivityTimeline'
 import './LeadDetail.css'
 
 const SOURCE_LABELS = {
@@ -29,6 +30,7 @@ function LeadDetail() {
   const [site, setSite] = useState(null)
   const [siteContacts, setSiteContacts] = useState([])
   const [stageHistory, setStageHistory] = useState([])
+  const [activities, setActivities] = useState([])
   const [areas, setAreas] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -55,31 +57,46 @@ function LeadDetail() {
         return
       }
 
-      const [partyResult, otherPartyResult, siteResult, contactsResult, stageHistoryResult, areasResult, productsResult] =
-        await Promise.all([
-          leadRow.party_id
-            ? supabase.from('parties').select('*').eq('id', leadRow.party_id).single()
-            : Promise.resolve(EMPTY),
-          leadRow.other_party_id
-            ? supabase.from('parties').select('*').eq('id', leadRow.other_party_id).single()
-            : Promise.resolve(EMPTY),
-          leadRow.site_id
-            ? supabase.from('sites').select('*').eq('id', leadRow.site_id).single()
-            : Promise.resolve(EMPTY),
-          leadRow.site_id
-            ? supabase
-                .from('site_contacts')
-                .select('id, role, party_id, parties(name, party_type)')
-                .eq('site_id', leadRow.site_id)
-            : Promise.resolve({ data: [], error: null }),
-          supabase
-            .from('stage_history')
-            .select('id, stage, changed_at, employees(name)')
-            .eq('lead_id', leadRow.id)
-            .order('changed_at', { ascending: true }),
-          supabase.from('areas').select('id, area_name, city').order('area_name'),
-          supabase.from('products').select('id, name, category').order('name'),
-        ])
+      const [
+        partyResult,
+        otherPartyResult,
+        siteResult,
+        contactsResult,
+        stageHistoryResult,
+        activitiesResult,
+        areasResult,
+        productsResult,
+      ] = await Promise.all([
+        leadRow.party_id
+          ? supabase.from('parties').select('*').eq('id', leadRow.party_id).single()
+          : Promise.resolve(EMPTY),
+        leadRow.other_party_id
+          ? supabase.from('parties').select('*').eq('id', leadRow.other_party_id).single()
+          : Promise.resolve(EMPTY),
+        leadRow.site_id
+          ? supabase.from('sites').select('*').eq('id', leadRow.site_id).single()
+          : Promise.resolve(EMPTY),
+        leadRow.site_id
+          ? supabase
+              .from('site_contacts')
+              .select('id, role, party_id, parties(name, party_type)')
+              .eq('site_id', leadRow.site_id)
+          : Promise.resolve({ data: [], error: null }),
+        supabase
+          .from('stage_history')
+          .select('id, stage, changed_at, employees(name)')
+          .eq('lead_id', leadRow.id)
+          .order('changed_at', { ascending: true }),
+        supabase
+          .from('activities')
+          .select(
+            'id, activity_type, notes, created_at, employees!employee_id(name), accompanied_by_employee:employees!accompanied_by(name)'
+          )
+          .eq('lead_id', leadRow.id)
+          .order('created_at', { ascending: false }),
+        supabase.from('areas').select('id, area_name, city').order('area_name'),
+        supabase.from('products').select('id, name, category').order('name'),
+      ])
 
       if (!active) return
 
@@ -89,6 +106,7 @@ function LeadDetail() {
       setSite(siteResult.data ?? null)
       setSiteContacts(contactsResult.data ?? [])
       setStageHistory(stageHistoryResult.data ?? [])
+      setActivities(activitiesResult.data ?? [])
       setAreas(areasResult.data ?? [])
       setProducts(productsResult.data ?? [])
       setLoading(false)
@@ -136,11 +154,12 @@ function LeadDetail() {
         <li>Created: {new Date(lead.created_at).toLocaleDateString()}</li>
       </ul>
 
+      <LeadActivityTimeline activities={activities} stageHistory={stageHistory} />
+
       {canEdit ? (
         <>
           <LeadStageSection
             lead={lead}
-            stageHistory={stageHistory}
             onStageChanged={(updatedLead, historyRow) => {
               setLead((prev) => ({ ...prev, ...updatedLead }))
               if (historyRow) setStageHistory((prev) => [...prev, historyRow])
