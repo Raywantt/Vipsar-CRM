@@ -53,7 +53,7 @@ function Search() {
   const hasResults = parties.length > 0 || results.sites.length > 0 || results.leads.length > 0
 
   return (
-    <>
+    <div className="vip-narrow">
       <input
         className="vip-input"
         value={term}
@@ -125,7 +125,7 @@ function Search() {
           ))}
         </div>
       )}
-    </>
+    </div>
   )
 }
 

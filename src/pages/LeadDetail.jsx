@@ -145,7 +145,7 @@ function LeadDetail() {
   const stage = lead.current_stage ?? 'new'
 
   return (
-    <>
+    <div className="vip-narrow">
       <div className="vip-card">
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
@@ -232,7 +232,7 @@ function LeadDetail() {
           only they or an owner can make changes to it.
         </p>
       )}
-    </>
+    </div>
   )
 }
 

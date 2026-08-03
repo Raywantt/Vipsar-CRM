@@ -94,7 +94,7 @@ function LeadQuickCapture() {
 
   if (createdLead) {
     return (
-      <div className="vip-card">
+      <div className="vip-card vip-narrow">
         <p className="vip-success" style={{ fontSize: 15, fontWeight: 600 }}>
           Lead captured.
         </p>
@@ -136,7 +136,7 @@ function LeadQuickCapture() {
   }
 
   return (
-    <form className="vip-form" onSubmit={handleSubmit}>
+    <form className="vip-form vip-narrow" onSubmit={handleSubmit}>
       <div className="vip-lede">Fill any one. Details later.</div>
 
       <PartySearchOrCreate

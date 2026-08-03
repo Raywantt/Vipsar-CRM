@@ -245,7 +245,7 @@ function Dashboard() {
   const maxStageCount = Math.max(1, ...stageRows.map((r) => r.count))
 
   return (
-    <>
+    <div className={activeTab === 'reports' ? 'vip-wide' : 'vip-narrow'}>
       <div className="vip-seg">
         {TABS.map((tab) => (
           <button
@@ -298,101 +298,113 @@ function Dashboard() {
             </div>
           )}
 
-          {loading ? (
-            <p className="vip-empty">Loading…</p>
-          ) : (
-            <>
-              <ActivityCountsCard activities={activities} showByEmployee={isOwner} rangeLabel={RANGE_LABELS[preset]} />
-              <LeadsBySourceCard leads={leads} showByEmployee={isOwner} />
-            </>
-          )}
-
-          <ClosureForecastCard leads={forecast} />
-
-          <TargetsVsActualsCard
-            preset={preset}
-            activities={activities}
-            wonStageHistory={wonStageHistory}
-            targets={targets}
-            range={range}
-            employees={employees}
-            showByEmployee={isOwner}
-            onTargetCreated={(row) => setTargets((prev) => [...prev, row])}
-          />
-
-          <div className="vip-card">
-            <div className="vip-card-head">
-              <div className="vip-card-title">Pipeline by stage</div>
-              <div className="vip-seg-mini">
-                <button
-                  type="button"
-                  className={stageView === 'table' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                  onClick={() => setStageView('table')}
-                >
-                  Table
-                </button>
-                <button
-                  type="button"
-                  className={stageView === 'board' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                  onClick={() => setStageView('board')}
-                >
-                  Board
-                </button>
-              </div>
-            </div>
-            {stageView === 'table' ? (
-              breakdownLeads.length === 0 ? (
-                <p className="vip-empty">No leads found.</p>
-              ) : (
-                stageRows.map(({ stage, count, value }) => (
-                  <div key={stage} className="vip-bar-row">
-                    <div style={{ flex: '0 0 92px' }}>
-                      <span className={stageChipClass(stage)}>{stage}</span>
-                    </div>
-                    <div className="vip-bar-count" style={{ flex: '0 0 20px' }}>
-                      {count}
-                    </div>
-                    <div className="vip-bar-track vip-thick">
-                      <div className="vip-bar-fill" style={{ width: `${(count / maxStageCount) * 100}%` }} />
-                    </div>
-                    <div className="vip-bar-value">{formatCurrencyCompact(value)}</div>
-                  </div>
-                ))
-              )
+          <div className="vip-report-grid">
+            {loading ? (
+              <p className="vip-empty">Loading…</p>
             ) : (
-              <LeadStageBoard leads={breakdownLeads} isOwner={isOwner} />
+              <>
+                <ActivityCountsCard activities={activities} showByEmployee={isOwner} rangeLabel={RANGE_LABELS[preset]} />
+                <LeadsBySourceCard leads={leads} showByEmployee={isOwner} />
+              </>
+            )}
+
+            <div className="vip-span-2">
+              <ClosureForecastCard leads={forecast} />
+            </div>
+
+            <div className="vip-span-2">
+              <TargetsVsActualsCard
+                preset={preset}
+                activities={activities}
+                wonStageHistory={wonStageHistory}
+                targets={targets}
+                range={range}
+                employees={employees}
+                showByEmployee={isOwner}
+                onTargetCreated={(row) => setTargets((prev) => [...prev, row])}
+              />
+            </div>
+
+            <div className="vip-card vip-span-2">
+              <div className="vip-card-head">
+                <div className="vip-card-title">Pipeline by stage</div>
+                <div className="vip-seg-mini">
+                  <button
+                    type="button"
+                    className={stageView === 'table' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                    onClick={() => setStageView('table')}
+                  >
+                    Table
+                  </button>
+                  <button
+                    type="button"
+                    className={stageView === 'board' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                    onClick={() => setStageView('board')}
+                  >
+                    Board
+                  </button>
+                </div>
+              </div>
+              {stageView === 'table' ? (
+                breakdownLeads.length === 0 ? (
+                  <p className="vip-empty">No leads found.</p>
+                ) : (
+                  stageRows.map(({ stage, count, value }) => (
+                    <div key={stage} className="vip-bar-row">
+                      <div style={{ flex: '0 0 92px' }}>
+                        <span className={stageChipClass(stage)}>{stage}</span>
+                      </div>
+                      <div className="vip-bar-count" style={{ flex: '0 0 20px' }}>
+                        {count}
+                      </div>
+                      <div className="vip-bar-track vip-thick">
+                        <div className="vip-bar-fill" style={{ width: `${(count / maxStageCount) * 100}%` }} />
+                      </div>
+                      <div className="vip-bar-value">{formatCurrencyCompact(value)}</div>
+                    </div>
+                  ))
+                )
+              ) : (
+                <LeadStageBoard leads={breakdownLeads} isOwner={isOwner} />
+              )}
+            </div>
+
+            <LeadsByCategoryCard
+              title="Leads by stage (detail)"
+              leads={breakdownLeads}
+              getCategory={stageCategory}
+              categoryOrder={LEAD_STAGE_OPTIONS}
+              colorStages
+            />
+
+            <LeadsByCategoryCard title="Leads by area" leads={breakdownLeads} getCategory={areaCategory} />
+
+            <LeadsByCategoryCard
+              title="Leads by site stage"
+              leads={breakdownLeads}
+              getCategory={siteStageCategory}
+              categoryOrder={[...SITE_STAGE_OPTIONS, 'Not set', 'No site']}
+            />
+
+            <LeadsByCategoryCard title="Leads by product" leads={breakdownLeads} getCategory={productCategory} />
+
+            <div className="vip-span-2">
+              <SalesFunnelCard stageHistory={funnelStageHistory} leads={breakdownLeads} />
+            </div>
+
+            {isOwner && (
+              <div className="vip-span-2">
+                <LossReasonsCard lossReasons={lossReasons} />
+              </div>
             )}
           </div>
-
-          <LeadsByCategoryCard
-            title="Leads by stage (detail)"
-            leads={breakdownLeads}
-            getCategory={stageCategory}
-            categoryOrder={LEAD_STAGE_OPTIONS}
-            colorStages
-          />
-
-          <LeadsByCategoryCard title="Leads by area" leads={breakdownLeads} getCategory={areaCategory} />
-
-          <LeadsByCategoryCard
-            title="Leads by site stage"
-            leads={breakdownLeads}
-            getCategory={siteStageCategory}
-            categoryOrder={[...SITE_STAGE_OPTIONS, 'Not set', 'No site']}
-          />
-
-          <LeadsByCategoryCard title="Leads by product" leads={breakdownLeads} getCategory={productCategory} />
-
-          <SalesFunnelCard stageHistory={funnelStageHistory} leads={breakdownLeads} />
-
-          {isOwner && <LossReasonsCard lossReasons={lossReasons} />}
         </>
       )}
 
       {activeTab === 'leads' && <LeadsListCard isOwner={isOwner} employees={employees} />}
 
       {activeTab === 'parties' && <PartiesCard parties={parties} employeeLinks={partyEmployeeLinks} />}
-    </>
+    </div>
   )
 }
 

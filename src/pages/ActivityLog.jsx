@@ -128,7 +128,7 @@ function ActivityLog() {
 
   if (result) {
     return (
-      <div className="vip-card">
+      <div className="vip-card vip-narrow">
         <p className="vip-success" style={{ fontSize: 15, fontWeight: 600 }}>
           Activity logged.
         </p>
@@ -166,7 +166,7 @@ function ActivityLog() {
   }
 
   return (
-    <form className="vip-form" onSubmit={handleSubmit}>
+    <form className="vip-form vip-narrow" onSubmit={handleSubmit}>
       <div className="vip-lede">What did you do?</div>
 
       <div className="vip-choice-grid">

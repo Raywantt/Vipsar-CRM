@@ -53,7 +53,7 @@ function Home() {
   }, [])
 
   return (
-    <>
+    <div className="vip-wide">
       {kpis && (
         <div className="vip-kpi-grid">
           <div className="vip-kpi">
@@ -78,7 +78,7 @@ function Home() {
       {tiles.length === 0 ? (
         <p className="vip-empty">No shortcuts set up for your role yet.</p>
       ) : (
-        <div className="vip-stack-s">
+        <div className="vip-tile-grid">
           {tiles.map((tile, i) => (
             <Link key={tile.to} to={tile.to} className={i === 0 ? 'vip-tile vip-tile-primary' : 'vip-tile'}>
               <div>
@@ -110,7 +110,7 @@ function Home() {
           ))}
         </div>
       )}
-    </>
+    </div>
   )
 }
 

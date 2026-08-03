@@ -94,6 +94,9 @@
   --vip-app-max: 460px;   /* the app column never gets wider than a phone */
   --vip-header-h: 60px;
   --vip-bottom-nav-h: 60px;
+  --vip-sidebar-w: 232px;   /* desktop-only left nav rail, see the ≥1024px block below */
+  --vip-narrow-max: 700px;  /* desktop reading column — forms, single lists, detail pages */
+  --vip-wide-max: 1180px;   /* desktop dashboard/report column, alongside the sidebar */
 
   /* base */
   font: 400 15px/1.45 var(--vip-sans);
@@ -545,3 +548,134 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 .vip-mono    { font-family: var(--vip-mono); font-size: 11px; color: var(--vip-faint); }
 .vip-num     { font-variant-numeric: tabular-nums; }
 .vip-lede    { font-size: 13px; color: var(--vip-body); }
+
+/* ---------- 16. Desktop layout (≥1024px) --------------------------------
+   Below 1024px this app is unchanged: a centered phone-width column with a
+   fixed header/bottom-tab-bar — see section 2's comment on why that column
+   never went full-bleed. At ≥1024px, BottomNav becomes a persistent left
+   sidebar (same links; `.vip-nav-extra` items are destinations a phone
+   reaches via Home's tiles instead — see CLAUDE.md's Design system section)
+   and page content trades the phone-frame cap for two purpose-built widths:
+   `.vip-narrow` for forms/detail/single-list pages, `.vip-wide` +
+   `.vip-report-grid` for the Dashboard/Home report cards, where a
+   `.vip-span-2` item breaks out to the full row. Every page wraps its
+   content in one of the two — see CLAUDE.md, not a rule enforced by CSS
+   alone. */
+.vip-narrow, .vip-wide { display: flex; flex-direction: column; gap: 14px; width: 100%; margin: 0 auto; }
+.vip-report-grid { display: flex; flex-direction: column; gap: 14px; }
+.vip-tile-grid { display: flex; flex-direction: column; gap: 8px; }
+
+.vip-bottom-nav a.vip-nav-extra, .vip-sidebar-brand, .vip-sidebar-foot { display: none; }
+
+@media (min-width: 1024px) {
+  :root {
+    /* InstallPrompt/OfflineIndicator's own centered-banner width, now that
+       .vip-app itself no longer caps at phone width below */
+    --vip-app-max: var(--vip-narrow-max);
+  }
+
+  .vip-app {
+    max-width: none;
+    margin: 0;
+    box-shadow: none;
+    padding-left: var(--vip-sidebar-w);
+  }
+
+  .vip-body {
+    padding: calc(var(--vip-header-h) + 28px) 32px 40px;
+  }
+
+  /* --- header spans the content area, right of the sidebar --- */
+  .vip-header {
+    left: var(--vip-sidebar-w);
+    transform: none;
+    width: calc(100% - var(--vip-sidebar-w));
+    max-width: none;
+    padding: 14px 32px;
+  }
+
+  /* --- BottomNav becomes the sidebar --- */
+  .vip-bottom-nav {
+    left: 0;
+    top: 0;
+    bottom: 0;
+    transform: none;
+    width: var(--vip-sidebar-w);
+    max-width: none;
+    height: 100vh;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0;
+    gap: 2px;
+    overflow-y: auto;
+  }
+  .vip-bottom-nav a {
+    flex: 0 0 auto;
+    min-height: 44px;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 0 22px;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .vip-bottom-nav a.vip-active {
+    background: var(--vip-shell-2);
+    box-shadow: inset 3px 0 0 var(--vip-teal);
+  }
+  .vip-bottom-nav a.vip-nav-extra { display: flex; }
+
+  .vip-sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 22px 16px;
+    border-bottom: 1px solid var(--vip-shell-line);
+    margin-bottom: 8px;
+  }
+  .vip-sidebar-mark {
+    width: 30px; height: 30px; flex: 0 0 30px;
+    background: var(--vip-teal); color: #fff;
+    display: grid; place-items: center;
+    font-family: var(--vip-display); font-weight: 700; font-size: 15px;
+  }
+  .vip-sidebar-word {
+    font-family: var(--vip-display); font-weight: 700; font-size: 13px;
+    letter-spacing: .12em; color: #fff;
+  }
+  .vip-sidebar-foot {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: auto;
+    padding: 16px 22px;
+    border-top: 1px solid var(--vip-shell-line);
+  }
+  .vip-sidebar-foot-name { font-size: 13px; font-weight: 600; color: var(--vip-on-shell); }
+  .vip-sidebar-foot-role { font-size: 11px; color: var(--vip-on-shell-dim); text-transform: capitalize; }
+
+  /* full-width, sidebar-unaware — a rare/transient banner, not worth the
+     positioning complexity of tracking the content area's left offset */
+  .vip-offline { max-width: none; }
+
+  .vip-kpi-grid { grid-template-columns: repeat(4, 1fr); }
+  .vip-tile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .vip-report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .vip-span-2 { grid-column: span 2; }
+
+  .vip-narrow { max-width: var(--vip-narrow-max); }
+  .vip-wide { max-width: var(--vip-wide-max); }
+
+  /* denser bar/matrix labels read better with the extra horizontal room */
+  .vip-bar-label { flex-basis: 150px; }
+  .vip-matrix-cell { flex-basis: 64px; }
+  .vip-board-col { flex-basis: 210px; }
+
+  /* --- Login: a centered card, not a full-height phone screen --- */
+  .vip-login {
+    min-height: auto;
+    margin: 48px auto;
+    border-radius: var(--vip-r-card);
+    box-shadow: 0 0 0 1px rgba(16, 22, 23, .06), 0 24px 48px rgba(16, 22, 23, .16);
+  }
+}

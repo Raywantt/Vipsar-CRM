@@ -31,7 +31,7 @@ function Settings() {
   }
 
   return (
-    <>
+    <div className="vip-narrow">
       <p className="vip-lede">Owner-only tools for managing the team and cleaning up data.</p>
 
       <AddEmployeeForm onCreated={upsertEmployee} />
@@ -43,7 +43,7 @@ function Settings() {
       )}
 
       <DeleteLeadSection />
-    </>
+    </div>
   )
 }
 

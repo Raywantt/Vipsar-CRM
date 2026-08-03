@@ -9,7 +9,7 @@ function Account() {
   const { employee, user, signOut } = useAuth()
 
   return (
-    <>
+    <div className="vip-narrow">
       <div className="vip-card">
         <div className="vip-facts" style={{ borderTop: 'none', paddingTop: 0 }}>
           <div>
@@ -34,7 +34,7 @@ function Account() {
       <button type="button" className="vip-btn vip-btn-secondary" onClick={signOut}>
         Log out
       </button>
-    </>
+    </div>
   )
 }
 

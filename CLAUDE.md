@@ -29,6 +29,10 @@ needs before touching anything:
   shared stylesheet (`src/vipsar-theme.css`), no per-page CSS anymore. See
   the Design system section further down before styling or restructuring
   any screen's markup.
+- Mobile-first is still the primary design intent, but a real desktop
+  layout now exists too (sidebar nav, wider dashboard grid) at ≥1024px —
+  see the "Desktop layout" bullet in the Design system section before
+  assuming a screen is phone-only or adding new mobile-only markup.
 - `parties.party_type`'s `'pmc'` value is in `Schema/tostem_crm_schema.sql`
   but **not yet run against the live DB** — confirm before assuming a `pmc`
   party can actually be saved (exact migration statement in Conventions).
@@ -118,13 +122,16 @@ writing new per-component CSS. `src/index.css` is kept as an intentionally
 empty seam (nothing left to own) rather than deleted, since `main.jsx`
 imports it before the theme file.
 
-* **App column** — `.vip-app` caps every screen at `--vip-app-max` (460px),
-  centered on a darker canvas (`--vip-canvas-2`). This is the fix for the
-  app stretching full-bleed at desktop widths, which was the design
-  handoff's top complaint about the first restyle pass. `.vip-header` and
-  `.vip-bottom-nav` are `position: fixed` but width-capped and centered the
-  same way, so they track the app column instead of the viewport at any
-  screen size — verified at both 390px and 1440px.
+* **App column** — below 1024px, `.vip-app` caps every screen at
+  `--vip-app-max` (460px), centered on a darker canvas (`--vip-canvas-2`).
+  This is the fix for the app stretching full-bleed at desktop widths, which
+  was the design handoff's top complaint about the first restyle pass.
+  `.vip-header` and `.vip-bottom-nav` are `position: fixed` but width-capped
+  and centered the same way, so they track the app column instead of the
+  viewport at any screen size below that breakpoint. At ≥1024px this cap is
+  deliberately dropped in favor of a sidebar + wide-content layout — see the
+  "Desktop layout" bullet further down; that's a considered addition, not a
+  reversal of this one.
 * **Fonts** — Archivo (headings/numbers), IBM Plex Sans (body), IBM Plex
   Mono (ids/timestamps) — self-hosted in `public/fonts/` rather than the
   Google Fonts CDN `@import` the handoff shipped with, so they're
@@ -179,6 +186,38 @@ imports it before the theme file.
   `/dashboard?tab=leads`) — `Dashboard.jsx` reads `?tab=` on mount via
   `useSearchParams()` to land on the Leads tab directly instead of always
   defaulting to Reports.
+* **Desktop layout (≥1024px)** — below 1024px this app is pixel-identical to
+  before; nothing here changes mobile. At ≥1024px, `BottomNav.jsx` becomes a
+  persistent left sidebar (`--vip-sidebar-w`, 232px): the same Home/Search/
+  Account/Settings links plus three `.vip-nav-extra` ones (New Lead, Activity
+  Log, Dashboard) that a phone only reaches via Home's tiles, a brand block
+  (`.vip-sidebar-brand`) up top, and the employee's name/role pinned at the
+  bottom (`.vip-sidebar-foot`) — all hidden on mobile via CSS, not conditional
+  JSX. `AppNav`'s header stretches to span the content area right of the
+  sidebar instead of staying phone-width-centered. This is a deliberate,
+  discussed loosening of section 2's "never full-bleed" rule, not a reversal
+  of it — that rule was about not stretching the phone-frame column, and
+  there's no phone frame at this breakpoint. Every page wraps its own
+  returned content in one of two width utilities (a plain wrapper div, not a
+  layout rewrite): `.vip-narrow` (700px, centered — forms, detail pages,
+  single lists: LeadDetail, LeadQuickCapture, ActivityLog, Settings, Account,
+  Search, and Dashboard's Leads/Parties tabs) or `.vip-wide` (1180px —
+  Home, and Dashboard's Reports tab). Inside `.vip-wide`, Dashboard's report
+  cards sit in `.vip-report-grid` (2 columns); a card wrapped in
+  `.vip-span-2` breaks out to the full row instead — used for cards whose
+  content needs the width (Closure forecast, Targets vs. actuals, the
+  Table/Board pipeline-by-stage card, Sales funnel, Why we lose), so the
+  four `LeadsByCategoryCard` instances are the only ones that actually pair
+  up half-width. Get this pairing wrong (an odd number of half-width cards
+  in a row) and CSS grid leaves a visible gap — checked via computed
+  `getBoundingClientRect()` during build, not just eyeballed. Home's tile
+  stack becomes `.vip-tile-grid` (2×2) and the KPI grid goes 4-up in one
+  row. `.vip-narrow`/`.vip-wide` are plain utility classes, not React
+  components — applying one is a one-line class-name change per page, not a
+  new abstraction. `--vip-app-max` is redefined to 700px inside the ≥1024px
+  block purely so `InstallPrompt`/`OfflineIndicator` (mounted outside
+  `.vip-app`, so they can't inherit its width) keep a sensible centered
+  width once the phone-frame cap they used to piggyback on goes away.
 
 ### Home (`src/pages/Home.jsx`) and Account (`src/pages/Account.jsx`)
 
