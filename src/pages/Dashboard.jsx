@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useHeaderOverride } from '../contexts/HeaderContext'
 import DateRangeSelector from '../components/DateRangeSelector'
 import ActivityCountsCard from '../components/ActivityCountsCard'
 import LeadsBySourceCard from '../components/LeadsBySourceCard'
 import ClosureForecastCard from '../components/ClosureForecastCard'
-import TargetsVsActualsCard from '../components/TargetsVsActualsCard'
+import TargetsVsActualsCard, { computeOrderValueActuals } from '../components/TargetsVsActualsCard'
 import LeadsListCard from '../components/LeadsListCard'
 import LeadsByCategoryCard from '../components/LeadsByCategoryCard'
 import LeadStageBoard from '../components/LeadStageBoard'
@@ -15,6 +17,8 @@ import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
+import { stageChipClass } from '../lib/statusColors'
+import { formatCurrencyCompact } from '../lib/format'
 import {
   fetchActivityCounts,
   fetchNewLeadsBySource,
@@ -25,7 +29,6 @@ import {
 } from '../lib/dashboardQueries'
 import { fetchEmployees, fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
 import { fetchAllParties, fetchPartyEmployeeLinks } from '../lib/partyQueries'
-import './Dashboard.css'
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10)
@@ -55,11 +58,17 @@ const TABS = [
   { value: 'parties', label: 'Parties' },
 ]
 
+const RANGE_LABELS = { week: 'this week', month: 'this month', custom: 'this range' }
+
 function Dashboard() {
   const { employee } = useAuth()
+  const { setOverride } = useHeaderOverride()
   const isOwner = employee?.role === 'owner'
+  const [searchParams] = useSearchParams()
 
-  const [activeTab, setActiveTab] = useState('reports')
+  // Home's "All leads" tile links here with ?tab=leads so it can jump
+  // straight to the leads list rather than always landing on Reports.
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'leads' ? 'leads' : 'reports')
   const [stageView, setStageView] = useState('table')
 
   const [preset, setPreset] = useState('week')
@@ -81,6 +90,11 @@ function Dashboard() {
   const [error, setError] = useState(null)
 
   const range = rangeForPreset(preset, customStart, customEnd)
+
+  useEffect(() => {
+    setOverride({ sub: `${isOwner ? 'Team performance' : 'Your performance'} · ${RANGE_LABELS[preset]}` })
+    return () => setOverride(null)
+  }, [isOwner, preset, setOverride])
 
   useEffect(() => {
     const range = rangeForPreset(preset, customStart, customEnd)
@@ -215,24 +229,32 @@ function Dashboard() {
     }
   }, [])
 
-  return (
-    <main className="dashboard">
-      <div className="dashboard-header">
-        <h1>Dashboard</h1>
-        <p>
-          Welcome, {employee?.name}. {isOwner ? 'Team performance overview.' : 'Your performance overview.'}
-        </p>
-      </div>
+  const openPipelineValue = breakdownLeads
+    .filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
+    .reduce((s, l) => s + Number(l.order_value ?? 0), 0)
+  const wonThisRange = range ? computeOrderValueActuals(wonStageHistory, range, false) : 0
 
-      <div className="dashboard-tabs">
+  const stageRows = LEAD_STAGE_OPTIONS.map((stage) => {
+    const stageLeads = breakdownLeads.filter((l) => (l.current_stage ?? 'new') === stage)
+    return {
+      stage,
+      count: stageLeads.length,
+      value: stageLeads.reduce((s, l) => s + Number(l.order_value ?? 0), 0),
+    }
+  })
+  const maxStageCount = Math.max(1, ...stageRows.map((r) => r.count))
+
+  return (
+    <>
+      <div className="vip-seg">
         {TABS.map((tab) => (
           <button
             key={tab.value}
             type="button"
-            className={activeTab === tab.value ? 'dashboard-tab-btn dashboard-tab-btn-active' : 'dashboard-tab-btn'}
+            className={activeTab === tab.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
             onClick={() => setActiveTab(tab.value)}
           >
-            {tab.value === 'leads' ? (isOwner ? 'All Leads' : 'My Leads') : tab.label}
+            {tab.value === 'leads' ? (isOwner ? 'All leads' : 'My leads') : tab.label}
           </button>
         ))}
       </div>
@@ -248,14 +270,39 @@ function Dashboard() {
             onCustomEndChange={setCustomEnd}
           />
 
-          {error && <p className="dashboard-error">{error}</p>}
-          {!range && <p className="dashboard-empty">Pick both a start and end date.</p>}
+          {error && <p className="vip-error">{error}</p>}
+          {!range && <p className="vip-empty">Pick both a start and end date.</p>}
+
+          {!loading && (
+            <div className="vip-kpi-grid">
+              <div className="vip-kpi">
+                <div className="vip-kpi-label">Activities</div>
+                <div className="vip-kpi-value">{activities.length}</div>
+                <div className="vip-kpi-note">{RANGE_LABELS[preset]}</div>
+              </div>
+              <div className="vip-kpi">
+                <div className="vip-kpi-label">New leads</div>
+                <div className="vip-kpi-value">{leads.length}</div>
+                <div className="vip-kpi-note">{RANGE_LABELS[preset]}</div>
+              </div>
+              <div className="vip-kpi">
+                <div className="vip-kpi-label">Pipeline</div>
+                <div className="vip-kpi-value">{formatCurrencyCompact(openPipelineValue)}</div>
+                <div className="vip-kpi-note">open, not won/lost</div>
+              </div>
+              <div className="vip-kpi">
+                <div className="vip-kpi-label">Won</div>
+                <div className="vip-kpi-value">{formatCurrencyCompact(wonThisRange)}</div>
+                <div className="vip-kpi-note">{RANGE_LABELS[preset]}</div>
+              </div>
+            </div>
+          )}
 
           {loading ? (
-            <p className="dashboard-empty">Loading…</p>
+            <p className="vip-empty">Loading…</p>
           ) : (
             <>
-              <ActivityCountsCard activities={activities} showByEmployee={isOwner} />
+              <ActivityCountsCard activities={activities} showByEmployee={isOwner} rangeLabel={RANGE_LABELS[preset]} />
               <LeadsBySourceCard leads={leads} showByEmployee={isOwner} />
             </>
           )}
@@ -273,59 +320,68 @@ function Dashboard() {
             onTargetCreated={(row) => setTargets((prev) => [...prev, row])}
           />
 
-          <div className="dashboard-board-toggle">
-            <button
-              type="button"
-              className={stageView === 'table' ? 'dashboard-range-btn dashboard-range-btn-active' : 'dashboard-range-btn'}
-              onClick={() => setStageView('table')}
-            >
-              Table
-            </button>
-            <button
-              type="button"
-              className={stageView === 'board' ? 'dashboard-range-btn dashboard-range-btn-active' : 'dashboard-range-btn'}
-              onClick={() => setStageView('board')}
-            >
-              Board
-            </button>
+          <div className="vip-card">
+            <div className="vip-card-head">
+              <div className="vip-card-title">Pipeline by stage</div>
+              <div className="vip-seg-mini">
+                <button
+                  type="button"
+                  className={stageView === 'table' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                  onClick={() => setStageView('table')}
+                >
+                  Table
+                </button>
+                <button
+                  type="button"
+                  className={stageView === 'board' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                  onClick={() => setStageView('board')}
+                >
+                  Board
+                </button>
+              </div>
+            </div>
+            {stageView === 'table' ? (
+              breakdownLeads.length === 0 ? (
+                <p className="vip-empty">No leads found.</p>
+              ) : (
+                stageRows.map(({ stage, count, value }) => (
+                  <div key={stage} className="vip-bar-row">
+                    <div style={{ flex: '0 0 92px' }}>
+                      <span className={stageChipClass(stage)}>{stage}</span>
+                    </div>
+                    <div className="vip-bar-count" style={{ flex: '0 0 20px' }}>
+                      {count}
+                    </div>
+                    <div className="vip-bar-track vip-thick">
+                      <div className="vip-bar-fill" style={{ width: `${(count / maxStageCount) * 100}%` }} />
+                    </div>
+                    <div className="vip-bar-value">{formatCurrencyCompact(value)}</div>
+                  </div>
+                ))
+              )
+            ) : (
+              <LeadStageBoard leads={breakdownLeads} isOwner={isOwner} />
+            )}
           </div>
 
-          {stageView === 'table' ? (
-            <LeadsByCategoryCard
-              title="Leads by stage"
-              categoryHeading="Stage"
-              leads={breakdownLeads}
-              getCategory={stageCategory}
-              categoryOrder={LEAD_STAGE_OPTIONS}
-            />
-          ) : (
-            <section className="dashboard-card">
-              <h2>Leads by stage</h2>
-              <LeadStageBoard leads={breakdownLeads} isOwner={isOwner} />
-            </section>
-          )}
-
           <LeadsByCategoryCard
-            title="Leads by area"
-            categoryHeading="Area"
+            title="Leads by stage (detail)"
             leads={breakdownLeads}
-            getCategory={areaCategory}
+            getCategory={stageCategory}
+            categoryOrder={LEAD_STAGE_OPTIONS}
+            colorStages
           />
+
+          <LeadsByCategoryCard title="Leads by area" leads={breakdownLeads} getCategory={areaCategory} />
 
           <LeadsByCategoryCard
             title="Leads by site stage"
-            categoryHeading="Site stage"
             leads={breakdownLeads}
             getCategory={siteStageCategory}
             categoryOrder={[...SITE_STAGE_OPTIONS, 'Not set', 'No site']}
           />
 
-          <LeadsByCategoryCard
-            title="Leads by product"
-            categoryHeading="Product"
-            leads={breakdownLeads}
-            getCategory={productCategory}
-          />
+          <LeadsByCategoryCard title="Leads by product" leads={breakdownLeads} getCategory={productCategory} />
 
           <SalesFunnelCard stageHistory={funnelStageHistory} leads={breakdownLeads} />
 
@@ -336,7 +392,7 @@ function Dashboard() {
       {activeTab === 'leads' && <LeadsListCard isOwner={isOwner} employees={employees} />}
 
       {activeTab === 'parties' && <PartiesCard parties={parties} employeeLinks={partyEmployeeLinks} />}
-    </main>
+    </>
   )
 }
 

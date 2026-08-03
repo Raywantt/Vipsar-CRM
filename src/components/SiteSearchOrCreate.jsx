@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
-import './SearchOrCreate.css'
 
 const MIN_QUERY_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 350
@@ -151,14 +150,17 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
   if (selected) {
     const area = areas.find((a) => String(a.id) === String(selected.area_id))
     return (
-      <div className="search-or-create search-or-create-selected">
-        <span>
-          <strong>{selected.locality || '(no locality)'}</strong>
-          {selected.house_no ? `, ${selected.house_no}` : ''}
-          {area ? ` — ${area.area_name}` : ''}
-          {selected.site_stage ? ` (${selected.site_stage})` : ''}
-        </span>
-        <button type="button" onClick={changeSelection}>
+      <div className="vip-row">
+        <div className="vip-row-main">
+          <div className="vip-row-title">
+            {selected.locality || '(no locality)'}
+            {selected.house_no ? `, ${selected.house_no}` : ''}
+          </div>
+          <div className="vip-row-sub">
+            {[area?.area_name, selected.site_stage].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+        <button type="button" className="vip-btn-link" onClick={changeSelection}>
           Change
         </button>
       </div>
@@ -166,10 +168,10 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
   }
 
   return (
-    <div className="search-or-create">
-      <label className="search-or-create-field">
+    <div className="vip-stack-s">
+      <label className="vip-field">
         Area
-        <select value={areaId} onChange={(e) => setAreaId(e.target.value)}>
+        <select className="vip-select" value={areaId} onChange={(e) => setAreaId(e.target.value)}>
           <option value="">— Select area —</option>
           {areas.map((area) => (
             <option key={area.id} value={area.id}>
@@ -180,52 +182,57 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
         </select>
       </label>
 
-      {areasError && <p className="search-or-create-error">{areasError}</p>}
-      {!areaId && <p className="search-or-create-prompt">Select an area to search nearby sites.</p>}
+      {areasError && <p className="vip-error">{areasError}</p>}
+      {!areaId && <p className="vip-form-note">Select an area to search nearby sites.</p>}
 
       {areaId && (
         <>
-          <label className="search-or-create-field">
-            Locality
-            <input
-              value={locality}
-              onChange={(e) => setLocality(e.target.value)}
-              placeholder="Colony, street, landmark…"
-            />
-          </label>
-          <label className="search-or-create-field">
-            House / Plot No.
-            <input value={houseNo} onChange={(e) => setHouseNo(e.target.value)} />
-          </label>
+          <div className="vip-grid-2">
+            <label className="vip-field">
+              Locality
+              <input
+                className="vip-input"
+                value={locality}
+                onChange={(e) => setLocality(e.target.value)}
+                placeholder="Colony, street, landmark…"
+              />
+            </label>
+            <label className="vip-field">
+              House / Plot No.
+              <input className="vip-input" value={houseNo} onChange={(e) => setHouseNo(e.target.value)} />
+            </label>
+          </div>
 
-          {searching && <p className="search-or-create-hint">Searching…</p>}
-          {searchError && <p className="search-or-create-error">{searchError}</p>}
+          {searching && <p className="vip-form-note">Searching…</p>}
+          {searchError && <p className="vip-error">{searchError}</p>}
 
           {!creating && results.length > 0 && (
-            <ul className="search-or-create-results">
+            <div className="vip-card">
               {results.map((site) => (
-                <li key={site.id}>
-                  <button type="button" onClick={() => selectExisting(site)}>
-                    <strong>{site.locality || '(no locality)'}</strong>
-                    {site.house_no ? `, ${site.house_no}` : ''}
-                    {site.site_stage ? ` — ${site.site_stage}` : ''}
-                  </button>
-                </li>
+                <div key={site.id} className="vip-row vip-clickable" onClick={() => selectExisting(site)}>
+                  <div className="vip-row-main">
+                    <div className="vip-row-title">
+                      {site.locality || '(no locality)'}
+                      {site.house_no ? `, ${site.house_no}` : ''}
+                    </div>
+                    {site.site_stage && <div className="vip-row-sub">{site.site_stage}</div>}
+                  </div>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
 
           {!creating && canCreate && (
-            <button type="button" className="search-or-create-add-new" onClick={startCreate}>
+            <button type="button" className="vip-btn-link" onClick={startCreate}>
               + Add new site
             </button>
           )}
 
           {creating && (
-            <>
-              <label className="search-or-create-field">
+            <div className="vip-form vip-section-split">
+              <label className="vip-field">
                 Site stage
-                <select value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
+                <select className="vip-select" value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
                   <option value="">— Not specified —</option>
                   {SITE_STAGE_OPTIONS.map((stage) => (
                     <option key={stage} value={stage}>
@@ -236,23 +243,28 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
                 </select>
               </label>
               {siteStage === 'other' && (
-                <label className="search-or-create-field">
+                <label className="vip-field">
                   Describe stage
-                  <input value={customStage} onChange={(e) => setCustomStage(e.target.value)} />
+                  <input className="vip-input" value={customStage} onChange={(e) => setCustomStage(e.target.value)} />
                 </label>
               )}
 
-              {createError && <p className="search-or-create-error">{createError}</p>}
+              {createError && <p className="vip-error">{createError}</p>}
 
-              <div className="search-or-create-actions">
-                <button type="button" onClick={handleCreate} disabled={saving}>
+              <div className="vip-btn-row">
+                <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={handleCreate} disabled={saving}>
                   {saving ? 'Saving…' : 'Create'}
                 </button>
-                <button type="button" onClick={() => setCreating(false)} disabled={saving}>
+                <button
+                  type="button"
+                  className="vip-btn vip-btn-secondary vip-btn-sm"
+                  onClick={() => setCreating(false)}
+                  disabled={saving}
+                >
                   Cancel
                 </button>
               </div>
-            </>
+            </div>
           )}
         </>
       )}

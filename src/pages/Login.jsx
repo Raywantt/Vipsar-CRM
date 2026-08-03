@@ -26,35 +26,43 @@ function Login() {
   }
 
   return (
-    <main className="login">
-      <form className="login-form" onSubmit={handleSubmit}>
-        <h1>VIPSAR</h1>
-        <label className="login-field">
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            autoComplete="username"
-            required
-          />
-        </label>
-        <label className="login-field">
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </label>
-        {error && <p className="login-error">{error}</p>}
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Signing in…' : 'Sign in'}
+    <div className="vip-login">
+      <div className="vip-login-brand">
+        <div className="vip-login-mark">V</div>
+        <div className="vip-login-word">VIPSAR</div>
+      </div>
+
+      <div className="vip-login-pitch">
+        <div className="vip-login-h">Every plot, every quote, one record.</div>
+        <div className="vip-login-sub">Sign in to log visits and leads from site.</div>
+      </div>
+
+      <form className="vip-login-form" onSubmit={handleSubmit}>
+        <input
+          className="vip-input"
+          type="email"
+          placeholder="you@vipsar.in"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          autoComplete="username"
+          required
+        />
+        <input
+          className="vip-input"
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          autoComplete="current-password"
+          required
+        />
+        {error && <p className="vip-error">{error}</p>}
+        <button className="vip-btn" type="submit" disabled={submitting}>
+          {submitting ? 'Signing in…' : 'Log in'}
         </button>
+        <div className="vip-login-note">Accounts are created by the owner. No self signup.</div>
       </form>
-    </main>
+    </div>
   )
 }
 

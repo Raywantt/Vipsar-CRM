@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { METRIC_OPTIONS } from '../lib/targetMetrics'
 import { periodForPreset } from '../lib/targetPeriods'
 import { insertTarget } from '../lib/targetQueries'
-import '../pages/Dashboard.css'
 
 const PERIOD_TYPES = [
   { value: 'week', label: 'Week' },
@@ -52,62 +51,56 @@ function SetTargetForm({ employees, onCreated }) {
   }
 
   return (
-    <div className="dashboard-set-target">
-      <h3>Set a target</h3>
+    <div className="vip-section-split vip-stack-s">
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>Set a target</div>
 
-      <label className="dashboard-field">
-        Employee
-        <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-          <option value="">— Select —</option>
-          {employees.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <select className="vip-select" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+        <option value="">— Select —</option>
+        {employees.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.name}
+          </option>
+        ))}
+      </select>
 
-      <label className="dashboard-field">
-        Period type
-        <select value={periodType} onChange={(e) => handlePeriodTypeChange(e.target.value)}>
+      <div className="vip-grid-2">
+        <select className="vip-select" value={periodType} onChange={(e) => handlePeriodTypeChange(e.target.value)}>
           {PERIOD_TYPES.map((p) => (
             <option key={p.value} value={p.value}>
               {p.label}
             </option>
           ))}
         </select>
-      </label>
-
-      <label className="dashboard-field">
-        Period value
         <input
+          className="vip-input"
           value={periodValue}
           onChange={(e) => setPeriodValue(e.target.value)}
           placeholder={periodType === 'week' ? 'e.g. 2026-W28' : 'e.g. 2026-07'}
         />
-      </label>
+      </div>
 
-      <label className="dashboard-field">
-        Metric
-        <select value={metricName} onChange={(e) => setMetricName(e.target.value)}>
+      <div className="vip-grid-2" style={{ gridTemplateColumns: '1fr 90px' }}>
+        <select className="vip-select" value={metricName} onChange={(e) => setMetricName(e.target.value)}>
           {METRIC_OPTIONS.map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}
             </option>
           ))}
         </select>
-      </label>
+        <input
+          className="vip-input"
+          type="number"
+          step="0.01"
+          value={targetValue}
+          onChange={(e) => setTargetValue(e.target.value)}
+        />
+      </div>
 
-      <label className="dashboard-field">
-        Target value
-        <input type="number" step="0.01" value={targetValue} onChange={(e) => setTargetValue(e.target.value)} />
-      </label>
+      {error && <p className="vip-error">{error}</p>}
+      {savedAt && !error && <p className="vip-success">Saved.</p>}
 
-      {error && <p className="dashboard-error">{error}</p>}
-      {savedAt && !error && <p className="dashboard-success">Saved.</p>}
-
-      <button type="button" onClick={handleSubmit} disabled={!canSubmit}>
-        {saving ? 'Saving…' : 'Save target'}
+      <button type="button" className="vip-btn vip-btn-dark vip-btn-sm" onClick={handleSubmit} disabled={!canSubmit}>
+        {saving ? 'Saving…' : 'Set'}
       </button>
     </div>
   )

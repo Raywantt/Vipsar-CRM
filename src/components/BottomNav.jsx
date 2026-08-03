@@ -1,16 +1,15 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import './BottomNav.css'
 
 function tabClass({ isActive }) {
-  return isActive ? 'bottom-nav-tab bottom-nav-tab-active' : 'bottom-nav-tab'
+  return isActive ? 'vip-active' : undefined
 }
 
 function BottomNav() {
   const { employee } = useAuth()
 
   return (
-    <nav className="bottom-nav">
+    <nav className="vip-bottom-nav">
       <NavLink to="/" end className={tabClass}>
         Home
       </NavLink>

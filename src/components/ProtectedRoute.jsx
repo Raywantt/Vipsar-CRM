@@ -2,7 +2,6 @@ import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import AppNav from './AppNav'
 import BottomNav from './BottomNav'
-import './ProtectedRoute.css'
 
 function ProtectedRoute({ allowedRoles, children }) {
   const { session, employee, employeeError, loading } = useAuth()
@@ -33,11 +32,11 @@ function ProtectedRoute({ allowedRoles, children }) {
   }
 
   return (
-    <>
+    <div className="vip-app">
       <AppNav />
-      <div className="app-body">{children}</div>
+      <div className="vip-body">{children}</div>
       <BottomNav />
-    </>
+    </div>
   )
 }
 

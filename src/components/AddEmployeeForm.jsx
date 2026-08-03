@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { insertEmployee } from '../lib/employeeQueries'
-import '../pages/Settings.css'
 
 const ROLE_OPTIONS = [
   { value: 'sales_executive', label: 'Sales Executive' },
@@ -18,7 +17,8 @@ function AddEmployeeForm({ onCreated }) {
 
   const canSubmit = Boolean(name.trim()) && !saving
 
-  async function handleSubmit() {
+  async function handleSubmit(event) {
+    event.preventDefault()
     setSaving(true)
     setError(null)
     setSavedAt(null)
@@ -46,9 +46,9 @@ function AddEmployeeForm({ onCreated }) {
   }
 
   return (
-    <section className="settings-card">
-      <h2>Add employee</h2>
-      <p className="settings-hint">
+    <div className="vip-card">
+      <div className="vip-card-title">Add employee</div>
+      <p className="vip-form-note">
         This creates the CRM-side employee record only. The login itself still has to be created manually in the
         Supabase dashboard first (Authentication → Users → Add user — turn on "Auto Confirm User" so the login
         works right away without an email link), then paste that user's UID below. This can't be automated from
@@ -57,43 +57,47 @@ function AddEmployeeForm({ onCreated }) {
         Leaving Auth User ID blank creates a record with no login attached, linkable later in Supabase directly.
       </p>
 
-      <label className="settings-field">
-        Name
-        <input value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
+      <form className="vip-form" onSubmit={handleSubmit}>
+        <label className="vip-field">
+          Name
+          <input className="vip-input" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
 
-      <label className="settings-field">
-        Mobile
-        <input value={mobile} onChange={(e) => setMobile(e.target.value)} />
-      </label>
+        <div className="vip-grid-2">
+          <label className="vip-field">
+            Mobile
+            <input className="vip-input" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          </label>
+          <label className="vip-field">
+            Role
+            <select className="vip-select" value={role} onChange={(e) => setRole(e.target.value)}>
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
-      <label className="settings-field">
-        Role
-        <select value={role} onChange={(e) => setRole(e.target.value)}>
-          {ROLE_OPTIONS.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-      </label>
+        <label className="vip-field">
+          Auth User ID (UUID)
+          <input
+            className="vip-input"
+            value={authUserId}
+            onChange={(e) => setAuthUserId(e.target.value)}
+            placeholder="from Supabase Auth → Users"
+          />
+        </label>
 
-      <label className="settings-field">
-        Auth User ID (UUID)
-        <input
-          value={authUserId}
-          onChange={(e) => setAuthUserId(e.target.value)}
-          placeholder="from Supabase Auth → Users"
-        />
-      </label>
+        {error && <p className="vip-error">{error}</p>}
+        {savedAt && !error && <p className="vip-success">Employee added.</p>}
 
-      {error && <p className="settings-error">{error}</p>}
-      {savedAt && !error && <p className="settings-success">Employee added.</p>}
-
-      <button type="button" onClick={handleSubmit} disabled={!canSubmit}>
-        {saving ? 'Saving…' : 'Add employee'}
-      </button>
-    </section>
+        <button className="vip-btn vip-btn-secondary vip-btn-sm" type="submit" disabled={!canSubmit}>
+          {saving ? 'Saving…' : 'Add employee'}
+        </button>
+      </form>
+    </div>
   )
 }
 

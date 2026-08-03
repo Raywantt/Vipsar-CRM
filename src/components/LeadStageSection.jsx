@@ -3,21 +3,14 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { LOSS_REASON_OPTIONS } from '../lib/lossReasonOptions'
-import './SearchOrCreate.css'
+import { stageFg } from '../lib/statusColors'
 
 function LeadStageSection({ lead, onStageChanged }) {
   const { employee } = useAuth()
 
-  const [selectedStage, setSelectedStage] = useState(
-    lead.current_stage && LEAD_STAGE_OPTIONS.includes(lead.current_stage)
-      ? lead.current_stage
-      : lead.current_stage
-        ? 'other'
-        : ''
-  )
-  const [customStage, setCustomStage] = useState(
-    lead.current_stage && !LEAD_STAGE_OPTIONS.includes(lead.current_stage) ? lead.current_stage : ''
-  )
+  const currentIsCustom = Boolean(lead.current_stage) && !LEAD_STAGE_OPTIONS.includes(lead.current_stage)
+  const [customOpen, setCustomOpen] = useState(currentIsCustom)
+  const [customStage, setCustomStage] = useState(currentIsCustom ? lead.current_stage : '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [savedAt, setSavedAt] = useState(null)
@@ -29,10 +22,9 @@ function LeadStageSection({ lead, onStageChanged }) {
   const [lossError, setLossError] = useState(null)
   const [lossSaved, setLossSaved] = useState(false)
 
-  const resolvedStage = selectedStage === 'other' ? customStage.trim() : selectedStage
-  const canUpdate = Boolean(resolvedStage) && resolvedStage !== lead.current_stage && !saving
+  async function applyStage(resolvedStage) {
+    if (!resolvedStage || resolvedStage === lead.current_stage || saving) return
 
-  async function handleUpdateStage() {
     setSaving(true)
     setError(null)
     setSavedAt(null)
@@ -100,65 +92,92 @@ function LeadStageSection({ lead, onStageChanged }) {
   }
 
   return (
-    <section className="lead-section">
-      <h2>Stage</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">Stage</div>
 
-      <label className="search-or-create-field">
-        Current stage
-        <select value={selectedStage} onChange={(e) => setSelectedStage(e.target.value)}>
-          <option value="">— Select stage —</option>
-          {LEAD_STAGE_OPTIONS.map((stage) => (
-            <option key={stage} value={stage}>
-              {stage}
-            </option>
-          ))}
-          <option value="other">Other…</option>
-        </select>
-      </label>
-      {selectedStage === 'other' && (
-        <label className="search-or-create-field">
-          Describe stage
-          <input value={customStage} onChange={(e) => setCustomStage(e.target.value)} />
-        </label>
-      )}
+      <div className="vip-chip-wrap">
+        {LEAD_STAGE_OPTIONS.map((stage) => (
+          <button
+            key={stage}
+            type="button"
+            className="vip-chip-select"
+            style={{ color: stageFg(stage) }}
+            aria-pressed={stage === lead.current_stage}
+            disabled={saving}
+            onClick={() => {
+              setCustomOpen(false)
+              applyStage(stage)
+            }}
+          >
+            {stage}
+          </button>
+        ))}
+        <button
+          type="button"
+          className="vip-chip-select"
+          style={{ color: 'var(--vip-muted)' }}
+          aria-pressed={currentIsCustom}
+          onClick={() => setCustomOpen((v) => !v)}
+        >
+          Other…
+        </button>
+      </div>
 
-      {error && <p className="search-or-create-error">{error}</p>}
-      {savedAt && !error && <p className="lead-section-success">Stage updated.</p>}
-
-      <button type="button" onClick={handleUpdateStage} disabled={!canUpdate}>
-        {saving ? 'Updating…' : 'Update stage'}
-      </button>
-
-      {lossPromptOpen && (
-        <div className="lead-section-suggestion">
-          <p>
-            This lead is marked <strong>lost</strong> — why?
-          </p>
-          <label className="search-or-create-field">
-            Reason
-            <select value={lossReason} onChange={(e) => setLossReason(e.target.value)}>
-              <option value="">— Select reason —</option>
-              {LOSS_REASON_OPTIONS.map((reason) => (
-                <option key={reason} value={reason}>
-                  {reason}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="search-or-create-field">
-            Competitor name (optional)
-            <input value={lossCompetitor} onChange={(e) => setLossCompetitor(e.target.value)} />
-          </label>
-          {lossError && <p className="search-or-create-error">{lossError}</p>}
-          <div className="search-or-create-actions">
-            <button type="button" onClick={handleSaveLossReason} disabled={!lossReason || savingLoss}>
-              {savingLoss ? 'Saving…' : 'Save reason'}
-            </button>
-          </div>
+      {customOpen && (
+        <div className="vip-section-split" style={{ display: 'flex', gap: 8 }}>
+          <input
+            className="vip-input"
+            value={customStage}
+            onChange={(e) => setCustomStage(e.target.value)}
+            placeholder="Describe stage"
+          />
+          <button
+            type="button"
+            className="vip-btn vip-btn-secondary vip-btn-sm"
+            style={{ width: 'auto', flex: '0 0 auto' }}
+            disabled={!customStage.trim() || saving}
+            onClick={() => applyStage(customStage.trim())}
+          >
+            Set
+          </button>
         </div>
       )}
-      {lossSaved && <p className="lead-section-success">Loss reason saved.</p>}
-    </section>
+
+      {error && <p className="vip-error">{error}</p>}
+      {savedAt && !error && <p className="vip-success">Stage updated.</p>}
+
+      {lossPromptOpen && (
+        <div className="vip-section-split vip-stack-s">
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--vip-body)' }}>
+            This lead is marked <strong>lost</strong> — why?
+          </p>
+          <select className="vip-select" value={lossReason} onChange={(e) => setLossReason(e.target.value)}>
+            <option value="">— Select reason —</option>
+            {LOSS_REASON_OPTIONS.map((reason) => (
+              <option key={reason} value={reason}>
+                {reason}
+              </option>
+            ))}
+          </select>
+          <input
+            className="vip-input"
+            value={lossCompetitor}
+            onChange={(e) => setLossCompetitor(e.target.value)}
+            placeholder="Competitor name (optional)"
+          />
+          {lossError && <p className="vip-error">{lossError}</p>}
+          <button
+            type="button"
+            className="vip-btn vip-btn-sm"
+            onClick={handleSaveLossReason}
+            disabled={!lossReason || savingLoss}
+          >
+            {savingLoss ? 'Saving…' : 'Save reason'}
+          </button>
+        </div>
+      )}
+      {lossSaved && <p className="vip-success">Loss reason saved.</p>}
+    </div>
   )
 }
 

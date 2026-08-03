@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import { useHeaderOverride } from '../contexts/HeaderContext'
 import SiteDetailsSection from '../components/SiteDetailsSection'
 import ClientDetailsSection from '../components/ClientDetailsSection'
 import AdditionalContactsSection from '../components/AdditionalContactsSection'
 import SalesProgressSection from '../components/SalesProgressSection'
 import LeadStageSection from '../components/LeadStageSection'
 import LeadActivityTimeline from '../components/LeadActivityTimeline'
-import './LeadDetail.css'
+import { stageChipClass } from '../lib/statusColors'
+import { formatCurrency } from '../lib/format'
 
 const SOURCE_LABELS = {
   scanning: 'Scanning',
@@ -23,6 +25,7 @@ const EMPTY = { data: null, error: null }
 function LeadDetail() {
   const { id } = useParams()
   const { employee } = useAuth()
+  const { setOverride } = useHeaderOverride()
 
   const [lead, setLead] = useState(null)
   const [party, setParty] = useState(null)
@@ -119,6 +122,14 @@ function LeadDetail() {
     }
   }, [id])
 
+  const leadTitle = party?.name ?? site?.nickname ?? site?.locality ?? (lead ? `Lead #${lead.id}` : '')
+
+  useEffect(() => {
+    if (!lead) return
+    setOverride({ sub: leadTitle })
+    return () => setOverride(null)
+  }, [lead, leadTitle, setOverride])
+
   if (loading) return <p style={{ padding: 24 }}>Loading…</p>
   if (loadError) return <p style={{ padding: 24, color: 'crimson' }}>{loadError}</p>
   if (!lead) return <p style={{ padding: 24 }}>Lead not found.</p>
@@ -128,42 +139,78 @@ function LeadDetail() {
   // instead of full edit forms that would just fail silently on save.
   const canEdit = employee?.role === 'owner' || lead.owner_employee_id === employee?.id
 
-  return (
-    <main className="lead-detail">
-      <Link to="/leads/new" className="lead-detail-back">
-        ← New lead
-      </Link>
-      <h1>Lead #{lead.id}</h1>
+  const leadSubtitle = site
+    ? [site.nickname || site.locality, site.house_no].filter(Boolean).join(', ')
+    : [party?.party_type, party?.mobile].filter(Boolean).join(' · ')
+  const stage = lead.current_stage ?? 'new'
 
-      <ul className="lead-detail-summary">
-        <li>Source: {SOURCE_LABELS[lead.source_type] ?? lead.source_type}</li>
-        <li>Stage: {lead.current_stage ?? 'new'}</li>
-        <li>Owner: {lead.employees?.name ?? 'Unassigned'}</li>
-        {party && (
-          <li>
-            Party: {party.name} ({party.party_type})
-            {party.mobile ? ` — ${party.mobile}` : ''}
-          </li>
+  return (
+    <>
+      <div className="vip-card">
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+            <div className="vip-mono">LEAD-{String(lead.id).padStart(4, '0')}</div>
+            <div style={{ fontFamily: 'var(--vip-display)', fontWeight: 600, fontSize: 20, color: 'var(--vip-ink)' }}>
+              {leadTitle}
+            </div>
+            {leadSubtitle && <div className="vip-row-sub">{leadSubtitle}</div>}
+          </div>
+          <span className={stageChipClass(stage)}>{stage}</span>
+        </div>
+
+        <div className="vip-facts">
+          <div>
+            <div className="vip-fact-label">Order value</div>
+            <div className="vip-fact-value vip-num">{formatCurrency(lead.order_value)}</div>
+          </div>
+          <div>
+            <div className="vip-fact-label">Owner</div>
+            <div className="vip-fact-value">{lead.employees?.name ?? 'Unassigned'}</div>
+          </div>
+          <div>
+            <div className="vip-fact-label">Source</div>
+            <div className="vip-fact-value">{SOURCE_LABELS[lead.source_type] ?? lead.source_type}</div>
+          </div>
+          <div>
+            <div className="vip-fact-label">Created</div>
+            <div className="vip-fact-value">{new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="vip-btn-row">
+        <a className="vip-btn vip-btn-sm" href="/activity">
+          Log activity
+        </a>
+        {party?.mobile ? (
+          <a className="vip-btn vip-btn-secondary vip-btn-sm" href={`tel:${party.mobile}`}>
+            Call client
+          </a>
+        ) : (
+          <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" disabled>
+            Call client
+          </button>
         )}
-        {site && (
-          <li>
-            Site: {site.nickname || site.locality || `#${site.id}`}
-            {site.house_no ? `, ${site.house_no}` : ''}
-          </li>
-        )}
-        <li>Created: {new Date(lead.created_at).toLocaleDateString()}</li>
-      </ul>
+      </div>
+
+      {canEdit && (
+        <LeadStageSection
+          lead={lead}
+          onStageChanged={(updatedLead, historyRow) => {
+            setLead((prev) => ({ ...prev, ...updatedLead }))
+            if (historyRow) setStageHistory((prev) => [...prev, historyRow])
+          }}
+        />
+      )}
 
       <LeadActivityTimeline activities={activities} stageHistory={stageHistory} />
 
       {canEdit ? (
         <>
-          <LeadStageSection
+          <SalesProgressSection
             lead={lead}
-            onStageChanged={(updatedLead, historyRow) => {
-              setLead((prev) => ({ ...prev, ...updatedLead }))
-              if (historyRow) setStageHistory((prev) => [...prev, historyRow])
-            }}
+            products={products}
+            onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
           />
 
           {site && <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />}
@@ -178,20 +225,14 @@ function LeadDetail() {
               onContactAdded={(contact) => setSiteContacts((prev) => [...prev, contact])}
             />
           )}
-
-          <SalesProgressSection
-            lead={lead}
-            products={products}
-            onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
-          />
         </>
       ) : (
-        <p className="lead-detail-readonly">
+        <p className="vip-empty">
           This lead belongs to {lead.employees?.name ?? 'another sales exec'} — you can view the summary above, but
           only they or an owner can make changes to it.
         </p>
       )}
-    </main>
+    </>
   )
 }
 

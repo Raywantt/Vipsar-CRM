@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import '../pages/Dashboard.css'
 
 const PARTY_TYPE_LABELS = {
   client: 'Client',
@@ -9,6 +8,12 @@ const PARTY_TYPE_LABELS = {
   other: 'Other',
   pmc: 'PMC',
 }
+
+// The segmented control only has room for a handful of pills before it
+// stops reading as a segmented control — these three are the common case;
+// anything else discovered in the data (builder/other/pmc/...) goes in the
+// overflow select instead of forcing every party_type into the row.
+const PRIMARY_TYPES = ['client', 'architect', 'firm']
 
 function buildEmployeeMap(links) {
   const map = new Map()
@@ -30,6 +35,8 @@ function PartiesCard({ parties, employeeLinks }) {
 
   const employeeMap = useMemo(() => buildEmployeeMap(employeeLinks), [employeeLinks])
   const partyTypes = useMemo(() => [...new Set(parties.map((p) => p.party_type))].sort(), [parties])
+  const primaryTypes = PRIMARY_TYPES.filter((t) => partyTypes.includes(t))
+  const overflowTypes = partyTypes.filter((t) => !PRIMARY_TYPES.includes(t))
 
   const term = search.trim().toLowerCase()
   const filtered = parties.filter((p) => {
@@ -39,58 +46,71 @@ function PartiesCard({ parties, employeeLinks }) {
   })
 
   return (
-    <section className="dashboard-card">
-      <h2>Parties</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">Parties</div>
 
-      <div className="dashboard-filter-row">
-        <label className="dashboard-field">
-          Type
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-            <option value="">— All types —</option>
-            {partyTypes.map((t) => (
+      <input
+        className="vip-input"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by name…"
+      />
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="vip-seg vip-seg-outline" style={{ flex: 1 }}>
+          <button
+            type="button"
+            className={typeFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+            onClick={() => setTypeFilter('')}
+          >
+            All
+          </button>
+          {primaryTypes.map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={typeFilter === t ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+              onClick={() => setTypeFilter(t)}
+            >
+              {PARTY_TYPE_LABELS[t] ?? t}
+            </button>
+          ))}
+        </div>
+        {overflowTypes.length > 0 && (
+          <select
+            className="vip-select"
+            style={{ flex: '0 0 110px', minHeight: 40 }}
+            value={overflowTypes.includes(typeFilter) ? typeFilter : ''}
+            onChange={(e) => setTypeFilter(e.target.value)}
+          >
+            <option value="">More…</option>
+            {overflowTypes.map((t) => (
               <option key={t} value={t}>
                 {PARTY_TYPE_LABELS[t] ?? t}
               </option>
             ))}
           </select>
-        </label>
-        <label className="dashboard-field">
-          Search by name
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…" />
-        </label>
+        )}
       </div>
 
       {filtered.length === 0 ? (
-        <p className="dashboard-empty">No parties found.</p>
+        <p className="vip-empty">No parties found.</p>
       ) : (
-        <div className="dashboard-table-wrap">
-          <table className="dashboard-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Mobile</th>
-                <th>City</th>
-                <th>Firm</th>
-                <th>Worked with</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => (
-                <tr key={p.id}>
-                  <td>{p.name}</td>
-                  <td>{PARTY_TYPE_LABELS[p.party_type] ?? p.party_type}</td>
-                  <td>{p.mobile || '—'}</td>
-                  <td>{p.city || '—'}</td>
-                  <td>{p.firm_name || '—'}</td>
-                  <td>{employeeMap.has(p.id) ? [...employeeMap.get(p.id)].join(', ') : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        filtered.map((p) => (
+          <div key={p.id} className="vip-row">
+            <div className="vip-row-main">
+              <div className="vip-row-title">{p.name}</div>
+              <div className="vip-row-sub">
+                {[PARTY_TYPE_LABELS[p.party_type] ?? p.party_type, p.mobile].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+            <div className="vip-row-meta">
+              {employeeMap.has(p.id) ? [...employeeMap.get(p.id)].join(', ') : '—'}
+            </div>
+          </div>
+        ))
       )}
-    </section>
+    </div>
   )
 }
 

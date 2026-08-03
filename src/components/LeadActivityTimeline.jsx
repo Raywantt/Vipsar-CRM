@@ -1,14 +1,7 @@
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
-import '../pages/LeadDetail.css'
 
 function formatWhen(value) {
-  return new Date(value).toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+  return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 }
 
 function LeadActivityTimeline({ activities, stageHistory }) {
@@ -16,14 +9,14 @@ function LeadActivityTimeline({ activities, stageHistory }) {
     ...stageHistory.map((h) => ({
       key: `stage-${h.id}`,
       at: h.changed_at,
-      kind: 'stage',
+      kind: 'Stage',
       title: `Stage changed to ${h.stage}`,
       by: h.employees?.name ?? 'Unknown',
     })),
     ...activities.map((a) => ({
       key: `activity-${a.id}`,
       at: a.created_at,
-      kind: 'activity',
+      kind: 'Activity',
       title: ACTIVITY_LABELS[a.activity_type] ?? a.activity_type,
       by: a.employees?.name ?? 'Unknown',
       notes: a.notes,
@@ -32,26 +25,30 @@ function LeadActivityTimeline({ activities, stageHistory }) {
   ].sort((x, y) => new Date(y.at) - new Date(x.at))
 
   return (
-    <section className="lead-section">
-      <h2>Activity</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">Activity</div>
 
       {entries.length === 0 ? (
-        <p className="lead-section-subhead">No activity yet.</p>
+        <p className="vip-empty">No activity yet.</p>
       ) : (
-        <ul className="lead-timeline">
-          {entries.map((entry) => (
-            <li key={entry.key} className={`lead-timeline-entry lead-timeline-entry-${entry.kind}`}>
-              <p className="lead-timeline-title">{entry.title}</p>
-              <p className="lead-timeline-meta">
-                {entry.by} — {formatWhen(entry.at)}
-                {entry.accompaniedBy ? ` — with ${entry.accompaniedBy}` : ''}
-              </p>
-              {entry.notes && <p className="lead-timeline-notes">{entry.notes}</p>}
-            </li>
-          ))}
-        </ul>
+        entries.map((entry) => (
+          <div key={entry.key} className="vip-timeline-item">
+            <div className="vip-timeline-when">{formatWhen(entry.at)}</div>
+            <div className="vip-timeline-main">
+              <div className="vip-timeline-head">
+                <div className="vip-timeline-title">{entry.title}</div>
+                <div className="vip-tag">{entry.kind}</div>
+              </div>
+              {entry.notes && <div className="vip-timeline-detail">{entry.notes}</div>}
+              <div className="vip-timeline-by">
+                {entry.by}
+                {entry.accompaniedBy ? ` · with ${entry.accompaniedBy}` : ''}
+              </div>
+            </div>
+          </div>
+        ))
       )}
-    </section>
+    </div>
   )
 }
 

@@ -1,5 +1,4 @@
 import { useAuth } from '../contexts/AuthContext'
-import './Account.css'
 
 const ROLE_LABELS = {
   owner: 'Owner',
@@ -10,34 +9,32 @@ function Account() {
   const { employee, user, signOut } = useAuth()
 
   return (
-    <main className="account">
-      <div className="account-header">
-        <h1>Account</h1>
+    <>
+      <div className="vip-card">
+        <div className="vip-facts" style={{ borderTop: 'none', paddingTop: 0 }}>
+          <div>
+            <div className="vip-fact-label">Name</div>
+            <div className="vip-fact-value">{employee?.name}</div>
+          </div>
+          <div>
+            <div className="vip-fact-label">Role</div>
+            <div className="vip-fact-value">{ROLE_LABELS[employee?.role] ?? employee?.role}</div>
+          </div>
+          <div>
+            <div className="vip-fact-label">Mobile</div>
+            <div className="vip-fact-value">{employee?.mobile || 'Not set'}</div>
+          </div>
+          <div>
+            <div className="vip-fact-label">Email</div>
+            <div className="vip-fact-value">{user?.email}</div>
+          </div>
+        </div>
       </div>
 
-      <section className="account-card">
-        <div className="account-row">
-          <span className="account-label">Name</span>
-          <span>{employee?.name}</span>
-        </div>
-        <div className="account-row">
-          <span className="account-label">Role</span>
-          <span>{ROLE_LABELS[employee?.role] ?? employee?.role}</span>
-        </div>
-        <div className="account-row">
-          <span className="account-label">Mobile</span>
-          <span>{employee?.mobile || 'Not set'}</span>
-        </div>
-        <div className="account-row">
-          <span className="account-label">Email</span>
-          <span>{user?.email}</span>
-        </div>
-      </section>
-
-      <button type="button" className="account-logout" onClick={signOut}>
+      <button type="button" className="vip-btn vip-btn-secondary" onClick={signOut}>
         Log out
       </button>
-    </main>
+    </>
   )
 }
 

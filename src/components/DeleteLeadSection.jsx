@@ -1,11 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchLeadsList, deleteLead } from '../lib/dashboardQueries'
-import { formatCurrency } from '../lib/format'
-import '../pages/Settings.css'
-
-function formatDate(value) {
-  return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-}
+import { formatCurrencyCompact } from '../lib/format'
 
 function DeleteLeadSection() {
   const [leads, setLeads] = useState([])
@@ -59,78 +54,75 @@ function DeleteLeadSection() {
   }
 
   return (
-    <section className="settings-card">
-      <h2>Delete a lead</h2>
-      <p className="settings-hint">
+    <div className="vip-card">
+      <div className="vip-card-title">Delete a lead</div>
+      <p className="vip-form-note">
         Permanent — there's no undo. Only for genuine mistakes (duplicates, test data), not for walking back a lead
         that just went cold.
       </p>
 
-      <label className="settings-field">
-        Search
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by party, site, or owner…"
-        />
-      </label>
+      <input
+        className="vip-input"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by party, site, or owner…"
+      />
 
-      {error && <p className="settings-error">{error}</p>}
+      {error && <p className="vip-error">{error}</p>}
 
       {loading ? (
-        <p className="settings-hint">Loading…</p>
+        <p className="vip-empty">Loading…</p>
       ) : filtered.length === 0 ? (
-        <p className="settings-hint">No leads found.</p>
+        <p className="vip-empty">No leads found.</p>
       ) : (
-        <div className="settings-table-wrap">
-          <table className="settings-table">
-            <thead>
-              <tr>
-                <th>Party</th>
-                <th>Site</th>
-                <th>Owner</th>
-                <th>Order value</th>
-                <th>Created</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((lead) => (
-                <tr key={lead.id}>
-                  <td>{lead.parties?.name ?? '(no party)'}</td>
-                  <td>{lead.sites?.nickname || lead.sites?.locality || '—'}</td>
-                  <td>{lead.employees?.name ?? 'Unassigned'}</td>
-                  <td>{lead.order_value ? formatCurrency(lead.order_value) : '—'}</td>
-                  <td>{formatDate(lead.created_at)}</td>
-                  <td>
-                    {confirmingId === lead.id ? (
-                      <span className="settings-confirm">
-                        Delete #{lead.id}?
-                        <button
-                          type="button"
-                          className="settings-danger"
-                          onClick={() => handleDelete(lead.id)}
-                          disabled={deleting}
-                        >
-                          {deleting ? 'Deleting…' : 'Confirm'}
-                        </button>
-                        <button type="button" onClick={() => setConfirmingId(null)} disabled={deleting}>
-                          Cancel
-                        </button>
-                      </span>
-                    ) : (
-                      <button type="button" className="settings-danger" onClick={() => setConfirmingId(lead.id)}>
-                        Delete
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        filtered.map((lead) => (
+          <div key={lead.id} className="vip-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+              <div className="vip-row-main">
+                <div className="vip-row-title">{lead.parties?.name ?? '(no party)'}</div>
+                <div className="vip-row-sub">
+                  {[lead.sites?.nickname || lead.sites?.locality, lead.employees?.name].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+              <div className="vip-row-value">{formatCurrencyCompact(lead.order_value)}</div>
+            </div>
+
+            {confirmingId === lead.id ? (
+              <div className="vip-btn-row" style={{ alignItems: 'center' }}>
+                <span style={{ fontSize: 13, color: 'var(--vip-body)', flex: 1 }}>Delete #{lead.id}?</span>
+                <button
+                  type="button"
+                  className="vip-btn vip-btn-danger vip-btn-sm"
+                  style={{ width: 'auto', flex: '0 0 auto' }}
+                  onClick={() => handleDelete(lead.id)}
+                  disabled={deleting}
+                >
+                  {deleting ? 'Deleting…' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  className="vip-btn vip-btn-secondary vip-btn-sm"
+                  style={{ width: 'auto', flex: '0 0 auto' }}
+                  onClick={() => setConfirmingId(null)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="vip-btn vip-btn-danger vip-btn-sm"
+                style={{ width: 'auto', alignSelf: 'flex-start' }}
+                onClick={() => setConfirmingId(lead.id)}
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        ))
       )}
-    </section>
+    </div>
   )
 }
 

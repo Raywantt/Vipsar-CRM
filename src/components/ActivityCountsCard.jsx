@@ -1,15 +1,15 @@
 import { ACTIVITY_TYPES } from '../lib/activityTypes'
-import '../pages/Dashboard.css'
 
 function emptyCounts() {
   return Object.fromEntries(ACTIVITY_TYPES.map((t) => [t.value, 0]))
 }
 
-function ActivityCountsCard({ activities, showByEmployee }) {
+function ActivityCountsCard({ activities, showByEmployee, rangeLabel }) {
   const totals = emptyCounts()
   activities.forEach((a) => {
     totals[a.activity_type] += 1
   })
+  const maxCount = Math.max(1, ...Object.values(totals))
 
   let byEmployee = []
   if (showByEmployee) {
@@ -25,68 +25,49 @@ function ActivityCountsCard({ activities, showByEmployee }) {
   }
 
   return (
-    <section className="dashboard-card">
-      <h2>Activity counts</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">Activity · {rangeLabel}</div>
 
       {activities.length === 0 ? (
-        <p className="dashboard-empty">No activity logged in this range.</p>
+        <p className="vip-empty">No activity logged in this range.</p>
       ) : (
         <>
-          <div className="dashboard-table-wrap">
-            <table className="dashboard-table">
-              <thead>
-                <tr>
-                  <th>Type</th>
-                  <th>Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ACTIVITY_TYPES.map((t) => (
-                  <tr key={t.value}>
-                    <td>{t.label}</td>
-                    <td>{totals[t.value]}</td>
-                  </tr>
-                ))}
-                <tr className="dashboard-table-total">
-                  <td>Total</td>
-                  <td>{activities.length}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {showByEmployee && (
-            <div className="dashboard-table-wrap">
-              <table className="dashboard-table">
-                <thead>
-                  <tr>
-                    <th>Employee</th>
-                    {ACTIVITY_TYPES.map((t) => (
-                      <th key={t.value}>{t.label}</th>
-                    ))}
-                    <th>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {byEmployee.map((e) => {
-                    const total = Object.values(e.counts).reduce((s, n) => s + n, 0)
-                    return (
-                      <tr key={e.id}>
-                        <td>{e.name}</td>
-                        {ACTIVITY_TYPES.map((t) => (
-                          <td key={t.value}>{e.counts[t.value]}</td>
-                        ))}
-                        <td>{total}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+          {ACTIVITY_TYPES.map((t) => (
+            <div key={t.value} className="vip-bar-row">
+              <div className="vip-bar-label">{t.label}</div>
+              <div className="vip-bar-track">
+                <div className="vip-bar-fill" style={{ width: `${(totals[t.value] / maxCount) * 100}%` }} />
+              </div>
+              <div className="vip-bar-count">{totals[t.value]}</div>
             </div>
+          ))}
+
+          {showByEmployee && byEmployee.length > 0 && (
+            <>
+              <div className="vip-card-title">Activity by exec</div>
+              <div className="vip-matrix-head">
+                <div style={{ flex: 1 }}>Type</div>
+                {byEmployee.map((e) => (
+                  <div key={e.id} className="vip-matrix-cell">
+                    {e.name}
+                  </div>
+                ))}
+              </div>
+              {ACTIVITY_TYPES.map((t) => (
+                <div key={t.value} className="vip-matrix-row">
+                  <div className="vip-matrix-label">{t.label}</div>
+                  {byEmployee.map((e) => (
+                    <div key={e.id} className="vip-matrix-cell">
+                      {e.counts[t.value]}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </>
           )}
         </>
       )}
-    </section>
+    </div>
   )
 }
 

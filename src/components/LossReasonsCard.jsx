@@ -1,5 +1,4 @@
 import { LOSS_REASON_OPTIONS } from '../lib/lossReasonOptions'
-import '../pages/Dashboard.css'
 
 // loss_reasons SELECT is owner-only (RLS) — this card only ever gets
 // rendered for the owner (see Dashboard.jsx's isOwner gate), so there's no
@@ -18,54 +17,49 @@ function LossReasonsCard({ lossReasons }) {
     }
   })
 
+  const maxCount = Math.max(1, ...reasonCounts.values())
   const competitorRows = [...competitorCounts.entries()].sort((a, b) => b[1] - a[1])
 
   return (
-    <section className="dashboard-card">
-      <h2>Why we lose</h2>
+    <div className="vip-card">
+      <div className="vip-card-head">
+        <div className="vip-card-title">Why we lose</div>
+        <div className="vip-card-note">Owner only</div>
+      </div>
 
       {lossReasons.length === 0 ? (
-        <p className="dashboard-empty">No lost leads recorded yet.</p>
+        <p className="vip-empty">No lost leads recorded yet.</p>
       ) : (
         <>
-          <div className="dashboard-table-wrap">
-            <table className="dashboard-table">
-              <thead>
-                <tr>
-                  <th>Reason</th>
-                  <th>Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...reasonCounts.entries()].map(([reason, count]) => (
-                  <tr key={reason}>
-                    <td>{reason}</td>
-                    <td>{count}</td>
-                  </tr>
-                ))}
-                <tr className="dashboard-table-total">
-                  <td>Total</td>
-                  <td>{lossReasons.length}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          {[...reasonCounts.entries()].map(([reason, count]) => (
+            <div key={reason} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: 12, color: 'var(--vip-body)' }}>{reason}</div>
+                <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
+                  {count}
+                </div>
+              </div>
+              <div className="vip-bar-track">
+                <div className="vip-bar-fill vip-loss" style={{ width: `${(count / maxCount) * 100}%` }} />
+              </div>
+            </div>
+          ))}
 
           {competitorRows.length > 0 && (
             <div>
-              <p className="dashboard-subhead">Named competitors</p>
-              <ul className="dashboard-competitor-list">
+              <div className="vip-fact-label">Named competitors</div>
+              <div className="vip-chip-wrap" style={{ marginTop: 7 }}>
                 {competitorRows.map(([name, count]) => (
-                  <li key={name}>
+                  <span key={name} className="vip-chip vip-chip-new">
                     {name} — {count}
-                  </li>
+                  </span>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
         </>
       )}
-    </section>
+    </div>
   )
 }
 

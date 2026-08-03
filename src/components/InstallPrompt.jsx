@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import './InstallPrompt.css'
 
 const ANDROID_DISMISS_KEY = 'installPromptAndroidDismissed'
 const IOS_DISMISS_KEY = 'installPromptIosDismissed'
@@ -75,23 +74,26 @@ function InstallPrompt() {
     setShowIosHint(false)
   }
 
+  // Mounted globally (outside .vip-app, so it also covers /login — see
+  // CLAUDE.md) rather than as Home's last child, so it needs its own
+  // app-column width constraint instead of inheriting one from a parent.
+  function installColumn(content) {
+    return <div style={{ maxWidth: 'var(--vip-app-max)', margin: '0 auto', padding: '10px 16px 0' }}>{content}</div>
+  }
+
   if (showAndroidBanner) {
-    return (
-      <div className="install-prompt">
-        <span className="install-prompt-text">
-          Install VIPSAR CRM for quick, one-tap access.
-        </span>
-        <div className="install-prompt-actions">
-          <button type="button" className="install-prompt-install" onClick={handleInstallClick}>
-            Install
+    return installColumn(
+      <div className="vip-install">
+        <div>
+          <div className="vip-install-title">Add to home screen</div>
+          <div className="vip-install-sub">Works with no signal.</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flex: '0 0 auto' }}>
+          <button type="button" className="vip-btn-link" onClick={dismissAndroid}>
+            Later
           </button>
-          <button
-            type="button"
-            className="install-prompt-dismiss"
-            onClick={dismissAndroid}
-            aria-label="Dismiss install prompt"
-          >
-            ×
+          <button type="button" className="vip-btn" onClick={handleInstallClick}>
+            Install
           </button>
         </div>
       </div>
@@ -99,18 +101,14 @@ function InstallPrompt() {
   }
 
   if (showIosHint) {
-    return (
-      <div className="install-prompt">
-        <span className="install-prompt-text">
-          On iPhone? Tap Share, then "Add to Home Screen".
-        </span>
-        <button
-          type="button"
-          className="install-prompt-dismiss"
-          onClick={dismissIos}
-          aria-label="Dismiss install hint"
-        >
-          ×
+    return installColumn(
+      <div className="vip-install">
+        <div>
+          <div className="vip-install-title">Add to home screen</div>
+          <div className="vip-install-sub">Tap Share, then "Add to Home Screen".</div>
+        </div>
+        <button type="button" className="vip-btn-link" onClick={dismissIos}>
+          Later
         </button>
       </div>
     )

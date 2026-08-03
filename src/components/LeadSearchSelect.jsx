@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import './SearchOrCreate.css'
 
 function leadLabel(lead) {
   const who = lead.parties?.name ?? 'No client'
@@ -64,9 +63,11 @@ function LeadSearchSelect({ onSelect }) {
 
   if (selected) {
     return (
-      <div className="search-or-create search-or-create-selected">
-        <span>Lead: {leadLabel(selected)}</span>
-        <button type="button" onClick={changeSelection}>
+      <div className="vip-row">
+        <div className="vip-row-main">
+          <div className="vip-row-title">{leadLabel(selected)}</div>
+        </div>
+        <button type="button" className="vip-btn-link" onClick={changeSelection}>
           Change
         </button>
       </div>
@@ -74,10 +75,11 @@ function LeadSearchSelect({ onSelect }) {
   }
 
   return (
-    <div className="search-or-create">
-      <label className="search-or-create-field">
+    <div className="vip-stack-s">
+      <label className="vip-field">
         Lead
         <input
+          className="vip-input"
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -85,22 +87,20 @@ function LeadSearchSelect({ onSelect }) {
         />
       </label>
 
-      {loading && <p className="search-or-create-hint">Loading your leads…</p>}
-      {error && <p className="search-or-create-error">{error}</p>}
-      {!loading && !error && leads.length === 0 && (
-        <p className="search-or-create-hint">You don't have any leads yet.</p>
-      )}
+      {loading && <p className="vip-form-note">Loading your leads…</p>}
+      {error && <p className="vip-error">{error}</p>}
+      {!loading && !error && leads.length === 0 && <p className="vip-form-note">You don't have any leads yet.</p>}
 
       {filtered.length > 0 && (
-        <ul className="search-or-create-results">
+        <div className="vip-card">
           {filtered.map((lead) => (
-            <li key={lead.id}>
-              <button type="button" onClick={() => selectExisting(lead)}>
-                {leadLabel(lead)}
-              </button>
-            </li>
+            <div key={lead.id} className="vip-row vip-clickable" onClick={() => selectExisting(lead)}>
+              <div className="vip-row-main">
+                <div className="vip-row-title">{leadLabel(lead)}</div>
+              </div>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   )

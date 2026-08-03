@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
-import './SearchOrCreate.css'
 
 function SiteDetailsSection({ site, areas, onSaved }) {
   const [areaId, setAreaId] = useState(site.area_id ?? '')
@@ -50,12 +49,12 @@ function SiteDetailsSection({ site, areas, onSaved }) {
   }
 
   return (
-    <section className="lead-section">
-      <h2>Site details</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">Site details</div>
 
-      <label className="search-or-create-field">
+      <label className="vip-field">
         Area
-        <select value={areaId} onChange={(e) => setAreaId(e.target.value)}>
+        <select className="vip-select" value={areaId} onChange={(e) => setAreaId(e.target.value)}>
           <option value="">— Not specified —</option>
           {areas.map((area) => (
             <option key={area.id} value={area.id}>
@@ -66,24 +65,25 @@ function SiteDetailsSection({ site, areas, onSaved }) {
         </select>
       </label>
 
-      <label className="search-or-create-field">
-        Locality
-        <input value={locality} onChange={(e) => setLocality(e.target.value)} />
-      </label>
+      <div className="vip-grid-2">
+        <label className="vip-field">
+          Locality
+          <input className="vip-input" value={locality} onChange={(e) => setLocality(e.target.value)} />
+        </label>
+        <label className="vip-field">
+          House / Plot No.
+          <input className="vip-input" value={houseNo} onChange={(e) => setHouseNo(e.target.value)} />
+        </label>
+      </div>
 
-      <label className="search-or-create-field">
-        House / Plot No.
-        <input value={houseNo} onChange={(e) => setHouseNo(e.target.value)} />
-      </label>
-
-      <label className="search-or-create-field">
+      <label className="vip-field">
         Pincode
-        <input value={pincode} onChange={(e) => setPincode(e.target.value)} />
+        <input className="vip-input" value={pincode} onChange={(e) => setPincode(e.target.value)} />
       </label>
 
-      <label className="search-or-create-field">
+      <label className="vip-field">
         Site stage
-        <select value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
+        <select className="vip-select" value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
           <option value="">— Not specified —</option>
           {SITE_STAGE_OPTIONS.map((stage) => (
             <option key={stage} value={stage}>
@@ -94,19 +94,19 @@ function SiteDetailsSection({ site, areas, onSaved }) {
         </select>
       </label>
       {siteStage === 'other' && (
-        <label className="search-or-create-field">
+        <label className="vip-field">
           Describe stage
-          <input value={customStage} onChange={(e) => setCustomStage(e.target.value)} />
+          <input className="vip-input" value={customStage} onChange={(e) => setCustomStage(e.target.value)} />
         </label>
       )}
 
-      {error && <p className="search-or-create-error">{error}</p>}
-      {savedAt && !error && <p className="lead-section-success">Saved.</p>}
+      {error && <p className="vip-error">{error}</p>}
+      {savedAt && !error && <p className="vip-success">Saved.</p>}
 
-      <button type="button" onClick={handleSave} disabled={saving}>
+      <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={handleSave} disabled={saving}>
         {saving ? 'Saving…' : 'Save site details'}
       </button>
-    </section>
+    </div>
   )
 }
 

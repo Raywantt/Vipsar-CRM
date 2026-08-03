@@ -1,5 +1,4 @@
 import { SOURCE_TYPE_OPTIONS } from '../lib/sourceTypeOptions'
-import '../pages/Dashboard.css'
 
 function emptyCounts(sourceOptions) {
   return Object.fromEntries(sourceOptions.map((t) => [t.value, 0]))
@@ -20,6 +19,7 @@ function LeadsBySourceCard({ leads, showByEmployee }) {
   visibleLeads.forEach((l) => {
     totals[l.source_type] += 1
   })
+  const maxCount = Math.max(1, ...Object.values(totals))
 
   let byEmployee = []
   if (showByEmployee) {
@@ -35,68 +35,56 @@ function LeadsBySourceCard({ leads, showByEmployee }) {
   }
 
   return (
-    <section className="dashboard-card">
-      <h2>New leads by source</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">New leads by source</div>
 
       {visibleLeads.length === 0 ? (
-        <p className="dashboard-empty">No new leads in this range.</p>
+        <p className="vip-empty">No new leads in this range.</p>
       ) : (
         <>
-          <div className="dashboard-table-wrap">
-            <table className="dashboard-table">
-              <thead>
-                <tr>
-                  <th>Source</th>
-                  <th>Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sourceOptions.map((t) => (
-                  <tr key={t.value}>
-                    <td>{t.label}</td>
-                    <td>{totals[t.value]}</td>
-                  </tr>
-                ))}
-                <tr className="dashboard-table-total">
-                  <td>Total</td>
-                  <td>{visibleLeads.length}</td>
-                </tr>
-              </tbody>
-            </table>
+          {sourceOptions.map((t) => (
+            <div key={t.value} className="vip-bar-row">
+              <div className="vip-bar-label">{t.label}</div>
+              <div className="vip-bar-track">
+                <div
+                  className="vip-bar-fill vip-navy"
+                  style={{ width: `${(totals[t.value] / maxCount) * 100}%` }}
+                />
+              </div>
+              <div className="vip-bar-count">{totals[t.value]}</div>
+            </div>
+          ))}
+          <div className="vip-total">
+            <div>Total</div>
+            <div>{visibleLeads.length}</div>
           </div>
 
-          {showByEmployee && (
-            <div className="dashboard-table-wrap">
-              <table className="dashboard-table">
-                <thead>
-                  <tr>
-                    <th>Employee</th>
-                    {sourceOptions.map((t) => (
-                      <th key={t.value}>{t.label}</th>
-                    ))}
-                    <th>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {byEmployee.map((e) => {
-                    const total = Object.values(e.counts).reduce((s, n) => s + n, 0)
-                    return (
-                      <tr key={e.id}>
-                        <td>{e.name}</td>
-                        {sourceOptions.map((t) => (
-                          <td key={t.value}>{e.counts[t.value]}</td>
-                        ))}
-                        <td>{total}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+          {showByEmployee && byEmployee.length > 0 && (
+            <>
+              <div className="vip-card-title">By exec</div>
+              <div className="vip-matrix-head">
+                <div style={{ flex: 1 }}>Source</div>
+                {byEmployee.map((e) => (
+                  <div key={e.id} className="vip-matrix-cell">
+                    {e.name}
+                  </div>
+                ))}
+              </div>
+              {sourceOptions.map((t) => (
+                <div key={t.value} className="vip-matrix-row">
+                  <div className="vip-matrix-label">{t.label}</div>
+                  {byEmployee.map((e) => (
+                    <div key={e.id} className="vip-matrix-cell">
+                      {e.counts[t.value]}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </>
           )}
         </>
       )}
-    </section>
+    </div>
   )
 }
 

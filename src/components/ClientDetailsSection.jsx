@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import './SearchOrCreate.css'
 
 function ClientDetailsSection({ party, onSaved }) {
   const [mobile, setMobile] = useState(party.mobile ?? '')
@@ -38,34 +37,35 @@ function ClientDetailsSection({ party, onSaved }) {
   }
 
   return (
-    <section className="lead-section">
-      <h2>Client details</h2>
-      <p className="lead-section-subhead">
+    <div className="vip-card">
+      <div className="vip-card-title">Client details</div>
+      <p className="vip-row-sub">
         {party.name} ({party.party_type})
       </p>
 
-      <label className="search-or-create-field">
-        Mobile
-        <input value={mobile} onChange={(e) => setMobile(e.target.value)} />
-      </label>
+      <div className="vip-grid-2">
+        <label className="vip-field">
+          Mobile
+          <input className="vip-input" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+        </label>
+        <label className="vip-field">
+          City
+          <input className="vip-input" value={city} onChange={(e) => setCity(e.target.value)} />
+        </label>
+      </div>
 
-      <label className="search-or-create-field">
+      <label className="vip-field">
         Address
-        <input value={address} onChange={(e) => setAddress(e.target.value)} />
+        <input className="vip-input" value={address} onChange={(e) => setAddress(e.target.value)} />
       </label>
 
-      <label className="search-or-create-field">
-        City
-        <input value={city} onChange={(e) => setCity(e.target.value)} />
-      </label>
+      {error && <p className="vip-error">{error}</p>}
+      {savedAt && !error && <p className="vip-success">Saved.</p>}
 
-      {error && <p className="search-or-create-error">{error}</p>}
-      {savedAt && !error && <p className="lead-section-success">Saved.</p>}
-
-      <button type="button" onClick={handleSave} disabled={saving}>
+      <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={handleSave} disabled={saving}>
         {saving ? 'Saving…' : 'Save client details'}
       </button>
-    </section>
+    </div>
   )
 }
 

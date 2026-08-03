@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import PartySearchOrCreate from './PartySearchOrCreate'
-import './SearchOrCreate.css'
 
 const ROLE_OPTIONS = ['owner', 'architect', 'builder', 'project_manager', 'site_staff', 'other']
 
@@ -82,45 +81,55 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
   }
 
   return (
-    <section className="lead-section">
-      <h2>Additional contacts</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">Contacts</div>
 
-      {siteContacts.length > 0 && (
-        <ul className="lead-detail-contacts">
-          {siteContacts.map((c) => (
-            <li key={c.id}>
-              {c.parties?.name} ({c.parties?.party_type}) — {c.role}
-            </li>
-          ))}
-        </ul>
-      )}
+      {siteContacts.map((c) => (
+        <div key={c.id} className="vip-row">
+          <div className="vip-row-main">
+            <div className="vip-row-title">{c.parties?.name}</div>
+            <div className="vip-row-sub">
+              {[c.parties?.party_type, c.role].filter(Boolean).join(' · ')}
+            </div>
+          </div>
+        </div>
+      ))}
 
       {showSuggestion && (
-        <div className="lead-section-suggestion">
-          <p>
+        <div className="vip-section-split vip-stack-s">
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--vip-body)' }}>
             <strong>{otherParty.name}</strong> was mentioned during intake — add as a site contact?
           </p>
-          <label className="search-or-create-field">
-            Role
-            <select value={suggestionRole} onChange={(e) => setSuggestionRole(e.target.value)}>
-              <option value="">— Select role —</option>
-              {ROLE_OPTIONS.map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="search-or-create-field">
-            Firm name (optional)
-            <input value={suggestionFirm} onChange={(e) => setSuggestionFirm(e.target.value)} />
-          </label>
-          {suggestionError && <p className="search-or-create-error">{suggestionError}</p>}
-          <div className="search-or-create-actions">
-            <button type="button" onClick={handleAddSuggestion} disabled={!suggestionRole || savingSuggestion}>
+          <select className="vip-select" value={suggestionRole} onChange={(e) => setSuggestionRole(e.target.value)}>
+            <option value="">— Select role —</option>
+            {ROLE_OPTIONS.map((role) => (
+              <option key={role} value={role}>
+                {role}
+              </option>
+            ))}
+          </select>
+          <input
+            className="vip-input"
+            value={suggestionFirm}
+            onChange={(e) => setSuggestionFirm(e.target.value)}
+            placeholder="Firm name (optional)"
+          />
+          {suggestionError && <p className="vip-error">{suggestionError}</p>}
+          <div className="vip-btn-row">
+            <button
+              type="button"
+              className="vip-btn vip-btn-secondary vip-btn-sm"
+              onClick={handleAddSuggestion}
+              disabled={!suggestionRole || savingSuggestion}
+            >
               {savingSuggestion ? 'Adding…' : 'Add'}
             </button>
-            <button type="button" onClick={() => setSuggestionDismissed(true)} disabled={savingSuggestion}>
+            <button
+              type="button"
+              className="vip-btn vip-btn-secondary vip-btn-sm"
+              onClick={() => setSuggestionDismissed(true)}
+              disabled={savingSuggestion}
+            >
               Dismiss
             </button>
           </div>
@@ -128,43 +137,48 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
       )}
 
       {addingNew ? (
-        <div className="lead-section-suggestion">
+        <div className="vip-section-split vip-stack-s">
           <PartySearchOrCreate label="Contact" defaultPartyType="other" onSelect={setNewContactParty} />
-          <label className="search-or-create-field">
-            Role
-            <select value={newContactRole} onChange={(e) => setNewContactRole(e.target.value)}>
-              <option value="">— Select role —</option>
-              {ROLE_OPTIONS.map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="search-or-create-field">
-            Firm name (optional)
-            <input value={newContactFirm} onChange={(e) => setNewContactFirm(e.target.value)} />
-          </label>
-          {newError && <p className="search-or-create-error">{newError}</p>}
-          <div className="search-or-create-actions">
+          <select className="vip-select" value={newContactRole} onChange={(e) => setNewContactRole(e.target.value)}>
+            <option value="">— Select role —</option>
+            {ROLE_OPTIONS.map((role) => (
+              <option key={role} value={role}>
+                {role}
+              </option>
+            ))}
+          </select>
+          <input
+            className="vip-input"
+            value={newContactFirm}
+            onChange={(e) => setNewContactFirm(e.target.value)}
+            placeholder="Firm name (optional)"
+          />
+          {newError && <p className="vip-error">{newError}</p>}
+          <div className="vip-btn-row">
             <button
               type="button"
+              className="vip-btn vip-btn-secondary vip-btn-sm"
               onClick={handleAddNew}
               disabled={!newContactParty || !newContactRole || savingNew}
             >
               {savingNew ? 'Adding…' : 'Add contact'}
             </button>
-            <button type="button" onClick={() => setAddingNew(false)} disabled={savingNew}>
+            <button
+              type="button"
+              className="vip-btn vip-btn-secondary vip-btn-sm"
+              onClick={() => setAddingNew(false)}
+              disabled={savingNew}
+            >
               Cancel
             </button>
           </div>
         </div>
       ) : (
-        <button type="button" className="search-or-create-add-new" onClick={() => setAddingNew(true)}>
-          + Add another contact
+        <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={() => setAddingNew(true)}>
+          + Add contact
         </button>
       )}
-    </section>
+    </div>
   )
 }
 

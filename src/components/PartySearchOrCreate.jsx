@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
-import './SearchOrCreate.css'
 
 const DEFAULT_PARTY_TYPES = ['client', 'architect', 'builder', 'firm', 'other', 'pmc']
 const MIN_QUERY_LENGTH = 2
@@ -132,12 +131,15 @@ function PartySearchOrCreate({
 
   if (selected) {
     return (
-      <div className="search-or-create search-or-create-selected">
-        <span>
-          <strong>{selected.name}</strong> ({selected.party_type})
-          {selected.mobile ? ` — ${selected.mobile}` : ''}
-        </span>
-        <button type="button" onClick={changeSelection}>
+      <div className="vip-row">
+        <div className="vip-row-main">
+          <div className="vip-row-title">{selected.name}</div>
+          <div className="vip-row-sub">
+            {selected.party_type}
+            {selected.mobile ? ` · ${selected.mobile}` : ''}
+          </div>
+        </div>
+        <button type="button" className="vip-btn-link" onClick={changeSelection}>
           Change
         </button>
       </div>
@@ -146,20 +148,20 @@ function PartySearchOrCreate({
 
   if (creating) {
     return (
-      <div className="search-or-create search-or-create-form">
-        <p className="search-or-create-heading">New {label}</p>
-        <label className="search-or-create-field">
+      <div className="vip-form vip-section-split">
+        <div style={{ fontFamily: 'var(--vip-display)', fontWeight: 700, color: 'var(--vip-ink)' }}>New {label}</div>
+        <label className="vip-field">
           Name
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} />
+          <input className="vip-input" value={newName} onChange={(e) => setNewName(e.target.value)} />
         </label>
-        <label className="search-or-create-field">
+        <label className="vip-field">
           Mobile
-          <input value={newMobile} onChange={(e) => setNewMobile(e.target.value)} />
+          <input className="vip-input" value={newMobile} onChange={(e) => setNewMobile(e.target.value)} />
         </label>
         {typeOptions.length > 1 && (
-          <label className="search-or-create-field">
+          <label className="vip-field">
             Type
-            <select value={newPartyType} onChange={(e) => setNewPartyType(e.target.value)}>
+            <select className="vip-select" value={newPartyType} onChange={(e) => setNewPartyType(e.target.value)}>
               {typeOptions.map((type) => (
                 <option key={type} value={type}>
                   {type}
@@ -168,12 +170,22 @@ function PartySearchOrCreate({
             </select>
           </label>
         )}
-        {createError && <p className="search-or-create-error">{createError}</p>}
-        <div className="search-or-create-actions">
-          <button type="button" onClick={handleCreate} disabled={saving || !newName.trim()}>
+        {createError && <p className="vip-error">{createError}</p>}
+        <div className="vip-btn-row">
+          <button
+            type="button"
+            className="vip-btn vip-btn-secondary vip-btn-sm"
+            onClick={handleCreate}
+            disabled={saving || !newName.trim()}
+          >
             {saving ? 'Saving…' : 'Create'}
           </button>
-          <button type="button" onClick={() => setCreating(false)} disabled={saving}>
+          <button
+            type="button"
+            className="vip-btn vip-btn-secondary vip-btn-sm"
+            onClick={() => setCreating(false)}
+            disabled={saving}
+          >
             Cancel
           </button>
         </div>
@@ -182,47 +194,46 @@ function PartySearchOrCreate({
   }
 
   return (
-    <div className="search-or-create">
-      <label className="search-or-create-field">
+    <div className="vip-stack-s">
+      <label className="vip-field">
         {label}
         <input
+          className="vip-input"
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Search by name…"
+          placeholder="Search or create"
         />
       </label>
 
       {name.trim().length > 0 && (
-        <label className="search-or-create-field">
-          Mobile number (optional)
-          <input
-            type="text"
-            value={mobile}
-            onChange={(e) => setMobile(e.target.value)}
-            placeholder="Helps confirm the right match"
-          />
+        <label className="vip-field">
+          Mobile number <span className="vip-field-hint">optional, helps confirm the right match</span>
+          <input className="vip-input" type="text" value={mobile} onChange={(e) => setMobile(e.target.value)} />
         </label>
       )}
 
-      {searching && <p className="search-or-create-hint">Searching…</p>}
-      {searchError && <p className="search-or-create-error">{searchError}</p>}
+      {searching && <p className="vip-form-note">Searching…</p>}
+      {searchError && <p className="vip-error">{searchError}</p>}
 
       {results.length > 0 && (
-        <ul className="search-or-create-results">
+        <div className="vip-card">
           {results.map((party) => (
-            <li key={party.id}>
-              <button type="button" onClick={() => selectExisting(party)}>
-                <strong>{party.name}</strong> ({party.party_type})
-                {party.mobile ? ` — ${party.mobile}` : ''}
-              </button>
-            </li>
+            <div key={party.id} className="vip-row vip-clickable" onClick={() => selectExisting(party)}>
+              <div className="vip-row-main">
+                <div className="vip-row-title">{party.name}</div>
+                <div className="vip-row-sub">
+                  {party.party_type}
+                  {party.mobile ? ` · ${party.mobile}` : ''}
+                </div>
+              </div>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
 
       {allowCreate && name.trim().length >= MIN_QUERY_LENGTH && !searching && (
-        <button type="button" className="search-or-create-add-new" onClick={startCreate}>
+        <button type="button" className="vip-btn-link" onClick={startCreate}>
           + Add new {label.toLowerCase()} "{name.trim()}"
         </button>
       )}

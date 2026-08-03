@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { METRIC_OPTIONS } from '../lib/targetMetrics'
 import { formatCurrency } from '../lib/format'
 import SetTargetForm from './SetTargetForm'
-import '../pages/Dashboard.css'
 
 function emptyMetricCounts() {
   return Object.fromEntries(METRIC_OPTIONS.filter((m) => m.value !== 'order_value').map((m) => [m.value, 0]))
@@ -32,8 +31,9 @@ function computeActivityActuals(activities, showByEmployee) {
 // wonStageHistory is unbounded (all time) and pre-sorted most-recent-first,
 // so the first row seen per lead_id is that lead's most recent 'won'
 // transition. Rows with leads: null are ones RLS hid (not this user's lead)
-// and are skipped.
-function computeOrderValueActuals(wonStageHistory, range, showByEmployee) {
+// and are skipped. Exported so Dashboard's KPI band can reuse the exact same
+// "won value in range" definition instead of a second, possibly-drifting one.
+export function computeOrderValueActuals(wonStageHistory, range, showByEmployee) {
   const latestByLead = new Map()
   wonStageHistory.forEach((row) => {
     if (!row.leads) return
@@ -77,27 +77,33 @@ function TargetsVsActualsCard({ preset, activities, wonStageHistory, targets, ra
   const visibleEmployees = employeeFilter ? employees.filter((e) => String(e.id) === employeeFilter) : employees
 
   return (
-    <section className="dashboard-card">
-      <h2>Targets vs. actuals</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">Targets vs. actuals</div>
 
       {preset === 'custom' ? (
-        <p className="dashboard-empty">
-          Targets are tracked by week/month — pick "This Week" or "This Month" to see them.
-        </p>
+        <p className="vip-empty">Targets are tracked by week/month — pick "This week" or "This month" to see them.</p>
       ) : (
         <>
           {showByEmployee && (
-            <label className="dashboard-field">
-              Sales exec
-              <select value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
-                <option value="">— All employees —</option>
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="vip-seg vip-seg-outline">
+              <button
+                type="button"
+                className={employeeFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setEmployeeFilter('')}
+              >
+                All
+              </button>
+              {employees.map((e) => (
+                <button
+                  key={e.id}
+                  type="button"
+                  className={employeeFilter === String(e.id) ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                  onClick={() => setEmployeeFilter(String(e.id))}
+                >
+                  {e.name.split(' ')[0]}
+                </button>
+              ))}
+            </div>
           )}
           <TargetsTable
             activities={activities}
@@ -113,7 +119,7 @@ function TargetsVsActualsCard({ preset, activities, wonStageHistory, targets, ra
       {showByEmployee && preset !== 'custom' && (
         <SetTargetForm employees={employees} onCreated={onTargetCreated} />
       )}
-    </section>
+    </div>
   )
 }
 
@@ -121,69 +127,49 @@ function TargetsTable({ activities, wonStageHistory, targets, range, employees, 
   const activityActuals = computeActivityActuals(activities, showByEmployee)
   const orderValueActuals = computeOrderValueActuals(wonStageHistory, range, showByEmployee)
 
-  if (!showByEmployee) {
-    const rows = METRIC_OPTIONS.map((m) => {
-      const actual = m.value === 'order_value' ? orderValueActuals : activityActuals[m.value]
-      const target = targetFor(targets, null, m.value)
-      return { metric: m, actual, target }
-    })
-
-    return (
-      <div className="dashboard-table-wrap">
-        <table className="dashboard-table">
-          <thead>
-            <tr>
-              <th>Metric</th>
-              <th>Actual</th>
-              <th>Target</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ metric, actual, target }) => (
-              <tr key={metric.value}>
-                <td>{metric.label}</td>
-                <td>{formatValue(metric.value, actual)}</td>
-                <td>{target == null ? 'no target set' : formatValue(metric.value, target)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-  const rows = []
-  employees.forEach((emp) => {
-    METRIC_OPTIONS.forEach((m) => {
-      const actual =
-        m.value === 'order_value' ? orderValueActuals.get(emp.id) ?? 0 : activityActuals.get(emp.id)?.[m.value] ?? 0
-      const target = targetFor(targets, emp.id, m.value)
-      rows.push({ employee: emp, metric: m, actual, target })
-    })
-  })
+  const rows = !showByEmployee
+    ? METRIC_OPTIONS.map((m) => ({
+        label: m.label,
+        actual: m.value === 'order_value' ? orderValueActuals : activityActuals[m.value],
+        target: targetFor(targets, null, m.value),
+        metric: m.value,
+      }))
+    : employees.flatMap((emp) =>
+        METRIC_OPTIONS.map((m) => ({
+          label: `${emp.name.split(' ')[0]} · ${m.label}`,
+          actual: m.value === 'order_value' ? orderValueActuals.get(emp.id) ?? 0 : activityActuals.get(emp.id)?.[m.value] ?? 0,
+          target: targetFor(targets, emp.id, m.value),
+          metric: m.value,
+          key: `${emp.id}-${m.value}`,
+        }))
+      )
 
   return (
-    <div className="dashboard-table-wrap">
-      <table className="dashboard-table">
-        <thead>
-          <tr>
-            <th>Employee</th>
-            <th>Metric</th>
-            <th>Actual</th>
-            <th>Target</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(({ employee, metric, actual, target }) => (
-            <tr key={`${employee.id}-${metric.value}`}>
-              <td>{employee.name}</td>
-              <td>{metric.label}</td>
-              <td>{formatValue(metric.value, actual)}</td>
-              <td>{target == null ? 'no target set' : formatValue(metric.value, target)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="vip-stack-s">
+      {rows.map((row) => (
+        <div key={row.key ?? row.metric} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--vip-ink)' }}>{row.label}</div>
+            {row.target != null && (
+              <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
+                {formatValue(row.metric, row.actual)} / {formatValue(row.metric, row.target)}
+              </div>
+            )}
+          </div>
+          {row.target == null ? (
+            <p className="vip-empty" style={{ margin: 0, padding: 0 }}>
+              no target set
+            </p>
+          ) : (
+            <div className="vip-bar-track vip-thick">
+              <div
+                className={row.actual >= row.target ? 'vip-bar-fill vip-won' : 'vip-bar-fill'}
+                style={{ width: `${Math.min(100, (row.actual / row.target) * 100)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }

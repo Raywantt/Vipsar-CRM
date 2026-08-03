@@ -1,5 +1,5 @@
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
-import '../pages/Dashboard.css'
+import { stageFg } from '../lib/statusColors'
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24
 
@@ -70,36 +70,33 @@ function computeFunnel(stageHistory, leads) {
 function SalesFunnelCard({ stageHistory, leads }) {
   const rows = computeFunnel(stageHistory, leads)
   const hasData = rows.some((r) => r.reached > 0)
+  const maxReached = Math.max(1, ...rows.map((r) => r.reached))
 
   return (
-    <section className="dashboard-card">
-      <h2>Sales funnel</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">Sales funnel</div>
 
       {!hasData ? (
-        <p className="dashboard-empty">No leads yet.</p>
+        <p className="vip-empty">No leads yet.</p>
       ) : (
-        <div className="dashboard-table-wrap">
-          <table className="dashboard-table">
-            <thead>
-              <tr>
-                <th>Stage</th>
-                <th>Reached</th>
-                <th>Avg. days in stage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ stage, reached, avgDays }) => (
-                <tr key={stage}>
-                  <td>{stage}</td>
-                  <td>{reached}</td>
-                  <td>{avgDays == null ? '—' : `${avgDays.toFixed(1)}d`}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        rows.map(({ stage, reached, avgDays }) => (
+          <div key={stage} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: 12, color: 'var(--vip-ink)', textTransform: 'capitalize' }}>{stage}</div>
+              <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
+                {reached} · {avgDays == null ? '—' : `${avgDays.toFixed(1)}d`}
+              </div>
+            </div>
+            <div className="vip-bar-track vip-funnel">
+              <div
+                className="vip-bar-fill"
+                style={{ width: `${(reached / maxReached) * 100}%`, background: stageFg(stage) }}
+              />
+            </div>
+          </div>
+        ))
       )}
-    </section>
+    </div>
   )
 }
 

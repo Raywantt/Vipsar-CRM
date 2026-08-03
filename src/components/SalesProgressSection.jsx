@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import './SearchOrCreate.css'
 
 function SalesProgressSection({ lead, products, onSaved }) {
   const [productId, setProductId] = useState(lead.product_id ?? '')
@@ -48,12 +47,12 @@ function SalesProgressSection({ lead, products, onSaved }) {
   }
 
   return (
-    <section className="lead-section">
-      <h2>Sales progress</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">Sales progress</div>
 
-      <label className="search-or-create-field">
+      <label className="vip-field">
         Product
-        <select value={productId} onChange={(e) => setProductId(e.target.value)}>
+        <select className="vip-select" value={productId} onChange={(e) => setProductId(e.target.value)}>
           <option value="">— Not specified —</option>
           {products.map((p) => (
             <option key={p.id} value={p.id}>
@@ -64,67 +63,76 @@ function SalesProgressSection({ lead, products, onSaved }) {
         </select>
       </label>
 
-      <label className="lead-section-checkbox">
-        <input type="checkbox" checked={rfqRaised} onChange={(e) => setRfqRaised(e.target.checked)} />
-        RFQ raised
-      </label>
-      {rfqRaised && (
-        <label className="search-or-create-field">
-          RFQ raised on
-          <input type="date" value={rfqRaisedAt ?? ''} onChange={(e) => setRfqRaisedAt(e.target.value)} />
+      <div className="vip-grid-2">
+        <label className="vip-field">
+          Quote value
+          <input
+            className="vip-input"
+            type="number"
+            step="0.01"
+            value={quoteValue}
+            onChange={(e) => setQuoteValue(e.target.value)}
+          />
         </label>
-      )}
+        <label className="vip-field">
+          Probability
+          <input
+            className="vip-input"
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            value={closureProbability}
+            onChange={(e) => setClosureProbability(e.target.value)}
+          />
+        </label>
+      </div>
 
-      <label className="lead-section-checkbox">
-        <input type="checkbox" checked={quoteSent} onChange={(e) => setQuoteSent(e.target.checked)} />
-        Quote sent
-      </label>
-      {quoteSent && (
-        <>
-          <label className="search-or-create-field">
-            Quote sent on
-            <input type="date" value={quoteSentAt ?? ''} onChange={(e) => setQuoteSentAt(e.target.value)} />
-          </label>
-          <label className="search-or-create-field">
-            Quote value
-            <input
-              type="number"
-              step="0.01"
-              value={quoteValue}
-              onChange={(e) => setQuoteValue(e.target.value)}
-            />
-          </label>
-        </>
-      )}
-
-      <label className="search-or-create-field">
-        Closure probability (%)
+      <label className="vip-field">
+        Estimated close
         <input
-          type="number"
-          min="0"
-          max="100"
-          step="1"
-          value={closureProbability}
-          onChange={(e) => setClosureProbability(e.target.value)}
-        />
-      </label>
-
-      <label className="search-or-create-field">
-        Estimated close date
-        <input
+          className="vip-input"
           type="date"
           value={estimatedCloseDate}
           onChange={(e) => setEstimatedCloseDate(e.target.value)}
         />
       </label>
 
-      {error && <p className="search-or-create-error">{error}</p>}
-      {savedAt && !error && <p className="lead-section-success">Saved.</p>}
+      <div className="vip-section-split vip-stack-s">
+        <label className="vip-check">
+          <input type="checkbox" checked={rfqRaised} onChange={(e) => setRfqRaised(e.target.checked)} />
+          RFQ raised{rfqRaised && rfqRaisedAt ? ` · ${rfqRaisedAt}` : ''}
+        </label>
+        {rfqRaised && (
+          <input
+            className="vip-input"
+            type="date"
+            value={rfqRaisedAt ?? ''}
+            onChange={(e) => setRfqRaisedAt(e.target.value)}
+          />
+        )}
 
-      <button type="button" onClick={handleSave} disabled={saving}>
-        {saving ? 'Saving…' : 'Save sales progress'}
+        <label className="vip-check">
+          <input type="checkbox" checked={quoteSent} onChange={(e) => setQuoteSent(e.target.checked)} />
+          Quote sent{quoteSent && quoteSentAt ? ` · ${quoteSentAt}` : ''}
+        </label>
+        {quoteSent && (
+          <input
+            className="vip-input"
+            type="date"
+            value={quoteSentAt ?? ''}
+            onChange={(e) => setQuoteSentAt(e.target.value)}
+          />
+        )}
+      </div>
+
+      {error && <p className="vip-error">{error}</p>}
+      {savedAt && !error && <p className="vip-success">Saved.</p>}
+
+      <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={handleSave} disabled={saving}>
+        {saving ? 'Saving…' : 'Save'}
       </button>
-    </section>
+    </div>
   )
 }
 

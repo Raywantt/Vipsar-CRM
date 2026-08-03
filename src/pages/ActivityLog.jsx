@@ -5,7 +5,6 @@ import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import LeadSearchSelect from '../components/LeadSearchSelect'
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
-import './ActivityLog.css'
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10)
@@ -70,7 +69,8 @@ function ActivityLog() {
     setResult(null)
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(event) {
+    event.preventDefault()
     setSubmitError(null)
     setSubmitting(true)
 
@@ -128,46 +128,53 @@ function ActivityLog() {
 
   if (result) {
     return (
-      <main className="activity-log">
-        <h1>Activity logged</h1>
-        <ul className="activity-log-summary">
-          <li>Type: {ACTIVITY_LABELS[result.activity.activity_type]}</li>
+      <div className="vip-card">
+        <p className="vip-success" style={{ fontSize: 15, fontWeight: 600 }}>
+          Activity logged.
+        </p>
+        <div className="vip-facts" style={{ borderTop: 'none', paddingTop: 0 }}>
+          <div>
+            <div className="vip-fact-label">Type</div>
+            <div className="vip-fact-value">{ACTIVITY_LABELS[result.activity.activity_type]}</div>
+          </div>
           {selectedLead && (
-            <li>
-              Lead: <Link to={`/leads/${selectedLead.id}`}>#{selectedLead.id}</Link>
-            </li>
+            <div>
+              <div className="vip-fact-label">Lead</div>
+              <div className="vip-fact-value">
+                <Link to={`/leads/${selectedLead.id}`}>#{selectedLead.id}</Link>
+              </div>
+            </div>
           )}
-          {selectedParty && <li>Party: {selectedParty.name}</li>}
-          {notes && <li>Notes: {notes}</li>}
-        </ul>
+          {selectedParty && (
+            <div>
+              <div className="vip-fact-label">Party</div>
+              <div className="vip-fact-value">{selectedParty.name}</div>
+            </div>
+          )}
+        </div>
+        {notes && <p className="vip-form-note">Notes: {notes}</p>}
         {result.warnings.map((w) => (
-          <p key={w} className="activity-log-error">
+          <p key={w} className="vip-error">
             {w}
           </p>
         ))}
-        <button type="button" onClick={resetForm}>
+        <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={resetForm}>
           Log another activity
         </button>
-      </main>
+      </div>
     )
   }
 
   return (
-    <main className="activity-log">
-      <div className="activity-log-header">
-        <h1>Log Activity</h1>
-      </div>
+    <form className="vip-form" onSubmit={handleSubmit}>
+      <div className="vip-lede">What did you do?</div>
 
-      <div className="activity-log-type">
+      <div className="vip-choice-grid">
         {ACTIVITY_TYPES.map((opt) => (
           <button
             key={opt.value}
             type="button"
-            className={
-              activityType === opt.value
-                ? 'activity-log-type-btn activity-log-type-btn-active'
-                : 'activity-log-type-btn'
-            }
+            className={activityType === opt.value ? 'vip-choice vip-active' : 'vip-choice'}
             onClick={() => selectActivityType(opt.value)}
           >
             {opt.label}
@@ -187,9 +194,10 @@ function ActivityLog() {
       {selectedLead && (
         <>
           {activityType === 'booking_update' && (
-            <label className="activity-log-field">
-              Order value (optional)
+            <label className="vip-field">
+              Order value <span className="vip-field-hint">optional</span>
               <input
+                className="vip-input"
                 type="number"
                 step="0.01"
                 value={orderValue}
@@ -197,9 +205,10 @@ function ActivityLog() {
               />
             </label>
           )}
-          <label className="activity-log-field">
-            Update next follow-up date (optional)
+          <label className="vip-field">
+            Next follow-up <span className="vip-field-hint">optional</span>
             <input
+              className="vip-input"
               type="date"
               value={nextFollowupDate}
               onChange={(e) => setNextFollowupDate(e.target.value)}
@@ -209,9 +218,10 @@ function ActivityLog() {
       )}
 
       {isOfficeDay && (
-        <label className="activity-log-field">
+        <label className="vip-field">
           Leads generated
           <input
+            className="vip-input"
             type="number"
             value={leadsGenerated}
             onChange={(e) => setLeadsGenerated(e.target.value)}
@@ -219,15 +229,15 @@ function ActivityLog() {
         </label>
       )}
 
-      <label className="activity-log-field">
+      <label className="vip-field">
         Notes
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} />
+        <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Short note" />
       </label>
 
       {isSiteVisit && (
-        <label className="activity-log-field">
-          Accompanied by (optional)
-          <select value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)}>
+        <label className="vip-field">
+          Accompanied by <span className="vip-field-hint">optional</span>
+          <select className="vip-select" value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)}>
             <option value="">— Not specified —</option>
             {employees
               .filter((e) => e.id !== employee?.id)
@@ -240,12 +250,12 @@ function ActivityLog() {
         </label>
       )}
 
-      {submitError && <p className="activity-log-error">{submitError}</p>}
+      {submitError && <p className="vip-error">{submitError}</p>}
 
-      <button type="button" className="activity-log-submit" onClick={handleSubmit} disabled={!canSubmit}>
-        {submitting ? 'Saving…' : 'Log Activity'}
+      <button className="vip-btn" type="submit" disabled={!canSubmit}>
+        {submitting ? 'Saving…' : 'Log it'}
       </button>
-    </main>
+    </form>
   )
 }
 

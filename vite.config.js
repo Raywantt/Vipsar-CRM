@@ -13,8 +13,8 @@ export default defineConfig({
         name: 'VIPSAR CRM',
         short_name: 'VIPSAR CRM',
         description: 'CRM for managing Tostem window & door dealership sales, quotes, and installs.',
-        theme_color: '#1d4ed8',
-        background_color: '#ffffff',
+        theme_color: '#1b2124',
+        background_color: '#f2f5f5',
         display: 'standalone',
         start_url: '/',
         icons: [
@@ -39,10 +39,11 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // App shell only: built JS/CSS/HTML + icons. No runtimeCaching rules
-        // are added for the Supabase API, so those requests always hit the
-        // network and are never served (or silently failed) from cache.
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+        // App shell only: built JS/CSS/HTML + icons + self-hosted fonts. No
+        // runtimeCaching rules are added for the Supabase API, so those
+        // requests always hit the network and are never served (or
+        // silently failed) from cache.
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,woff2}'],
       },
     }),
   ],

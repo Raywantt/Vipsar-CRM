@@ -1,16 +1,12 @@
 import { formatCurrency } from '../lib/format'
-import '../pages/Dashboard.css'
+import { stageChipClass } from '../lib/statusColors'
 
-// Generic count + order_value breakdown, grouped however the caller's
-// getCategory resolves a lead to a bucket label. Shared by the Stage/Area/
-// Site Stage tabs — same shape, different grouping.
-//
-// categoryOrder (optional): a fixed list of buckets to always show, even at
-// zero, in that order — used for Stage/Site Stage's suggested-list options
-// so "no leads at this stage" is visible rather than the row just not
-// existing. Omit it (Area) to discover buckets from the data instead,
-// sorted by count desc.
-function LeadsByCategoryCard({ title, categoryHeading, leads, getCategory, categoryOrder }) {
+// colorStages (optional): render the category label as a colored chip using
+// src/lib/statusColors.js — only meaningful for the Stage instance of this
+// card (Area/Site stage/Product have no stage-color mapping). categoryHeading
+// is unused now that vip-card-title (the `title` prop) is the only heading
+// row-based cards show — kept as a prop so call sites don't need editing.
+function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorStages }) {
   const map = new Map()
   if (categoryOrder) {
     categoryOrder.forEach((c) => map.set(c, { count: 0, orderValue: 0 }))
@@ -27,39 +23,36 @@ function LeadsByCategoryCard({ title, categoryHeading, leads, getCategory, categ
   const totalOrderValue = leads.reduce((s, l) => s + Number(l.order_value ?? 0), 0)
 
   return (
-    <section className="dashboard-card">
-      <h2>{title}</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">{title}</div>
 
       {leads.length === 0 ? (
-        <p className="dashboard-empty">No leads found.</p>
+        <p className="vip-empty">No leads found.</p>
       ) : (
-        <div className="dashboard-table-wrap">
-          <table className="dashboard-table">
-            <thead>
-              <tr>
-                <th>{categoryHeading}</th>
-                <th>Leads</th>
-                <th>Order value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(([cat, { count, orderValue }]) => (
-                <tr key={cat}>
-                  <td>{cat}</td>
-                  <td>{count}</td>
-                  <td>{formatCurrency(orderValue)}</td>
-                </tr>
-              ))}
-              <tr className="dashboard-table-total">
-                <td>Total</td>
-                <td>{leads.length}</td>
-                <td>{formatCurrency(totalOrderValue)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <>
+          {rows.map(([cat, { count, orderValue }]) => (
+            <div key={cat} className="vip-row">
+              <div className="vip-row-main">
+                {colorStages ? <span className={stageChipClass(cat)}>{cat}</span> : <div className="vip-row-title">{cat}</div>}
+              </div>
+              <div className="vip-row-side" style={{ display: 'flex', gap: 14 }}>
+                <div className="vip-row-value">{count}</div>
+                <div className="vip-row-meta vip-num" style={{ width: 48, textAlign: 'right' }}>
+                  {formatCurrency(orderValue)}
+                </div>
+              </div>
+            </div>
+          ))}
+          <div className="vip-total">
+            <div>Total</div>
+            <div style={{ display: 'flex', gap: 14 }}>
+              <div>{leads.length}</div>
+              <div style={{ width: 48, textAlign: 'right' }}>{formatCurrency(totalOrderValue)}</div>
+            </div>
+          </div>
+        </>
       )}
-    </section>
+    </div>
   )
 }
 

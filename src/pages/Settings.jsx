@@ -4,7 +4,6 @@ import AddEmployeeForm from '../components/AddEmployeeForm'
 import ManageEmployeesSection from '../components/ManageEmployeesSection'
 import DeleteLeadSection from '../components/DeleteLeadSection'
 import { fetchAllEmployees } from '../lib/employeeQueries'
-import './Settings.css'
 
 function Settings() {
   const { employee } = useAuth()
@@ -32,22 +31,19 @@ function Settings() {
   }
 
   return (
-    <main className="settings">
-      <div className="settings-header">
-        <h1>Settings</h1>
-        <p>Owner-only tools for managing the team and cleaning up data.</p>
-      </div>
+    <>
+      <p className="vip-lede">Owner-only tools for managing the team and cleaning up data.</p>
 
       <AddEmployeeForm onCreated={upsertEmployee} />
 
       {loading ? (
-        <p className="settings-hint">Loading employees…</p>
+        <p className="vip-empty">Loading employees…</p>
       ) : (
         <ManageEmployeesSection employees={employees} currentEmployeeId={employee?.id} onUpdated={upsertEmployee} />
       )}
 
       <DeleteLeadSection />
-    </main>
+    </>
   )
 }
 

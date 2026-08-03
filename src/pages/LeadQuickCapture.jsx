@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
-import './LeadQuickCapture.css'
 
 const SOURCE_OPTIONS = [
   { value: 'scanning', label: 'Scanning' },
@@ -37,7 +36,8 @@ function LeadQuickCapture() {
     setCreatedLead(null)
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(event) {
+    event.preventDefault()
     setSubmitError(null)
     setSubmitting(true)
 
@@ -94,46 +94,50 @@ function LeadQuickCapture() {
 
   if (createdLead) {
     return (
-      <main className="lead-capture">
-        <h1>Lead captured</h1>
-        <ul className="lead-capture-summary">
-          <li>
-            Lead ID: <Link to={`/leads/${createdLead.id}`}>{createdLead.id}</Link>
-          </li>
-          <li>Source: {SOURCE_LABELS[createdLead.source_type]}</li>
-          {clientParty && <li>Client: {clientParty.name}</li>}
-          {otherParty && <li>Other: {otherParty.name}</li>}
-          {siteNickname && <li>Site: {siteNickname}</li>}
-        </ul>
-        <button type="button" onClick={resetForm}>
+      <div className="vip-card">
+        <p className="vip-success" style={{ fontSize: 15, fontWeight: 600 }}>
+          Lead captured.
+        </p>
+        <div className="vip-facts" style={{ borderTop: 'none', paddingTop: 0 }}>
+          <div>
+            <div className="vip-fact-label">Lead ID</div>
+            <div className="vip-fact-value">
+              <Link to={`/leads/${createdLead.id}`}>{createdLead.id}</Link>
+            </div>
+          </div>
+          <div>
+            <div className="vip-fact-label">Source</div>
+            <div className="vip-fact-value">{SOURCE_LABELS[createdLead.source_type]}</div>
+          </div>
+          {clientParty && (
+            <div>
+              <div className="vip-fact-label">Client</div>
+              <div className="vip-fact-value">{clientParty.name}</div>
+            </div>
+          )}
+          {otherParty && (
+            <div>
+              <div className="vip-fact-label">Other</div>
+              <div className="vip-fact-value">{otherParty.name}</div>
+            </div>
+          )}
+          {siteNickname && (
+            <div>
+              <div className="vip-fact-label">Site</div>
+              <div className="vip-fact-value">{siteNickname}</div>
+            </div>
+          )}
+        </div>
+        <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={resetForm}>
           Capture another lead
         </button>
-      </main>
+      </div>
     )
   }
 
   return (
-    <main className="lead-capture">
-      <div className="lead-capture-header">
-        <h1>New Lead</h1>
-      </div>
-
-      <div className="lead-capture-source">
-        {SOURCE_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            type="button"
-            className={
-              sourceType === opt.value
-                ? 'lead-capture-source-btn lead-capture-source-btn-active'
-                : 'lead-capture-source-btn'
-            }
-            onClick={() => setSourceType(opt.value)}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
+    <form className="vip-form" onSubmit={handleSubmit}>
+      <div className="vip-lede">Fill any one. Details later.</div>
 
       <PartySearchOrCreate
         label="Client name"
@@ -142,9 +146,10 @@ function LeadQuickCapture() {
         onSelect={setClientParty}
       />
 
-      <label className="lead-capture-field">
+      <label className="vip-field">
         Site nickname
         <input
+          className="vip-input"
           value={siteNickname}
           onChange={(e) => setSiteNickname(e.target.value)}
           placeholder="e.g. site in front of Verka factory in Sarabha Nagar"
@@ -158,14 +163,31 @@ function LeadQuickCapture() {
         onSelect={setOtherParty}
       />
 
-      {submitError && <p className="lead-capture-error">{submitError}</p>}
+      <div className="vip-stack-s">
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>Where from *</div>
+        <div className="vip-choice-row">
+          {SOURCE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={sourceType === opt.value ? 'vip-choice vip-active' : 'vip-choice'}
+              onClick={() => setSourceType(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-      <p className="lead-capture-hint">Fill in at least one of Client name, Site nickname, or Other's name.</p>
+      {submitError && <p className="vip-error">{submitError}</p>}
 
-      <button type="button" className="lead-capture-submit" onClick={handleSubmit} disabled={!canSubmit}>
-        {submitting ? 'Saving…' : 'Create Lead'}
+      <button className="vip-btn" type="submit" disabled={!canSubmit}>
+        {submitting ? 'Saving…' : 'Save lead'}
       </button>
-    </main>
+      <div className="vip-form-note">
+        Duplicate check runs on the name and mobile you type. Pick the existing record if it shows up.
+      </div>
+    </form>
   )
 }
 

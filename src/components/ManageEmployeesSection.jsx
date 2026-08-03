@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { updateEmployeeRole, updateEmployeeActive, updateEmployeeMobile } from '../lib/employeeQueries'
-import '../pages/Settings.css'
 
 const ROLE_OPTIONS = ['sales_executive', 'owner']
 
@@ -51,82 +50,74 @@ function EmployeeRow({ emp, isSelf, onUpdated }) {
   }
 
   return (
-    <>
-      <tr>
-        <td>{emp.name}</td>
-        <td>
-          <input value={mobile} onChange={(e) => setMobile(e.target.value)} disabled={saving} />
-          {mobileDirty && (
-            <button type="button" onClick={handleSaveMobile} disabled={saving}>
-              Save
-            </button>
-          )}
-        </td>
-        <td>
-          <select value={role} onChange={(e) => setRole(e.target.value)} disabled={isSelf || saving}>
-            {ROLE_OPTIONS.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-          {roleDirty && !isSelf && (
-            <button type="button" onClick={handleSaveRole} disabled={saving}>
-              Save
-            </button>
-          )}
-        </td>
-        <td>{emp.is_active ? 'Active' : 'Inactive'}</td>
-        <td>
-          <button type="button" onClick={handleToggleActive} disabled={isSelf || saving}>
-            {emp.is_active ? 'Deactivate' : 'Activate'}
+    <div className="vip-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <div className="vip-row-title">{emp.name}</div>
+        <div className="vip-row-meta">{emp.is_active ? 'Active' : 'Inactive'}</div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input
+          className="vip-input"
+          style={{ flex: 1 }}
+          value={mobile}
+          onChange={(e) => setMobile(e.target.value)}
+          disabled={saving}
+        />
+        {mobileDirty && (
+          <button type="button" className="vip-btn-link" onClick={handleSaveMobile} disabled={saving}>
+            Save
           </button>
-        </td>
-      </tr>
-      {error && (
-        <tr>
-          <td colSpan={5} className="settings-error">
-            {error}
-          </td>
-        </tr>
-      )}
-    </>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <select className="vip-select" style={{ flex: 1 }} value={role} onChange={(e) => setRole(e.target.value)} disabled={isSelf || saving}>
+          {ROLE_OPTIONS.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        {roleDirty && !isSelf && (
+          <button type="button" className="vip-btn-link" onClick={handleSaveRole} disabled={saving}>
+            Save
+          </button>
+        )}
+        <button
+          type="button"
+          className="vip-btn vip-btn-secondary vip-btn-sm"
+          style={{ width: 'auto', flex: '0 0 auto' }}
+          onClick={handleToggleActive}
+          disabled={isSelf || saving}
+        >
+          {emp.is_active ? 'Deactivate' : 'Activate'}
+        </button>
+      </div>
+
+      {error && <p className="vip-error">{error}</p>}
+    </div>
   )
 }
 
 function ManageEmployeesSection({ employees, currentEmployeeId, onUpdated }) {
   return (
-    <section className="settings-card">
-      <h2>Manage employees</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">Manage employees</div>
 
       {employees.length === 0 ? (
-        <p className="settings-hint">No employees yet.</p>
+        <p className="vip-empty">No employees yet.</p>
       ) : (
-        <div className="settings-table-wrap">
-          <table className="settings-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Mobile</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {employees.map((emp) => (
-                <EmployeeRow key={emp.id} emp={emp} isSelf={emp.id === currentEmployeeId} onUpdated={onUpdated} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        employees.map((emp) => (
+          <EmployeeRow key={emp.id} emp={emp} isSelf={emp.id === currentEmployeeId} onUpdated={onUpdated} />
+        ))
       )}
 
-      <p className="settings-hint">
+      <p className="vip-form-note">
         You can't change your own role or deactivate your own account here, to avoid accidentally locking yourself
         out — that needs another owner, or a direct edit in Supabase.
       </p>
-    </section>
+    </div>
   )
 }
 

@@ -1,8 +1,6 @@
-import '../pages/Dashboard.css'
-
 const PRESETS = [
-  { value: 'week', label: 'This Week' },
-  { value: 'month', label: 'This Month' },
+  { value: 'week', label: 'This week' },
+  { value: 'month', label: 'This month' },
   { value: 'custom', label: 'Custom' },
 ]
 
@@ -15,15 +13,13 @@ function DateRangeSelector({
   onCustomEndChange,
 }) {
   return (
-    <div className="dashboard-range">
-      <div className="dashboard-range-presets">
+    <div className="vip-stack-s">
+      <div className="vip-seg vip-seg-outline">
         {PRESETS.map((p) => (
           <button
             key={p.value}
             type="button"
-            className={
-              preset === p.value ? 'dashboard-range-btn dashboard-range-btn-active' : 'dashboard-range-btn'
-            }
+            className={preset === p.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
             onClick={() => onPresetChange(p.value)}
           >
             {p.label}
@@ -32,14 +28,24 @@ function DateRangeSelector({
       </div>
 
       {preset === 'custom' && (
-        <div className="dashboard-range-custom">
-          <label>
+        <div className="vip-grid-2">
+          <label className="vip-field">
             From
-            <input type="date" value={customStart} onChange={(e) => onCustomStartChange(e.target.value)} />
+            <input
+              className="vip-input"
+              type="date"
+              value={customStart}
+              onChange={(e) => onCustomStartChange(e.target.value)}
+            />
           </label>
-          <label>
+          <label className="vip-field">
             To
-            <input type="date" value={customEnd} onChange={(e) => onCustomEndChange(e.target.value)} />
+            <input
+              className="vip-input"
+              type="date"
+              value={customEnd}
+              onChange={(e) => onCustomEndChange(e.target.value)}
+            />
           </label>
         </div>
       )}

@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { HeaderProvider } from './contexts/HeaderContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import OfflineIndicator from './components/OfflineIndicator'
 import InstallPrompt from './components/InstallPrompt'
@@ -18,6 +19,7 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <HeaderProvider>
         <OfflineIndicator />
         <InstallPrompt />
         <Routes>
@@ -35,7 +37,7 @@ function App() {
             element={
               // 'owner' included deliberately: an owner can also personally log
               // leads via quick-capture, not just sales execs. Not a testing
-              // workaround — see CLAUDE.md's Current state section.
+              // workaround — see CLAUDE.md's LeadQuickCapture section.
               <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
                 <LeadQuickCapture />
               </ProtectedRoute>
@@ -91,6 +93,7 @@ function App() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </HeaderProvider>
       </BrowserRouter>
     </AuthProvider>
   )

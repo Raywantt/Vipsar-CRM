@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import './OfflineIndicator.css'
 
 function OfflineIndicator() {
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
@@ -22,9 +21,8 @@ function OfflineIndicator() {
   if (!isOffline) return null
 
   return (
-    <div className="offline-indicator" role="status">
-      You're offline. The app is still open, but nothing you submit will save
-      until your connection comes back.
+    <div className="vip-offline" role="status">
+      No signal — nothing will save until you're back online.
     </div>
   )
 }

@@ -1,0 +1,547 @@
+/* ==========================================================================
+   VIPSAR CRM — theme.css
+   Drop-in stylesheet for the React PWA. Import ONCE in src/main.jsx,
+   AFTER (or instead of) index.css. Every value here is lifted verbatim from
+   the approved design prototypes — do not re-derive or "improve" them.
+   Class contract: every class is prefixed `vip-`. Keep existing behavioural
+   classes; add these for styling.
+   ========================================================================== */
+
+/* Self-hosted instead of the Google Fonts CDN @import this file shipped
+   with — same families/weights, but precached by the service worker so
+   they survive the offline use this PWA is built for (see CLAUDE.md's PWA
+   section). Files fetched from fonts.gstatic.com once, at build time. */
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('/fonts/archivo-variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-sans-variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-500.woff2') format('woff2');
+}
+
+/* ---------- 1. Tokens ---------------------------------------------------- */
+:root {
+  /* surfaces */
+  --vip-shell:        #1b2124;  /* top bar, bottom bar, dark panels */
+  --vip-shell-2:      #283236;  /* controls inside the shell (back btn, avatar) */
+  --vip-shell-3:      #22282b;  /* inputs on dark (login) */
+  --vip-shell-line:   #2f3a3c;
+  --vip-canvas:       #f2f5f5;  /* app background behind cards */
+  --vip-canvas-2:     #e6ebeb;  /* desktop backdrop outside the app column */
+  --vip-surface:      #ffffff;  /* cards, inputs */
+  --vip-surface-soft: #f7faf9;  /* board columns */
+  --vip-track:        #e7eceb;  /* segmented-control track */
+
+  /* lines */
+  --vip-line:         #dde3e3;  /* card border, table header rule */
+  --vip-line-soft:    #eef2f2;  /* row dividers, bar track */
+  --vip-field-line:   #d5dcdc;  /* input border */
+
+  /* ink */
+  --vip-ink:          #101617;  /* headings, numbers */
+  --vip-body:         #485456;  /* body copy */
+  --vip-muted:        #6f7c7e;  /* labels, meta */
+  --vip-faint:        #8a9698;  /* secondary meta */
+  --vip-on-shell:     #eef1f1;
+  --vip-on-shell-dim: #a8b2b4;
+
+  /* accents */
+  --vip-teal:         #0f6b6b;  /* primary action, primary bars */
+  --vip-teal-dark:    #0b5252;  /* hover/press */
+  --vip-teal-soft:    #dff0ef;
+  --vip-teal-on-dark: #cfe4e3;
+  --vip-navy:         #2f5878;  /* secondary series (leads by source) */
+  --vip-amber:        #7a6413;  /* offline banner, RFQ */
+  --vip-won:          #1f6f4a;
+  --vip-won-soft:     #e4f1e8;
+  --vip-lost:         #b4232a;
+  --vip-lost-soft:    #fbeaea;
+
+  /* type */
+  --vip-display: Archivo, system-ui, sans-serif;      /* headings, numbers */
+  --vip-sans: 'IBM Plex Sans', system-ui, sans-serif; /* body, UI */
+  --vip-mono: 'IBM Plex Mono', ui-monospace, monospace; /* ids, timestamps */
+
+  /* geometry */
+  --vip-r-card: 12px;
+  --vip-r-field: 11px;
+  --vip-r-control: 9px;
+  --vip-r-pill: 999px;
+  --vip-app-max: 460px;   /* the app column never gets wider than a phone */
+  --vip-header-h: 60px;
+  --vip-bottom-nav-h: 60px;
+
+  /* base */
+  font: 400 15px/1.45 var(--vip-sans);
+  color: var(--vip-body);
+  background: var(--vip-canvas-2);
+  color-scheme: light;            /* NO dark mode in this app */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body { margin: 0; background: var(--vip-canvas-2); }
+
+h1, h2, h3, h4 { font-family: var(--vip-display); color: var(--vip-ink); margin: 0; }
+h1 { font-size: 24px; font-weight: 600; }
+h2 { font-size: 19px; font-weight: 600; }
+p  { margin: 0; text-wrap: pretty; }
+
+a { color: var(--vip-teal); text-decoration: none; }
+a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
+
+/* ---------- 2. App shell ------------------------------------------------- */
+/* This is the fix for the "stretched across the desktop" problem: the app is
+   a phone-width column, centred, on the darker canvas. Never full-bleed. */
+
+.vip-app {
+  width: 100%;
+  max-width: var(--vip-app-max);
+  margin: 0 auto;
+  min-height: 100svh;
+  background: var(--vip-canvas);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--vip-sans);
+  color: var(--vip-body);
+  box-shadow: 0 0 0 1px rgba(16, 22, 23, .06);
+}
+
+/* page content between the two fixed bars */
+.vip-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: calc(var(--vip-header-h) + 16px) 16px
+           calc(var(--vip-bottom-nav-h) + env(safe-area-inset-bottom) + 20px);
+}
+
+/* --- top bar (AppNav) --- */
+.vip-header {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: var(--vip-app-max);
+  z-index: 20;
+  min-height: var(--vip-header-h);
+  padding: 12px 18px;
+  background: var(--vip-shell);
+  color: var(--vip-on-shell);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.vip-header-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.vip-header-title {
+  font-family: var(--vip-display); font-weight: 700; font-size: 19px; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vip-header-sub {
+  font-size: 12px; color: var(--vip-on-shell-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vip-iconbtn {
+  width: 34px; height: 34px; flex: 0 0 34px;
+  border: 0; border-radius: var(--vip-r-control);
+  background: var(--vip-shell-2); color: var(--vip-on-shell);
+  display: grid; place-items: center; font-size: 17px; cursor: pointer;
+}
+.vip-avatar {
+  width: 34px; height: 34px; flex: 0 0 34px; border-radius: 50%;
+  background: var(--vip-shell-2); color: var(--vip-on-shell);
+  display: grid; place-items: center; font-size: 12px; font-weight: 600;
+}
+
+/* --- bottom bar (BottomNav) --- */
+.vip-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: var(--vip-app-max);
+  z-index: 20;
+  background: var(--vip-shell);
+  display: flex;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.vip-bottom-nav a {
+  flex: 1;
+  min-height: var(--vip-bottom-nav-h);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font-size: 12px; font-weight: 600;
+  color: var(--vip-on-shell-dim);
+  text-decoration: none;
+}
+.vip-bottom-nav a:hover { color: var(--vip-on-shell); text-decoration: none; }
+.vip-bottom-nav a.vip-active { color: #fff; box-shadow: inset 0 2px 0 var(--vip-teal); }
+
+/* --- offline banner --- */
+.vip-offline {
+  position: fixed; top: var(--vip-header-h); left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: var(--vip-app-max); z-index: 19;
+  background: var(--vip-amber); color: #fff; font-size: 12px; padding: 9px 18px;
+}
+
+/* ---------- 3. Cards ---------------------------------------------------- */
+.vip-card {
+  background: var(--vip-surface);
+  border: 1px solid var(--vip-line);
+  border-radius: var(--vip-r-card);
+  padding: 15px 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.vip-card-title {
+  font-family: var(--vip-display); font-size: 11px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--vip-ink);
+}
+.vip-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vip-card-note { font-size: 11px; color: var(--vip-muted); }
+.vip-empty { font-size: 13px; color: var(--vip-faint); padding: 2px 0 4px; }
+
+/* KPI tiles — always 2-up on phone */
+.vip-kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.vip-kpi {
+  background: var(--vip-surface); border: 1px solid var(--vip-line);
+  border-radius: var(--vip-r-card); padding: 13px 14px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.vip-kpi-label {
+  font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--vip-muted);
+}
+.vip-kpi-value {
+  font-family: var(--vip-display); font-weight: 600; font-size: 22px;
+  color: var(--vip-ink); font-variant-numeric: tabular-nums;
+}
+.vip-kpi-note { font-size: 11px; color: var(--vip-faint); }
+.vip-up   { color: var(--vip-won); }
+.vip-down { color: var(--vip-lost); }
+
+/* Home tiles */
+.vip-tile {
+  min-height: 60px; padding: 15px 16px;
+  background: var(--vip-surface); border: 1px solid var(--vip-line);
+  border-radius: var(--vip-r-card);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  cursor: pointer; text-decoration: none;
+}
+.vip-tile:hover { text-decoration: none; }
+.vip-tile-label { font-size: 16px; font-weight: 600; color: var(--vip-ink); }
+.vip-tile-desc  { font-size: 12px; color: var(--vip-faint); }
+.vip-tile-chevron { font-size: 18px; color: var(--vip-faint); }
+.vip-tile-primary { background: var(--vip-teal); border-color: var(--vip-teal); }
+.vip-tile-primary .vip-tile-label { color: #fff; }
+.vip-tile-primary .vip-tile-desc,
+.vip-tile-primary .vip-tile-chevron { color: var(--vip-teal-on-dark); }
+
+/* ---------- 4. Rows & tables -------------------------------------------- */
+/* Phone screens use stacked rows, NOT <table>. A wide 5-column table is the
+   single biggest reason the current build looks wrong. */
+.vip-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--vip-line-soft);
+}
+.vip-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.vip-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vip-row-title { font-size: 14px; font-weight: 600; color: var(--vip-ink); }
+.vip-row-sub {
+  font-size: 12px; color: var(--vip-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vip-row-side { text-align: right; flex: 0 0 auto; }
+.vip-row-value { font-size: 13px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
+.vip-row-meta { font-size: 11px; color: var(--vip-faint); }
+.vip-clickable { cursor: pointer; }
+
+/* two-column read-only field grid (lead summary, site details) */
+.vip-facts {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 11px;
+  border-top: 1px solid var(--vip-line-soft); padding-top: 11px;
+}
+.vip-fact-label {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--vip-muted);
+}
+.vip-fact-value { font-size: 14px; font-weight: 500; color: var(--vip-ink); }
+.vip-fact-value.vip-num { font-variant-numeric: tabular-nums; }
+
+/* compact matrix (activity by exec) */
+.vip-matrix-head {
+  display: flex; align-items: center; gap: 9px;
+  border-bottom: 1px solid var(--vip-line); padding-bottom: 7px;
+}
+.vip-matrix-head > * {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--vip-muted);
+}
+.vip-matrix-row {
+  display: flex; align-items: center; gap: 9px;
+  border-bottom: 1px solid var(--vip-line-soft); padding-bottom: 8px;
+}
+.vip-matrix-label { flex: 1; font-size: 13px; color: var(--vip-ink); }
+.vip-matrix-cell {
+  flex: 0 0 44px; text-align: right; font-size: 13px; color: var(--vip-body);
+  font-variant-numeric: tabular-nums;
+}
+.vip-total {
+  display: flex; justify-content: space-between;
+  border-top: 1px solid var(--vip-line); padding-top: 9px;
+  font-size: 12px; font-weight: 600; color: var(--vip-ink);
+}
+
+/* ---------- 5. Bars ----------------------------------------------------- */
+.vip-bar-row { display: flex; align-items: center; gap: 9px; }
+.vip-bar-label { flex: 0 0 96px; font-size: 12px; color: var(--vip-body); }
+.vip-bar-track {
+  flex: 0 0 auto; height: 6px; border-radius: 3px;
+  background: var(--vip-line-soft); overflow: hidden;
+}
+/* only grow inside a row; in a column wrapper `flex:1` would zero the height */
+.vip-bar-row > .vip-bar-track { flex: 1 1 0%; }
+.vip-bar-track.vip-thick { height: 7px; border-radius: 4px; }
+.vip-bar-track.vip-funnel { height: 14px; border-radius: 4px; }
+.vip-bar-fill { height: 100%; background: var(--vip-teal); }
+.vip-bar-fill.vip-navy { background: var(--vip-navy); }
+.vip-bar-fill.vip-loss { background: var(--vip-lost); }
+.vip-bar-count {
+  flex: 0 0 24px; text-align: right; font-size: 12px; color: var(--vip-ink);
+  font-variant-numeric: tabular-nums;
+}
+.vip-bar-value {
+  flex: 0 0 44px; text-align: right; font-size: 11px; color: var(--vip-body);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 6. Stage chips ---------------------------------------------- */
+.vip-chip {
+  display: inline-flex; align-items: center;
+  padding: 4px 10px; border-radius: var(--vip-r-pill);
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.vip-chip-new         { background: #eef0f3; color: #485456; }
+.vip-chip-hot         { background: #dff0ef; color: #0f6b6b; }
+.vip-chip-rfq         { background: #f2efdf; color: #7a6413; }
+.vip-chip-quote       { background: #eaf0f6; color: #2f5878; }
+.vip-chip-negotiation { background: #f1ecf7; color: #5a4287; }
+.vip-chip-won         { background: #e4f1e8; color: #1f6f4a; }
+.vip-chip-lost        { background: #fbeaea; color: #b4232a; }
+
+/* tiny uppercase tag (activity timeline) */
+.vip-tag {
+  font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 4px; background: var(--vip-line-soft); color: var(--vip-muted);
+}
+
+/* selectable stage chip (LeadStageSection) */
+.vip-chip-select {
+  min-height: 40px; padding: 0 14px; border-radius: var(--vip-r-pill);
+  display: grid; place-items: center; cursor: pointer;
+  font-size: 13px; font-weight: 600; font-family: inherit;
+  background: var(--vip-surface); border: 1px solid var(--vip-line); color: var(--vip-body);
+}
+.vip-chip-select[aria-pressed='true'] { border-color: currentColor; }
+.vip-chip-wrap { display: flex; flex-wrap: wrap; gap: 7px; }
+
+/* ---------- 7. Segmented controls (tabs, date range, filters) ----------- */
+/* Never a row of full-width buttons: a padded track with equal segments. */
+.vip-seg {
+  display: flex; gap: 4px; padding: 4px;
+  background: var(--vip-track); border-radius: var(--vip-r-field);
+}
+.vip-seg-btn {
+  flex: 1; min-height: 40px; display: grid; place-items: center;
+  border: 0; border-radius: 8px; background: transparent;
+  font: 600 13px var(--vip-sans); color: var(--vip-muted);
+  cursor: pointer;
+}
+.vip-seg-btn.vip-active { background: var(--vip-surface); color: var(--vip-ink); }
+
+/* outlined variant used for date range / exec filter */
+.vip-seg-outline { background: var(--vip-surface); border: 1px solid var(--vip-field-line); border-radius: 10px; }
+.vip-seg-outline .vip-seg-btn { min-height: 36px; border-radius: 7px; font-size: 12px; }
+.vip-seg-outline .vip-seg-btn.vip-active { background: var(--vip-teal); color: #fff; }
+
+/* small in-card toggle (Table / Board) */
+.vip-seg-mini { display: flex; gap: 3px; padding: 3px; background: var(--vip-track); border-radius: 8px; }
+.vip-seg-mini .vip-seg-btn { flex: 0 0 auto; min-height: 32px; padding: 0 12px; border-radius: 6px; font-size: 12px; }
+
+/* ---------- 8. Tap-select grids (activity type, lead source) ------------ */
+.vip-choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.vip-choice-row  { display: flex; gap: 8px; }
+.vip-choice {
+  flex: 1; min-height: 56px; display: grid; place-items: center;
+  border: 1px solid var(--vip-line); border-radius: var(--vip-r-card);
+  background: var(--vip-surface); color: var(--vip-body);
+  font: 600 14px var(--vip-sans); cursor: pointer;
+}
+.vip-choice.vip-active { background: var(--vip-teal); border-color: var(--vip-teal); color: #fff; }
+
+/* ---------- 9. Forms ---------------------------------------------------- */
+.vip-form { display: flex; flex-direction: column; gap: 14px; }
+.vip-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--vip-ink); }
+.vip-field-hint { font-weight: 400; font-size: 12px; color: var(--vip-muted); }
+.vip-input, .vip-select, .vip-textarea {
+  min-height: 48px; width: 100%;
+  font: 400 16px var(--vip-sans);      /* 16px min — stops iOS zoom-on-focus */
+  padding: 12px 13px;
+  border: 1px solid var(--vip-field-line); border-radius: var(--vip-r-field);
+  background: var(--vip-surface); color: var(--vip-ink);
+}
+.vip-textarea { min-height: 84px; resize: none; }
+.vip-input:focus-visible, .vip-select:focus-visible, .vip-textarea:focus-visible {
+  outline: 2px solid var(--vip-teal); outline-offset: -1px;
+}
+.vip-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.vip-check {
+  display: flex; align-items: center; gap: 9px;
+  min-height: 32px; font-size: 13px; font-weight: 400; color: var(--vip-body);
+}
+.vip-check input { width: 18px; height: 18px; accent-color: var(--vip-teal); }
+.vip-form-note { font-size: 12px; color: var(--vip-muted); line-height: 1.5; }
+.vip-error { font-size: 13px; color: var(--vip-lost); }
+.vip-success { font-size: 13px; color: var(--vip-won); }
+.vip-section-split { border-top: 1px solid var(--vip-line-soft); padding-top: 11px; }
+
+/* ---------- 10. Buttons ------------------------------------------------- */
+.vip-btn {
+  min-height: 52px; width: 100%;
+  display: grid; place-items: center;
+  border: 0; border-radius: var(--vip-r-card);
+  background: var(--vip-teal); color: #fff;
+  font: 600 16px var(--vip-sans); cursor: pointer;
+}
+.vip-btn:hover { background: var(--vip-teal-dark); }
+.vip-btn:disabled { opacity: .55; cursor: default; }
+.vip-btn-secondary {
+  background: var(--vip-surface); border: 1px solid var(--vip-field-line); color: var(--vip-ink);
+}
+.vip-btn-secondary:hover { background: var(--vip-canvas); }
+.vip-btn-dark { background: var(--vip-ink); }
+.vip-btn-dark:hover { background: #000; }
+.vip-btn-danger { background: var(--vip-lost); }
+.vip-btn-sm { min-height: 48px; border-radius: var(--vip-r-field); font-size: 14px; }
+.vip-btn-row { display: flex; gap: 8px; }
+.vip-btn-row .vip-btn { flex: 1; }
+.vip-btn-link {
+  min-height: 38px; padding: 0 12px; border: 0; background: none;
+  color: var(--vip-teal); font: 600 13px var(--vip-sans); cursor: pointer;
+}
+
+/* ---------- 11. Timeline ------------------------------------------------ */
+.vip-timeline-item {
+  display: flex; gap: 11px; padding-bottom: 10px; border-bottom: 1px solid var(--vip-line-soft);
+}
+.vip-timeline-item:last-child { border-bottom: 0; padding-bottom: 0; }
+.vip-timeline-when {
+  font-family: var(--vip-mono); font-size: 11px; color: var(--vip-muted);
+  flex: 0 0 42px; padding-top: 2px;
+}
+.vip-timeline-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.vip-timeline-head { display: flex; align-items: center; gap: 7px; }
+.vip-timeline-title { font-size: 14px; font-weight: 600; color: var(--vip-ink); }
+.vip-timeline-detail { font-size: 12px; color: var(--vip-body); line-height: 1.45; }
+.vip-timeline-by { font-size: 11px; color: var(--vip-faint); }
+
+/* ---------- 12. Stage board (read-only kanban) -------------------------- */
+.vip-board { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.vip-board-col {
+  flex: 0 0 180px; background: var(--vip-surface-soft);
+  border: 1px solid #e2e8e8; border-radius: 10px; padding: 10px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.vip-board-head {
+  display: flex; flex-direction: column; gap: 2px;
+  border-top: 3px solid var(--vip-body); padding-top: 7px;   /* override per stage colour */
+}
+.vip-board-head-top { display: flex; align-items: center; justify-content: space-between; }
+.vip-board-title { font-size: 12px; font-weight: 700; color: var(--vip-ink); }
+.vip-board-meta { font-size: 11px; color: var(--vip-muted); font-variant-numeric: tabular-nums; }
+.vip-board-card {
+  background: var(--vip-surface); border: 1px solid var(--vip-line); border-radius: 8px;
+  padding: 9px 10px; display: flex; flex-direction: column; gap: 2px; cursor: pointer;
+  text-decoration: none;
+}
+.vip-board-card:hover { text-decoration: none; border-color: var(--vip-teal); }
+.vip-board-card-party { font-size: 12px; font-weight: 600; color: var(--vip-ink); }
+.vip-board-card-site { font-size: 10px; color: var(--vip-faint); }
+.vip-board-card-foot { display: flex; justify-content: space-between; align-items: baseline; padding-top: 2px; }
+.vip-board-card-value { font-size: 11px; color: var(--vip-body); font-variant-numeric: tabular-nums; }
+.vip-board-card-owner { font-size: 10px; color: #9aa5a6; }
+
+/* ---------- 13. Login (dark full-screen) -------------------------------- */
+.vip-login {
+  width: 100%; max-width: var(--vip-app-max); margin: 0 auto;
+  min-height: 100svh; background: var(--vip-shell);
+  padding: 70px 26px 44px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  font-family: var(--vip-sans);
+}
+.vip-login-brand { display: flex; align-items: center; gap: 11px; }
+.vip-login-mark {
+  width: 36px; height: 36px; background: var(--vip-teal); color: #fff;
+  display: grid; place-items: center;
+  font-family: var(--vip-display); font-weight: 700; font-size: 19px;
+}
+.vip-login-word {
+  font-family: var(--vip-display); font-weight: 700; font-size: 15px;
+  letter-spacing: .14em; color: #fff;
+}
+.vip-login-pitch { display: flex; flex-direction: column; gap: 14px; }
+.vip-login-h {
+  font-family: var(--vip-display); font-weight: 600; font-size: 30px; line-height: 1.15;
+  color: #fff; text-wrap: pretty;
+}
+.vip-login-sub { font-size: 14px; line-height: 1.55; color: var(--vip-on-shell-dim); }
+.vip-login-form { display: flex; flex-direction: column; gap: 12px; }
+.vip-login-form .vip-input {
+  min-height: 50px; padding: 13px 14px; border-radius: 12px;
+  background: var(--vip-shell-3); border-color: var(--vip-shell-line); color: var(--vip-on-shell);
+}
+.vip-login-note { font-size: 12px; color: #7d8a8c; line-height: 1.5; }
+
+/* ---------- 14. Install prompt ------------------------------------------ */
+.vip-install {
+  background: var(--vip-shell); border-radius: var(--vip-r-card); padding: 15px 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.vip-install-title { font-size: 14px; font-weight: 600; color: #fff; }
+.vip-install-sub { font-size: 12px; color: var(--vip-on-shell-dim); }
+.vip-install .vip-btn {
+  min-height: 38px; width: auto; padding: 0 14px; border-radius: var(--vip-r-control); font-size: 13px;
+}
+
+/* ---------- 15. Utility ------------------------------------------------- */
+.vip-stack   { display: flex; flex-direction: column; gap: 12px; }
+.vip-stack-s { display: flex; flex-direction: column; gap: 8px; }
+.vip-mono    { font-family: var(--vip-mono); font-size: 11px; color: var(--vip-faint); }
+.vip-num     { font-variant-numeric: tabular-nums; }
+.vip-lede    { font-size: 13px; color: var(--vip-body); }

@@ -1,13 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchLeadsList } from '../lib/dashboardQueries'
-import { SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
-import { formatCurrency } from '../lib/format'
-import '../pages/Dashboard.css'
-
-function formatDate(value) {
-  return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-}
+import { stageChipClass } from '../lib/statusColors'
+import { formatCurrencyCompact } from '../lib/format'
 
 function LeadsListCard({ isOwner, employees }) {
   const [employeeFilter, setEmployeeFilter] = useState('')
@@ -36,13 +31,32 @@ function LeadsListCard({ isOwner, employees }) {
   }, [employeeFilter])
 
   return (
-    <section className="dashboard-card">
-      <h2>{isOwner ? 'All leads' : 'My leads'}</h2>
+    <div className="vip-card">
+      <div className="vip-card-title">{isOwner ? 'All leads' : 'My leads'}</div>
 
-      {isOwner && (
-        <label className="dashboard-field">
-          Sales exec
-          <select value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
+      {isOwner &&
+        (employees.length <= 4 ? (
+          <div className="vip-seg vip-seg-outline">
+            <button
+              type="button"
+              className={employeeFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+              onClick={() => setEmployeeFilter('')}
+            >
+              All
+            </button>
+            {employees.map((e) => (
+              <button
+                key={e.id}
+                type="button"
+                className={employeeFilter === String(e.id) ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setEmployeeFilter(String(e.id))}
+              >
+                {e.name.split(' ')[0]}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <select className="vip-select" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
             <option value="">— All employees —</option>
             {employees.map((e) => (
               <option key={e.id} value={e.id}>
@@ -50,48 +64,31 @@ function LeadsListCard({ isOwner, employees }) {
               </option>
             ))}
           </select>
-        </label>
-      )}
+        ))}
 
-      {error && <p className="dashboard-error">{error}</p>}
+      {error && <p className="vip-error">{error}</p>}
 
       {loading ? (
-        <p className="dashboard-empty">Loading…</p>
+        <p className="vip-empty">Loading…</p>
       ) : leads.length === 0 ? (
-        <p className="dashboard-empty">No leads found.</p>
+        <p className="vip-empty">No leads found.</p>
       ) : (
-        <div className="dashboard-table-wrap">
-          <table className="dashboard-table">
-            <thead>
-              <tr>
-                <th>Party</th>
-                <th>Site</th>
-                <th>Owner</th>
-                <th>Source</th>
-                <th>Stage</th>
-                <th>Order value</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {leads.map((lead) => (
-                <tr key={lead.id}>
-                  <td>
-                    <Link to={`/leads/${lead.id}`}>{lead.parties?.name ?? '(no party)'}</Link>
-                  </td>
-                  <td>{lead.sites?.nickname || lead.sites?.locality || '—'}</td>
-                  <td>{lead.employees?.name ?? 'Unassigned'}</td>
-                  <td>{SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type}</td>
-                  <td>{lead.current_stage ?? 'new'}</td>
-                  <td>{lead.order_value ? formatCurrency(lead.order_value) : '—'}</td>
-                  <td>{formatDate(lead.created_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        leads.map((lead) => (
+          <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
+            <div className="vip-row-main">
+              <div className="vip-row-title">{lead.parties?.name ?? '(no party)'}</div>
+              <div className="vip-row-sub">
+                {[lead.sites?.nickname || lead.sites?.locality, lead.employees?.name].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+            <div className="vip-row-side" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className={stageChipClass(lead.current_stage ?? 'new')}>{lead.current_stage ?? 'new'}</span>
+              <div className="vip-row-meta vip-num">{formatCurrencyCompact(lead.order_value)}</div>
+            </div>
+          </Link>
+        ))
       )}
-    </section>
+    </div>
   )
 }
 

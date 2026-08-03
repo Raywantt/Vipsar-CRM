@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
-import { formatCurrency } from '../lib/format'
-import '../pages/Dashboard.css'
+import { stageFg } from '../lib/statusColors'
+import { formatCurrencyCompact } from '../lib/format'
 
 function leadTitle(lead) {
   return lead.parties?.name ?? (lead.sites?.nickname || lead.sites?.locality) ?? '(no party)'
@@ -18,29 +18,33 @@ function LeadStageBoard({ leads, isOwner }) {
   })
 
   return (
-    <div className="dashboard-board">
+    <div className="vip-board">
       {columns.map(({ stage, leads: stageLeads, orderValue }) => (
-        <div key={stage} className="dashboard-board-column">
-          <div className="dashboard-board-column-header">
-            <span className="dashboard-board-column-title">{stage}</span>
-            <span className="dashboard-board-column-meta">
-              {stageLeads.length} · {formatCurrency(orderValue)}
-            </span>
+        <div key={stage} className="vip-board-col">
+          <div className="vip-board-head" style={{ borderTopColor: stageFg(stage) }}>
+            <div className="vip-board-head-top">
+              <div className="vip-board-title">{stage}</div>
+              <div className="vip-board-meta">{stageLeads.length}</div>
+            </div>
+            <div className="vip-board-meta">{formatCurrencyCompact(orderValue)}</div>
           </div>
 
-          <div className="dashboard-board-cards">
-            {stageLeads.length === 0 ? (
-              <p className="dashboard-empty">No leads</p>
-            ) : (
-              stageLeads.map((lead) => (
-                <Link key={lead.id} to={`/leads/${lead.id}`} className="dashboard-board-card">
-                  <span className="dashboard-board-card-title">{leadTitle(lead)}</span>
-                  <span className="dashboard-board-card-value">{formatCurrency(lead.order_value)}</span>
-                  {isOwner && <span className="dashboard-board-card-owner">{lead.employees?.name ?? 'Unassigned'}</span>}
-                </Link>
-              ))
-            )}
-          </div>
+          {stageLeads.length === 0 ? (
+            <p className="vip-empty">No leads</p>
+          ) : (
+            stageLeads.map((lead) => (
+              <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-board-card">
+                <div className="vip-board-card-party">{leadTitle(lead)}</div>
+                {lead.sites?.nickname || lead.sites?.locality ? (
+                  <div className="vip-board-card-site">{lead.sites.nickname || lead.sites.locality}</div>
+                ) : null}
+                <div className="vip-board-card-foot">
+                  <div className="vip-board-card-value">{formatCurrencyCompact(lead.order_value)}</div>
+                  {isOwner && <div className="vip-board-card-owner">{lead.employees?.name ?? 'Unassigned'}</div>}
+                </div>
+              </Link>
+            ))
+          )}
         </div>
       ))}
     </div>
