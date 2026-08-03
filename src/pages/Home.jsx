@@ -13,9 +13,18 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 }
 
+function greetingForHour(hour) {
+  if (hour >= 5 && hour < 12) return 'Good morning'
+  if (hour >= 12 && hour < 17) return 'Good afternoon'
+  if (hour >= 17 && hour < 21) return 'Good evening'
+  return 'Hello'
+}
+
 function Home() {
   const { employee } = useAuth()
   const tiles = HOME_TILES[employee?.role] ?? []
+  const firstName = employee?.name?.trim().split(/\s+/)[0] ?? ''
+  const greeting = greetingForHour(new Date().getHours())
 
   const [kpis, setKpis] = useState(null)
   const [closing, setClosing] = useState([])
@@ -54,6 +63,12 @@ function Home() {
 
   return (
     <div className="vip-wide">
+      {firstName && (
+        <div className="vip-greeting">
+          {greeting}, {firstName}
+        </div>
+      )}
+
       {kpis && (
         <div className="vip-kpi-grid">
           <div className="vip-kpi">
@@ -79,8 +94,8 @@ function Home() {
         <p className="vip-empty">No shortcuts set up for your role yet.</p>
       ) : (
         <div className="vip-tile-grid">
-          {tiles.map((tile, i) => (
-            <Link key={tile.to} to={tile.to} className={i === 0 ? 'vip-tile vip-tile-primary' : 'vip-tile'}>
+          {tiles.map((tile) => (
+            <Link key={tile.to} to={tile.to} className="vip-tile">
               <div>
                 <div className="vip-tile-label">{tile.label}</div>
                 <div className="vip-tile-desc">{tile.desc}</div>

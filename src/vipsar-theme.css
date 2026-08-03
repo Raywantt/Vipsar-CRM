@@ -95,6 +95,7 @@
   --vip-header-h: 60px;
   --vip-bottom-nav-h: 60px;
   --vip-sidebar-w: 232px;   /* desktop-only left nav rail, see the ≥1024px block below */
+  --vip-sidebar-w-collapsed: 68px;   /* icon-only rail, toggled via .vip-sidebar-collapsed */
   --vip-narrow-max: 700px;  /* desktop reading column — forms, single lists, detail pages */
   --vip-wide-max: 1180px;   /* desktop dashboard/report column, alongside the sidebar */
 
@@ -145,6 +146,12 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
   gap: 14px;
   padding: calc(var(--vip-header-h) + 16px) 16px
            calc(var(--vip-bottom-nav-h) + env(safe-area-inset-bottom) + 20px);
+}
+
+/* Home has no AppNav bar (see AppNav.jsx) — its own top inset instead of
+   the fixed-header allowance every other route reserves. */
+.vip-home .vip-body {
+  padding-top: calc(env(safe-area-inset-top) + 20px);
 }
 
 /* --- top bar (AppNav) --- */
@@ -209,6 +216,7 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 }
 .vip-bottom-nav a:hover { color: var(--vip-on-shell); text-decoration: none; }
 .vip-bottom-nav a.vip-active { color: #fff; box-shadow: inset 0 2px 0 var(--vip-teal); }
+.vip-nav-icon { width: 18px; height: 18px; flex: 0 0 18px; }
 
 /* --- offline banner --- */
 .vip-offline {
@@ -232,6 +240,10 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 .vip-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .vip-card-note { font-size: 11px; color: var(--vip-muted); }
 .vip-empty { font-size: 13px; color: var(--vip-faint); padding: 2px 0 4px; }
+
+.vip-greeting {
+  font-family: var(--vip-display); font-weight: 600; font-size: 20px; color: var(--vip-ink);
+}
 
 /* KPI tiles — always 2-up on phone */
 .vip-kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -259,14 +271,10 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   cursor: pointer; text-decoration: none;
 }
-.vip-tile:hover { text-decoration: none; }
+.vip-tile:hover { text-decoration: none; border-color: var(--vip-teal); }
 .vip-tile-label { font-size: 16px; font-weight: 600; color: var(--vip-ink); }
 .vip-tile-desc  { font-size: 12px; color: var(--vip-faint); }
 .vip-tile-chevron { font-size: 18px; color: var(--vip-faint); }
-.vip-tile-primary { background: var(--vip-teal); border-color: var(--vip-teal); }
-.vip-tile-primary .vip-tile-label { color: #fff; }
-.vip-tile-primary .vip-tile-desc,
-.vip-tile-primary .vip-tile-chevron { color: var(--vip-teal-on-dark); }
 
 /* ---------- 4. Rows & tables -------------------------------------------- */
 /* Phone screens use stacked rows, NOT <table>. A wide 5-column table is the
@@ -574,63 +582,89 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
     --vip-app-max: var(--vip-narrow-max);
   }
 
+  /* The sidebar's reserved layout space is always the icon-rail width —
+     hovering it wider (below) floats it as an overlay instead of
+     reflowing the header/content, so it never changes this. */
   .vip-app {
     max-width: none;
     margin: 0;
     box-shadow: none;
-    padding-left: var(--vip-sidebar-w);
+    padding-left: var(--vip-sidebar-w-collapsed);
   }
 
   .vip-body {
     padding: calc(var(--vip-header-h) + 28px) 32px 40px;
   }
 
+  .vip-home .vip-body {
+    padding-top: 28px;
+  }
+
   /* --- header spans the content area, right of the sidebar --- */
   .vip-header {
-    left: var(--vip-sidebar-w);
+    left: var(--vip-sidebar-w-collapsed);
     transform: none;
-    width: calc(100% - var(--vip-sidebar-w));
+    width: calc(100% - var(--vip-sidebar-w-collapsed));
     max-width: none;
     padding: 14px 32px;
   }
 
-  /* --- BottomNav becomes the sidebar --- */
+  /* --- BottomNav becomes a hover-triggered sidebar: an icon-only rail at
+     rest that expands over the content (not pushing it) on :hover. Labels
+     are always in the DOM at their natural width — overflow-x:hidden on
+     the rail clips them at rest, and the width transition reveals them,
+     so no JS/display toggling is needed for the reveal itself. --- */
   .vip-bottom-nav {
     left: 0;
     top: 0;
     bottom: 0;
     transform: none;
-    width: var(--vip-sidebar-w);
+    width: var(--vip-sidebar-w-collapsed);
     max-width: none;
     height: 100vh;
     flex-direction: column;
     align-items: stretch;
     padding: 0;
     gap: 2px;
+    overflow-x: hidden;
     overflow-y: auto;
+    z-index: 30;
+    box-shadow: 1px 0 0 var(--vip-shell-line);
+    transition: width .15s ease, box-shadow .15s ease;
+  }
+  .vip-bottom-nav:hover {
+    width: var(--vip-sidebar-w);
+    box-shadow: 2px 0 20px rgba(0, 0, 0, .2);
   }
   .vip-bottom-nav a {
     flex: 0 0 auto;
     min-height: 44px;
     flex-direction: row;
     justify-content: flex-start;
-    padding: 0 22px;
+    padding: 0 0 0 22px;
     gap: 10px;
     font-size: 13px;
+    white-space: nowrap;
   }
   .vip-bottom-nav a.vip-active {
     background: var(--vip-shell-2);
     box-shadow: inset 3px 0 0 var(--vip-teal);
   }
   .vip-bottom-nav a.vip-nav-extra { display: flex; }
+  .vip-nav-label {
+    display: inline-block; max-width: 0; overflow: hidden;
+    transition: max-width .15s ease;
+  }
+  .vip-bottom-nav:hover .vip-nav-label { max-width: 160px; }
 
   .vip-sidebar-brand {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 20px 22px 16px;
+    padding: 20px 22px 16px 22px;
     border-bottom: 1px solid var(--vip-shell-line);
     margin-bottom: 8px;
+    white-space: nowrap;
   }
   .vip-sidebar-mark {
     width: 30px; height: 30px; flex: 0 0 30px;
@@ -639,19 +673,31 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
     font-family: var(--vip-display); font-weight: 700; font-size: 15px;
   }
   .vip-sidebar-word {
+    display: inline-block; max-width: 0; overflow: hidden; white-space: nowrap;
+    transition: max-width .15s ease;
     font-family: var(--vip-display); font-weight: 700; font-size: 13px;
     letter-spacing: .12em; color: #fff;
   }
+  .vip-bottom-nav:hover .vip-sidebar-word { max-width: 120px; }
   .vip-sidebar-foot {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    align-items: center;
+    gap: 10px;
     margin-top: auto;
-    padding: 16px 22px;
+    padding: 16px 0 16px 22px;
     border-top: 1px solid var(--vip-shell-line);
   }
-  .vip-sidebar-foot-name { font-size: 13px; font-weight: 600; color: var(--vip-on-shell); }
-  .vip-sidebar-foot-role { font-size: 11px; color: var(--vip-on-shell-dim); text-transform: capitalize; }
+  .vip-sidebar-foot-text {
+    display: flex; flex-direction: column; gap: 2px; min-width: 0;
+    max-width: 0; overflow: hidden;
+    transition: max-width .15s ease;
+  }
+  .vip-bottom-nav:hover .vip-sidebar-foot-text { max-width: 160px; }
+  .vip-sidebar-foot-name {
+    font-size: 13px; font-weight: 600; color: var(--vip-on-shell);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .vip-sidebar-foot-role { font-size: 11px; color: var(--vip-on-shell-dim); text-transform: capitalize; white-space: nowrap; }
 
   /* full-width, sidebar-unaware — a rare/transient banner, not worth the
      positioning complexity of tracking the content area's left offset */

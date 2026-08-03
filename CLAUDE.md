@@ -218,13 +218,38 @@ imports it before the theme file.
   block purely so `InstallPrompt`/`OfflineIndicator` (mounted outside
   `.vip-app`, so they can't inherit its width) keep a sensible centered
   width once the phone-frame cap they used to piggyback on goes away.
+* **Sidebar icons + hover-expand** — `BottomNav.jsx`'s links (and the mobile
+  tab bar, same component) each carry an icon from
+  `src/components/NavIcons.jsx` — hand-authored inline SVG, not a library
+  (see Conventions). At ≥1024px the sidebar rests as a permanent icon-only
+  rail (`--vip-sidebar-w-collapsed`, 68px — this is what `.vip-app`'s
+  content padding and `.vip-header`'s left offset actually reserve, always,
+  so hovering never reflows the page) and widens to
+  `--vip-sidebar-w` (232px) on `:hover`, floating over the content as an
+  overlay (box-shadow + `z-index`) rather than pushing it. Pure CSS, no
+  React state: `.vip-nav-label`/`.vip-sidebar-word`/`.vip-sidebar-foot-text`
+  each sit at `max-width: 0; overflow: hidden`, transitioning open on
+  `.vip-bottom-nav:hover` — labels are always in the DOM, just clipped to
+  nothing at rest. The footer shows initials in a small avatar
+  (`getInitials`, `src/lib/initials.js`, shared with `AppNav`'s header
+  avatar) at rest, name/role revealed on hover; nav links also keep a
+  native `title` tooltip. No effect below 1024px — the mobile tab bar
+  always shows icon+label, no hover concept on touch.
 
 ### Home (`src/pages/Home.jsx`) and Account (`src/pages/Account.jsx`)
 
-`/` is the landing page after login for both roles — a KPI grid (open
+`/` is the landing page after login for both roles — a time-of-day greeting
+("Good morning/afternoon/evening, {first name}", falling back to "Hello"
+late at night — `greetingForHour` in `Home.jsx`), a KPI grid (open
 leads/pipeline/visits this week/won this month, see Design system above),
 tappable shortcut tiles, and a "Closing next" card (top 4 rows from the
-same closure-forecast query the Dashboard card uses). Tiles come from a
+same closure-forecast query the Dashboard card uses). Home is the one route
+`AppNav` renders nothing for (`AppNav.jsx` returns `null` when
+`pathname === '/'`) — the greeting is the page's own heading instead of a
+"Today / date · name" bar, so the screen starts flush at the top
+(`.vip-home .vip-body` in `vipsar-theme.css` swaps the fixed-header
+padding-top allowance for a small safe-area-aware one instead). Every other
+route keeps its normal `AppNav` header. Tiles come from a
 role-keyed config, `HOME_TILES` in `src/lib/homeTiles.js` (currently New
 Lead/Activity Log/Dashboard/All Leads, identical for both roles), rather
 than inline `isOwner`-style JSX branching like every other role-aware page
@@ -781,7 +806,7 @@ renders) rather than assuming a fresh tab means a fresh session.
 - The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Currently outstanding: `tostem_crm_schema.sql`'s `parties.party_type` CHECK includes `'pmc'` but this has not been run live — the constraint is named `parties_party_type_check` (confirmed via the exact error it throws today), so `ALTER TABLE parties DROP CONSTRAINT parties_party_type_check, ADD CONSTRAINT parties_party_type_check CHECK (party_type IN ('client','architect','builder','firm','other','pmc'));` is the migration once someone's ready to run it.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`): `activities`/`leads`/`plans`/`targets` use "own data or owner role" (by `employee_id`/`owner_employee_id`, or role=`'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT open, INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`: SELECT/INSERT open to all (needed for search-before-create across reps), UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts`: SELECT/INSERT open, UPDATE/DELETE owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products`: SELECT open, else owner-only. `stage_history`: SELECT/INSERT open, no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT owner-only, INSERT open, no UPDATE/DELETE ever, same append-only-forever reasoning. A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the ten tables with an `owner_only_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`); `stage_history`/`loss_reasons` get no DELETE grant at all.
-- No GPS, geocoding, or drag-and-drop libraries in this project — deliberate (see DECISIONS.md and the Kanban board note above). No icon library either — every icon-shaped thing in the UI is plain text/CSS, not an `<svg>` or icon-font glyph; match that rather than introducing one.
+- No GPS, geocoding, or drag-and-drop libraries in this project — deliberate (see DECISIONS.md and the Kanban board note above). No icon library either (no `lucide-react`/icon-font dependency) — `src/components/NavIcons.jsx` hand-authors BottomNav's icons as plain inline SVG instead; reuse/extend that file for any new icon rather than adding a package. Everything else icon-shaped stays plain text/CSS.
 
 ## Roadmap
 

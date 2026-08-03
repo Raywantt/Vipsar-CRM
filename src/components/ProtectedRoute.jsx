@@ -1,10 +1,11 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import AppNav from './AppNav'
 import BottomNav from './BottomNav'
 
 function ProtectedRoute({ allowedRoles, children }) {
   const { session, employee, employeeError, loading } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return <p style={{ padding: 24 }}>Loading…</p>
@@ -31,8 +32,10 @@ function ProtectedRoute({ allowedRoles, children }) {
     return <Navigate to="/" replace />
   }
 
+  const isHome = location.pathname === '/'
+
   return (
-    <div className="vip-app">
+    <div className={isHome ? 'vip-app vip-home' : 'vip-app'}>
       <AppNav />
       <div className="vip-body">{children}</div>
       <BottomNav />
