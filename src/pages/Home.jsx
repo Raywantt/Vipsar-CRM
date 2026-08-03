@@ -13,10 +13,11 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 }
 
-function greetingForHour(hour) {
-  if (hour >= 5 && hour < 12) return 'Good morning'
-  if (hour >= 12 && hour < 17) return 'Good afternoon'
-  if (hour >= 17 && hour < 21) return 'Good evening'
+function greetingForTime(hour, minute) {
+  const minutesSinceMidnight = hour * 60 + minute
+  if (minutesSinceMidnight >= 5 * 60 && minutesSinceMidnight < 12 * 60) return 'Good morning'
+  if (minutesSinceMidnight >= 12 * 60 && minutesSinceMidnight < 17 * 60) return 'Good afternoon'
+  if (minutesSinceMidnight >= 17 * 60 && minutesSinceMidnight < 19 * 60 + 30) return 'Good evening'
   return 'Hello'
 }
 
@@ -24,7 +25,8 @@ function Home() {
   const { employee } = useAuth()
   const tiles = HOME_TILES[employee?.role] ?? []
   const firstName = employee?.name?.trim().split(/\s+/)[0] ?? ''
-  const greeting = greetingForHour(new Date().getHours())
+  const now = new Date()
+  const greeting = greetingForTime(now.getHours(), now.getMinutes())
 
   const [kpis, setKpis] = useState(null)
   const [closing, setClosing] = useState([])
