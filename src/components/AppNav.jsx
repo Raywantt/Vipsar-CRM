@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import { getInitials } from '../lib/initials'
@@ -51,7 +51,15 @@ function AppNav() {
           {sub && <div className="vip-header-sub">{sub}</div>}
         </div>
       </div>
-      {employee && <div className="vip-avatar">{getInitials(employee.name)}</div>}
+      <div className="vip-header-actions">
+        <button type="button" className="vip-header-search" onClick={() => navigate('/search')}>
+          Search leads, parties, sites
+        </button>
+        <Link to="/leads/new" className="vip-header-add">
+          + New Lead
+        </Link>
+        {employee && <div className="vip-avatar">{getInitials(employee.name)}</div>}
+      </div>
     </header>
   )
 }

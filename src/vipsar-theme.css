@@ -193,6 +193,11 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
   display: grid; place-items: center; font-size: 12px; font-weight: 600;
 }
 
+/* right side of the header: avatar always, search/add shortcuts desktop-only
+   (see the ≥1024px block below) */
+.vip-header-actions { display: flex; align-items: center; gap: 8px; }
+.vip-header-search, .vip-header-add { display: none; }
+
 /* --- bottom bar (BottomNav) --- */
 .vip-bottom-nav {
   position: fixed;
@@ -279,6 +284,12 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 .vip-tile-label { font-size: 16px; font-weight: 600; color: var(--vip-ink); }
 .vip-tile-desc  { font-size: 12px; color: var(--vip-faint); }
 .vip-tile-chevron { font-size: 18px; color: var(--vip-faint); }
+
+/* filled variant for Home's first (primary) tile, e.g. New Lead */
+.vip-tile-primary { background: var(--vip-teal); border-color: var(--vip-teal); }
+.vip-tile-primary .vip-tile-label { color: #fff; }
+.vip-tile-primary .vip-tile-desc,
+.vip-tile-primary .vip-tile-chevron { color: var(--vip-teal-on-dark); }
 
 /* ---------- 4. Rows & tables -------------------------------------------- */
 /* Phone screens use stacked rows, NOT <table>. A wide 5-column table is the
@@ -577,6 +588,10 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 .vip-report-grid { display: flex; flex-direction: column; gap: 14px; }
 .vip-tile-grid { display: flex; flex-direction: column; gap: 8px; }
 
+/* two/three-column page grid (e.g. Lead Detail's forms-in-an-aside layout on
+   desktop) — stacked single column below 1024px, same as .vip-narrow/.vip-wide */
+.vip-cols, .vip-cols-3 { display: flex; flex-direction: column; gap: 14px; width: 100%; margin: 0 auto; }
+
 .vip-bottom-nav a.vip-nav-extra, .vip-sidebar-brand, .vip-sidebar-foot { display: none; }
 
 @media (min-width: 1024px) {
@@ -612,6 +627,21 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
     max-width: none;
     padding: 14px 32px;
   }
+
+  /* quick search + add-lead shortcuts, desktop only — hidden below this
+     breakpoint (base rule above), no live filtering, just navigation */
+  .vip-header-search, .vip-header-add {
+    display: flex; align-items: center; white-space: nowrap;
+    min-height: 38px; padding: 0 14px; border-radius: var(--vip-r-control);
+    font: 600 13px var(--vip-sans);
+  }
+  .vip-header-search {
+    font-weight: 400; color: var(--vip-muted); cursor: pointer;
+    background: var(--vip-surface); border: 1px solid var(--vip-field-line);
+  }
+  .vip-header-search:hover { color: var(--vip-ink); border-color: var(--vip-teal); }
+  .vip-header-add { background: var(--vip-teal); color: #fff; border: 0; text-decoration: none; }
+  .vip-header-add:hover { background: var(--vip-teal-dark); text-decoration: none; }
 
   /* --- BottomNav becomes a hover-triggered sidebar: an icon-only rail at
      rest that expands over the content (not pushing it) on :hover. Labels
@@ -715,6 +745,16 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 
   .vip-narrow { max-width: var(--vip-narrow-max); }
   .vip-wide { max-width: var(--vip-wide-max); }
+  .vip-cols {
+    max-width: var(--vip-wide-max);
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+    gap: 16px; align-items: start;
+  }
+  .vip-cols-3 {
+    max-width: var(--vip-wide-max);
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px) minmax(0, 300px);
+    gap: 16px; align-items: start;
+  }
 
   /* denser bar/matrix labels read better with the extra horizontal room */
   .vip-bar-label { flex-basis: 150px; }

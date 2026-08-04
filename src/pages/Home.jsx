@@ -125,8 +125,8 @@ function Home() {
         <p className="vip-empty">No shortcuts set up for your role yet.</p>
       ) : (
         <div className="vip-tile-grid">
-          {tiles.map((tile) => (
-            <Link key={tile.to} to={tile.to} className="vip-tile">
+          {tiles.map((tile, i) => (
+            <Link key={tile.to} to={tile.to} className={i === 0 ? 'vip-tile vip-tile-primary' : 'vip-tile'}>
               <div>
                 <div className="vip-tile-label">{tile.label}</div>
                 <div className="vip-tile-desc">{tile.desc}</div>

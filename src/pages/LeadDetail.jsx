@@ -144,8 +144,11 @@ function LeadDetail() {
     : [party?.party_type, party?.mobile].filter(Boolean).join(' · ')
   const stage = lead.current_stage ?? 'new'
 
-  return (
-    <div className="vip-narrow">
+  // Main column: identity + stage + activity, same for both canEdit branches
+  // below — only what sits beside it (edit forms vs. a read-only notice)
+  // differs, per the two-column desktop layout (.vip-cols).
+  const mainContent = (
+    <div className="vip-stack">
       <div className="vip-card">
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
@@ -206,34 +209,44 @@ function LeadDetail() {
       )}
 
       <LeadActivityTimeline activities={activities} stageHistory={stageHistory} />
+    </div>
+  )
 
-      {canEdit ? (
-        <>
-          <SalesProgressSection
-            lead={lead}
-            products={products}
-            onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
-          />
-
-          {site && <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />}
-
-          {party && <ClientDetailsSection party={party} onSaved={setParty} />}
-
-          {site && (
-            <AdditionalContactsSection
-              site={site}
-              otherParty={otherParty}
-              siteContacts={siteContacts}
-              onContactAdded={(contact) => setSiteContacts((prev) => [...prev, contact])}
-            />
-          )}
-        </>
-      ) : (
+  if (!canEdit) {
+    return (
+      <div className="vip-narrow">
+        {mainContent}
         <p className="vip-empty">
           This lead belongs to {lead.employees?.name ?? 'another sales exec'} — you can view the summary above, but
           only they or an owner can make changes to it.
         </p>
-      )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="vip-cols">
+      {mainContent}
+      <div className="vip-stack">
+        <SalesProgressSection
+          lead={lead}
+          products={products}
+          onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
+        />
+
+        {site && <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />}
+
+        {party && <ClientDetailsSection party={party} onSaved={setParty} />}
+
+        {site && (
+          <AdditionalContactsSection
+            site={site}
+            otherParty={otherParty}
+            siteContacts={siteContacts}
+            onContactAdded={(contact) => setSiteContacts((prev) => [...prev, contact])}
+          />
+        )}
+      </div>
     </div>
   )
 }
