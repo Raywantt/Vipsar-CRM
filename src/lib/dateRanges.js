@@ -22,6 +22,14 @@ function startOfMonth(date) {
   return new Date(date.getFullYear(), date.getMonth(), 1)
 }
 
+function startOfQuarter(date) {
+  return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1)
+}
+
+function startOfYear(date) {
+  return new Date(date.getFullYear(), 0, 1)
+}
+
 // Returns { start: Date, end: Date } for the given preset, or null when a
 // 'custom' preset is missing one of its bounds.
 export function rangeForPreset(preset, customStart, customEnd) {
@@ -33,6 +41,14 @@ export function rangeForPreset(preset, customStart, customEnd) {
 
   if (preset === 'month') {
     return { start: startOfMonth(now), end: atEndOfDay(now) }
+  }
+
+  if (preset === 'quarter') {
+    return { start: startOfQuarter(now), end: atEndOfDay(now) }
+  }
+
+  if (preset === 'year') {
+    return { start: startOfYear(now), end: atEndOfDay(now) }
   }
 
   if (preset === 'custom') {

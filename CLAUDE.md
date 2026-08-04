@@ -41,10 +41,11 @@ needs before touching anything:
   (personal + owner-assigned reminders; `leads.next_followup_date` is
   write-only today, set from `ActivityLog` but never read back anywhere),
   a **`plans`-table screen** (the table has full RLS wired up and zero UI
-  anywhere in `src/`), **role-differentiated Home content** (`HOME_TILES`
-  is role-keyed and ready for this, but owner/sales_exec tiles are still
-  identical), and **a screen listing past activities** (`ActivityLog` only
-  logs new ones; nothing browses old ones outside a lead's own timeline).
+  anywhere in `src/`), **further role-differentiated Home content** beyond
+  today's Activity Log tile split (`HOME_TILES` is role-keyed and ready for
+  more of this), and **a screen listing past activities** (`ActivityLog`
+  only logs new ones; nothing browses old ones outside a lead's own
+  timeline).
 - `LeadsByAreaCard.jsx` was tried as its own component/tab twice and
   removed both times — permanently merged into the generic
   `LeadsByCategoryCard` instead (see Dashboard section). Don't recreate it.
@@ -93,8 +94,9 @@ src/
 
 Routing is set up in `App.jsx` (`react-router-dom`): `/` (Home, landing
 page after login), `/account`, `/search`, `/dashboard`, `/leads/new`,
-`/leads/:id`, `/activity` — all allow both `sales_executive` and `owner` —
-plus `/settings` (**owner-only**). `ProtectedRoute` handles the
+`/leads/:id` — all allow both `sales_executive` and `owner` — plus
+`/activity` (**sales_executive-only**, see the ActivityLog section below)
+and `/settings` (**owner-only**). `ProtectedRoute` handles the
 redirect-to-login and role gating (redirecting to `/` on a role mismatch);
 `AuthContext` is the single source of truth for "who's logged in and what's
 their role" — look up an employee's role via `useAuth()`, don't re-query
@@ -251,8 +253,10 @@ same closure-forecast query the Dashboard card uses). Home is the one route
 padding-top allowance for a small safe-area-aware one instead). Every other
 route keeps its normal `AppNav` header. Tiles come from a
 role-keyed config, `HOME_TILES` in `src/lib/homeTiles.js` (currently New
-Lead/Activity Log/Dashboard/All Leads, identical for both roles), rather
-than inline `isOwner`-style JSX branching like every other role-aware page
+Lead/Dashboard/All Leads for both roles, plus Activity Log for
+`sales_executive` only — owners don't log field activity, see the
+ActivityLog section below), rather than inline `isOwner`-style JSX branching
+like every other role-aware page
 in this app uses — deliberate groundwork: more roles are planned later,
 each potentially with a home screen that looks substantially different,
 and a role-keyed data map means adding one is a new entry in `HOME_TILES`,
@@ -427,7 +431,14 @@ blocker found while building this screen.
 
 ### ActivityLog (`src/pages/ActivityLog.jsx`)
 
-DPR replacement at `/activity`. Tap one of Site Visit/Call/RFQ Raised/Office
+DPR replacement at `/activity`, **sales_executive-only** (`ProtectedRoute`
+in `App.jsx`, plus the Home tile and sidebar nav link are both omitted for
+`owner` in `homeTiles.js`/`BottomNav.jsx`) — owners don't do field work
+themselves, so logging a site visit/call/RFQ/etc. isn't something they need;
+they still see every rep's logged activity through the Dashboard and a
+lead's own timeline. `LeadDetail`'s "Log activity" button is hidden for
+`canEdit` owners for the same reason, even though they can still edit the
+lead itself. Tap one of Site Visit/Call/RFQ Raised/Office
 Day/Booking Update; every type except Office Day then shows
 `LeadSearchSelect` (select-only, scoped to the current employee's own leads
 via `owner_employee_id`). Office Day skips this step entirely (matches the

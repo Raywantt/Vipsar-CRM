@@ -40,10 +40,12 @@ function BottomNav() {
         <IconPlus />
         <span className="vip-nav-label">New Lead</span>
       </NavLink>
-      <NavLink to="/activity" className={extraTabClass} title="Activity Log">
-        <IconActivity />
-        <span className="vip-nav-label">Activity Log</span>
-      </NavLink>
+      {employee?.role !== 'owner' && (
+        <NavLink to="/activity" className={extraTabClass} title="Activity Log">
+          <IconActivity />
+          <span className="vip-nav-label">Activity Log</span>
+        </NavLink>
+      )}
       <NavLink to="/dashboard" className={extraTabClass} title="Dashboard">
         <IconGrid />
         <span className="vip-nav-label">Dashboard</span>

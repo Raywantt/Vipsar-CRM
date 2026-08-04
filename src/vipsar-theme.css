@@ -241,6 +241,10 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 .vip-card-note { font-size: 11px; color: var(--vip-muted); }
 .vip-empty { font-size: 13px; color: var(--vip-faint); padding: 2px 0 4px; }
 
+.vip-home-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+
 .vip-greeting {
   font-family: var(--vip-display); font-weight: 600; font-size: 20px; color: var(--vip-ink);
 }

@@ -54,7 +54,9 @@ function App() {
           <Route
             path="/activity"
             element={
-              <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
+              // owner-excluded deliberately: owners don't log field activity
+              // themselves, only sales execs do — see CLAUDE.md's ActivityLog section.
+              <ProtectedRoute allowedRoles={['sales_executive']}>
                 <ActivityLog />
               </ProtectedRoute>
             }

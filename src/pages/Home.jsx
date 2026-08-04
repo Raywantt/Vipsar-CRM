@@ -21,6 +21,20 @@ function greetingForTime(hour, minute) {
   return 'Hello'
 }
 
+const PERIOD_OPTIONS = [
+  { value: 'week', short: 'W', label: 'This week' },
+  { value: 'month', short: 'M', label: 'This month' },
+  { value: 'quarter', short: 'Q', label: 'This quarter' },
+  { value: 'year', short: 'Y', label: 'This year' },
+]
+
+const PERIOD_LABEL_SUFFIX = {
+  week: 'this week',
+  month: 'this month',
+  quarter: 'this quarter',
+  year: 'this year',
+}
+
 function Home() {
   const { employee } = useAuth()
   const tiles = HOME_TILES[employee?.role] ?? []
@@ -28,17 +42,17 @@ function Home() {
   const now = new Date()
   const greeting = greetingForTime(now.getHours(), now.getMinutes())
 
+  const [period, setPeriod] = useState('week')
   const [kpis, setKpis] = useState(null)
   const [closing, setClosing] = useState([])
 
   useEffect(() => {
     let active = true
-    const weekRange = rangeForPreset('week')
-    const monthRange = rangeForPreset('month')
+    const range = rangeForPreset(period)
 
     Promise.all([
       fetchLeadsForBreakdown(),
-      fetchActivityCounts(weekRange),
+      fetchActivityCounts(range),
       fetchWonStageHistory(),
       fetchClosureForecast(),
     ]).then(([breakdownRes, activitiesRes, wonRes, forecastRes]) => {
@@ -46,14 +60,14 @@ function Home() {
 
       const openLeads = (breakdownRes.data ?? []).filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
       const pipeline = openLeads.reduce((s, l) => s + Number(l.order_value ?? 0), 0)
-      const visitsThisWeek = (activitiesRes.data ?? []).filter((a) => a.activity_type === 'site_visit').length
-      const wonThisMonth = computeOrderValueActuals(wonRes.data ?? [], monthRange, false)
+      const visits = (activitiesRes.data ?? []).filter((a) => a.activity_type === 'site_visit').length
+      const won = computeOrderValueActuals(wonRes.data ?? [], range, false)
 
       setKpis({
         openLeads: openLeads.length,
         pipeline,
-        visitsThisWeek,
-        wonThisMonth,
+        visits,
+        won,
       })
       setClosing((forecastRes.data ?? []).slice(0, 4))
     })
@@ -61,15 +75,30 @@ function Home() {
     return () => {
       active = false
     }
-  }, [])
+  }, [period])
 
   return (
     <div className="vip-wide">
-      {firstName && (
-        <div className="vip-greeting">
-          {greeting}, {firstName}
+      <div className="vip-home-head">
+        {firstName && (
+          <div className="vip-greeting">
+            {greeting}, {firstName}
+          </div>
+        )}
+        <div className="vip-seg-mini" role="group" aria-label="KPI time frame">
+          {PERIOD_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              title={opt.label}
+              className={period === opt.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+              onClick={() => setPeriod(opt.value)}
+            >
+              {opt.short}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
       {kpis && (
         <div className="vip-kpi-grid">
@@ -82,12 +111,12 @@ function Home() {
             <div className="vip-kpi-value">{formatCurrencyCompact(kpis.pipeline)}</div>
           </div>
           <div className="vip-kpi">
-            <div className="vip-kpi-label">Visits this week</div>
-            <div className="vip-kpi-value">{kpis.visitsThisWeek}</div>
+            <div className="vip-kpi-label">Visits {PERIOD_LABEL_SUFFIX[period]}</div>
+            <div className="vip-kpi-value">{kpis.visits}</div>
           </div>
           <div className="vip-kpi">
-            <div className="vip-kpi-label">Won this month</div>
-            <div className="vip-kpi-value">{formatCurrencyCompact(kpis.wonThisMonth)}</div>
+            <div className="vip-kpi-label">Won {PERIOD_LABEL_SUFFIX[period]}</div>
+            <div className="vip-kpi-value">{formatCurrencyCompact(kpis.won)}</div>
           </div>
         </div>
       )}

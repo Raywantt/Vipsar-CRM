@@ -179,9 +179,11 @@ function LeadDetail() {
       </div>
 
       <div className="vip-btn-row">
-        <a className="vip-btn vip-btn-sm" href="/activity">
-          Log activity
-        </a>
+        {employee?.role !== 'owner' && (
+          <a className="vip-btn vip-btn-sm" href="/activity">
+            Log activity
+          </a>
+        )}
         {party?.mobile ? (
           <a className="vip-btn vip-btn-secondary vip-btn-sm" href={`tel:${party.mobile}`}>
             Call client
