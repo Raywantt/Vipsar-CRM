@@ -37,15 +37,26 @@ needs before touching anything:
   but **not yet run against the live DB** — confirm before assuming a `pmc`
   party can actually be saved (exact migration statement in Conventions).
 - Deliberately **not built yet** — these need their own discussion first,
-  don't add them as a side effect of unrelated work: **Followups**
-  (personal + owner-assigned reminders; `leads.next_followup_date` is
-  write-only today, set from `ActivityLog` but never read back anywhere),
-  a **`plans`-table screen** (the table has full RLS wired up and zero UI
+  don't add them as a side effect of unrelated work: **Followups** as a real
+  feature (personal + owner-assigned reminders with notifications/scheduling
+  — `leads.next_followup_date` is set from `ActivityLog` and, as of
+  Dashboard v2, now also read back by Needs Attention's "overdue" queue, but
+  that's a read-only dashboard row, not a reminder/notification system), a
+  **`plans`-table screen** (the table has full RLS wired up and zero UI
   anywhere in `src/`), **further role-differentiated Home content** beyond
   today's Activity Log tile split (`HOME_TILES` is role-keyed and ready for
   more of this), and **a screen listing past activities** (`ActivityLog`
   only logs new ones; nothing browses old ones outside a lead's own
   timeline).
+- **Dashboard v2** (Needs Attention + a universal drill-down panel reused
+  across every metric — see the Dashboard section and its Design-system
+  bullet) is desktop-first: the KPI sparkline row, exec heatmap, and source
+  donut only render at ≥1024px, and **All Leads/Parties currently have no
+  mobile entry point at all** (the in-page tab row that used to carry them
+  on a phone is gone; their sidebar-link replacement is desktop-only) —
+  known, deliberately deferred, not an oversight. Don't "fix" the mobile gap
+  as a side effect of unrelated work; it needs its own discussion (see the
+  `BottomNav` paragraph in Structure below for the current state).
 - `LeadsByAreaCard.jsx` was tried as its own component/tab twice and
   removed both times — permanently merged into the generic
   `LeadsByCategoryCard` instead (see Dashboard section). Don't recreate it.
@@ -73,7 +84,9 @@ src/
                 LeadsBySourceCard, ClosureForecastCard, TargetsVsActualsCard,
                 SetTargetForm, LeadsListCard, LeadsByCategoryCard,
                 LeadStageBoard, SalesFunnelCard, LossReasonsCard,
-                PartiesCard, AddEmployeeForm, ManageEmployeesSection,
+                PartiesCard, NeedsAttentionCard, KpiSparkRow,
+                DashboardHeatmap, DonutChart, DrilldownPanel,
+                AddEmployeeForm, ManageEmployeesSection,
                 DeleteLeadSection, InstallPrompt, OfflineIndicator)
   pages/        top-level views (Login, Home, Account, Search, Dashboard,
                 LeadQuickCapture, LeadDetail, ActivityLog, Settings, ...)
@@ -86,7 +99,8 @@ src/
                 statusColors.js, activityTypes.js, sourceTypeOptions.js,
                 dateRanges.js, dashboardQueries.js, searchQueries.js, format.js,
                 targetMetrics.js, targetPeriods.js, targetQueries.js,
-                partyQueries.js, employeeQueries.js, homeTiles.js)
+                partyQueries.js, employeeQueries.js, homeTiles.js,
+                attention.js, drilldownBuilders.js)
   assets/       images, icons, etc.
   vipsar-theme.css   the app's one design-system stylesheet — see Design
                 system below
@@ -104,9 +118,15 @@ their role" — look up an employee's role via `useAuth()`, don't re-query
 `<div className="vip-app">` (the centered app-column shell — see Design
 system below) containing `AppNav` (`vip-header`, top), `{children}`
 (`vip-body`), and `BottomNav` (`vip-bottom-nav`, fixed bottom — **Home** /
-**Search** / **Account** / **Settings**-if-owner). **`BottomNav` is the one
-place for primary navigation in this app — don't add nav links back to
-`AppNav`.** `AppNav` is a per-route header (title/sub/back button/avatar),
+**Search** / **Account** / **Settings**-if-owner on the mobile tab bar).
+**`BottomNav` is the one place for primary navigation in this app — don't
+add nav links back to `AppNav`.** At ≥1024px `BottomNav` becomes the
+sidebar and also carries `.vip-nav-extra` links a phone doesn't show,
+including **All Leads** and **Parties** (see the Desktop layout bullet
+below) — those two currently have **no mobile entry point at all** (dropped
+along with Dashboard's old in-page tab row, see the Dashboard section);
+that's a known, deliberately deferred gap, not an oversight. `AppNav` is a
+per-route header (title/sub/back button/avatar),
 not a nav bar — see Design system. Sized off `vipsar-theme.css`'s
 `--vip-header-h`/`--vip-bottom-nav-h` and `env(safe-area-inset-bottom)`
 (needs `viewport-fit=cover` on `index.html`'s viewport meta) so the bottom
@@ -164,18 +184,21 @@ imports it before the theme file.
   renders `.vip-row`/`.vip-bar-row`/`.vip-matrix-row` stacks instead of a
   `<table>` — the design handoff's other top complaint, a wide table only
   reading correctly on desktop. Segmented controls (`.vip-seg`) replaced
-  full-width button rows everywhere there's a tab or filter (Dashboard's
-  Reports/Leads/Parties tabs, the date-range selector, exec filters,
-  Search's type filter). Where this doc's per-screen sections below still
-  say "table", read it as "this shape of data", not literal `<table>`
-  markup.
-* **Home's KPI grid and Dashboard's KPI band** (open leads/pipeline/visits
-  this week/won this month; activities/new leads/pipeline/won for the
-  selected range, respectively) compute from data each page was already
+  full-width button rows everywhere there's a tab or filter (the date-range
+  selector, exec filters, Search's type filter — Dashboard's own
+  Reports/Leads/Parties tabs used to be one of these too, but that row is
+  gone now, see the Dashboard section). Where this doc's per-screen sections
+  below still say "table", read it as "this shape of data", not literal
+  `<table>` markup.
+* **Home's KPI grid** (open leads/pipeline/visits this week/won this month)
+  and **Dashboard's KPI band** compute from data each page was already
   fetching — no new queries. Both reuse `computeOrderValueActuals`
   (exported from `TargetsVsActualsCard.jsx`) for their "won" figure, so the
   definition of "won value in a period" can't drift into two different
-  approximations across the app.
+  approximations across the app. Dashboard's own KPI band is now two parallel
+  views switched by `.vip-only-mobile`/`.vip-only-desktop` (see the
+  Dashboard-v2 bullet below): the original 4-tile grid below 1024px, a
+  6-tile `KpiSparkRow.jsx` above it.
 * **Lead Detail's Stage section** (`LeadStageSection.jsx`) — `current_stage`
   is now a row of tappable `vip-chip-select` pills (one per
   `LEAD_STAGE_OPTIONS` value, tinted via `stageFg`); tapping one applies
@@ -185,14 +208,22 @@ imports it before the theme file.
   `current_stage` staying non-enum is a locked-in decision (see
   Conventions), not something the redesign was meant to remove.
 * Home's tiles gained a fourth entry, **All Leads** (links to
-  `/dashboard?tab=leads`) — `Dashboard.jsx` reads `?tab=` on mount via
-  `useSearchParams()` to land on the Leads tab directly instead of always
-  defaulting to Reports.
+  `/dashboard?tab=leads`) — `Dashboard.jsx` has no in-page tab buttons
+  anymore (see the Dashboard section's "Reports/Leads/Parties view" bullet),
+  so `?tab=leads`/`?tab=parties` via `useSearchParams()` is now the *only*
+  way to land on those two views; a plain `/dashboard` (or `?tab=` unset)
+  always means Reports. Synced with a `useEffect` on `searchParams`, not a
+  `useState` initializer, since navigating between sidebar links while
+  already on `/dashboard` changes the query string without remounting the
+  page — an initializer would only ever see the very first value.
 * **Desktop layout (≥1024px)** — below 1024px this app is pixel-identical to
   before; nothing here changes mobile. At ≥1024px, `BottomNav.jsx` becomes a
   persistent left sidebar (`--vip-sidebar-w`, 232px): the same Home/Search/
-  Account/Settings links plus three `.vip-nav-extra` ones (New Lead, Activity
-  Log, Dashboard) that a phone only reaches via Home's tiles, a brand block
+  Account/Settings links plus five `.vip-nav-extra` ones (New Lead, Activity
+  Log, Dashboard, All Leads, Parties) — New Lead/Activity Log/Dashboard are
+  reachable on a phone via Home's tiles instead, but **All Leads/Parties
+  currently have no mobile path at all** (see the Structure section's
+  `BottomNav` paragraph above), a brand block
   (`.vip-sidebar-brand`) up top, and the employee's name/role pinned at the
   bottom (`.vip-sidebar-foot`) — all hidden on mobile via CSS, not conditional
   JSX. `AppNav`'s header stretches to span the content area right of the
@@ -237,6 +268,31 @@ imports it before the theme file.
   avatar) at rest, name/role revealed on hover; nav links also keep a
   native `title` tooltip. No effect below 1024px — the mobile tab bar
   always shows icon+label, no hover concept on touch.
+* **Dashboard v2 — Needs Attention + universal drill-down** (built from a
+  Claude Design "VIPSAR Dashboard" mockup, `vip-dd-*` classes) — see the
+  Dashboard section below for what each piece shows; this bullet is the
+  shared plumbing. Two visibility utilities, `.vip-only-mobile`/
+  `.vip-only-desktop`, gate parallel views the same "one DOM, switched by
+  CSS" way the sidebar above does — the KPI sparkline row, the exec
+  heatmap, and the source donut only exist at ≥1024px; below that the
+  original simpler cards render unchanged. The one exception is the
+  drill-down panel itself (`DrilldownPanel.jsx`): a single element resized
+  by media query (full-screen sheet below 1024px, a fixed 600px right-hand
+  panel above it) rather than two parallel ones, since a phone and a
+  desktop panel show the same content, just sized differently.
+  `src/lib/drilldownBuilders.js` holds one pure `build*Panel` function per
+  panel "kind" (`log`/`ageing`/`attain`/`pipeline`/`winrate`/`forecast`/
+  `mix`/`loss`) — each shapes already-fetched Dashboard state into
+  `DrilldownPanel`'s props, no network calls of its own, and **none of them
+  produce a verdict/narrative field** — `DrilldownPanel` has no section that
+  would render one even if they did. `src/lib/attention.js` is the one
+  exception living outside that file (`computeAttentionBuckets`/
+  `buildAgeingPanel`) since Needs Attention's bucket logic and its
+  drill-down are tightly coupled. Reuse an existing `build*Panel` call
+  before adding a new one — e.g. the KPI row's "Stale leads" tile and the
+  Needs Attention card's matching row call the exact same
+  `buildAgeingPanel(staleBucket)`, and "Leads by stage (detail)" opens the
+  identical panel Pipeline-by-stage's own "Details" link does.
 
 ### Home (`src/pages/Home.jsx`) and Account (`src/pages/Account.jsx`)
 
@@ -488,29 +544,69 @@ serve both roles unchanged — RLS already scopes `activities`/`leads` to "own
 data or owner role", so a sales exec's query naturally returns only their own
 rows with no client-side filter needed.
 
-Three in-page tabs (plain `useState`, not routes — `activeTab`): **Reports**
-(default) holds everything below, including the category-breakdown cards;
-**My Leads**/**All Leads** holds `LeadsListCard`; **Parties** holds
-`PartiesCard`. All of `Dashboard.jsx`'s data-fetching effects run regardless
-of which tab is active (the data is light enough that this isn't worth
-lazy-loading) — only `LeadsListCard` fetches independently, since it's not
-part of the date-range-scoped report data at all.
+**No more in-page tab buttons.** `activeTab` (`'reports' | 'leads' | 'parties'`)
+used to be three `.vip-seg` buttons at the top of the page; that row is gone
+(see the Dashboard-v2 Design-system bullet's sibling note above) and
+`activeTab` is now driven purely by `?tab=` via a `useEffect` on
+`useSearchParams()` — `?tab=leads`/`?tab=parties` (Home's "All Leads" tile,
+or the sidebar's All Leads/Parties links at ≥1024px, see Structure above),
+anything else (including no `?tab=` at all) means **Reports**, which holds
+everything below including the category-breakdown cards. **Reports** is the
+only one of the three with any mobile entry point right now — Leads/Parties
+are desktop-sidebar-only until that gap gets addressed (see Structure).
+`LeadsListCard`/`PartiesCard` still fetch independently of the Reports
+effects below, since neither is part of the date-range-scoped report data.
 
-* **Date range** (`DateRangeSelector.jsx`) — This Week (Monday–today) / This
-  Month / Custom (two date inputs). Computed by `src/lib/dateRanges.js`;
-  an incomplete custom range returns `null` and the page shows a prompt
-  instead of querying.
+* **Date range** (`DateRangeSelector.jsx`) — **Week** (Monday–today) /
+  **15D** (rolling 15 days ending today, not calendar-aligned) / **Month** /
+  **Quarter** / **Custom** (two date inputs), in that left-to-right order.
+  Computed by `src/lib/dateRanges.js`; an incomplete custom range returns
+  `null` and the page shows a prompt instead of querying. Only Week/Month
+  line up with a `targets.period_type` (see Targets vs. actuals below) —
+  15D/Quarter/Custom all show that card's "pick Week or Month" fallback
+  message, the same one Custom alone used to trigger.
+* **Needs Attention** (`NeedsAttentionCard.jsx` + `src/lib/attention.js`,
+  shown at every width, `vip-span-2`) — five real queues computed from
+  `breakdownLeads` (see the category-breakdown bullet below for that query)
+  plus a new `fetchLastActivityPerLead()`: leads with **no activity in 7+
+  days**, **quotes sent 5+ days ago with nothing logged since**, **overdue
+  follow-ups** (`next_followup_date` in the past), **slipped close dates**
+  (`estimated_close_date` in the past), and **RFQs raised 3+ days ago with
+  no quote yet**. Thresholds are named constants at the top of `attention.js`
+  — tune there, not inline. Every row opens the `ageing` drill-down kind via
+  `buildAgeingPanel`; the KPI row's "Stale leads" tile opens the identical
+  panel for the same bucket rather than a second computation.
+* **KPI band** — two parallel views (see the Dashboard-v2 Design-system
+  bullet): the original 4-tile grid (Activities/New leads/Pipeline/Won)
+  below 1024px, unchanged; `KpiSparkRow.jsx`'s 6 tiles (Order value booked/
+  Activities logged/Open pipeline/Win rate/Stale leads/Weighted forecast)
+  above it. Only the first, second, and fourth (order value, activities,
+  win rate) have a real week-over-week delta and an 8-week sparkline — each
+  bucketed from data that has real per-event timestamps to bucket by week
+  (`wonEventsInRange`/`fetchActivitiesTrendWindow`/`decidedStageHistory`).
+  The other three are point-in-time snapshots with nothing stored over
+  time, so they render value-only rather than fabricate a trend — this was
+  a deliberate call, not a TODO.
 * **Activity counts** (`ActivityCountsCard.jsx`) — counts by `activity_type`
-  for the selected range; team total table always shown, plus a
-  per-employee breakdown table when `showByEmployee` (owner only).
-* **New leads by source** (`LeadsBySourceCard.jsx`) — same shape, grouped by
-  `source_type` instead, keyed by `owner_employee_id` for the breakdown. A
-  sales exec only sees Scanning/Showroom Walk-in rows (`SALES_EXEC_SOURCES`)
+  for the selected range; a fixed 5-row list, always. Used to also render a
+  "by exec" matrix (one column per employee, no cap) — dropped in the
+  Dashboard-v2 density pass so this card can't grow past 5 rows regardless
+  of headcount; per-exec activity counts are still real and visible on the
+  Targets heatmap below, and the card's "Details" link opens the same
+  `attain` drill-down (`buildActivitiesAttainPanel`) the KPI row's
+  "Activities logged" tile does, broken down by activity type rather than
+  by exec.
+* **New leads by source** (`LeadsBySourceCard.jsx`) — grouped by
+  `source_type`. A sales exec only sees Scanning/Showroom Walk-in rows
+  (`SALES_EXEC_SOURCES`, now exported for reuse by the drill-down builder)
   — Lixil and referrals are distributed by the owner, not something a rep
   sources themselves, so showing all 5 rows to them was mostly zeros. Owner
-  still sees all 5. The card's "Total" row reflects whichever subset is
-  visible, not every lead in range, so it never looks inconsistent with the
-  rows above it.
+  still sees all 5. Two parallel views again: a `DonutChart.jsx` + legend at
+  ≥1024px, the original bar-row list below it. Also used to render a "by
+  exec" matrix — dropped the same way and for the same reason as Activity
+  counts above; "Details" opens the `mix` drill-down (`buildMixPanel`),
+  donut + legend with a real all-time (not range-scoped) conversion % per
+  source.
 * **Closure forecast** (`ClosureForecastCard.jsx`) — leads not `won`/`lost`
   where `quote_sent` is true or `closure_probability` is set, sorted by
   `estimated_close_date` ascending (nulls last). Deliberately **not**
@@ -519,32 +615,53 @@ part of the date-range-scoped report data at all.
   set via `SalesProgressSection` on `LeadDetail`. Shows an **Owner** column
   (`employees!owner_employee_id(name)` embedded on `fetchClosureForecast`)
   — the lead's owner is shown wherever a lead appears throughout this app.
-* **Targets vs. actuals** (`TargetsVsActualsCard.jsx`) — shown only for This
-  Week/This Month (Custom shows an explanatory message instead — `targets`
-  rows are keyed by `period_type`/`period_value`, not arbitrary ranges).
-  `metric_name` is a **closed** list (`src/lib/targetMetrics.js`: the five
-  `ACTIVITY_TYPES` values plus `order_value`), deliberately not the
-  "suggested options + Other…" free-text pattern used for `current_stage`/
-  `site_stage` — an arbitrary metric would have a target but no computable
-  actual, which defeats the section. Actuals for the five activity-type
-  metrics are a straight count from the *same* `activities` array
-  `ActivityCountsCard` already fetched for the period — no duplicate query.
-  `order_value` has no timestamp of its own, so its actual is approximated
-  via `stage_history`: sum `order_value` for leads whose most recent
-  `stage_history` row with `stage = 'won'` falls inside the period
-  (`fetchWonStageHistory` in `src/lib/targetQueries.js`, deduped client-side
-  to one row per lead since the query is pre-sorted `changed_at` desc) — a
-  deliberate, discussed approximation, see DECISIONS.md. Every
-  (employee × metric) combination is shown for the period, even with zero
-  activity and no target row — `no target set` is rendered explicitly rather
-  than the row being silently omitted. For the owner, a "Sales exec" filter
-  (local `useState` inside the card, defaulting to "— All employees —") sits
-  above the table — picking one narrows the same `employees` array the table
-  already iterates over down to a single entry. `src/lib/targetPeriods.js`
-  computes the This Week/This Month `period_type`/`period_value` (ISO 8601
-  Monday-start week, matching `dateRanges.js`'s week boundary) — shared by
-  both the lookup query and `SetTargetForm`'s prefill, so they can't drift
-  out of sync with each other.
+  Capped to the soonest 6 rows (`maxRows` prop, already sorted that way) with
+  a "+N more · View all" row beneath — this list ran 40+ rows on real data,
+  exactly the kind of unbounded card the density pass targeted; the rest is
+  one click into the `forecast` drill-down (`buildForecastPanel`: month
+  buckets of gross vs. probability-weighted value, plus every row).
+* **Targets vs. actuals** (`TargetsVsActualsCard.jsx`) — shown only for
+  Week/Month (15D/Quarter/Custom show an explanatory message instead —
+  `targets` rows are keyed by `period_type`/`period_value`, not arbitrary
+  ranges; `isTargetPeriod = preset === 'week' || preset === 'month'` is the
+  actual gate now, not "anything but custom"). `metric_name` is a **closed**
+  list (`src/lib/targetMetrics.js`: the five `ACTIVITY_TYPES` values plus
+  `order_value`), deliberately not the "suggested options + Other…"
+  free-text pattern used for `current_stage`/`site_stage` — an arbitrary
+  metric would have a target but no computable actual, which defeats the
+  section. Actuals for the five activity-type metrics are a straight count
+  from the *same* `activities` array `ActivityCountsCard` already fetched
+  for the period — no duplicate query. `order_value` has no timestamp of
+  its own, so its actual is approximated via `stage_history`: sum
+  `order_value` for leads whose most recent `stage_history` row with
+  `stage = 'won'` falls inside the period (`fetchWonStageHistory` in
+  `src/lib/targetQueries.js`, deduped client-side to one row per lead since
+  the query is pre-sorted `changed_at` desc) — a deliberate, discussed
+  approximation, see DECISIONS.md. For the owner at ≥1024px, this is now
+  `DashboardHeatmap.jsx` instead of a table — one row per exec, one column
+  per activity type plus Order value and a blended Overall column (both
+  `targetFor`/`computeOrderValueActuals` exported from this file for the
+  heatmap and the drill-down builders to share, so a lookup/total can't
+  drift into a second definition), attainment-tinted per the mockup's
+  literal 5-step scale. A sales exec (nothing to compare against) keeps the
+  plain bar-list at every width; the owner keeps that same list below
+  1024px too. Every cell opens a drill-down: the 5 activity-type cells
+  fetch that one exec's real log entries on demand
+  (`fetchActivityLogForExec`, only queried on click — not preloaded for
+  everyone) and show a real "last 20 working days" logging-rhythm bar chart
+  (`log` kind); Order value and the blended Overall column build
+  synchronously from state already on the page (`attain` kind). Below
+  1024px (or for a sales exec), every (employee × metric) combination is
+  still shown even with zero activity and no target row — `no target set`
+  is rendered explicitly rather than the row being silently omitted. For
+  the owner, a "Sales exec" filter (local `useState` inside the card,
+  defaulting to "— All employees —") sits above the table — picking one
+  narrows the same `employees` array the table already iterates over down
+  to a single entry. `src/lib/targetPeriods.js` computes the Week/Month
+  `period_type`/`period_value` (ISO 8601 Monday-start week, matching
+  `dateRanges.js`'s week boundary) — shared by both the lookup query and
+  `SetTargetForm`'s prefill, so they can't drift out of sync with each
+  other.
 * **Set a target** (`SetTargetForm.jsx`, inside the same card, **owner-only in
   the UI**) — employee/period_type/period_value/metric_name/target_value,
   the only way to populate the `targets` table. Owner-only is a UI-layer
@@ -576,7 +693,20 @@ part of the date-range-scoped report data at all.
   no fixed list (both come from a table, not a suggested list) so their
   buckets are discovered from the data and sorted by count desc instead —
   Product falls back to `'Not specified'`, matching `SalesProgressSection`'s
-  own "— Not specified —" label for an unset `product_id`.
+  own "— Not specified —" label for an unset `product_id`. `maxRows`
+  (optional prop, new) caps a card to its top rows plus a "+N more · View
+  all" footer — only passed for **Area and Product** (real data, no natural
+  ceiling — 11 and 9 rows on real data before this), **not** Stage or Site
+  Stage, whose `categoryOrder` is already a short, fixed, meaningful list
+  (7 and 6 rows) where trimming would arbitrarily hide a real bucket like
+  `lost` rather than an overflow. All four now have a "Details" link:
+  Stage's opens the identical `pipeline` panel the Pipeline-by-stage card's
+  own link does (same data, no point building a second view of it); Area/
+  Site Stage/Product open a new `buildCategoryMixPanel` (`mix` kind, real
+  count/share/won-conversion per bucket off the same `breakdownLeads`, just
+  not capped) — generic enough that a fifth `LeadsByCategoryCard` instance
+  wouldn't need a sixth drill-down kind, just another `buildCategoryMixPanel`
+  call.
 * **Leads by stage — Table/Board toggle** (`stageView` state in
   `Dashboard.jsx`, default `'table'`) — the Stage instance specifically
   (not Area/Site Stage, which have no meaningful "pipeline" reading) can
@@ -592,7 +722,13 @@ part of the date-range-scoped report data at all.
   checks) — reimplementing that as a drop-to-change interaction was
   considered and explicitly deferred, not an oversight. Columns scroll
   horizontally (`overflow-x: auto`); each column's card list scrolls
-  independently past a max-height.
+  independently past a max-height. This card and Sales funnel below now sit
+  side by side (both half-width, no `vip-span-2`) instead of each taking a
+  full row — a Dashboard-v2 layout change, paired deliberately since they're
+  the two "shape of the pipeline" cards; get an odd count of half-width
+  siblings elsewhere in the grid and CSS leaves a visible gap (see the
+  Desktop layout bullet above), so this card's own "Details" link opens the
+  same `pipeline` panel (`mode: 'stage'`) as the Table/Board toggle's data.
 * **Sales funnel** (`SalesFunnelCard.jsx`) — reach-count + avg-days-in-stage
   per `LEAD_STAGE_OPTIONS` stage, from `fetchStageHistoryForFunnel` in
   `dashboardQueries.js` (`stage_history` joined to `leads(owner_employee_id)`).
@@ -615,7 +751,9 @@ part of the date-range-scoped report data at all.
   actual logged transitions, which is the correct thing to measure there.
   One team-wide table, deliberately **no** per-employee breakdown — funnel
   shape is a whole-pipeline metric, not a per-rep tally like the other
-  cards.
+  cards. "Details" opens the same `pipeline` panel as Pipeline by stage,
+  just with `mode: 'funnel'` (conversion-rate-between-stages emphasis
+  instead of stage-value emphasis) — one builder, two entry points.
 * **Why we lose** (`LossReasonsCard.jsx`, **owner-only** — `{isOwner && ...}`
   in `Dashboard.jsx`, and the fetch itself is skipped entirely for a sales
   exec rather than firing a request that RLS would just return empty) —
@@ -628,8 +766,13 @@ part of the date-range-scoped report data at all.
   Conventions) — this card being owner-only is a hard constraint the policy
   enforces, not a UI-layer nicety like `SetTargetForm`'s gating. Confirmed
   live against a genuine second `sales_executive` session — the card is
-  correctly absent entirely.
-* **Parties** (`PartiesCard.jsx`, the third tab) — every party ever created
+  correctly absent entirely. "Details" opens the `loss` drill-down
+  (`buildLossPanel`) — the same reason bars and competitor list, plus a
+  "lost this month" row list this compact card doesn't have room for
+  (party/owner/value/date, needs `fetchLossReasons`'s embedded `leads` —
+  the compact card's own reason/competitor tallies never needed that join).
+* **Parties** (`PartiesCard.jsx`, reached via the sidebar's Parties link —
+  see the "no more in-page tab buttons" note above) — every party ever created
   (`fetchAllParties` in `src/lib/partyQueries.js` — `parties` SELECT is open
   to everyone, so this is the same full directory regardless of role), with
   a Type filter dropdown and a client-side name search. A **"Worked with"**
@@ -642,15 +785,16 @@ part of the date-range-scoped report data at all.
   with that party — full multi-employee associations are only visible to
   the owner. Not a bug, just what "own data or owner role" RLS means applied
   to a derived, cross-lead computation like this one.
-* **My Leads / All Leads** (`LeadsListCard.jsx`, the second tab) — a
-  browsable table of individual leads (Party/Site/Owner/Source/Stage/Order
-  value/Created — Owner shows for both roles: trivially always themselves
-  for a sales exec, but "wherever a lead appears, show its owner" won out
-  over trimming a redundant column), party name links to `/leads/:id`,
-  `fetchLeadsList` in `dashboardQueries.js`, ordered `created_at` desc,
-  capped at 100. Deliberately **not** wired to the Reports tab's
-  date-range selector — it's a browse/lookup tool, not a period report. For
-  the owner, a "Sales exec" filter (`employeeFilter` state, default
+* **My Leads / All Leads** (`LeadsListCard.jsx`, reached via Home's "All
+  Leads" tile or the sidebar's All Leads link — see the "no more in-page
+  tab buttons" note above) — a browsable table of individual leads
+  (Party/Site/Owner/Source/Stage/Order value/Created — Owner shows for both
+  roles: trivially always themselves for a sales exec, but "wherever a lead
+  appears, show its owner" won out over trimming a redundant column), party
+  name links to `/leads/:id`, `fetchLeadsList` in `dashboardQueries.js`,
+  ordered `created_at` desc, capped at 100. Deliberately **not** wired to
+  the Reports view's date-range selector — it's a browse/lookup tool, not a
+  period report. For the owner, a "Sales exec" filter (`employeeFilter` state, default
   "— All employees —") re-queries with `.eq('owner_employee_id', ...)`; for
   a sales exec, RLS already scopes the query, so the filter doesn't render
   at all. Also reused, unmodified, by Settings' Delete a lead section.
@@ -675,6 +819,24 @@ genuine second `sales_executive` login — that all owner-only elements
 that role, not just gated by an untested `isOwner` flag. Owner-only DELETE
 exists on `leads`/`activities`/`targets` (see Conventions) if test data
 ever needs cleaning up.
+
+**Dashboard v2 verified against real data too**: every card above and every
+`build*Panel` drill-down was driven live in the browser against the real dev
+database (not just reasoned through) — Needs Attention's counts spot-checked
+against a manual filter of the `leads` table for one bucket; every kind of
+drill-down opened at least once (`ageing`, `log` via an on-demand heatmap
+cell fetch, `pipeline`, `mix`) and confirmed to show real numbers matching
+the compact card it opened from, with no verdict/narrative text anywhere; a
+real logic bug caught this way and fixed — the `pipeline` kind's
+stage-to-stage conversion chain was producing a nonsensical "won → lost"
+card before `lost` got excluded from that sequence (see
+`buildPipelinePanel`'s `progression` comment). Resized below 1024px and
+confirmed the sparkline/heatmap/donut disappear in favor of the original
+cards, Needs Attention still renders full-width, and a drill-down opens as
+a genuine full-screen sheet rather than a clipped 600px box — the one row
+type dense enough to actually overflow a phone width (`ageing`'s per-lead
+owner badge) now hides below 520px rather than clip off-screen (see
+`vipsar-theme.css`'s `max-width: 520px` block near the drill-down classes).
 
 ### Settings (`src/pages/Settings.jsx`)
 
