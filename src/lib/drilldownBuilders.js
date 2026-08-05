@@ -1,0 +1,587 @@
+// Pure functions that shape already-fetched Dashboard state into the props
+// DrilldownPanel.jsx needs, one per panel "kind" (see MetricPanel.dc.html in
+// the Claude Design handoff this is modeled on). Nothing in here makes a
+// network call and nothing in here produces a "verdict"/narrative field —
+// nothing in DrilldownPanel renders one, and none of these functions build
+// one.
+import { ACTIVITY_TYPES, ACTIVITY_LABELS } from './activityTypes'
+import { LEAD_STAGE_OPTIONS } from './leadStageOptions'
+import { LOSS_REASON_OPTIONS } from './lossReasonOptions'
+import { stageChipClass, stageFg } from './statusColors'
+import { formatCurrencyCompact } from './format'
+import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
+import { computeFunnel } from '../components/SalesFunnelCard'
+
+const CLOSED_STAGES = ['won', 'lost']
+
+function companyTargetFor(targets, employees, metric) {
+  let total = 0
+  let anySet = false
+  employees.forEach((e) => {
+    const t = targetFor(targets, e.id, metric)
+    if (t != null) {
+      total += t
+      anySet = true
+    }
+  })
+  return anySet ? total : null
+}
+
+function enumerateDays(start, end) {
+  const days = []
+  const cur = new Date(start)
+  cur.setHours(0, 0, 0, 0)
+  const last = new Date(end)
+  last.setHours(0, 0, 0, 0)
+  while (cur <= last) {
+    days.push(new Date(cur))
+    cur.setDate(cur.getDate() + 1)
+  }
+  return days
+}
+
+function dailyTotals(events, range, getDate, getValue = () => 1) {
+  const days = enumerateDays(range.start, range.end)
+  const totals = new Map(days.map((d) => [d.toDateString(), 0]))
+  events.forEach((e) => {
+    const key = new Date(getDate(e)).toDateString()
+    if (totals.has(key)) totals.set(key, totals.get(key) + getValue(e))
+  })
+  return days.map((d) => totals.get(d.toDateString()))
+}
+
+// Cumulative-actual-vs-straight-line-to-target chart, matching MetricPanel's
+// attain SVG (viewBox 0 0 560 150, baseline at y=126). The "target path" is a
+// plain straight line from 0 to target over the range — a mechanical
+// reference, not a projection/inference.
+function buildPaceChart(daily, target) {
+  if (daily.length < 2) return null
+  let running = 0
+  const cumulative = daily.map((v) => (running += v))
+  const finalActual = cumulative[cumulative.length - 1]
+  const maxY = Math.max(finalActual, target ?? 0, 1)
+  const n = cumulative.length
+  const px = (i) => (i * 560) / (n - 1)
+  const py = (v) => 126 - Math.min(1, v / maxY) * 104
+  const toPath = (arr) => arr.map((v, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)} ${py(v).toFixed(1)}`).join(' ')
+  const actualPath = toPath(cumulative)
+  const areaPath = `${actualPath} L560 126 L0 126 Z`
+  const targetPath = target != null ? toPath(daily.map((_, i) => (target / (n - 1)) * i)) : null
+  const pacePct = target != null ? Math.round((finalActual / target) * 100) : null
+  return {
+    actualPath,
+    areaPath,
+    targetPath,
+    finalActual,
+    pacePct: pacePct != null ? `${Math.min(100, Math.max(0, pacePct))}%` : '100%',
+    paceLabel: target != null ? `${pacePct}% of target` : String(finalActual),
+  }
+}
+
+// Mirrors computeOrderValueActuals' own "one row per lead, most recent won
+// transition, inside range" dedup (src/components/TargetsVsActualsCard.jsx)
+// — needed here because that function only returns totals, not the
+// individual dated transactions the pace chart buckets by day.
+export function wonEventsInRange(wonStageHistory, range) {
+  const latestByLead = new Map()
+  wonStageHistory.forEach((row) => {
+    if (!row.leads) return
+    if (!latestByLead.has(row.lead_id)) latestByLead.set(row.lead_id, row)
+  })
+  const events = []
+  latestByLead.forEach((row) => {
+    const changedAt = new Date(row.changed_at)
+    if (changedAt >= range.start && changedAt <= range.end) {
+      events.push({ changedAt, employeeId: row.leads.owner_employee_id, value: Number(row.leads.order_value ?? 0) })
+    }
+  })
+  return events
+}
+
+// ---------- attain: order value (company-wide or one exec) ----------
+export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId, rangeLabel }) {
+  const employee = employeeId ? employees.find((e) => e.id === employeeId) : null
+  const actualsByEmployee = computeOrderValueActuals(wonStageHistory, range, true)
+  const actual = employeeId
+    ? actualsByEmployee.get(employeeId) ?? 0
+    : [...actualsByEmployee.values()].reduce((s, v) => s + v, 0)
+  const target = employeeId ? targetFor(targets, employeeId, 'order_value') : companyTargetFor(targets, employees, 'order_value')
+
+  const events = wonEventsInRange(wonStageHistory, range).filter((e) => !employeeId || e.employeeId === employeeId)
+  const daily = dailyTotals(events, range, (e) => e.changedAt, (e) => e.value)
+  const pace = buildPaceChart(daily, target)
+
+  const contrib = employeeId
+    ? []
+    : employees
+        .map((e) => ({ label: e.name, value: actualsByEmployee.get(e.id) ?? 0 }))
+        .filter((c) => c.value > 0)
+        .sort((a, b) => b.value - a.value)
+  const maxContrib = Math.max(1, ...contrib.map((c) => c.value))
+
+  return {
+    kind: 'attain',
+    eyebrow: employee ? `${employee.name} · order value` : 'Company · order value',
+    title: employee ? 'Booked value against personal target' : 'Booked value against company target',
+    value: formatCurrencyCompact(actual),
+    delta: target != null ? `of ${formatCurrencyCompact(target)} target` : null,
+    note: `${rangeLabel}. Order value is the only rupee target this dashboard tracks — everything else on the grid is activity volume.`,
+    stats: [
+      { label: 'Booked', value: formatCurrencyCompact(actual), sub: rangeLabel, color: '#101617' },
+      { label: 'Target', value: target != null ? formatCurrencyCompact(target) : '—', sub: 'for this period', color: '#485456' },
+      { label: 'Gap', value: target != null ? formatCurrencyCompact(Math.max(0, target - actual)) : '—', sub: 'to target', color: '#b4232a' },
+      { label: 'Won leads', value: String(events.length), sub: rangeLabel, color: '#101617' },
+    ],
+    pace,
+    contribTitle: 'Contribution by exec',
+    contrib: contrib.map((c) => ({
+      label: c.label,
+      value: formatCurrencyCompact(c.value),
+      pct: `${Math.round((c.value / maxContrib) * 100)}%`,
+    })),
+  }
+}
+
+// ---------- attain: activity volume (company-wide) ----------
+export function buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel }) {
+  const actual = activities.length
+  const target = ACTIVITY_TYPES.reduce((s, t) => s + (companyTargetFor(targets, employees, t.value) ?? 0), 0) || null
+  const daily = dailyTotals(activities, range, (a) => a.created_at)
+  const pace = buildPaceChart(daily, target)
+
+  const contrib = ACTIVITY_TYPES.map((t) => {
+    const typeActual = activities.filter((a) => a.activity_type === t.value).length
+    const typeTarget = companyTargetFor(targets, employees, t.value)
+    return { label: t.label, actual: typeActual, target: typeTarget }
+  })
+  const maxContrib = Math.max(1, ...contrib.map((c) => c.actual))
+
+  return {
+    kind: 'attain',
+    eyebrow: 'Company · activity volume',
+    title: 'Activities logged, by type',
+    value: String(actual),
+    delta: target != null ? `of ${target} target` : null,
+    note: `${rangeLabel}. Every logged site visit, call, RFQ, office day and booking update, across every exec.`,
+    stats: [
+      { label: 'Total logged', value: String(actual), sub: target != null ? `of ${target} target` : rangeLabel, color: '#101617' },
+      { label: 'Site visit', value: String(contrib[0]?.actual ?? 0), sub: contrib[0]?.target != null ? `of ${contrib[0].target}` : 'no target set', color: '#101617' },
+      { label: 'Call', value: String(contrib[1]?.actual ?? 0), sub: contrib[1]?.target != null ? `of ${contrib[1].target}` : 'no target set', color: '#101617' },
+      { label: 'RFQ raised', value: String(contrib[2]?.actual ?? 0), sub: contrib[2]?.target != null ? `of ${contrib[2].target}` : 'no target set', color: '#101617' },
+    ],
+    pace,
+    contribTitle: 'By activity type · actual vs target',
+    contrib: contrib.map((c) => ({
+      label: c.label,
+      value: c.target != null ? `${c.actual} / ${c.target}` : `${c.actual}`,
+      pct: `${Math.round((c.actual / maxContrib) * 100)}%`,
+    })),
+  }
+}
+
+// ---------- attain: one exec's blended attainment across all 6 metrics (heatmap "overall" column) ----------
+export function buildOverallAttainPanel({ employee, targets, activities, wonStageHistory, range, rangeLabel }) {
+  const metrics = [...ACTIVITY_TYPES.map((t) => t.value), 'order_value']
+  const orderActual = computeOrderValueActuals(wonStageHistory, range, true).get(employee.id) ?? 0
+  const rows = metrics.map((metric) => {
+    const target = targetFor(targets, employee.id, metric)
+    const actual =
+      metric === 'order_value' ? orderActual : activities.filter((a) => a.employee_id === employee.id && a.activity_type === metric).length
+    return {
+      label: metric === 'order_value' ? 'Order value' : ACTIVITY_LABELS[metric],
+      actual,
+      target,
+      pct: target ? Math.round((actual / target) * 100) : null,
+    }
+  })
+  const withTarget = rows.filter((r) => r.pct != null)
+  const overallPct = withTarget.length ? Math.round(withTarget.reduce((s, r) => s + r.pct, 0) / withTarget.length) : null
+
+  return {
+    kind: 'attain',
+    eyebrow: `${employee.name} · overall`,
+    title: 'Blended attainment across all six targets',
+    value: overallPct != null ? `${overallPct}%` : '—',
+    note: `${rangeLabel}. Simple average of whichever of the six metrics have a target set for ${employee.name.split(' ')[0]}.`,
+    stats: [
+      { label: 'Overall', value: overallPct != null ? `${overallPct}%` : '—', sub: `${withTarget.length} of 6 have targets`, color: '#101617' },
+      { label: 'Order value', value: formatCurrencyCompact(orderActual), sub: rows.find((r) => r.label === 'Order value')?.target != null ? `of ${formatCurrencyCompact(rows.find((r) => r.label === 'Order value').target)}` : 'no target set', color: '#101617' },
+    ],
+    contribTitle: 'Line by line',
+    contrib: rows.map((r) => ({
+      label: r.label,
+      value: r.target != null ? (r.label === 'Order value' ? `${formatCurrencyCompact(r.actual)} / ${formatCurrencyCompact(r.target)}` : `${r.actual} / ${r.target}`) : `${r.actual}`,
+      pct: r.pct != null ? `${Math.min(100, r.pct)}%` : '0%',
+    })),
+  }
+}
+
+// ---------- log: one exec, one activity type's real entries ----------
+function lastNWeekdays(n) {
+  const days = []
+  const cur = new Date()
+  cur.setHours(0, 0, 0, 0)
+  while (days.length < n) {
+    const day = cur.getDay()
+    if (day !== 0 && day !== 6) days.unshift(new Date(cur))
+    cur.setDate(cur.getDate() - 1)
+  }
+  return days
+}
+
+export function buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows }) {
+  const label = ACTIVITY_LABELS[activityType]
+  const target = targetFor(targets, employee.id, activityType)
+  const inRange = logRows.filter((r) => {
+    const at = new Date(r.created_at)
+    return at >= range.start && at <= range.end
+  })
+
+  const rhythmDays = lastNWeekdays(20)
+  const counts = rhythmDays.map((d) => logRows.filter((r) => new Date(r.created_at).toDateString() === d.toDateString()).length)
+  const maxCount = Math.max(1, ...counts)
+  const rhythm = counts.map((c) => ({
+    h: c ? `${Math.max(18, Math.round((c / maxCount) * 100))}%` : '10%',
+    filled: c > 0,
+    tip: c ? `${c} logged` : 'nothing logged',
+  }))
+  const silentDays = counts.filter((c) => c === 0).length
+
+  return {
+    kind: 'log',
+    eyebrow: `${employee.name} · ${label}`,
+    title: `${label} — logged entries`,
+    value: target != null ? `${inRange.length} / ${target}` : String(inRange.length),
+    delta: target != null ? `${Math.round((inRange.length / target) * 100)}%` : null,
+    note: `${rangeLabel}. Every row below is a real entry ${employee.name.split(' ')[0]} logged in the Activity log.`,
+    stats: [
+      { label: 'Logged', value: String(inRange.length), sub: rangeLabel, color: '#101617' },
+      { label: 'Target', value: target != null ? String(target) : '—', sub: 'for this period', color: '#485456' },
+      { label: 'Last 20 working days', value: String(counts.reduce((s, c) => s + c, 0)), sub: 'entries logged', color: '#101617' },
+      { label: 'Silent days', value: String(silentDays), sub: 'of last 20', color: silentDays > 6 ? '#b4232a' : silentDays > 3 ? '#7a6413' : '#1f6f4a' },
+    ],
+    rhythm,
+    rhythmFrom: rhythmDays[0]?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+    rhythmTo: rhythmDays[rhythmDays.length - 1]?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+    logTitle: `${label} · most recent first`,
+    log: logRows.slice(0, 40).map((r) => {
+      const linkedLead = r.leads
+      const party = linkedLead?.parties?.name ?? r.parties?.name ?? '(no party)'
+      const stage = linkedLead?.current_stage ?? null
+      const meta = r.accompanied_by ? `with ${r.employees?.name ?? 'colleague'}` : r.leads_generated != null ? `${r.leads_generated} leads generated` : null
+      return {
+        id: r.id,
+        date: new Date(r.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+        time: new Date(r.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        party,
+        stage,
+        chipClass: stage ? stageChipClass(stage) : null,
+        notes: r.notes || '—',
+        meta,
+      }
+    }),
+  }
+}
+
+// ---------- pipeline / funnel ----------
+export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory }) {
+  const openLeads = breakdownLeads.filter((l) => !CLOSED_STAGES.includes(l.current_stage ?? 'new'))
+  const openTotal = openLeads.reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0)
+
+  const stageRows = LEAD_STAGE_OPTIONS.filter((s) => !CLOSED_STAGES.includes(s)).map((stage) => {
+    const stageLeads = openLeads.filter((l) => (l.current_stage ?? 'new') === stage)
+    return {
+      label: stage,
+      count: stageLeads.length,
+      value: formatCurrencyCompact(stageLeads.reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0)),
+      color: stageFg(stage),
+    }
+  })
+  const maxStage = Math.max(1, ...stageRows.map((r) => r.count))
+
+  const funnel = computeFunnel(funnelStageHistory, breakdownLeads)
+  const maxReached = Math.max(1, ...funnel.map((f) => f.reached))
+  // 'lost' is a parallel exit a lead can hit from any stage, not the next
+  // step after 'won' — excluded here so the chain doesn't produce a
+  // nonsensical "won → lost" conversion card.
+  const progression = funnel.filter((f) => f.stage !== 'lost')
+  const convRows = []
+  for (let i = 1; i < progression.length; i++) {
+    const prev = progression[i - 1]
+    const cur = progression[i]
+    if (!prev.reached) continue
+    const rate = Math.round((cur.reached / prev.reached) * 100)
+    convRows.push({
+      label: `${prev.stage} → ${cur.stage}`,
+      pct: `${rate}%`,
+      sub: `${prev.reached} → ${cur.reached}`,
+      color: rate >= 60 ? '#1f6f4a' : rate >= 40 ? '#7a6413' : '#b4232a',
+    })
+  }
+
+  const topLeads = [...openLeads]
+    .sort((a, b) => Number(b.order_value ?? b.quote_value ?? 0) - Number(a.order_value ?? a.quote_value ?? 0))
+    .slice(0, 5)
+    .map((l) => ({
+      leadId: l.id,
+      party: l.parties?.name ?? l.sites?.nickname ?? '(no party)',
+      stage: l.current_stage ?? 'new',
+      chipClass: stageChipClass(l.current_stage ?? 'new'),
+      owner: l.employees?.name ?? 'Unassigned',
+      value: formatCurrencyCompact(l.order_value ?? l.quote_value ?? 0),
+    }))
+
+  return {
+    kind: 'pipeline',
+    eyebrow: mode === 'funnel' ? 'Company · funnel and velocity' : 'Company · open pipeline',
+    title: mode === 'funnel' ? 'Where leads reach each stage, and how long they sit there' : 'Open pipeline by stage',
+    value: formatCurrencyCompact(openTotal),
+    note: `${openLeads.length} open leads, across every stage that isn't won or lost.`,
+    stats: [
+      { label: 'Open value', value: formatCurrencyCompact(openTotal), sub: `${openLeads.length} leads`, color: '#101617' },
+      { label: 'Reached New', value: String(funnel[0]?.reached ?? 0), sub: 'all-time', color: '#101617' },
+      { label: 'Reached Won', value: String(funnel.find((f) => f.stage === 'won')?.reached ?? 0), sub: 'all-time', color: '#1f6f4a' },
+      { label: 'Reached Lost', value: String(funnel.find((f) => f.stage === 'lost')?.reached ?? 0), sub: 'all-time', color: '#b4232a' },
+    ],
+    stageRows: stageRows.map((r) => ({ ...r, pct: `${Math.round((r.count / maxStage) * 100)}%` })),
+    convRows,
+    funnelRows: funnel.map((f) => ({
+      label: f.stage,
+      count: f.reached,
+      avgDays: f.avgDays == null ? '—' : `${f.avgDays.toFixed(1)}d`,
+      pct: `${Math.round((f.reached / maxReached) * 100)}%`,
+      color: stageFg(f.stage),
+    })),
+    topLeads,
+  }
+}
+
+// ---------- win rate (its own minimal kind — a real per-exec breakdown, not a forced reuse of `pipeline`) ----------
+export function buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel }) {
+  const inRange = decidedStageHistory.filter((row) => row.leads && new Date(row.changed_at) >= range.start && new Date(row.changed_at) <= range.end)
+  const won = inRange.filter((r) => r.stage === 'won')
+  const lost = inRange.filter((r) => r.stage === 'lost')
+  const winRate = inRange.length ? Math.round((won.length / inRange.length) * 100) : null
+
+  const byExec = new Map()
+  inRange.forEach((row) => {
+    const key = row.leads.owner_employee_id ?? 'unassigned'
+    if (!byExec.has(key)) byExec.set(key, { won: 0, lost: 0 })
+  })
+  won.forEach((row) => byExec.get(row.leads.owner_employee_id ?? 'unassigned').won++)
+  lost.forEach((row) => byExec.get(row.leads.owner_employee_id ?? 'unassigned').lost++)
+  const nameFor = (id) => employees.find((e) => e.id === id)?.name ?? 'Unassigned'
+
+  return {
+    kind: 'winrate',
+    eyebrow: 'Company · win rate',
+    title: 'Won vs lost, by exec',
+    value: winRate != null ? `${winRate}%` : '—',
+    note: `${rangeLabel}. Measured on decided leads only (won or lost) — a lead still open isn't counted either way.`,
+    stats: [
+      { label: 'Won', value: String(won.length), sub: rangeLabel, color: '#1f6f4a' },
+      { label: 'Lost', value: String(lost.length), sub: rangeLabel, color: '#b4232a' },
+      { label: 'Win rate', value: winRate != null ? `${winRate}%` : '—', sub: 'of decided leads', color: '#101617' },
+      { label: 'Decided', value: String(inRange.length), sub: rangeLabel, color: '#101617' },
+    ],
+    execRows: [...byExec.entries()]
+      .map(([id, v]) => ({
+        name: id === 'unassigned' ? 'Unassigned' : nameFor(id),
+        won: v.won,
+        lost: v.lost,
+        total: v.won + v.lost,
+        rate: v.won + v.lost ? Math.round((v.won / (v.won + v.lost)) * 100) : null,
+      }))
+      .sort((a, b) => b.total - a.total),
+  }
+}
+
+// ---------- forecast ----------
+export function buildForecastPanel({ forecast }) {
+  const total = forecast.length
+  const gross = forecast.reduce((s, l) => s + Number(l.quote_value ?? 0), 0)
+  const weighted = forecast.reduce((s, l) => s + (Number(l.quote_value ?? 0) * (l.closure_probability ?? 0)) / 100, 0)
+
+  const buckets = new Map()
+  forecast.forEach((l) => {
+    const key = l.estimated_close_date ? new Date(l.estimated_close_date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'No date set'
+    if (!buckets.has(key)) buckets.set(key, { gross: 0, weighted: 0 })
+    const b = buckets.get(key)
+    b.gross += Number(l.quote_value ?? 0)
+    b.weighted += (Number(l.quote_value ?? 0) * (l.closure_probability ?? 0)) / 100
+  })
+  const maxGross = Math.max(1, ...[...buckets.values()].map((b) => b.gross))
+
+  return {
+    kind: 'forecast',
+    eyebrow: 'Company · weighted closure forecast',
+    title: 'What the open pipeline is worth, weighted by probability',
+    value: formatCurrencyCompact(weighted),
+    note: `${total} leads with a quote sent or a closure probability set. Weighted = quote value × closure probability.`,
+    stats: [
+      { label: 'Weighted total', value: formatCurrencyCompact(weighted), sub: `${total} leads`, color: '#0f6b6b' },
+      { label: 'Gross', value: formatCurrencyCompact(gross), sub: 'unadjusted', color: '#485456' },
+      { label: 'High confidence', value: formatCurrencyCompact(forecast.filter((l) => (l.closure_probability ?? 0) >= 70).reduce((s, l) => s + Number(l.quote_value ?? 0), 0)), sub: '70%+ probability', color: '#1f6f4a' },
+      { label: 'At risk', value: formatCurrencyCompact(forecast.filter((l) => (l.closure_probability ?? 0) < 40).reduce((s, l) => s + Number(l.quote_value ?? 0), 0)), sub: 'below 40%', color: '#b4232a' },
+    ],
+    fcBuckets: [...buckets.entries()].map(([label, b]) => ({
+      label,
+      gross: formatCurrencyCompact(b.gross),
+      weighted: formatCurrencyCompact(b.weighted),
+      grossH: `${Math.round((b.gross / maxGross) * 100)}%`,
+      weightedH: b.gross ? `${Math.round((b.weighted / b.gross) * 100)}%` : '0%',
+    })),
+    fcRows: forecast.map((l) => ({
+      leadId: l.id,
+      party: l.parties?.name ?? '(no party)',
+      sub: l.current_stage ?? 'new',
+      owner: l.employees?.name ?? 'Unassigned',
+      prob: l.closure_probability != null ? `${l.closure_probability}%` : '—',
+      probColor: (l.closure_probability ?? 0) >= 70 ? '#1f6f4a' : (l.closure_probability ?? 0) >= 45 ? '#7a6413' : '#b4232a',
+      value: formatCurrencyCompact(l.quote_value),
+      close: l.estimated_close_date ? new Date(l.estimated_close_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—',
+    })),
+  }
+}
+
+// ---------- mix: leads by source ----------
+export function buildMixPanel({ periodLeads, breakdownLeads, sourceOptions, rangeLabel }) {
+  const total = periodLeads.length
+  const counts = sourceOptions.map((opt) => ({
+    label: opt.label,
+    value: opt.value,
+    count: periodLeads.filter((l) => l.source_type === opt.value).length,
+  }))
+  const palette = ['#0f6b6b', '#2f5878', '#5a4287', '#7a6413', '#9aa5a6']
+
+  const mixRows = counts.map((c, i) => {
+    const allTime = breakdownLeads.filter((l) => l.source_type === c.value)
+    const won = allTime.filter((l) => l.current_stage === 'won').length
+    const conv = allTime.length ? Math.round((won / allTime.length) * 100) : null
+    return {
+      label: c.label,
+      count: c.count,
+      share: total ? `${Math.round((c.count / total) * 100)}%` : '0%',
+      conv: conv != null ? `${conv}%` : '—',
+      color: palette[i % palette.length],
+      convColor: conv == null ? '#8a9698' : conv >= 45 ? '#1f6f4a' : conv >= 30 ? '#7a6413' : '#b4232a',
+    }
+  })
+
+  return {
+    kind: 'mix',
+    eyebrow: 'Company · lead source',
+    title: 'Where new leads come from',
+    value: String(total),
+    note: `${rangeLabel}. Conversion is all-time (won ÷ total) for that source, not scoped to this period.`,
+    mixTotal: String(total),
+    mixUnit: 'NEW',
+    mixRows,
+  }
+}
+
+const CATEGORY_PALETTE = ['#0f6b6b', '#2f5878', '#5a4287', '#7a6413', '#9aa5a6', '#0b5252', '#4a7a9e', '#8a6bab', '#a8853a', '#6f7c7e']
+
+// ---------- mix: generic category breakdown (Area / Site stage / Product) ----------
+// Reuses the exact same `mix` kind as buildMixPanel above — donut + legend
+// rows are a generic enough shape for "count of leads per bucket" that a
+// second kind isn't needed. Unlike source (which is date-range scoped),
+// these are pipeline snapshots off the same unbounded `breakdownLeads` the
+// compact card itself groups — same numbers, just the rows the card capped.
+export function buildCategoryMixPanel({ breakdownLeads, getCategory, eyebrow, title, unit }) {
+  const counts = new Map()
+  breakdownLeads.forEach((lead) => {
+    const cat = getCategory(lead)
+    if (!counts.has(cat)) counts.set(cat, { count: 0, won: 0, value: 0 })
+    const entry = counts.get(cat)
+    entry.count += 1
+    entry.value += Number(lead.order_value ?? 0)
+    if ((lead.current_stage ?? 'new') === 'won') entry.won += 1
+  })
+  const total = breakdownLeads.length
+  const sorted = [...counts.entries()].sort((a, b) => b[1].count - a[1].count)
+
+  const mixRows = sorted.map(([label, v], i) => {
+    const conv = v.count ? Math.round((v.won / v.count) * 100) : null
+    return {
+      label,
+      count: v.count,
+      share: total ? `${Math.round((v.count / total) * 100)}%` : '0%',
+      conv: conv != null ? `${conv}%` : '—',
+      color: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length],
+      convColor: conv == null ? '#8a9698' : conv >= 45 ? '#1f6f4a' : conv >= 30 ? '#7a6413' : '#b4232a',
+    }
+  })
+
+  return {
+    kind: 'mix',
+    eyebrow,
+    title,
+    value: String(total),
+    note: `${total} leads in the current pipeline, grouped by ${unit}. Conversion is won ÷ total for that bucket.`,
+    mixTotal: String(total),
+    mixUnit: unit.toUpperCase(),
+    mixRows,
+  }
+}
+
+// ---------- loss ----------
+export function buildLossPanel({ lossReasons }) {
+  const reasonCounts = new Map(LOSS_REASON_OPTIONS.map((r) => [r, { count: 0, value: 0 }]))
+  const competitorCounts = new Map()
+  const total = lossReasons.length
+  let totalValue = 0
+
+  lossReasons.forEach((row) => {
+    const reason = row.reason && reasonCounts.has(row.reason) ? row.reason : 'other'
+    const value = Number(row.leads?.order_value ?? row.leads?.quote_value ?? 0)
+    const entry = reasonCounts.get(reason)
+    entry.count += 1
+    entry.value += value
+    totalValue += value
+    if (row.competitor_name) {
+      const name = row.competitor_name.trim()
+      if (!competitorCounts.has(name)) competitorCounts.set(name, { count: 0, value: 0 })
+      const c = competitorCounts.get(name)
+      c.count += 1
+      c.value += value
+    }
+  })
+  const maxReason = Math.max(1, ...[...reasonCounts.values()].map((r) => r.count))
+
+  const lostLeads = [...lossReasons]
+    .sort((a, b) => new Date(b.lost_at) - new Date(a.lost_at))
+    .slice(0, 20)
+    .map((row) => ({
+      leadId: row.lead_id,
+      party: row.leads?.parties?.name ?? '(no party)',
+      reason: row.reason ?? 'other',
+      owner: row.leads?.employees?.name ?? 'Unassigned',
+      value: formatCurrencyCompact(row.leads?.order_value ?? row.leads?.quote_value ?? 0),
+      date: row.lost_at ? new Date(row.lost_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—',
+    }))
+
+  return {
+    kind: 'loss',
+    eyebrow: 'Company · lost leads',
+    title: 'Why we lose, and to whom',
+    value: String(total),
+    note: `${formatCurrencyCompact(totalValue)} of value across every lead marked lost. Reasons are captured at the point of marking a lead lost.`,
+    stats: [
+      { label: 'Lost', value: String(total), sub: 'all-time', color: '#b4232a' },
+      { label: 'Value lost', value: formatCurrencyCompact(totalValue), sub: 'gross', color: '#b4232a' },
+      { label: 'Named competitors', value: String(competitorCounts.size), sub: 'distinct', color: '#101617' },
+      { label: 'Top reason', value: [...reasonCounts.entries()].sort((a, b) => b[1].count - a[1].count)[0]?.[0] ?? '—', sub: 'most common', color: '#7a6413' },
+    ],
+    lossRows: [...reasonCounts.entries()].map(([label, r]) => ({
+      label,
+      count: r.count,
+      value: formatCurrencyCompact(r.value),
+      pct: `${Math.round((r.count / maxReason) * 100)}%`,
+    })),
+    compRows: [...competitorCounts.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([name, c]) => ({ name, count: c.count, value: formatCurrencyCompact(c.value) })),
+    lostLeads,
+  }
+}

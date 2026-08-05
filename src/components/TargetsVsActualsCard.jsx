@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { METRIC_OPTIONS } from '../lib/targetMetrics'
 import { formatCurrency } from '../lib/format'
 import SetTargetForm from './SetTargetForm'
+import DashboardHeatmap from './DashboardHeatmap'
 
 function emptyMetricCounts() {
   return Object.fromEntries(METRIC_OPTIONS.filter((m) => m.value !== 'order_value').map((m) => [m.value, 0]))
@@ -61,7 +62,10 @@ export function computeOrderValueActuals(wonStageHistory, range, showByEmployee)
   return map
 }
 
-function targetFor(targets, employeeId, metric) {
+// Exported so the drill-down builders (src/lib/drilldownBuilders.js) look up
+// a target the exact same way this card does, instead of a second lookup
+// that could drift from it.
+export function targetFor(targets, employeeId, metric) {
   const row = targets.find(
     (t) => t.metric_name === metric && (employeeId == null || t.employee_id === employeeId)
   )
@@ -72,51 +76,90 @@ function formatValue(metric, value) {
   return metric === 'order_value' ? formatCurrency(value) : value
 }
 
-function TargetsVsActualsCard({ preset, activities, wonStageHistory, targets, range, employees, showByEmployee, onTargetCreated }) {
+function TargetsVsActualsCard({
+  preset,
+  activities,
+  wonStageHistory,
+  targets,
+  range,
+  employees,
+  showByEmployee,
+  onTargetCreated,
+  rangeLabel,
+  onOpenLog,
+  onOpenPanel,
+}) {
   const [employeeFilter, setEmployeeFilter] = useState('')
   const visibleEmployees = employeeFilter ? employees.filter((e) => String(e.id) === employeeFilter) : employees
+
+  // targets.period_type only knows week/month (see Schema/tostem_crm_schema.sql)
+  // — 15D, Quarter and Custom have no matching target period to compare
+  // against, same as Custom always did.
+  const isTargetPeriod = preset === 'week' || preset === 'month'
+
+  // The heatmap only makes sense with more than one row to compare — a
+  // sales exec (showByEmployee false) keeps the plain bar-list view at every
+  // width, same as before this redesign.
+  const showHeatmap = showByEmployee && isTargetPeriod && onOpenLog && onOpenPanel
 
   return (
     <div className="vip-card">
       <div className="vip-card-title">Targets vs. actuals</div>
 
-      {preset === 'custom' ? (
-        <p className="vip-empty">Targets are tracked by week/month — pick "This week" or "This month" to see them.</p>
+      {!isTargetPeriod ? (
+        <p className="vip-empty">Targets are tracked by week/month — pick "Week" or "Month" to see them.</p>
       ) : (
         <>
-          {showByEmployee && (
-            <div className="vip-seg vip-seg-outline">
-              <button
-                type="button"
-                className={employeeFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                onClick={() => setEmployeeFilter('')}
-              >
-                All
-              </button>
-              {employees.map((e) => (
-                <button
-                  key={e.id}
-                  type="button"
-                  className={employeeFilter === String(e.id) ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                  onClick={() => setEmployeeFilter(String(e.id))}
-                >
-                  {e.name.split(' ')[0]}
-                </button>
-              ))}
+          {showHeatmap && (
+            <div className="vip-only-desktop">
+              <DashboardHeatmap
+                employees={employees}
+                targets={targets}
+                activities={activities}
+                wonStageHistory={wonStageHistory}
+                range={range}
+                rangeLabel={rangeLabel}
+                onOpenLog={onOpenLog}
+                onOpenPanel={onOpenPanel}
+              />
             </div>
           )}
-          <TargetsTable
-            activities={activities}
-            wonStageHistory={wonStageHistory}
-            targets={targets}
-            range={range}
-            employees={visibleEmployees}
-            showByEmployee={showByEmployee}
-          />
+
+          <div className={showHeatmap ? 'vip-only-mobile' : undefined}>
+            {showByEmployee && (
+              <div className="vip-seg vip-seg-outline">
+                <button
+                  type="button"
+                  className={employeeFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                  onClick={() => setEmployeeFilter('')}
+                >
+                  All
+                </button>
+                {employees.map((e) => (
+                  <button
+                    key={e.id}
+                    type="button"
+                    className={employeeFilter === String(e.id) ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                    onClick={() => setEmployeeFilter(String(e.id))}
+                  >
+                    {e.name.split(' ')[0]}
+                  </button>
+                ))}
+              </div>
+            )}
+            <TargetsTable
+              activities={activities}
+              wonStageHistory={wonStageHistory}
+              targets={targets}
+              range={range}
+              employees={visibleEmployees}
+              showByEmployee={showByEmployee}
+            />
+          </div>
         </>
       )}
 
-      {showByEmployee && preset !== 'custom' && (
+      {showByEmployee && isTargetPeriod && (
         <SetTargetForm employees={employees} onCreated={onTargetCreated} />
       )}
     </div>

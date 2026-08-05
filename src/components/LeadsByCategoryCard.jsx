@@ -6,7 +6,14 @@ import { stageChipClass } from '../lib/statusColors'
 // card (Area/Site stage/Product have no stage-color mapping). categoryHeading
 // is unused now that vip-card-title (the `title` prop) is the only heading
 // row-based cards show — kept as a prop so call sites don't need editing.
-function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorStages }) {
+// maxRows (optional): only meaningful for the data-driven instances (Area,
+// Product) whose category count isn't bounded by a fixed list the way
+// Stage/Site stage's `categoryOrder` already is — those two stay
+// uncapped since trimming a short, fixed, meaningful order (e.g. dropping
+// "lost" off the end of Stage) would hide the wrong thing. onOpenPanel
+// (optional) opens the matching `mix`/`pipeline` drill-down for the rows
+// this card doesn't show.
+function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorStages, maxRows, onOpenPanel }) {
   const map = new Map()
   if (categoryOrder) {
     categoryOrder.forEach((c) => map.set(c, { count: 0, orderValue: 0 }))
@@ -20,17 +27,26 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
   })
 
   const rows = categoryOrder ? [...map.entries()] : [...map.entries()].sort((a, b) => b[1].count - a[1].count)
+  const visibleRows = maxRows ? rows.slice(0, maxRows) : rows
+  const remaining = rows.length - visibleRows.length
   const totalOrderValue = leads.reduce((s, l) => s + Number(l.order_value ?? 0), 0)
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">{title}</div>
+      <div className="vip-card-head">
+        <div className="vip-card-title">{title}</div>
+        {onOpenPanel && (
+          <button type="button" className="vip-dd-open-link" onClick={onOpenPanel}>
+            Details ›
+          </button>
+        )}
+      </div>
 
       {leads.length === 0 ? (
         <p className="vip-empty">No leads found.</p>
       ) : (
         <>
-          {rows.map(([cat, { count, orderValue }]) => (
+          {visibleRows.map(([cat, { count, orderValue }]) => (
             <div key={cat} className="vip-row">
               <div className="vip-row-main">
                 {colorStages ? <span className={stageChipClass(cat)}>{cat}</span> : <div className="vip-row-title">{cat}</div>}
@@ -43,6 +59,11 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
               </div>
             </div>
           ))}
+          {remaining > 0 && (
+            <button type="button" className="vip-dd-more-row" onClick={onOpenPanel}>
+              +{remaining} more · View all
+            </button>
+          )}
           <div className="vip-total">
             <div>Total</div>
             <div style={{ display: 'flex', gap: 14 }}>

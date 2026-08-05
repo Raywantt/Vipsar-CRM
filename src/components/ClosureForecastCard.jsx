@@ -6,16 +6,34 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 }
 
-function ClosureForecastCard({ leads }) {
+// This list is a pipeline snapshot with no natural cap (every lead with a
+// quote sent or a probability set) — 40+ rows on a real dataset, which is
+// exactly the "too much space" this bird's-eye card shouldn't take. Shows
+// the soonest `maxRows` (already sorted that way by fetchClosureForecast)
+// and pushes the rest into the same `forecast` drill-down the header link
+// opens.
+const DEFAULT_MAX_ROWS = 6
+
+function ClosureForecastCard({ leads, onOpenPanel, maxRows = DEFAULT_MAX_ROWS }) {
+  const visible = leads.slice(0, maxRows)
+  const remaining = leads.length - visible.length
+
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Closure forecast</div>
+      <div className="vip-card-head">
+        <div className="vip-card-title">Closure forecast</div>
+        {onOpenPanel && (
+          <button type="button" className="vip-dd-open-link" onClick={onOpenPanel}>
+            Details ›
+          </button>
+        )}
+      </div>
 
       {leads.length === 0 ? (
         <p className="vip-empty">No leads currently in the closure pipeline.</p>
       ) : (
         <div className="vip-stack-s">
-          {leads.map((lead) => (
+          {visible.map((lead) => (
             <Link
               key={lead.id}
               to={`/leads/${lead.id}`}
@@ -49,6 +67,11 @@ function ClosureForecastCard({ leads }) {
               </div>
             </Link>
           ))}
+          {remaining > 0 && (
+            <button type="button" className="vip-dd-more-row" onClick={onOpenPanel}>
+              +{remaining} more · View all
+            </button>
+          )}
         </div>
       )}
     </div>

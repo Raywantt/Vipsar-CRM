@@ -13,7 +13,10 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24
 // with whatever's actually in stage_history. Avg-days-in-stage is
 // unaffected by any of this — it only reflects actual logged transitions,
 // which is the correct thing to measure there.
-function computeFunnel(stageHistory, leads) {
+// Exported so the pipeline/funnel drill-down (src/lib/drilldownBuilders.js)
+// can reuse the exact same reached-count/avg-days-in-stage numbers this card
+// shows, instead of a second computation that could drift from it.
+export function computeFunnel(stageHistory, leads) {
   // stage_history SELECT is open to everyone (unlike leads/activities), so
   // a sales exec's rows for leads they don't own come back with
   // `leads: null` (RLS on the embedded relation) — drop those to get the
@@ -67,14 +70,21 @@ function computeFunnel(stageHistory, leads) {
   })
 }
 
-function SalesFunnelCard({ stageHistory, leads }) {
+function SalesFunnelCard({ stageHistory, leads, onOpenPanel }) {
   const rows = computeFunnel(stageHistory, leads)
   const hasData = rows.some((r) => r.reached > 0)
   const maxReached = Math.max(1, ...rows.map((r) => r.reached))
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Sales funnel</div>
+      <div className="vip-card-head">
+        <div className="vip-card-title">Sales funnel</div>
+        {onOpenPanel && (
+          <button type="button" className="vip-dd-open-link" onClick={onOpenPanel}>
+            Details ›
+          </button>
+        )}
+      </div>
 
       {!hasData ? (
         <p className="vip-empty">No leads yet.</p>

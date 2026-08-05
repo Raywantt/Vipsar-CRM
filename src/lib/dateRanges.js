@@ -35,6 +35,12 @@ function startOfYear(date) {
 export function rangeForPreset(preset, customStart, customEnd) {
   const now = new Date()
 
+  if (preset === '15d') {
+    const start = atStartOfDay(now)
+    start.setDate(start.getDate() - 14)
+    return { start, end: atEndOfDay(now) }
+  }
+
   if (preset === 'week') {
     return { start: startOfWeek(now), end: atEndOfDay(now) }
   }

@@ -5,10 +5,12 @@ import {
   IconActivity,
   IconGrid,
   IconHome,
+  IconList,
   IconPlus,
   IconSearch,
   IconSettings,
   IconUser,
+  IconUsers,
 } from './NavIcons'
 
 function tabClass({ isActive }) {
@@ -46,9 +48,22 @@ function BottomNav() {
           <span className="vip-nav-label">Activity Log</span>
         </NavLink>
       )}
-      <NavLink to="/dashboard" className={extraTabClass} title="Dashboard">
+      <NavLink to="/dashboard" end className={extraTabClass} title="Dashboard">
         <IconGrid />
         <span className="vip-nav-label">Dashboard</span>
+      </NavLink>
+      {/* Reports/All leads/Parties used to be an in-page tab row on the
+          Dashboard itself — moved here so they're reachable without it (see
+          Dashboard.jsx's activeTab, now driven purely by ?tab= instead of
+          buttons). Placeholder destinations for now, not full standalone
+          pages yet. */}
+      <NavLink to="/dashboard?tab=leads" className={extraTabClass} title="All Leads">
+        <IconList />
+        <span className="vip-nav-label">All Leads</span>
+      </NavLink>
+      <NavLink to="/dashboard?tab=parties" className={extraTabClass} title="Parties">
+        <IconUsers />
+        <span className="vip-nav-label">Parties</span>
       </NavLink>
       <NavLink to="/search" className={tabClass} title="Search">
         <IconSearch />

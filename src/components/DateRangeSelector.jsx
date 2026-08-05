@@ -1,6 +1,8 @@
 const PRESETS = [
-  { value: 'week', label: 'This week' },
-  { value: 'month', label: 'This month' },
+  { value: 'week', label: 'Week' },
+  { value: '15d', label: '15D' },
+  { value: 'month', label: 'Month' },
+  { value: 'quarter', label: 'Quarter' },
   { value: 'custom', label: 'Custom' },
 ]
 

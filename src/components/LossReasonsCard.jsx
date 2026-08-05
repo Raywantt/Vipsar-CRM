@@ -3,7 +3,7 @@ import { LOSS_REASON_OPTIONS } from '../lib/lossReasonOptions'
 // loss_reasons SELECT is owner-only (RLS) — this card only ever gets
 // rendered for the owner (see Dashboard.jsx's isOwner gate), so there's no
 // "sales exec sees their own" case to handle here.
-function LossReasonsCard({ lossReasons }) {
+function LossReasonsCard({ lossReasons, onOpenPanel }) {
   const reasonCounts = new Map(LOSS_REASON_OPTIONS.map((r) => [r, 0]))
   const competitorCounts = new Map()
 
@@ -24,7 +24,14 @@ function LossReasonsCard({ lossReasons }) {
     <div className="vip-card">
       <div className="vip-card-head">
         <div className="vip-card-title">Why we lose</div>
-        <div className="vip-card-note">Owner only</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {onOpenPanel && (
+            <button type="button" className="vip-dd-open-link" onClick={onOpenPanel}>
+              Details ›
+            </button>
+          )}
+          <div className="vip-card-note">Owner only</div>
+        </div>
       </div>
 
       {lossReasons.length === 0 ? (

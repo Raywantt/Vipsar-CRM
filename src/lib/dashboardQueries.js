@@ -46,7 +46,7 @@ export function fetchClosureForecast() {
   return supabase
     .from('leads')
     .select(
-      'id, quote_value, closure_probability, estimated_close_date, parties!party_id(name), employees!owner_employee_id(name)'
+      'id, current_stage, quote_value, closure_probability, estimated_close_date, parties!party_id(name), employees!owner_employee_id(name)'
     )
     .not('current_stage', 'in', '(won,lost)')
     .or('quote_sent.eq.true,closure_probability.not.is.null')
@@ -63,13 +63,74 @@ export function deleteLead(id) {
 // breakdown tabs, which are pipeline snapshots ("how many leads are in each
 // category right now"), not "how many arrived in a period" like the Reports
 // tab's cards. One query serves all three tabs since they're just different
-// groupings of the same rows.
+// groupings of the same rows. Also the source for Needs Attention (see
+// src/lib/attention.js) — the extra columns below are the ones that query
+// needs (quote/RFQ timestamps, forecast/follow-up dates) and were the only
+// reason this select didn't already carry them.
 export function fetchLeadsForBreakdown() {
   return supabase
     .from('leads')
     .select(
-      'id, current_stage, order_value, site_id, owner_employee_id, parties!party_id(name), sites(nickname, locality, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)'
+      'id, current_stage, order_value, site_id, owner_employee_id, source_type, quote_sent, quote_sent_at, rfq_raised, rfq_raised_at, quote_value, closure_probability, estimated_close_date, next_followup_date, created_at, parties!party_id(name), sites(nickname, locality, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)'
     )
+}
+
+// Reduced client-side to one row per lead (its most recent activity) —
+// powers "stale" (no activity in N days) and "silent quote" (nothing logged
+// since quote_sent_at) in src/lib/attention.js. RLS on `activities` already
+// scopes this to "own data or owner role", same as every other activities
+// query on this page.
+export function fetchLastActivityPerLead() {
+  return supabase.from('activities').select('lead_id, created_at').not('lead_id', 'is', null)
+}
+
+// One exec + one activity type's real logged entries, most recent first —
+// powers the drill-down `log` kind (rhythm bars + the entry list itself are
+// both derived from these same rows client-side, no second query). Capped at
+// 60 days back, which comfortably covers the "last 20 working days" rhythm
+// window plus room to spare. `employees!accompanied_by(name)` mirrors the
+// embed LeadActivityTimeline already uses for the same column.
+export function fetchActivityLogForExec(employeeId, activityType) {
+  const since = new Date()
+  since.setDate(since.getDate() - 60)
+  return supabase
+    .from('activities')
+    .select(
+      'id, notes, created_at, leads_generated, accompanied_by, leads(current_stage, parties!party_id(name)), parties!party_id(name), employees!accompanied_by(name)'
+    )
+    .eq('employee_id', employeeId)
+    .eq('activity_type', activityType)
+    .gte('created_at', since.toISOString())
+    .order('created_at', { ascending: false })
+}
+
+// stage_history rows for leads that were ultimately decided (won or lost),
+// embedding owner + order_value the same way fetchWonStageHistory does —
+// powers the win-rate KPI and the `loss` kind's "lost this month" list.
+// Same RLS caveat/trick as fetchStageHistoryForFunnel: a sales exec's rows on
+// leads they don't own come back with `leads: null` and must be filtered out
+// client-side to get "own data or owner role" scoping.
+export function fetchDecidedStageHistory() {
+  return supabase
+    .from('stage_history')
+    .select('lead_id, stage, changed_at, leads(owner_employee_id, order_value)')
+    .in('stage', ['won', 'lost'])
+    .order('changed_at', { ascending: false })
+}
+
+// One 8-week-back window of activities, used only to slice into 8 weekly
+// buckets for the KPI row's sparklines (src/components/KpiSparkRow.jsx) —
+// a single wider fetch instead of one query per KPI per bucket. Order-value
+// and win-rate sparklines reuse fetchWonStageHistory/fetchDecidedStageHistory
+// directly (both already unbounded), so only activities needs a dedicated
+// bounded fetch here.
+export function fetchActivitiesTrendWindow() {
+  const since = new Date()
+  since.setDate(since.getDate() - 56)
+  return supabase
+    .from('activities')
+    .select('activity_type, employee_id, created_at')
+    .gte('created_at', since.toISOString())
 }
 
 // stage_history SELECT is open to everyone (see Schema/rls_policies.sql) —
@@ -88,7 +149,14 @@ export function fetchStageHistoryForFunnel() {
 
 // loss_reasons SELECT is owner-only (see Schema/rls_policies.sql) — a sales
 // exec's query returns zero rows, full stop, so this is only ever called
-// for the owner (see LossReasonsCard's isOwner gate in Dashboard.jsx).
+// for the owner (see LossReasonsCard's isOwner gate in Dashboard.jsx). The
+// embedded `leads` fields are only needed for the `loss` drill-down's
+// "lost this month" list (party/owner/value) — LossReasonsCard's compact
+// view still only reads reason/competitor_name.
 export function fetchLossReasons() {
-  return supabase.from('loss_reasons').select('id, reason, competitor_name, lost_at')
+  return supabase
+    .from('loss_reasons')
+    .select(
+      'id, lead_id, reason, competitor_name, lost_at, leads(order_value, quote_value, parties!party_id(name), employees!owner_employee_id(name))'
+    )
 }
