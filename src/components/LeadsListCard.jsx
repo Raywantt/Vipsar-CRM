@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { fetchLeadsList } from '../lib/dashboardQueries'
 import { stageChipClass } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
+import EmployeeLink from './EmployeeLink'
 
 function LeadsListCard({ isOwner, employees }) {
   const [employeeFilter, setEmployeeFilter] = useState('')
@@ -78,7 +79,8 @@ function LeadsListCard({ isOwner, employees }) {
             <div className="vip-row-main">
               <div className="vip-row-title">{lead.parties?.name ?? '(no party)'}</div>
               <div className="vip-row-sub">
-                {[lead.sites?.nickname || lead.sites?.locality, lead.employees?.name].filter(Boolean).join(' · ')}
+                {(lead.sites?.nickname || lead.sites?.locality) && <>{lead.sites?.nickname || lead.sites?.locality} · </>}
+                <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />
               </div>
             </div>
             <div className="vip-row-side" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

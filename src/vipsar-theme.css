@@ -1080,3 +1080,108 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
   .vip-dd-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
+/* ---------- 18. Profile pages (Sales Exec Profile + redesigned Lead Profile)
+   Built from the `design_handoff_detail_pages` handoff (README.md's design
+   tokens/geometry). Reuses section 17's drill-down vocabulary heavily
+   (.vip-dd-kpi-grid for the 6 metric tiles, .vip-dd-stats for deal/head
+   stats, .vip-dd-age-row/.vip-dd-log-row/.vip-dd-stage-row for the various
+   list rows) — only what those don't already cover gets a new class here. */
+
+.vip-profile-band {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+}
+.vip-profile-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.vip-profile-avatar {
+  width: 52px; height: 52px; flex: 0 0 52px; border-radius: 14px;
+  background: #283236; color: var(--vip-on-shell);
+  display: grid; place-items: center;
+  font-family: var(--vip-display); font-weight: 600; font-size: 16px;
+}
+.vip-profile-name-row { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.vip-profile-name { font-family: var(--vip-display); font-weight: 700; font-size: 23px; line-height: 1.1; color: var(--vip-ink); }
+.vip-profile-sub { font-size: 12px; color: var(--vip-muted); }
+
+/* generic status/rank/health pill — bg/color computed inline in JS per
+   state (same pattern as DashboardHeatmap's heatStyle()), this class is
+   shape-only so the state count can't force a combinatorial class list */
+.vip-pill { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: var(--vip-r-pill); white-space: nowrap; }
+
+/* joined stat strip — head stats (5, exec profile) reuse this; deal stats
+   and metric tiles reuse .vip-dd-stats/.vip-dd-kpi-grid from section 17 */
+.vip-profile-strip {
+  display: flex; flex-wrap: wrap; gap: 1px;
+  background: var(--vip-line); border: 1px solid var(--vip-line);
+  border-radius: var(--vip-r-field); overflow: hidden;
+}
+.vip-profile-strip-cell {
+  flex: 1 1 104px; min-width: 104px; background: var(--vip-surface);
+  padding: 9px 16px; display: flex; flex-direction: column; gap: 2px;
+}
+.vip-profile-strip-label { font-size: 9px; letter-spacing: .09em; text-transform: uppercase; color: var(--vip-faint); white-space: nowrap; }
+.vip-profile-strip-value { font-family: var(--vip-display); font-weight: 600; font-size: 20px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.vip-profile-strip-sub { font-size: 10px; color: var(--vip-faint); white-space: nowrap; }
+
+/* metric tile (inside .vip-dd-kpi-grid) gains a progress bar + gap line
+   the plain KPI sparkline tiles don't have */
+.vip-profile-tile-value-row { display: flex; align-items: baseline; gap: 6px; }
+.vip-profile-tile-target { font-size: 11px; color: var(--vip-faint); }
+.vip-profile-tile-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.vip-profile-tile-pct { font-size: 11px; font-weight: 600; }
+.vip-profile-tile-gap { font-size: 10px; color: var(--vip-faint); white-space: nowrap; }
+
+/* activity-mix stacked chart — geometry per README.md §5.4: 176px bar
+   scale inside a 200px plot box (24px headroom for the total label),
+   gridlines positioned in px against the same 176px scale, no bar gap
+   (segments separated by an inset shadow so heights stay exact). */
+.vip-chart { display: flex; gap: 12px; }
+.vip-chart-yaxis { flex: 0 0 24px; position: relative; height: 200px; }
+.vip-chart-ytick { position: absolute; right: 0; transform: translateY(50%); font-size: 9px; color: #aab5b6; font-variant-numeric: tabular-nums; }
+.vip-chart-plot { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.vip-chart-bars { position: relative; height: 200px; }
+.vip-chart-gridline { position: absolute; left: 0; right: 0; height: 1px; }
+.vip-chart-cols { position: absolute; left: 0; right: 0; bottom: 0; top: 0; display: flex; align-items: flex-end; gap: 22px; }
+.vip-chart-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
+.vip-chart-total { font-size: 11px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
+.vip-chart-stack { width: 100%; max-width: 64px; display: flex; flex-direction: column; border-radius: 4px; overflow: hidden; }
+.vip-chart-seg { width: 100%; box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .85); display: flex; overflow: hidden; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.vip-chart-labels { display: flex; gap: 22px; }
+.vip-chart-xlabel { flex: 1; text-align: center; font-size: 11px; color: var(--vip-muted); white-space: nowrap; min-width: 0; }
+.vip-chart-legend { display: flex; align-items: center; gap: 18px; padding-top: 13px; border-top: 1px solid var(--vip-line-soft); flex-wrap: wrap; }
+.vip-chart-legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--vip-muted); }
+.vip-chart-swatch { width: 10px; height: 10px; border-radius: 3px; display: block; }
+.vip-chart-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--vip-faint); text-align: center; padding: 0 20px; }
+
+/* deal-progress stage stepper (Lead Profile hero card) */
+.vip-stepper { display: flex; gap: 4px; }
+.vip-stepper-col { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vip-stepper-bar { height: 6px; border-radius: 3px; }
+.vip-stepper-label { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vip-stepper-meta { font-size: 10px; color: var(--vip-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* inline quick-action panel (Change stage / Set follow-up / Reassign owner) */
+.vip-action-panel {
+  background: var(--vip-surface); border: 1px solid var(--vip-teal); border-radius: var(--vip-r-card);
+  padding: 14px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.vip-action-panel-title { font-family: var(--vip-display); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--vip-ink); white-space: nowrap; }
+.vip-action-panel-opts { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+.vip-action-opt {
+  min-height: 30px; padding: 0 12px; border: 1px solid var(--vip-field-line); border-radius: 8px;
+  font: 500 11px var(--vip-sans); cursor: pointer; background: var(--vip-surface); color: var(--vip-body);
+}
+.vip-action-opt:hover { border-color: var(--vip-teal); }
+.vip-action-opt.vip-active { background: var(--vip-ink); color: #fff; border-color: var(--vip-ink); }
+.vip-action-close { min-height: 30px; padding: 0 12px; border: 0; border-radius: 8px; font: 500 11px var(--vip-sans); cursor: pointer; background: var(--vip-line-soft); color: var(--vip-muted); }
+
+/* Quotes & orders / any other fixed-column line-item grid */
+.vip-linegrid-head { display: grid; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--vip-line-soft); }
+.vip-linegrid-head span { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--vip-faint); }
+.vip-linegrid-row { display: grid; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--vip-line-soft); }
+.vip-linegrid-row:last-child { border-bottom: 0; }
+
+@media (min-width: 1024px) {
+  .vip-profile-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .vip-profile-cols-lead { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+}
+

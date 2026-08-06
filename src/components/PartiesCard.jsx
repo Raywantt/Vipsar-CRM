@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import EmployeeLink from './EmployeeLink'
 
 const PARTY_TYPE_LABELS = {
   client: 'Client',
@@ -15,21 +17,24 @@ const PARTY_TYPE_LABELS = {
 // overflow select instead of forcing every party_type into the row.
 const PRIMARY_TYPES = ['client', 'architect', 'firm']
 
+// Map<partyId, Map<employeeId, employeeName>> — keyed by id (not just a Set
+// of names) so the "Worked with" column can link each name to /employees/:id.
 function buildEmployeeMap(links) {
   const map = new Map()
   links.forEach((lead) => {
+    const employeeId = lead.owner_employee_id
     const employeeName = lead.employees?.name
-    if (!employeeName) return
+    if (!employeeId || !employeeName) return
     ;[lead.party_id, lead.other_party_id, lead.referred_by_party_id].forEach((partyId) => {
       if (!partyId) return
-      if (!map.has(partyId)) map.set(partyId, new Set())
-      map.get(partyId).add(employeeName)
+      if (!map.has(partyId)) map.set(partyId, new Map())
+      map.get(partyId).set(employeeId, employeeName)
     })
   })
   return map
 }
 
-function PartiesCard({ parties, employeeLinks }) {
+function PartiesCard({ parties, employeeLinks, mostRecentLeadByParty }) {
   const [typeFilter, setTypeFilter] = useState('')
   const [search, setSearch] = useState('')
 
@@ -96,19 +101,39 @@ function PartiesCard({ parties, employeeLinks }) {
       {filtered.length === 0 ? (
         <p className="vip-empty">No parties found.</p>
       ) : (
-        filtered.map((p) => (
-          <div key={p.id} className="vip-row">
-            <div className="vip-row-main">
-              <div className="vip-row-title">{p.name}</div>
-              <div className="vip-row-sub">
-                {[PARTY_TYPE_LABELS[p.party_type] ?? p.party_type, p.mobile].filter(Boolean).join(' · ')}
+        filtered.map((p) => {
+          const mostRecentLeadId = mostRecentLeadByParty?.get(p.id)
+          const employees = employeeMap.has(p.id) ? [...employeeMap.get(p.id).entries()] : []
+          const rowContent = (
+            <>
+              <div className="vip-row-main">
+                <div className="vip-row-title">{p.name}</div>
+                <div className="vip-row-sub">
+                  {[PARTY_TYPE_LABELS[p.party_type] ?? p.party_type, p.mobile].filter(Boolean).join(' · ')}
+                </div>
               </div>
+              <div className="vip-row-meta">
+                {employees.length === 0
+                  ? '—'
+                  : employees.map(([empId, empName], i) => (
+                      <span key={empId}>
+                        <EmployeeLink id={empId} name={empName} />
+                        {i < employees.length - 1 ? ', ' : ''}
+                      </span>
+                    ))}
+              </div>
+            </>
+          )
+          return mostRecentLeadId ? (
+            <Link key={p.id} to={`/leads/${mostRecentLeadId}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
+              {rowContent}
+            </Link>
+          ) : (
+            <div key={p.id} className="vip-row">
+              {rowContent}
             </div>
-            <div className="vip-row-meta">
-              {employeeMap.has(p.id) ? [...employeeMap.get(p.id)].join(', ') : '—'}
-            </div>
-          </div>
-        ))
+          )
+        })
       )}
     </div>
   )

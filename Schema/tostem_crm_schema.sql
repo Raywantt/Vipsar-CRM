@@ -207,6 +207,20 @@ CREATE TABLE stage_history (
   changed_at  TIMESTAMP DEFAULT now()
 );
 
+-- Every owner reassignment on a lead gets logged here — same
+-- append-only shape as stage_history, for the Lead Profile's
+-- "Reassign owner" action and its ownership-history list.
+-- old_owner_id is nullable (a lead can be unassigned at creation);
+-- new_owner_id is not, since a reassignment always sets someone.
+CREATE TABLE lead_owner_history (
+  id            SERIAL PRIMARY KEY,
+  lead_id       INTEGER NOT NULL REFERENCES leads(id),
+  old_owner_id  INTEGER REFERENCES employees(id),
+  new_owner_id  INTEGER NOT NULL REFERENCES employees(id),
+  changed_by    INTEGER REFERENCES employees(id),
+  changed_at    TIMESTAMP DEFAULT now()
+);
+
 
 -- ---------- STEP 8: SUPPORTING TABLES ----------
 

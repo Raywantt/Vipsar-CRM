@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { stageFg } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
+import EmployeeLink from './EmployeeLink'
 
 function leadTitle(lead) {
   return lead.parties?.name ?? (lead.sites?.nickname || lead.sites?.locality) ?? '(no party)'
@@ -40,7 +41,11 @@ function LeadStageBoard({ leads, isOwner }) {
                 ) : null}
                 <div className="vip-board-card-foot">
                   <div className="vip-board-card-value">{formatCurrencyCompact(lead.order_value)}</div>
-                  {isOwner && <div className="vip-board-card-owner">{lead.employees?.name ?? 'Unassigned'}</div>}
+                  {isOwner && (
+                    <div className="vip-board-card-owner">
+                      <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />
+                    </div>
+                  )}
                 </div>
               </Link>
             ))

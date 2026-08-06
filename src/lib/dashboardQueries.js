@@ -46,7 +46,7 @@ export function fetchClosureForecast() {
   return supabase
     .from('leads')
     .select(
-      'id, current_stage, quote_value, closure_probability, estimated_close_date, parties!party_id(name), employees!owner_employee_id(name)'
+      'id, current_stage, quote_value, closure_probability, estimated_close_date, owner_employee_id, parties!party_id(name), employees!owner_employee_id(name)'
     )
     .not('current_stage', 'in', '(won,lost)')
     .or('quote_sent.eq.true,closure_probability.not.is.null')

@@ -11,6 +11,7 @@ import Search from './pages/Search'
 import Dashboard from './pages/Dashboard'
 import LeadQuickCapture from './pages/LeadQuickCapture'
 import LeadDetail from './pages/LeadDetail'
+import EmployeeProfile from './pages/EmployeeProfile'
 import ActivityLog from './pages/ActivityLog'
 import Settings from './pages/Settings'
 import './App.css'
@@ -48,6 +49,17 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
                 <LeadDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employees/:id"
+            element={
+              // Both roles can hit the route; EmployeeProfile itself enforces
+              // who can see what (owner: any employee, sales exec: self
+              // only, else redirect to /dashboard) — see FLOW.md §4.
+              <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
+                <EmployeeProfile />
               </ProtectedRoute>
             }
           />

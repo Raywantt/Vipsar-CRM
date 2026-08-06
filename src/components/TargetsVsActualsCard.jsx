@@ -4,8 +4,13 @@ import { formatCurrency } from '../lib/format'
 import SetTargetForm from './SetTargetForm'
 import DashboardHeatmap from './DashboardHeatmap'
 
+// order_value/quote_sent/won_count are computed by their own dedicated
+// functions below (not tallied from activities), so they're excluded from
+// the activity-type tally's zero-init the same way order_value already was.
+const NON_ACTIVITY_METRICS = ['order_value', 'quote_sent', 'won_count']
+
 function emptyMetricCounts() {
-  return Object.fromEntries(METRIC_OPTIONS.filter((m) => m.value !== 'order_value').map((m) => [m.value, 0]))
+  return Object.fromEntries(METRIC_OPTIONS.filter((m) => !NON_ACTIVITY_METRICS.includes(m.value)).map((m) => [m.value, 0]))
 }
 
 // activities is already scoped to the current period + role by the caller
@@ -62,6 +67,60 @@ export function computeOrderValueActuals(wonStageHistory, range, showByEmployee)
   return map
 }
 
+// "Offers sent" actual — leads has no per-quote log, just a single
+// quote_sent_at timestamp per lead, so this counts leads whose quote was
+// sent inside the range. breakdownLeads is the same unbounded, RLS-scoped
+// array Dashboard.jsx already fetches for the category-breakdown cards
+// (fetchLeadsForBreakdown) — no second query.
+export function computeQuoteSentActuals(breakdownLeads, range, showByEmployee) {
+  const inRange = breakdownLeads.filter((l) => {
+    if (!l.quote_sent_at) return false
+    const sentAt = new Date(l.quote_sent_at)
+    return sentAt >= range.start && sentAt <= range.end
+  })
+
+  if (!showByEmployee) return inRange.length
+
+  const map = new Map()
+  inRange.forEach((l) => {
+    const key = l.owner_employee_id ?? 'unassigned'
+    map.set(key, (map.get(key) ?? 0) + 1)
+  })
+  return map
+}
+
+// "Bookings" actual — count of leads (not summed value, unlike order_value
+// above) whose most recent stage_history row is 'won' inside the range.
+// Same latestByLead reduction as computeOrderValueActuals, so a lead with
+// multiple 'won' rows (re-opened and re-won) is still counted once, and this
+// tile's count matches whatever the exec profile's funnel "Won" step shows
+// for the same range by construction.
+export function computeWonCountActuals(wonStageHistory, range, showByEmployee) {
+  const latestByLead = new Map()
+  wonStageHistory.forEach((row) => {
+    if (!row.leads) return
+    if (!latestByLead.has(row.lead_id)) latestByLead.set(row.lead_id, row)
+  })
+
+  if (!showByEmployee) {
+    let count = 0
+    latestByLead.forEach((row) => {
+      const changedAt = new Date(row.changed_at)
+      if (changedAt >= range.start && changedAt <= range.end) count += 1
+    })
+    return count
+  }
+
+  const map = new Map()
+  latestByLead.forEach((row) => {
+    const changedAt = new Date(row.changed_at)
+    if (changedAt < range.start || changedAt > range.end) return
+    const key = row.leads.owner_employee_id ?? 'unassigned'
+    map.set(key, (map.get(key) ?? 0) + 1)
+  })
+  return map
+}
+
 // Exported so the drill-down builders (src/lib/drilldownBuilders.js) look up
 // a target the exact same way this card does, instead of a second lookup
 // that could drift from it.
@@ -83,6 +142,7 @@ function formatValue(metric, value) {
 function TargetsVsActualsCard({
   activities,
   wonStageHistory,
+  breakdownLeads,
   targets,
   range,
   employees,
@@ -145,6 +205,7 @@ function TargetsVsActualsCard({
         <TargetsTable
           activities={activities}
           wonStageHistory={wonStageHistory}
+          breakdownLeads={breakdownLeads}
           targets={targets}
           range={range}
           employees={visibleEmployees}
@@ -169,21 +230,32 @@ function TargetsVsActualsCard({
   )
 }
 
-function TargetsTable({ activities, wonStageHistory, targets, range, employees, showByEmployee }) {
-  const activityActuals = computeActivityActuals(activities, showByEmployee)
-  const orderValueActuals = computeOrderValueActuals(wonStageHistory, range, showByEmployee)
+function actualFor(m, { activityActuals, orderValueActuals, quoteSentActuals, wonCountActuals }, employeeId) {
+  if (m.value === 'order_value') return employeeId == null ? orderValueActuals : orderValueActuals.get(employeeId) ?? 0
+  if (m.value === 'quote_sent') return employeeId == null ? quoteSentActuals : quoteSentActuals.get(employeeId) ?? 0
+  if (m.value === 'won_count') return employeeId == null ? wonCountActuals : wonCountActuals.get(employeeId) ?? 0
+  return employeeId == null ? activityActuals[m.value] : activityActuals.get(employeeId)?.[m.value] ?? 0
+}
+
+function TargetsTable({ activities, wonStageHistory, breakdownLeads, targets, range, employees, showByEmployee }) {
+  const actuals = {
+    activityActuals: computeActivityActuals(activities, showByEmployee),
+    orderValueActuals: computeOrderValueActuals(wonStageHistory, range, showByEmployee),
+    quoteSentActuals: computeQuoteSentActuals(breakdownLeads ?? [], range, showByEmployee),
+    wonCountActuals: computeWonCountActuals(wonStageHistory, range, showByEmployee),
+  }
 
   const rows = !showByEmployee
     ? METRIC_OPTIONS.map((m) => ({
         label: m.label,
-        actual: m.value === 'order_value' ? orderValueActuals : activityActuals[m.value],
+        actual: actualFor(m, actuals, null),
         target: targetFor(targets, null, m.value),
         metric: m.value,
       }))
     : employees.flatMap((emp) =>
         METRIC_OPTIONS.map((m) => ({
           label: `${emp.name.split(' ')[0]} · ${m.label}`,
-          actual: m.value === 'order_value' ? orderValueActuals.get(emp.id) ?? 0 : activityActuals.get(emp.id)?.[m.value] ?? 0,
+          actual: actualFor(m, actuals, emp.id),
           target: targetFor(targets, emp.id, m.value),
           metric: m.value,
           key: `${emp.id}-${m.value}`,

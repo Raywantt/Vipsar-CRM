@@ -39,15 +39,34 @@ needs before touching anything:
 - Deliberately **not built yet** — these need their own discussion first,
   don't add them as a side effect of unrelated work: **Followups** as a real
   feature (personal + owner-assigned reminders with notifications/scheduling
-  — `leads.next_followup_date` is set from `ActivityLog` and, as of
-  Dashboard v2, now also read back by Needs Attention's "overdue" queue, but
-  that's a read-only dashboard row, not a reminder/notification system), a
+  — `leads.next_followup_date` is set from `ActivityLog` and from the Lead
+  Profile's "Set follow-up" quick action, see the Lead Profile section
+  below, and as of Dashboard v2, also read back by Needs Attention's
+  "overdue" queue, but none of that is a reminder/notification system — just
+  more entry points onto the same plain date field), a
   **`plans`-table screen** (the table has full RLS wired up and zero UI
   anywhere in `src/`), **further role-differentiated Home content** beyond
   today's Activity Log tile split (`HOME_TILES` is role-keyed and ready for
   more of this), and **a screen listing past activities** (`ActivityLog`
   only logs new ones; nothing browses old ones outside a lead's own
-  timeline).
+  timeline or a Sales Exec Profile's Activity log section).
+- **Sales Exec Profile + redesigned Lead Profile** (`/employees/:id`,
+  `/leads/:id` — see their own sections below) were built from a second
+  Claude Design handoff (`design_handoff_detail_pages/README.md`/
+  `FLOW.md`/`DATA_CONTRACT.md`). That handoff's data model treats "lead" and
+  "client" as the same record and assumes a 3-tier admin/manager/exec role
+  system with tables this app doesn't have (`quotes`, `orders`,
+  `order_items`, `lead_contacts`, `follow_ups`) — every field on both pages
+  is mapped onto this app's real schema instead (see each section for the
+  exact mapping), nothing is fabricated, and the manager tier is dropped
+  since this app only has `owner`/`sales_executive`. **Outstanding**: the
+  new `lead_owner_history` table (see Conventions) hasn't been created live
+  yet — "Reassign owner" still works without it, just without a logged
+  history. **Deliberately out of scope for this pass**: owner-name badges
+  inside `DrilldownPanel.jsx`'s deeper bodies (ageing/forecast/pipeline/loss
+  row lists) aren't links yet, unlike everywhere else a person's name
+  appears — a real gap, not an oversight, left for a follow-up rather than
+  rushed edits to that already-shipped file.
 - **Dashboard v2** (Needs Attention + a universal drill-down panel reused
   across every metric — see the Dashboard section and its Design-system
   bullet) is desktop-first: the KPI sparkline row, exec heatmap, and source
@@ -79,8 +98,11 @@ needs before touching anything:
 src/
   components/   reusable UI pieces (ProtectedRoute, AppNav, BottomNav,
                 PartySearchOrCreate, SiteSearchOrCreate, LeadSearchSelect,
-                the five LeadDetail *Section components plus
-                LeadActivityTimeline, DateRangeSelector, ActivityCountsCard,
+                the four remaining LeadDetail *Section components (Sales
+                progress/Site details/Client details/Contacts — Stage moved
+                into LeadQuickActions, see the Lead Profile section) plus
+                LeadQuickActions, LeadActivityTimeline, EmployeeLink,
+                DateRangeSelector, ActivityCountsCard,
                 LeadsBySourceCard, ClosureForecastCard, TargetsVsActualsCard,
                 SetTargetForm, LeadsListCard, LeadsByCategoryCard,
                 LeadStageBoard, SalesFunnelCard, LossReasonsCard,
@@ -89,18 +111,20 @@ src/
                 AddEmployeeForm, ManageEmployeesSection,
                 DeleteLeadSection, InstallPrompt, OfflineIndicator)
   pages/        top-level views (Login, Home, Account, Search, Dashboard,
-                LeadQuickCapture, LeadDetail, ActivityLog, Settings, ...)
+                LeadQuickCapture, LeadDetail, EmployeeProfile, ActivityLog,
+                Settings, ...)
   contexts/     AuthContext — session + employee (id/name/mobile/role) lookup;
-                HeaderContext — lets Lead Detail/Dashboard push a dynamic
-                sub into AppNav's header (see Design system below)
+                HeaderContext — lets Lead Detail/Sales Exec Profile/Dashboard
+                push a dynamic sub into AppNav's header (see Design system
+                below)
   hooks/        custom React hooks
   lib/          integrations & utilities (supabaseClient.js, sanitizeForIlike.js,
                 siteStageOptions.js, leadStageOptions.js, lossReasonOptions.js,
                 statusColors.js, activityTypes.js, sourceTypeOptions.js,
                 dateRanges.js, dashboardQueries.js, searchQueries.js, format.js,
                 targetMetrics.js, targetPeriods.js, targetQueries.js,
-                partyQueries.js, employeeQueries.js, homeTiles.js,
-                attention.js, drilldownBuilders.js)
+                partyQueries.js, employeeQueries.js, leadOwnerHistory.js,
+                homeTiles.js, attention.js, drilldownBuilders.js)
   assets/       images, icons, etc.
   vipsar-theme.css   the app's one design-system stylesheet — see Design
                 system below
@@ -108,9 +132,14 @@ src/
 
 Routing is set up in `App.jsx` (`react-router-dom`): `/` (Home, landing
 page after login), `/account`, `/search`, `/dashboard`, `/leads/new`,
-`/leads/:id` — all allow both `sales_executive` and `owner` — plus
-`/activity` (**sales_executive-only**, see the ActivityLog section below)
-and `/settings` (**owner-only**). `ProtectedRoute` handles the
+`/leads/:id`, `/employees/:id` — all allow both `sales_executive` and
+`owner` at the route level — plus `/activity` (**sales_executive-only**,
+see the ActivityLog section below) and `/settings` (**owner-only**).
+`/employees/:id` is further gated *inside* `EmployeeProfile.jsx` itself,
+not by `ProtectedRoute`'s `allowedRoles` (see the Sales Exec Profile
+section below for why — a sales exec may view their own page but not a
+colleague's, which isn't a role-level distinction `ProtectedRoute` can
+express). `ProtectedRoute` handles the
 redirect-to-login and role gating (redirecting to `/` on a role mismatch);
 `AuthContext` is the single source of truth for "who's logged in and what's
 their role" — look up an employee's role via `useAuth()`, don't re-query
@@ -143,6 +172,28 @@ recreate them; add a `vip-`-prefixed class to `vipsar-theme.css` instead of
 writing new per-component CSS. `src/index.css` is kept as an intentionally
 empty seam (nothing left to own) rather than deleted, since `main.jsx`
 imports it before the theme file.
+
+**Non-negotiable: build and render every screen to the standard of the best
+frontend engineer working from that Claude Design handoff — not an
+approximation of it.** Concretely:
+- **Pick the right width class on purpose, every time.** `.vip-narrow`
+  (700px) is for genuinely single-column content only (forms, a single
+  list/detail page). Anything with a multi-card grid, a chart, a table, or
+  a rail — the shape Dashboard's Reports tab and the Sales Exec/Lead
+  Profile pages all have — needs `.vip-wide` (1180px) or `.vip-cols`/
+  `.vip-cols-3`. Wrapping wide content in `.vip-narrow` by mistake (this
+  happened once already on `EmployeeProfile.jsx` — fixed) produces exactly
+  the "huge empty gutters on left and right at desktop width" bug the
+  original design handoff's whole first complaint was about — see the App
+  column bullet below. If a screen looks narrower than its content
+  warrants, that's a bug, not a stylistic choice.
+- **Always visually verify new/changed UI in the browser preview at desktop
+  width before calling it done** — per this repo's own `<verification_workflow>`
+  habit, don't just trust that the CSS classes did the right thing. Take a
+  screenshot, actually look for unexplained empty space, misaligned grids,
+  overflow, or elements that don't reach the edges the mockup's did, and
+  fix what you find. This applies to every future screen, not just the two
+  built in this pass.
 
 * **App column** — below 1024px, `.vip-app` caps every screen at
   `--vip-app-max` (460px), centered on a darker canvas (`--vip-canvas-2`).
@@ -207,6 +258,27 @@ imports it before the theme file.
   the free-text escape hatch — reveals a text input + Set button, since
   `current_stage` staying non-enum is a locked-in decision (see
   DECISIONS.md), not something the redesign was meant to remove.
+* **Universal linking** — the rule of thumb from `design_handoff_detail_pages/
+  FLOW.md`, applied globally: a person's name is always a link to
+  `/employees/:id`; a lead or client's name is always a link to
+  `/leads/:id`. Covers `LeadsListCard`, `ClosureForecastCard`,
+  `LeadStageBoard`, `PartiesCard`'s "Worked with" column, `Search`'s
+  Leads/Parties results, `LeadActivityTimeline`'s "by {employee}", and the
+  Dashboard heatmap's row-header name (clicking a **cell** still opens the
+  existing metric drill-down, unchanged — only the name itself navigates).
+  `EmployeeLink.jsx` exists specifically for the case a person's name has
+  to render *inside* a row that's already a `<Link>` to something else (a
+  lead, a party) — a literal nested `<a>` would be invalid HTML and break
+  the outer row's click target, so it navigates via `useNavigate` +
+  `stopPropagation` instead; use a plain `<Link to={`/employees/${id}`}>`
+  anywhere there's no outer link to nest inside. `PartiesCard` rows and
+  `Search`'s Parties results (no single lead in view) link to that party's
+  **most recent lead** if they have one (`fetchLeadsByParty`/
+  `mostRecentLeadByParty` in `partyQueries.js` — `party_id` only, not
+  `referred_by_party_id`/`other_party_id`, since only `party_id` makes them
+  "the lead"), else stay non-clickable, same as before. **Known gap, not
+  finished everywhere**: owner-name badges inside `DrilldownPanel.jsx`'s
+  deeper bodies aren't linked yet — see "Current state" above.
 * Home's tiles gained a fourth entry, **All Leads** (links to
   `/dashboard?tab=leads`) — `Dashboard.jsx` has no in-page tab buttons
   anymore (see the Dashboard section's "no more in-page tab buttons" bullet),
@@ -410,81 +482,161 @@ deliberately — an owner can personally log leads, not a testing workaround.
   the lead fails, the site row is orphaned (error message surfaces the site
   id, but nothing auto-cleans up).
 
-### LeadDetail (`src/pages/LeadDetail.jsx`)
+### LeadDetail (`src/pages/LeadDetail.jsx`) — the Lead Profile
 
-The "add more details" enrichment screen at `/leads/:id`, reachable from the
-lead ID link on `LeadQuickCapture`'s success screen. An identity card up
-top (`LEAD-000<id>` mono, party/site name, site as a sub-line, a stage
-chip via `stageChipClass`) plus a 2×2 facts grid (Order value/Owner/
-Source/Created), via `employees!owner_employee_id(name)` embedded on the
-initial `leads` select. Below that, a `vip-btn-row` of "Log activity"
-(links to `/activity`) and "Call client" (`tel:` link, disabled if the
-party has no `mobile`). Then up to five independent edit sections, each
-with its own Save button and saving/error/success state (saving one never
-touches the others) — **but only if `canEdit`**
-(`isOwner || lead.owner_employee_id === employee.id`). A sales exec viewing
-a lead that isn't theirs sees the identity card/button row plus a plain
-notice instead of the five edit sections; RLS was already refusing the
-actual UPDATE for them, this just stops them from being shown forms that
-would fail on save. Each section's own save query (`LeadStageSection`,
-`SalesProgressSection`) does a bare `.select()` with no `employees` embed,
-so `LeadDetail` **merges** the returned row into existing state
-(`setLead((prev) => ({ ...prev, ...updated }))`) rather than replacing it
-wholesale — a plain replace would silently drop `lead.employees` (the
-owner's name) after the first edit.
+`/leads/:id`, reachable from every place in the app a lead or a client
+appears — a client and their lead are treated as the same record in this
+app's UI (confirmed decision, not a schema merge: `parties`/`leads` are
+still separate tables). Redesigned from the original plain enrichment form
+into the "Deal room" layout from `design_handoff_detail_pages` — Layout A
+of that handoff only, the Layout B "Dossier" alternative and the
+prototype's own layout-toggle/"Jump to" chip row were explicitly marked
+"do not build" and aren't here. **Every edit capability the original form
+had is still here too** — nothing was removed, the new design was layered
+on top (a deliberate call, see the "Current state" bullet above).
 
-Render order: **Stage** (if `canEdit`) → **Activity** (always, regardless
-of `canEdit` — see below) → **Sales progress** → **Site details** →
-**Client details** → **Contacts**, all `canEdit`-gated except Activity.
+Identity band: avatar, name (party/site name — unchanged fallback chain),
+a **status pill** (`Customer` once won, `At risk` if open and 14+ days
+untouched, else `Open lead` — derived, not stored) and a **health pill**
+(from days-since-last-touch: Stale ≥14d / Cooling ≥7d / Active — same
+thresholds `attention.js` already uses elsewhere, not a second definition),
+sub-line (type · site · source · created). Below that, the original
+`vip-btn-row` ("Log activity" for non-owners, "Call client") is unchanged,
+followed by `LeadQuickActions.jsx` (**only if `canEdit`** —
+`isOwner || lead.owner_employee_id === employee.id`, same gate as before)
+— the three new quick actions from the handoff, each behind its own
+toggle button so at most one is open at a time:
 
-* **Stage** (`LeadStageSection.jsx`) — `current_stage` as a row of tappable
-  `vip-chip-select` pills, one per `LEAD_STAGE_OPTIONS` value (suggested
-  new/hot/rfq/quote/negotiation/won/lost, tinted via `stageFg`) plus an
-  "Other…" chip revealing a text input for the free-text escape hatch
-  (same pattern as `site_stage`) — `current_stage` staying non-enum is
-  locked in, see DECISIONS.md. Tapping a chip applies that stage
-  immediately (no separate confirm step): updates `leads.current_stage`
-  and inserts a `stage_history` row (`lead_id`, `stage`, `changed_by`,
-  `changed_at`) — this section only owns changing the stage and the
-  loss-reason prompt; the history itself renders in the Activity section
-  below. Setting the stage to `lost` immediately opens an inline
-  `loss_reasons` prompt (reason + optional competitor name) with **no skip
-  option** — "Save reason" is the only way to dismiss it, since a rep must
-  always account for why a lead was lost.
-* **Activity** (`LeadActivityTimeline.jsx`, always shown, regardless of
-  `canEdit` — so even a read-only viewer sees it) — a merged, newest-first
-  feed of `stage_history` (append-only stage changes) and `activities`
-  filtered by `lead_id` (site visits, calls, RFQs, booking updates logged
-  via `ActivityLog`). Newest-first is a deliberate choice matching how most
-  CRMs order a record's activity feed. **Known RLS asymmetry, not a bug**:
-  `stage_history` SELECT is open to everyone, but `activities` SELECT is
-  "own data or owner role" — so a sales exec viewing a colleague's lead
-  sees the full stage history but an empty activity feed for activities
-  they didn't log themselves. Same category as the `PartiesCard` "Worked
-  with" caveat below.
-* **Sales progress** (`SalesProgressSection.jsx`, always shown) — product
-  dropdown, RFQ raised (checkbox+date), quote sent (checkbox+date+value),
-  closure probability (0–100 number input, matches the `closure_probability`
-  CHECK) and estimated close date (always-visible, not gated behind a
-  checkbox like the RFQ/quote fields), straight fields on `leads`. These
-  last two feed the Closure forecast dashboard card.
-* **Site details** (`SiteDetailsSection.jsx`, if `site_id` set) — plain edit
-  form (not `SiteSearchOrCreate`'s find-or-create, since the site already
-  exists) for Area/locality/house no./pincode/site_stage. Reuses
-  `SITE_STAGE_OPTIONS` (`src/lib/siteStageOptions.js`, shared with
-  `SiteSearchOrCreate`).
-* **Client details** (`ClientDetailsSection.jsx`, if `party_id` set) — edits
-  mobile/address/city.
-* **Contacts** (`AdditionalContactsSection.jsx`, if `site_id` set — the
-  component name is unchanged, only the card's on-screen title shortened) —
-  lists existing `site_contacts`; surfaces `other_party_id` as a pre-filled
-  suggestion if not yet linked; repeatable "+ Add contact" via
-  `PartySearchOrCreate` + role + optional firm name (updates
-  `parties.firm_name`).
+* **Change stage** — does **not** reimplement `LeadStageSection.jsx`, just
+  relocates *when* it's visible: toggling this button mounts the exact
+  same component (chip-select + mandatory loss-reason-on-lost prompt,
+  unchanged) instead of it always being on-screen. Everything documented
+  about it before is still true.
+* **Set follow-up** — new, writes the existing `leads.next_followup_date`
+  field (Tomorrow / In 3 days / Next Monday / In 2 weeks / a custom date
+  input) — a second entry point onto the same field `ActivityLog` already
+  sets, not a new Followups feature (see "Current state" above).
+* **Reassign owner** — **owner-only**, even within `canEdit` (a sales exec
+  who owns the lead gets the other two actions but never this one, per the
+  design handoff's `FLOW.md` §4). Updates `leads.owner_employee_id`
+  (already legal under existing "own data or owner role" RLS, no schema
+  change) and inserts into `lead_owner_history` (see Conventions —
+  **not live yet**). The write to `leads` and the history insert are
+  independent: if the history table doesn't exist, the reassignment still
+  succeeds and an inline warning explains the history wasn't logged,
+  mirroring how `ActivityLog`'s own lead-side-effect writes already handle
+  a partial failure.
+
+Below the quick actions, a **Deal progress** hero card: a 7-column stage
+stepper (one per `LEAD_STAGE_OPTIONS` value — this app's real stage list,
+not the handoff's generic 6, since `current_stage` staying non-enum is
+locked in per DECISIONS.md) dated from `stage_history` ("not yet" for
+unreached stages, `new` falls back to `created_at` the same way
+`SalesFunnelCard` already works around `stage_history` never logging an
+implicit default), plus 4 deal stats (Deal value = `max(order_value,
+quote_value)`, Probability = `closure_probability` or a stage-keyed
+default table, Expected close = `estimated_close_date` rendering
+`slipped` when past and open, Last touch).
+
+Main column below that: **Quotes & orders** (at most 2 real rows — one
+from `quote_value`/`quote_sent_at` if `quote_sent`, one from `order_value`
+if set, dated via the `stage_history` `'won'` row as a proxy order
+date since `leads` has no separate order-date column — **not** a
+fabricated multi-document list; "No quotes or orders yet" if neither is
+set), **Products in scope** (a single real row from `product_id` →
+`products.name`, since this app tracks one product per lead, not
+per-SKU line items), then the existing `LeadActivityTimeline.jsx`
+(unchanged merge of `stage_history` + `activities`, now also splicing in
+`lead_owner_history` entries when that table has rows).
+
+Right rail: a new **Deal owner** card (links to `/employees/:id`, plus the
+ownership-history list from `lead_owner_history`) and a new **Contact**
+card (site contacts + a facts list), then — **unchanged from before** —
+`SalesProgressSection`, `SiteDetailsSection` (if `site_id`),
+`ClientDetailsSection` (if `party_id`), `AdditionalContactsSection` (if
+`site_id`), same `canEdit` gate, same merge-not-replace `setLead` pattern
+as always (each section's save query has no `employees` embed, so
+`LeadDetail` merges the returned row rather than replacing state wholesale
+— a plain replace would drop `lead.employees`).
+
+A sales exec viewing a lead that isn't theirs still sees the identity
+band + Deal progress + Quotes/Products/Activity (all read-only, no
+`canEdit` needed for those) plus the "belongs to X" notice instead of the
+quick actions/edit sections — unchanged in spirit from before, just with
+more to actually look at. **Known RLS asymmetry, not a bug** (unchanged):
+`stage_history` SELECT is open to everyone, `activities` SELECT is "own
+data or owner role", so a non-owning sales exec's activity feed is empty
+even though the stage history isn't.
 
 `sites`/`parties` UPDATE is "own data or owner role", not owner-only —
 needed for Site/Client details to work for a regular sales exec, a real
-blocker found while building this screen.
+blocker found while building this screen originally.
+
+### EmployeeProfile (`src/pages/EmployeeProfile.jsx`) — the Sales Exec Profile
+
+`/employees/:id`, brand new (no prior equivalent existed) — reachable from
+**every place an employee/owner name appears anywhere in the app** (see
+the "universal linking" bullet in Design system below), plus the
+Dashboard heatmap's row-header name (see Dashboard section). Layout A
+("Scorecard") only from the same `design_handoff_detail_pages` bundle —
+the layout toggle, exec switcher, and team-chip row the prototype shipped
+for design review are all "do not build" and aren't here; navigation
+between execs happens by going back to the dashboard heatmap, not a
+switcher on this page.
+
+**Who can open it** (enforced inside the component, not by
+`ProtectedRoute` — see Structure above): `owner` → any employee; a
+`sales_executive` → **their own page only**, redirected to `/dashboard`
+otherwise. A sales exec viewing their own page never sees the rank pill or
+any other peer-relative element (nothing to compare against, and RLS on
+`activities`/`leads`/`targets` would return empty rows for anyone else's
+data anyway — this redirect is the same category of UI-layer belt-and-braces
+as `SetTargetForm`'s owner-only gating).
+
+Top bar: a Week/Month/Quarter period filter (`vip-seg-outline`, default
+Month, reflected in the URL as `?period=`) that drives every figure on the
+page. Identity band: avatar, name, a **rank pill** (this employee's
+position by *blended attainment* — mean of the six metric ratios below,
+each capped at 1.25, among active sales execs — among the team, tinted by
+tertile), sub-line using `employees.office_location` for "territory" and
+`employees.created_at` for "with VIPSAR since" (both flagged in the UI
+copy as approximations — this app tracks neither a real territory nor a
+hire date column; "reports to a manager" from the handoff is dropped
+entirely, since this app has no manager tier, only `owner`/
+`sales_executive`).
+
+Below that: 5 head stats (Attainment/Booked/Open pipeline/Win rate/Stale
+leads — Stale leads reuses `computeAttentionBuckets` from `attention.js`
+scoped to this exec's own leads, not a second stale-threshold
+definition), then the **6 metric tiles** (Order value/Site visits/Calls
+made/RFQs raised/Offers sent/Bookings). The first 4 are the activity
+types already tracked everywhere else in this app; **Offers sent** and
+**Bookings** are two metrics new to this pass — added as real,
+targetable entries to `src/lib/targetMetrics.js`'s `METRIC_OPTIONS` (no
+DB migration needed, `targets.metric_name` has no CHECK constraint), with
+their own actual-computing functions (`computeQuoteSentActuals`/
+`computeWonCountActuals`, exported from `TargetsVsActualsCard.jsx`
+alongside `computeOrderValueActuals`) so `SetTargetForm`'s dropdown and
+this page's tiles read the exact same definition. Adding these two also
+extended the existing Dashboard "Targets vs. actuals" bar-list (sales
+exec's own view, and the owner's mobile-width fallback) with two more
+rows — **deliberately did not** touch `DashboardHeatmap.jsx`, which builds
+its own column list straight from `ACTIVITY_TYPES` rather than
+`METRIC_OPTIONS`, so the existing heatmap is unaffected.
+
+Below the tiles: an **Activity mix** stacked bar chart (Calls/Site
+visits/Offers sent/Bookings, bucketed by working day/ISO week/calendar
+month depending on the period filter — geometry follows the handoff's
+exact spec: a 176px bar scale inside a 200px plot box, segments separated
+by an inset shadow rather than a gap so heights stay exact), a **Leads
+assigned** table (this exec's open leads, worst-touch-first, each row
+linking to `/leads/:id`), and a right rail of **Conversion funnel**
+(computed bottom-up per the handoff's formula so it can't contradict the
+Bookings tile — both read the same won-count query), **Pipeline owned**
+(grouped by stage), and **Activity log** (this exec's own recent raw
+activity feed across all types, reusing `fetchActivityLogForEmployee` —
+distinct from the per-activity-type `fetchActivityLogForExec` the
+Dashboard heatmap's cell drill-down already uses).
 
 ### ActivityLog (`src/pages/ActivityLog.jsx`)
 
@@ -1014,9 +1166,9 @@ renders) rather than assuming a fresh tab means a fresh session.
 ## Conventions
 
 - Secrets (Supabase URL/keys, etc.) go in a git-ignored `.env` file — never commit them. `.env.example` documents the required variable names with placeholders.
-- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Currently outstanding: `tostem_crm_schema.sql`'s `parties.party_type` CHECK includes `'pmc'` but this has not been run live — the constraint is named `parties_party_type_check` (confirmed via the exact error it throws today), so `ALTER TABLE parties DROP CONSTRAINT parties_party_type_check, ADD CONSTRAINT parties_party_type_check CHECK (party_type IN ('client','architect','builder','firm','other','pmc'));` is the migration once someone's ready to run it. Also outstanding: `tostem_crm_schema.sql`'s `targets.period_type` CHECK now includes `'quarter'` (added for the Set-a-target Quarter option — see the Dashboard section's Targets vs. actuals bullet) but this hasn't been run live either — Postgres's default name for an unnamed inline CHECK is `<table>_<column>_check`, so (unconfirmed against the live error, unlike the `pmc` case above — verify the constraint name first if it errors) the expected migration is `ALTER TABLE targets DROP CONSTRAINT targets_period_type_check, ADD CONSTRAINT targets_period_type_check CHECK (period_type IN ('week','month','quarter','year'));`. Until this runs, saving a Quarter target through the UI will fail with a CHECK-violation error from Supabase.
+- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Currently outstanding: `tostem_crm_schema.sql`'s `parties.party_type` CHECK includes `'pmc'` but this has not been run live — the constraint is named `parties_party_type_check` (confirmed via the exact error it throws today), so `ALTER TABLE parties DROP CONSTRAINT parties_party_type_check, ADD CONSTRAINT parties_party_type_check CHECK (party_type IN ('client','architect','builder','firm','other','pmc'));` is the migration once someone's ready to run it. Also outstanding: `tostem_crm_schema.sql`'s `targets.period_type` CHECK now includes `'quarter'` (added for the Set-a-target Quarter option — see the Dashboard section's Targets vs. actuals bullet) but this hasn't been run live either — Postgres's default name for an unnamed inline CHECK is `<table>_<column>_check`, so (unconfirmed against the live error, unlike the `pmc` case above — verify the constraint name first if it errors) the expected migration is `ALTER TABLE targets DROP CONSTRAINT targets_period_type_check, ADD CONSTRAINT targets_period_type_check CHECK (period_type IN ('week','month','quarter','year'));`. Until this runs, saving a Quarter target through the UI will fail with a CHECK-violation error from Supabase. Also outstanding: `tostem_crm_schema.sql`'s new `lead_owner_history` table (added for the Lead Profile's "Reassign owner" action and its ownership-history list — same append-only shape as `stage_history`) hasn't been created live yet — run the `CREATE TABLE lead_owner_history (...)` statement from the schema file plus its matching `authenticated_select`/`authenticated_insert` policies from `rls_policies.sql` before that action will work; until then, reassigning an owner will fail with a "relation does not exist" error from Supabase.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
-- Row Level Security (full policies in `Schema/rls_policies.sql`): `activities`/`leads`/`plans`/`targets` use "own data or owner role" (by `employee_id`/`owner_employee_id`, or role=`'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT open, INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`: SELECT/INSERT open to all (needed for search-before-create across reps), UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts`: SELECT/INSERT open, UPDATE/DELETE owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products`: SELECT open, else owner-only. `stage_history`: SELECT/INSERT open, no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT owner-only, INSERT open, no UPDATE/DELETE ever, same append-only-forever reasoning. A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the ten tables with an `owner_only_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`); `stage_history`/`loss_reasons` get no DELETE grant at all.
+- Row Level Security (full policies in `Schema/rls_policies.sql`): `activities`/`leads`/`plans`/`targets` use "own data or owner role" (by `employee_id`/`owner_employee_id`, or role=`'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT open, INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`: SELECT/INSERT open to all (needed for search-before-create across reps), UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts`: SELECT/INSERT open, UPDATE/DELETE owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products`: SELECT open, else owner-only. `stage_history`: SELECT/INSERT open, no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `lead_owner_history` is the same shape/policy as `stage_history` (SELECT/INSERT open, no UPDATE/DELETE ever) — see the outstanding-migration note above, it isn't live yet. `loss_reasons`: SELECT owner-only, INSERT open, no UPDATE/DELETE ever, same append-only-forever reasoning. A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the ten tables with an `owner_only_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
 - No GPS, geocoding, or drag-and-drop libraries in this project — deliberate (see DECISIONS.md and the Kanban board note above). No icon library either (no `lucide-react`/icon-font dependency) — `src/components/NavIcons.jsx` hand-authors BottomNav's icons as plain inline SVG instead; reuse/extend that file for any new icon rather than adding a package. Everything else icon-shaped stays plain text/CSS.
 
 ## Roadmap

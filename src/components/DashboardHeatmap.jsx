@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom'
 import { ACTIVITY_TYPES } from '../lib/activityTypes'
 import { getInitials } from '../lib/initials'
 import { computeOrderValueActuals, targetFor } from './TargetsVsActualsCard'
@@ -23,6 +24,7 @@ function heatStyle(pct) {
 // real log entries on demand (`onOpenLog`, async — see Dashboard.jsx), order
 // value and overall are built synchronously from state already on the page.
 function DashboardHeatmap({ employees, targets, activities, wonStageHistory, range, rangeLabel, onOpenLog, onOpenPanel }) {
+  const navigate = useNavigate()
   const orderActuals = computeOrderValueActuals(wonStageHistory, range, true)
 
   return (
@@ -38,7 +40,7 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, ran
 
       {employees.map((emp) => (
         <div key={emp.id} className="vip-dd-heatmap-row">
-          <div className="vip-dd-heatmap-exec" onClick={() => onOpenPanel(buildOverallAttainPanel({ employee: emp, targets, activities, wonStageHistory, range, rangeLabel }))}>
+          <div className="vip-dd-heatmap-exec" onClick={() => navigate(`/employees/${emp.id}`)}>
             <span className="vip-dd-avatar">{getInitials(emp.name)}</span>
             <span className="vip-dd-heatmap-name">{emp.name}</span>
           </div>

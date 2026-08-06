@@ -23,6 +23,7 @@ const TAB_ROUTES = new Set(['/', '/search', '/account', '/settings'])
 function routeHeader(pathname) {
   if (ROUTE_HEADERS[pathname]) return ROUTE_HEADERS[pathname]
   if (pathname.startsWith('/leads/')) return { title: 'Lead' }
+  if (pathname.startsWith('/employees/')) return { title: 'Sales Exec' }
   return { title: 'VIPSAR CRM' }
 }
 

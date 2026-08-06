@@ -4,6 +4,48 @@ export function fetchAllEmployees() {
   return supabase.from('employees').select('id, name, mobile, role, is_active').order('name')
 }
 
+// Single employee's full identity fields for EmployeeProfile — office_location
+// stands in for "territory" and created_at for "with VIPSAR since" (this app
+// doesn't track a real hire date; both are noted as approximations on the
+// page itself, not presented as exact).
+export function fetchEmployeeProfile(id) {
+  return supabase
+    .from('employees')
+    .select('id, name, role, office_location, mobile, is_active, created_at')
+    .eq('id', id)
+    .single()
+}
+
+// Every active sales exec, for the profile page's ranking (blended
+// attainment among peers) and for the "Reassign owner" action's option list.
+export function fetchActiveSalesExecs() {
+  return supabase
+    .from('employees')
+    .select('id, name, role, office_location, created_at')
+    .eq('role', 'sales_executive')
+    .eq('is_active', true)
+    .order('name')
+}
+
+// Last ~N activities for one exec across every activity type, newest first
+// — powers the Sales Exec Profile's own "Activity log" section (distinct
+// from fetchActivityLogForExec in dashboardQueries.js, which is scoped to
+// one activity type at a time for the heatmap's per-cell drill-down).
+// Capped at 60 days back, same window fetchActivityLogForExec uses.
+export function fetchActivityLogForEmployee(employeeId, limit = 20) {
+  const since = new Date()
+  since.setDate(since.getDate() - 60)
+  return supabase
+    .from('activities')
+    .select(
+      'id, activity_type, notes, created_at, lead_id, leads(parties!party_id(name), sites(nickname, locality))'
+    )
+    .eq('employee_id', employeeId)
+    .gte('created_at', since.toISOString())
+    .order('created_at', { ascending: false })
+    .limit(limit)
+}
+
 // Only handles the employees-row half of "add an employee" — the Supabase
 // Auth user (login credentials) still has to be created manually in the
 // Supabase dashboard first, and its UUID pasted in here as authUserId.

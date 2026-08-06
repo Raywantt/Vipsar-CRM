@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { formatCurrencyCompact } from '../lib/format'
+import EmployeeLink from './EmployeeLink'
 
 function formatDate(value) {
   if (!value) return '—'
@@ -53,7 +54,7 @@ function ClosureForecastCard({ leads, onOpenPanel, maxRows = DEFAULT_MAX_ROWS })
               </div>
               <div className="vip-bar-row">
                 <div style={{ flex: '0 0 56px', fontSize: 11, color: 'var(--vip-muted)' }}>
-                  {lead.employees?.name ?? '—'}
+                  <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} fallback="—" />
                 </div>
                 <div className="vip-bar-track">
                   <div className="vip-bar-fill" style={{ width: `${lead.closure_probability ?? 0}%` }} />

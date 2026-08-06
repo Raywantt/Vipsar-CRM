@@ -69,6 +69,7 @@ ALTER TABLE leads          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activities     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE plans          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stage_history  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE lead_owner_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE targets        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE loss_reasons   ENABLE ROW LEVEL SECURITY;
 
@@ -378,6 +379,14 @@ CREATE POLICY "authenticated_select" ON stage_history
   FOR SELECT USING (true);
 
 CREATE POLICY "authenticated_insert" ON stage_history
+  FOR INSERT WITH CHECK (true);
+
+-- lead_owner_history: every owner reassignment, logged by anyone,
+-- readable by all — same append-only shape/policy as stage_history.
+CREATE POLICY "authenticated_select" ON lead_owner_history
+  FOR SELECT USING (true);
+
+CREATE POLICY "authenticated_insert" ON lead_owner_history
   FOR INSERT WITH CHECK (true);
 
 -- loss_reasons: any employee can log why a lead was lost, but only an

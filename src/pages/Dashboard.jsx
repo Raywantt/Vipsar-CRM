@@ -48,7 +48,7 @@ import {
   fetchActivitiesTrendWindow,
 } from '../lib/dashboardQueries'
 import { fetchEmployees, fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
-import { fetchAllParties, fetchPartyEmployeeLinks } from '../lib/partyQueries'
+import { fetchAllParties, fetchLeadsByParty, fetchPartyEmployeeLinks, mostRecentLeadByParty } from '../lib/partyQueries'
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10)
@@ -107,6 +107,7 @@ function Dashboard() {
   const [lossReasons, setLossReasons] = useState([])
   const [parties, setParties] = useState([])
   const [partyEmployeeLinks, setPartyEmployeeLinks] = useState([])
+  const [leadsByParty, setLeadsByParty] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
   const [decidedStageHistory, setDecidedStageHistory] = useState([])
   const [activitiesTrendWindow, setActivitiesTrendWindow] = useState([])
@@ -309,6 +310,17 @@ function Dashboard() {
     }
   }, [])
 
+  useEffect(() => {
+    let active = true
+    fetchLeadsByParty().then(({ data, error }) => {
+      if (!active) return
+      if (!error) setLeadsByParty(data ?? [])
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
   const openPipelineValue = breakdownLeads
     .filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
     .reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0)
@@ -427,6 +439,7 @@ function Dashboard() {
                   <TargetsVsActualsCard
                     activities={activities}
                     wonStageHistory={wonStageHistory}
+                    breakdownLeads={breakdownLeads}
                     targets={targets}
                     range={range}
                     rangeLabel={rangeLabel}
@@ -603,7 +616,9 @@ function Dashboard() {
 
       {activeTab === 'leads' && <LeadsListCard isOwner={isOwner} employees={employees} />}
 
-      {activeTab === 'parties' && <PartiesCard parties={parties} employeeLinks={partyEmployeeLinks} />}
+      {activeTab === 'parties' && (
+        <PartiesCard parties={parties} employeeLinks={partyEmployeeLinks} mostRecentLeadByParty={mostRecentLeadByParty(leadsByParty)} />
+      )}
     </div>
   )
 }

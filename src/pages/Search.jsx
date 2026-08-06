@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { searchAll, MIN_QUERY_LENGTH } from '../lib/searchQueries'
 import { stageChipClass } from '../lib/statusColors'
+import { fetchLeadsByParty, mostRecentLeadByParty } from '../lib/partyQueries'
 
 const SEARCH_DEBOUNCE_MS = 350
 
@@ -23,6 +24,18 @@ function Search() {
   // Only Parties has a real party_type to filter by — Leads/Sites sections
   // are unaffected, same as the underlying searchAll() query shape.
   const [partyTypeFilter, setPartyTypeFilter] = useState('')
+  const [leadsByParty, setLeadsByParty] = useState([])
+
+  useEffect(() => {
+    let active = true
+    fetchLeadsByParty().then(({ data, error }) => {
+      if (!active) return
+      if (!error) setLeadsByParty(data ?? [])
+    })
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
     if (term.trim().length < MIN_QUERY_LENGTH) {
@@ -50,6 +63,7 @@ function Search() {
 
   const hasQuery = term.trim().length >= MIN_QUERY_LENGTH
   const parties = partyTypeFilter ? results.parties.filter((p) => p.party_type === partyTypeFilter) : results.parties
+  const partyLeadMap = mostRecentLeadByParty(leadsByParty)
   const hasResults = parties.length > 0 || results.sites.length > 0 || results.leads.length > 0
 
   return (
@@ -96,8 +110,9 @@ function Search() {
       {parties.length > 0 && (
         <div className="vip-card">
           <div className="vip-card-title">Parties · {parties.length}</div>
-          {parties.map((party) => (
-            <div key={party.id} className="vip-row">
+          {parties.map((party) => {
+            const leadId = partyLeadMap.get(party.id)
+            const rowContent = (
               <div className="vip-row-main">
                 <div className="vip-row-title">{party.name}</div>
                 <div className="vip-row-sub">
@@ -105,8 +120,17 @@ function Search() {
                   {party.mobile ? ` · ${party.mobile}` : ''}
                 </div>
               </div>
-            </div>
-          ))}
+            )
+            return leadId ? (
+              <Link key={party.id} to={`/leads/${leadId}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
+                {rowContent}
+              </Link>
+            ) : (
+              <div key={party.id} className="vip-row">
+                {rowContent}
+              </div>
+            )
+          })}
         </div>
       )}
 
