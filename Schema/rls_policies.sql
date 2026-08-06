@@ -470,6 +470,19 @@ CREATE POLICY "own_data_delete" ON push_subscriptions
 GRANT SELECT, INSERT, UPDATE, DELETE ON follow_ups, push_subscriptions TO authenticated;
 GRANT USAGE, SELECT ON SEQUENCE follow_ups_id_seq, push_subscriptions_id_seq TO authenticated;
 
+-- follow_ups/push_subscriptions were the first tables this project needed
+-- service_role to read/write directly (the send-followup-reminders Edge
+-- Function uses the service_role key specifically to bypass RLS — see
+-- CLAUDE.md's Follow-ups section). Discovered the hard way: this project's
+-- Supabase instance is on the newer "don't auto-expose new tables to any
+-- Data API role" default (see supabase/config.toml's `auto_expose_new_tables`
+-- comment) — service_role does NOT automatically get access to a new table
+-- either, unlike the older assumption that service_role always bypasses
+-- everything. Every table service_role needs to touch requires this same
+-- explicit GRANT — plain "the RLS bypass role couldn't read its own table"
+-- is the failure mode if a future service_role-using feature skips this.
+GRANT SELECT, INSERT, UPDATE, DELETE ON follow_ups, push_subscriptions TO service_role;
+
 
 -- ------------------------------------------------------------
 -- Adding a third role later (e.g. 'manager') is a one-line change:
