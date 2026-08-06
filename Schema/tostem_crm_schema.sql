@@ -215,8 +215,8 @@ CREATE TABLE stage_history (
 CREATE TABLE targets (
   id            SERIAL PRIMARY KEY,
   employee_id   INTEGER NOT NULL REFERENCES employees(id),
-  period_type   TEXT NOT NULL CHECK (period_type IN ('week','month','year')),
-  period_value  TEXT NOT NULL,     -- e.g. '2026-07' or '2026-W28'
+  period_type   TEXT NOT NULL CHECK (period_type IN ('week','month','quarter','year')),
+  period_value  TEXT NOT NULL,     -- e.g. '2026-07', '2026-W28', or '2026-Q3'
   metric_name   TEXT NOT NULL,     -- matches activities.activity_type
                                     -- ('site_visit','call','rfq_raised',
                                     -- 'office_day','booking_update') plus

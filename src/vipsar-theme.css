@@ -588,6 +588,11 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 .vip-report-grid { display: flex; flex-direction: column; gap: 14px; }
 .vip-tile-grid { display: flex; flex-direction: column; gap: 8px; }
 
+/* Dashboard's Targets vs. actuals + Needs Attention pairing — main content
+   (the attainment grid) plus a narrower fixed-ish aside, same shape as
+   .vip-cols below, stacked on mobile like every other report-grid item. */
+.vip-featured-row { display: flex; flex-direction: column; gap: 14px; }
+
 /* two/three-column page grid (e.g. Lead Detail's forms-in-an-aside layout on
    desktop) — stacked single column below 1024px, same as .vip-narrow/.vip-wide */
 .vip-cols, .vip-cols-3 { display: flex; flex-direction: column; gap: 14px; width: 100%; margin: 0 auto; }
@@ -742,6 +747,12 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 
   .vip-report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
   .vip-span-2 { grid-column: span 2; }
+  .vip-featured-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 12px; align-items: start; }
+  /* Targets vs. actuals grows with employee count; Needs Attention doesn't,
+     so it would otherwise leave a blank gap beneath it that grows the same
+     way. Sticking it keeps that space doing something as you scroll the
+     taller card instead of just sitting empty. */
+  .vip-featured-row > *:last-child { position: sticky; top: calc(var(--vip-header-h) + 28px); }
 
   .vip-narrow { max-width: var(--vip-narrow-max); }
   .vip-wide { max-width: var(--vip-wide-max); }
@@ -813,6 +824,30 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 .vip-dd-attn-title { font-size: 13px; font-weight: 600; color: var(--vip-ink); }
 .vip-dd-attn-sub { font-size: 11px; color: var(--vip-faint); }
 .vip-dd-attn-count { font-family: var(--vip-display); font-size: 19px; font-weight: 600; color: var(--vip-ink); }
+
+/* `wide` mode (NeedsAttentionCard rendered alone at full width, e.g. 15D/
+   Custom once Targets vs. actuals has nothing to pair it with) — the row
+   list becomes a tile grid instead of stretching narrow text across a full
+   1180px row. Hairline-divider tile look matches .vip-dd-kpi-grid above.
+   Fixed 5 columns, not auto-fit — attention.js always produces exactly 5
+   buckets (same "known fixed count" reasoning as .vip-dd-kpi-grid's 6), so a
+   flat 5-up row fills edge to edge with no leftover cell on a wrapped row.
+   Only kicks in at desktop widths; below 1024px (and always when `wide` is
+   false) it's the plain vertical row list. */
+@media (min-width: 1024px) {
+  .vip-dd-attn-grid {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px;
+    background: var(--vip-line); border: 1px solid var(--vip-line);
+    border-radius: var(--vip-r-field); overflow: hidden;
+  }
+  .vip-dd-attn-grid .vip-dd-attn-row {
+    flex-direction: column; align-items: flex-start; gap: 9px;
+    background: var(--vip-surface); padding: 13px 15px; border-top: 0;
+  }
+  .vip-dd-attn-grid .vip-dd-attn-bar { width: 100%; height: 3px; flex: 0 0 3px; min-height: 0; align-self: stretch; }
+  .vip-dd-attn-grid .vip-dd-attn-main { width: 100%; }
+  .vip-dd-attn-grid .vip-dd-attn-count { font-size: 23px; }
+}
 
 /* ---- Drill-down panel: backdrop + slide-over, full-screen on mobile ---- */
 .vip-dd-backdrop {

@@ -79,7 +79,7 @@ needs before touching anything:
 src/
   components/   reusable UI pieces (ProtectedRoute, AppNav, BottomNav,
                 PartySearchOrCreate, SiteSearchOrCreate, LeadSearchSelect,
-                the four LeadDetail *Section components plus
+                the five LeadDetail *Section components plus
                 LeadActivityTimeline, DateRangeSelector, ActivityCountsCard,
                 LeadsBySourceCard, ClosureForecastCard, TargetsVsActualsCard,
                 SetTargetForm, LeadsListCard, LeadsByCategoryCard,
@@ -206,10 +206,10 @@ imports it before the theme file.
   `stage_history`-logging path as before. An "Other…" chip still exists for
   the free-text escape hatch — reveals a text input + Set button, since
   `current_stage` staying non-enum is a locked-in decision (see
-  Conventions), not something the redesign was meant to remove.
+  DECISIONS.md), not something the redesign was meant to remove.
 * Home's tiles gained a fourth entry, **All Leads** (links to
   `/dashboard?tab=leads`) — `Dashboard.jsx` has no in-page tab buttons
-  anymore (see the Dashboard section's "Reports/Leads/Parties view" bullet),
+  anymore (see the Dashboard section's "no more in-page tab buttons" bullet),
   so `?tab=leads`/`?tab=parties` via `useSearchParams()` is now the *only*
   way to land on those two views; a plain `/dashboard` (or `?tab=` unset)
   always means Reports. Synced with a `useEffect` on `searchParams`, not a
@@ -238,10 +238,11 @@ imports it before the theme file.
   Home, and Dashboard's Reports tab). Inside `.vip-wide`, Dashboard's report
   cards sit in `.vip-report-grid` (2 columns); a card wrapped in
   `.vip-span-2` breaks out to the full row instead — used for cards whose
-  content needs the width (Closure forecast, Targets vs. actuals, the
-  Table/Board pipeline-by-stage card, Sales funnel, Why we lose), so the
-  four `LeadsByCategoryCard` instances are the only ones that actually pair
-  up half-width. Get this pairing wrong (an odd number of half-width cards
+  content needs the width (Closure forecast, the Targets-vs.-actuals-plus-
+  Needs-Attention featured row, Why we lose), so the four
+  `LeadsByCategoryCard` instances plus the Table/Board pipeline-by-stage
+  card + Sales funnel pair are the only ones that actually pair up
+  half-width. Get this pairing wrong (an odd number of half-width cards
   in a row) and CSS grid leaves a visible gap — checked via computed
   `getBoundingClientRect()` during build, not just eyeballed. Home's tile
   stack becomes `.vip-tile-grid` (2×2) and the KPI grid goes 4-up in one
@@ -441,7 +442,7 @@ of `canEdit` — see below) → **Sales progress** → **Site details** →
   new/hot/rfq/quote/negotiation/won/lost, tinted via `stageFg`) plus an
   "Other…" chip revealing a text input for the free-text escape hatch
   (same pattern as `site_stage`) — `current_stage` staying non-enum is
-  locked in, see Conventions. Tapping a chip applies that stage
+  locked in, see DECISIONS.md. Tapping a chip applies that stage
   immediately (no separate confirm step): updates `leads.current_stage`
   and inserts a `stage_history` row (`lead_id`, `stage`, `changed_by`,
   `changed_at`) — this section only owns changing the stage and the
@@ -561,10 +562,13 @@ effects below, since neither is part of the date-range-scoped report data.
   **15D** (rolling 15 days ending today, not calendar-aligned) / **Month** /
   **Quarter** / **Custom** (two date inputs), in that left-to-right order.
   Computed by `src/lib/dateRanges.js`; an incomplete custom range returns
-  `null` and the page shows a prompt instead of querying. Only Week/Month
+  `null` and the page shows a prompt instead of querying. Week/Month/Quarter
   line up with a `targets.period_type` (see Targets vs. actuals below) —
-  15D/Quarter/Custom all show that card's "pick Week or Month" fallback
-  message, the same one Custom alone used to trigger.
+  15D/Custom don't render Targets vs. actuals at all rather than showing it
+  with a fallback message (see that bullet and Needs Attention's below for
+  what fills the freed width instead). 15D stays excluded deliberately, not
+  as a gap to close later — it's a rolling window with no fixed period
+  identity to key a target by (see Targets vs. actuals).
 * **Needs Attention** (`NeedsAttentionCard.jsx` + `src/lib/attention.js`,
   shown at every width, `vip-span-2`) — five real queues computed from
   `breakdownLeads` (see the category-breakdown bullet below for that query)
@@ -574,8 +578,19 @@ effects below, since neither is part of the date-range-scoped report data.
   (`estimated_close_date` in the past), and **RFQs raised 3+ days ago with
   no quote yet**. Thresholds are named constants at the top of `attention.js`
   — tune there, not inline. Every row opens the `ageing` drill-down kind via
-  `buildAgeingPanel`; the KPI row's "Stale leads" tile opens the identical
-  panel for the same bucket rather than a second computation.
+  `buildAgeingPanel`; the KPI row's "Stale leads" tile reuses the exact same
+  call rather than a second computation (see the Dashboard-v2 Design-system
+  bullet above for why that reuse matters generally). For Week/Month/
+  Quarter it's paired with Targets vs. actuals inside `.vip-featured-row`
+  (narrow sticky aside, see Targets vs. actuals below); for 15D/Custom, with
+  no Targets card to pair with, `Dashboard.jsx` renders it alone in its own
+  `vip-span-2` row with a `wide` prop. `wide` switches the 5 buckets from
+  the vertical row list to a tile grid (`.vip-dd-attn-grid`, ≥1024px only —
+  below that, and whenever `wide` is false, it's the plain list) — fixed at
+  `repeat(5, 1fr)`, not `auto-fit`, since `attention.js` always produces
+  exactly 5 buckets and an `auto-fit` track count leaves a visible empty
+  cell on the wrapped row whenever the computed column count doesn't divide
+  5 evenly.
 * **KPI band** — two parallel views (see the Dashboard-v2 Design-system
   bullet): the original 4-tile grid (Activities/New leads/Pipeline/Won)
   below 1024px, unchanged; `KpiSparkRow.jsx`'s 6 tiles (Order value booked/
@@ -620,12 +635,17 @@ effects below, since neither is part of the date-range-scoped report data.
   exactly the kind of unbounded card the density pass targeted; the rest is
   one click into the `forecast` drill-down (`buildForecastPanel`: month
   buckets of gross vs. probability-weighted value, plus every row).
-* **Targets vs. actuals** (`TargetsVsActualsCard.jsx`) — shown only for
-  Week/Month (15D/Quarter/Custom show an explanatory message instead —
-  `targets` rows are keyed by `period_type`/`period_value`, not arbitrary
-  ranges; `isTargetPeriod = preset === 'week' || preset === 'month'` is the
-  actual gate now, not "anything but custom"). `metric_name` is a **closed**
-  list (`src/lib/targetMetrics.js`: the five `ACTIVITY_TYPES` values plus
+* **Targets vs. actuals** (`TargetsVsActualsCard.jsx`) — only ever mounted
+  by `Dashboard.jsx` for Week/Month/Quarter; `targets` rows are keyed by
+  `period_type`/`period_value`, not arbitrary ranges, so for 15D/Custom the
+  card isn't rendered at all — not even a fallback message (see Needs
+  Attention above for what fills that space instead). The gate,
+  `isTargetPeriod = periodForPreset(preset) != null`, lives in
+  `Dashboard.jsx` itself (reusing `periodForPreset` instead of a second
+  week/month/quarter check that could drift from it) — the card component
+  has no `isTargetPeriod` branch of its own anymore, since it's structurally
+  never mounted any other way. `metric_name` is a **closed** list
+  (`src/lib/targetMetrics.js`: the five `ACTIVITY_TYPES` values plus
   `order_value`), deliberately not the "suggested options + Other…"
   free-text pattern used for `current_stage`/`site_stage` — an arbitrary
   metric would have a target but no computable actual, which defeats the
@@ -657,22 +677,31 @@ effects below, since neither is part of the date-range-scoped report data.
   the owner, a "Sales exec" filter (local `useState` inside the card,
   defaulting to "— All employees —") sits above the table — picking one
   narrows the same `employees` array the table already iterates over down
-  to a single entry. `src/lib/targetPeriods.js` computes the Week/Month
-  `period_type`/`period_value` (ISO 8601 Monday-start week, matching
-  `dateRanges.js`'s week boundary) — shared by both the lookup query and
-  `SetTargetForm`'s prefill, so they can't drift out of sync with each
-  other.
-* **Set a target** (`SetTargetForm.jsx`, inside the same card, **owner-only in
-  the UI**) — employee/period_type/period_value/metric_name/target_value,
-  the only way to populate the `targets` table. Owner-only is a UI-layer
-  choice, not an RLS one — `targets`' `own_data_or_owner_role` INSERT policy
-  still technically lets a sales exec insert their own row. `period_type` is
-  restricted to week/month in this form (the DB CHECK also allows `year`,
-  but nothing on this dashboard displays a year-keyed target yet);
-  `period_value` auto-prefills from `targetPeriods.js` when `period_type`
-  changes but stays editable, so a future period can be set in advance. A
-  successful insert is appended straight into `Dashboard.jsx`'s `targets`
-  state (`onTargetCreated`) so the table above updates immediately.
+  to a single entry. `src/lib/targetPeriods.js` computes the Week/Month/
+  Quarter `period_type`/`period_value` (ISO 8601 Monday-start week and
+  calendar quarter, both matching `dateRanges.js`'s own boundaries) —
+  shared by both the lookup query and `SetTargetForm`'s prefill, so they
+  can't drift out of sync with each other. 15D is deliberately not one of
+  these three — it's a rolling window ending today, not a discrete
+  calendar period, so it has no fixed `period_value` identity a target
+  could be keyed by (unlike Week/Month/Quarter, "last 15 days" means a
+  different range every day).
+* **Set a target** (`SetTargetForm.jsx`, inside the same card, collapsed
+  behind a `+ Set a target` toggle button until clicked — same
+  reveal/Cancel shape as Lead Detail's `+ Add contact`, not shown inline by
+  default — **owner-only in the UI**) —
+  employee/period_type/period_value/metric_name/target_value, the only way
+  to populate the `targets` table. Owner-only is a UI-layer choice, not an
+  RLS one — `targets`' `own_data_or_owner_role` INSERT policy still
+  technically lets a sales exec insert their own row. `period_type` is
+  restricted to week/month/quarter in this form (the DB CHECK also allows
+  `year`, but nothing on this dashboard displays a year-keyed target yet —
+  and the live DB doesn't have `quarter` in its CHECK yet either, see
+  Conventions); `period_value` auto-prefills from `targetPeriods.js` when
+  `period_type` changes but stays editable, so a future period can be set
+  in advance. A successful insert is appended straight into
+  `Dashboard.jsx`'s `targets` state (`onTargetCreated`) so the table above
+  updates immediately.
 * **Leads by stage / by area / by site stage / by product**
   (`LeadsByCategoryCard.jsx`, one generic component reused 4×) — count +
   `order_value` sum, grouped by `current_stage` / the lead's site's area /
@@ -838,6 +867,15 @@ type dense enough to actually overflow a phone width (`ageing`'s per-lead
 owner badge) now hides below 520px rather than clip off-screen (see
 `vipsar-theme.css`'s `max-width: 520px` block near the drill-down classes).
 
+Needs Attention's `wide` tile grid (added after the initial Dashboard v2
+pass, see its own bullet above) was checked the same way: 15D and Custom
+both confirmed to hide Targets vs. actuals entirely and render Needs
+Attention alone across the full row at desktop width, with all 5 tiles
+filling it edge to edge and no leftover empty cell; Week/Month/Quarter
+confirmed unchanged (still the paired featured-row layout); and the mobile
+width was confirmed to keep the plain vertical list rather than attempting
+the tile grid at phone width.
+
 ### Settings (`src/pages/Settings.jsx`)
 
 Owner-only page at `/settings`. Three independent sections, `employees`
@@ -976,7 +1014,7 @@ renders) rather than assuming a fresh tab means a fresh session.
 ## Conventions
 
 - Secrets (Supabase URL/keys, etc.) go in a git-ignored `.env` file — never commit them. `.env.example` documents the required variable names with placeholders.
-- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Currently outstanding: `tostem_crm_schema.sql`'s `parties.party_type` CHECK includes `'pmc'` but this has not been run live — the constraint is named `parties_party_type_check` (confirmed via the exact error it throws today), so `ALTER TABLE parties DROP CONSTRAINT parties_party_type_check, ADD CONSTRAINT parties_party_type_check CHECK (party_type IN ('client','architect','builder','firm','other','pmc'));` is the migration once someone's ready to run it.
+- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Currently outstanding: `tostem_crm_schema.sql`'s `parties.party_type` CHECK includes `'pmc'` but this has not been run live — the constraint is named `parties_party_type_check` (confirmed via the exact error it throws today), so `ALTER TABLE parties DROP CONSTRAINT parties_party_type_check, ADD CONSTRAINT parties_party_type_check CHECK (party_type IN ('client','architect','builder','firm','other','pmc'));` is the migration once someone's ready to run it. Also outstanding: `tostem_crm_schema.sql`'s `targets.period_type` CHECK now includes `'quarter'` (added for the Set-a-target Quarter option — see the Dashboard section's Targets vs. actuals bullet) but this hasn't been run live either — Postgres's default name for an unnamed inline CHECK is `<table>_<column>_check`, so (unconfirmed against the live error, unlike the `pmc` case above — verify the constraint name first if it errors) the expected migration is `ALTER TABLE targets DROP CONSTRAINT targets_period_type_check, ADD CONSTRAINT targets_period_type_check CHECK (period_type IN ('week','month','quarter','year'));`. Until this runs, saving a Quarter target through the UI will fail with a CHECK-violation error from Supabase.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`): `activities`/`leads`/`plans`/`targets` use "own data or owner role" (by `employee_id`/`owner_employee_id`, or role=`'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT open, INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`: SELECT/INSERT open to all (needed for search-before-create across reps), UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts`: SELECT/INSERT open, UPDATE/DELETE owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products`: SELECT open, else owner-only. `stage_history`: SELECT/INSERT open, no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT owner-only, INSERT open, no UPDATE/DELETE ever, same append-only-forever reasoning. A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the ten tables with an `owner_only_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`); `stage_history`/`loss_reasons` get no DELETE grant at all.
 - No GPS, geocoding, or drag-and-drop libraries in this project — deliberate (see DECISIONS.md and the Kanban board note above). No icon library either (no `lucide-react`/icon-font dependency) — `src/components/NavIcons.jsx` hand-authors BottomNav's icons as plain inline SVG instead; reuse/extend that file for any new icon rather than adding a package. Everything else icon-shaped stays plain text/CSS.
@@ -997,6 +1035,7 @@ renders) rather than assuming a fresh tab means a fresh session.
    PWAs.
 7. ⬅️ current — Deploy + pilot with 1-2 sales execs before full rollout.
    Still open from the "Current state" list above: Followups, a
-   `plans`-table screen, and role-differentiated Home content.
+   `plans`-table screen, role-differentiated Home content, and a screen
+   listing past activities.
 
 For domain model, lead-sourcing logic, and locked-in design decisions, see DECISIONS.md.

@@ -115,6 +115,12 @@ function Dashboard() {
   const [error, setError] = useState(null)
 
   const range = rangeForPreset(preset, customStart, customEnd)
+  // targets are keyed by week/month/quarter — 15D/Custom have no period to
+  // look one up against, so Targets vs. actuals doesn't render at all for
+  // them (see the featured-row layout below and CLAUDE.md's Dashboard
+  // section). Reuses periodForPreset instead of re-deriving the same
+  // week/month/quarter check a second way.
+  const isTargetPeriod = periodForPreset(preset) != null
 
   useEffect(() => {
     setOverride({ sub: `${isOwner ? 'Team performance' : 'Your performance'} · ${RANGE_LABELS[preset]}` })
@@ -305,7 +311,7 @@ function Dashboard() {
 
   const openPipelineValue = breakdownLeads
     .filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
-    .reduce((s, l) => s + Number(l.order_value ?? 0), 0)
+    .reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0)
   const wonThisRange = range ? computeOrderValueActuals(wonStageHistory, range, false) : 0
 
   const stageRows = LEAD_STAGE_OPTIONS.map((stage) => {
@@ -415,10 +421,30 @@ function Dashboard() {
           )}
 
           <div className="vip-report-grid">
-            {!loading && (
+            {isTargetPeriod ? (
               <div className="vip-span-2">
-                <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} />
+                <div className="vip-featured-row">
+                  <TargetsVsActualsCard
+                    activities={activities}
+                    wonStageHistory={wonStageHistory}
+                    targets={targets}
+                    range={range}
+                    rangeLabel={rangeLabel}
+                    employees={employees}
+                    showByEmployee={isOwner}
+                    onTargetCreated={(row) => setTargets((prev) => [...prev, row])}
+                    onOpenLog={handleOpenLog}
+                    onOpenPanel={setPanel}
+                  />
+                  {!loading && <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} />}
+                </div>
               </div>
+            ) : (
+              !loading && (
+                <div className="vip-span-2">
+                  <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} wide />
+                </div>
+              )
             )}
 
             {loading ? (
@@ -442,22 +468,6 @@ function Dashboard() {
 
             <div className="vip-span-2">
               <ClosureForecastCard leads={forecast} onOpenPanel={() => setPanel(buildForecastPanel({ forecast }))} />
-            </div>
-
-            <div className="vip-span-2">
-              <TargetsVsActualsCard
-                preset={preset}
-                activities={activities}
-                wonStageHistory={wonStageHistory}
-                targets={targets}
-                range={range}
-                rangeLabel={rangeLabel}
-                employees={employees}
-                showByEmployee={isOwner}
-                onTargetCreated={(row) => setTargets((prev) => [...prev, row])}
-                onOpenLog={handleOpenLog}
-                onOpenPanel={setPanel}
-              />
             </div>
 
             <div className="vip-card">

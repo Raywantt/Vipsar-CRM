@@ -6,9 +6,16 @@ import { insertTarget } from '../lib/targetQueries'
 const PERIOD_TYPES = [
   { value: 'week', label: 'Week' },
   { value: 'month', label: 'Month' },
+  { value: 'quarter', label: 'Quarter' },
 ]
 
-function SetTargetForm({ employees, onCreated }) {
+const PERIOD_VALUE_PLACEHOLDERS = {
+  week: 'e.g. 2026-W28',
+  month: 'e.g. 2026-07',
+  quarter: 'e.g. 2026-Q3',
+}
+
+function SetTargetForm({ employees, onCreated, onCancel }) {
   const [employeeId, setEmployeeId] = useState('')
   const [periodType, setPeriodType] = useState('week')
   const [periodValue, setPeriodValue] = useState(periodForPreset('week').periodValue)
@@ -75,7 +82,7 @@ function SetTargetForm({ employees, onCreated }) {
           className="vip-input"
           value={periodValue}
           onChange={(e) => setPeriodValue(e.target.value)}
-          placeholder={periodType === 'week' ? 'e.g. 2026-W28' : 'e.g. 2026-07'}
+          placeholder={PERIOD_VALUE_PLACEHOLDERS[periodType]}
         />
       </div>
 
@@ -99,9 +106,16 @@ function SetTargetForm({ employees, onCreated }) {
       {error && <p className="vip-error">{error}</p>}
       {savedAt && !error && <p className="vip-success">Saved.</p>}
 
-      <button type="button" className="vip-btn vip-btn-dark vip-btn-sm" onClick={handleSubmit} disabled={!canSubmit}>
-        {saving ? 'Saving…' : 'Set'}
-      </button>
+      <div className="vip-btn-row">
+        <button type="button" className="vip-btn vip-btn-dark vip-btn-sm" onClick={handleSubmit} disabled={!canSubmit}>
+          {saving ? 'Saving…' : 'Set'}
+        </button>
+        {onCancel && (
+          <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={onCancel} disabled={saving}>
+            Cancel
+          </button>
+        )}
+      </div>
     </div>
   )
 }
