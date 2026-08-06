@@ -15,6 +15,10 @@ dev-dist
 .env.*
 !.env.example
 
+# Supabase CLI local state (which project is linked, etc.) — machine-specific
+supabase/.temp/
+supabase/.branches/
+
 # Logs
 logs
 *.log

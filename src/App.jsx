@@ -4,6 +4,7 @@ import { HeaderProvider } from './contexts/HeaderContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import OfflineIndicator from './components/OfflineIndicator'
 import InstallPrompt from './components/InstallPrompt'
+import NotificationPrompt from './components/NotificationPrompt'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import Account from './pages/Account'
@@ -23,6 +24,7 @@ function App() {
         <HeaderProvider>
         <OfflineIndicator />
         <InstallPrompt />
+        <NotificationPrompt />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route

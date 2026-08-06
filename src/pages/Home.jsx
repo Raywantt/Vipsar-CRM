@@ -5,8 +5,11 @@ import { HOME_TILES } from '../lib/homeTiles'
 import { rangeForPreset } from '../lib/dateRanges'
 import { fetchActivityCounts, fetchLeadsForBreakdown, fetchClosureForecast } from '../lib/dashboardQueries'
 import { fetchWonStageHistory } from '../lib/targetQueries'
+import { fetchDueFollowUpsForEmployee, markFollowUpDone } from '../lib/followUpQueries'
 import { computeOrderValueActuals } from '../components/TargetsVsActualsCard'
 import { formatCurrencyCompact, formatCurrency } from '../lib/format'
+import FollowUpForm from '../components/FollowUpForm'
+import FollowUpList from '../components/FollowUpList'
 
 function formatDate(value) {
   if (!value) return '—'
@@ -45,6 +48,26 @@ function Home() {
   const [period, setPeriod] = useState('week')
   const [kpis, setKpis] = useState(null)
   const [closing, setClosing] = useState([])
+  const [followUps, setFollowUps] = useState([])
+  const [addingFollowUp, setAddingFollowUp] = useState(false)
+
+  useEffect(() => {
+    if (!employee?.id) return
+    let active = true
+    fetchDueFollowUpsForEmployee(employee.id).then(({ data, error }) => {
+      if (!active) return
+      if (!error) setFollowUps(data ?? [])
+    })
+    return () => {
+      active = false
+    }
+  }, [employee?.id])
+
+  async function handleMarkDone(id) {
+    const { data, error } = await markFollowUpDone(id)
+    if (error) return
+    setFollowUps((prev) => prev.filter((f) => f.id !== data.id))
+  }
 
   useEffect(() => {
     let active = true
@@ -136,6 +159,27 @@ function Home() {
           ))}
         </div>
       )}
+
+      <div className="vip-card">
+        <div className="vip-card-head">
+          <div className="vip-card-title">Your reminders</div>
+          <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
+            {addingFollowUp ? 'Cancel' : '+ Add reminder'}
+          </button>
+        </div>
+        {addingFollowUp && (
+          <FollowUpForm
+            assignedTo={employee.id}
+            createdBy={employee.id}
+            onSaved={(row) => {
+              setFollowUps((prev) => [...prev, row])
+              setAddingFollowUp(false)
+            }}
+            onCancel={() => setAddingFollowUp(false)}
+          />
+        )}
+        <FollowUpList followUps={followUps} onMarkDone={handleMarkDone} emptyLabel="Nothing due today." />
+      </div>
 
       {closing.length > 0 && (
         <div className="vip-card">

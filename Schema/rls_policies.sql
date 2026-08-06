@@ -401,6 +401,77 @@ CREATE POLICY "authenticated_insert" ON loss_reasons
 
 
 -- ------------------------------------------------------------
+-- STEP H: FOLLOW-UPS + PUSH SUBSCRIPTIONS
+-- follow_ups uses the same "own data or owner role" shape as
+-- activities/leads/plans/targets, keyed on assigned_to (the person it's
+-- for, not who created it) — a sales exec can only INSERT a row assigned
+-- to themselves; only an owner can insert one assigned to someone else.
+-- That's the real enforcement behind "owner can assign, sales exec can
+-- only self-assign" — the app UI simply never exposes the disallowed case.
+-- ------------------------------------------------------------
+ALTER TABLE follow_ups         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "own_data_or_owner_role_select" ON follow_ups
+  FOR SELECT USING (
+    assigned_to = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+    OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+  );
+
+CREATE POLICY "own_data_or_owner_role_insert" ON follow_ups
+  FOR INSERT WITH CHECK (
+    assigned_to = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+    OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+  );
+
+CREATE POLICY "own_data_or_owner_role_update" ON follow_ups
+  FOR UPDATE USING (
+    assigned_to = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+    OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+  ) WITH CHECK (
+    assigned_to = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+    OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+  );
+
+CREATE POLICY "owner_only_delete" ON follow_ups
+  FOR DELETE USING (
+    (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+  );
+
+-- push_subscriptions: a device manages only its own row (no "owner role"
+-- exception on write — a subscription is tied to one specific browser
+-- instance, an owner registering one on someone else's behalf makes no
+-- sense). Owner gets read access for visibility only. Real cleanup of
+-- dead/expired subscriptions happens server-side via the Edge Function's
+-- service_role key, which bypasses RLS entirely.
+CREATE POLICY "own_data_or_owner_role_select" ON push_subscriptions
+  FOR SELECT USING (
+    employee_id = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+    OR (SELECT role FROM employees WHERE auth_user_id = auth.uid()) = 'owner'
+  );
+
+CREATE POLICY "own_data_insert" ON push_subscriptions
+  FOR INSERT WITH CHECK (
+    employee_id = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+  );
+
+CREATE POLICY "own_data_update" ON push_subscriptions
+  FOR UPDATE USING (
+    employee_id = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+  ) WITH CHECK (
+    employee_id = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+  );
+
+CREATE POLICY "own_data_delete" ON push_subscriptions
+  FOR DELETE USING (
+    employee_id = (SELECT id FROM employees WHERE auth_user_id = auth.uid())
+  );
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON follow_ups, push_subscriptions TO authenticated;
+GRANT USAGE, SELECT ON SEQUENCE follow_ups_id_seq, push_subscriptions_id_seq TO authenticated;
+
+
+-- ------------------------------------------------------------
 -- Adding a third role later (e.g. 'manager') is a one-line change:
 -- add it to the CHECK list on employees.role, then add a matching
 -- `OR (SELECT role ...) = 'manager'` branch to each policy above.

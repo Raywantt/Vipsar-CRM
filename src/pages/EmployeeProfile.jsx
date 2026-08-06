@@ -7,12 +7,15 @@ import { periodForPreset } from '../lib/targetPeriods'
 import { fetchActivityCounts, fetchDecidedStageHistory, fetchLastActivityPerLead, fetchLeadsForBreakdown } from '../lib/dashboardQueries'
 import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
 import { fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
+import { fetchFollowUpsForEmployee, markFollowUpDone } from '../lib/followUpQueries'
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeAttentionBuckets } from '../lib/attention'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageChipClass } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
+import FollowUpForm from '../components/FollowUpForm'
+import FollowUpList from '../components/FollowUpList'
 
 const GOOD = '#0f6b6b'
 const OK = '#b8791f'
@@ -161,6 +164,8 @@ function EmployeeProfile() {
   const [targets, setTargets] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
   const [activityLog, setActivityLog] = useState([])
+  const [followUps, setFollowUps] = useState([])
+  const [addingFollowUp, setAddingFollowUp] = useState(false)
   const [loading, setLoading] = useState(true)
 
   // Role guard — a sales exec may only open their own page (FLOW.md §4);
@@ -193,6 +198,23 @@ function EmployeeProfile() {
       active = false
     }
   }, [])
+
+  useEffect(() => {
+    let active = true
+    fetchFollowUpsForEmployee(execId).then(({ data, error }) => {
+      if (!active) return
+      if (!error) setFollowUps(data ?? [])
+    })
+    return () => {
+      active = false
+    }
+  }, [execId])
+
+  async function handleMarkDone(id) {
+    const { data, error } = await markFollowUpDone(id)
+    if (error) return
+    setFollowUps((prev) => prev.map((f) => (f.id === data.id ? data : f)))
+  }
 
   useEffect(() => {
     if (!range) return
@@ -629,6 +651,27 @@ function EmployeeProfile() {
                     </Link>
                   ))
                 )}
+              </div>
+
+              <div className="vip-card">
+                <div className="vip-card-head">
+                  <div className="vip-card-title">Follow-ups</div>
+                  <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
+                    {addingFollowUp ? 'Cancel' : '+ Assign follow-up'}
+                  </button>
+                </div>
+                {addingFollowUp && (
+                  <FollowUpForm
+                    assignedTo={execId}
+                    createdBy={viewer.id}
+                    onSaved={(row) => {
+                      setFollowUps((prev) => [...prev, row])
+                      setAddingFollowUp(false)
+                    }}
+                    onCancel={() => setAddingFollowUp(false)}
+                  />
+                )}
+                <FollowUpList followUps={followUps} onMarkDone={handleMarkDone} emptyLabel="No follow-ups set." />
               </div>
             </div>
           </div>

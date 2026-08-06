@@ -2,33 +2,8 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { insertLeadOwnerHistory } from '../lib/leadOwnerHistory'
+import { FOLLOWUP_OPTIONS, followupDateFor } from '../lib/followupDates'
 import LeadStageSection from './LeadStageSection'
-
-const FOLLOWUP_OPTIONS = ['Tomorrow', 'In 3 days', 'Next Monday', 'In 2 weeks', 'Custom date']
-
-function toISODate(d) {
-  return d.toISOString().slice(0, 10)
-}
-function addDays(n) {
-  const d = new Date()
-  d.setDate(d.getDate() + n)
-  return toISODate(d)
-}
-function nextMonday() {
-  const d = new Date()
-  const day = d.getDay()
-  const diff = day === 1 ? 7 : ((8 - day) % 7) || 7
-  d.setDate(d.getDate() + diff)
-  return toISODate(d)
-}
-function followupDateFor(label, customDate) {
-  if (label === 'Tomorrow') return addDays(1)
-  if (label === 'In 3 days') return addDays(3)
-  if (label === 'Next Monday') return nextMonday()
-  if (label === 'In 2 weeks') return addDays(14)
-  if (label === 'Custom date') return customDate || null
-  return null
-}
 
 // The three quick actions from the Lead Profile handoff (README.md §6.1 /
 // DATA_CONTRACT.md §5). Change stage reuses LeadStageSection unmodified

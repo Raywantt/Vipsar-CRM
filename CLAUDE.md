@@ -37,26 +37,27 @@ needs before touching anything:
   but **not yet run against the live DB** — confirm before assuming a `pmc`
   party can actually be saved (exact migration statement in Conventions).
 - Deliberately **not built yet** — these need their own discussion first,
-  don't add them as a side effect of unrelated work: **Followups** as a real
-  feature (personal + owner-assigned reminders with notifications/scheduling
-  — `leads.next_followup_date` is set from `ActivityLog` and from the Lead
-  Profile's "Set follow-up" quick action, see the Lead Profile section
-  below, and as of Dashboard v2, also read back by Needs Attention's
-  "overdue" queue, but none of that is a reminder/notification system — just
-  more entry points onto the same plain date field), a
+  don't add them as a side effect of unrelated work: a
   **`plans`-table screen** (the table has full RLS wired up and zero UI
   anywhere in `src/`), **further role-differentiated Home content** beyond
   today's Activity Log tile split (`HOME_TILES` is role-keyed and ready for
   more of this), and **a screen listing past activities** (`ActivityLog`
   only logs new ones; nothing browses old ones outside a lead's own
-  timeline or a Sales Exec Profile's Activity log section).
+  timeline or a Sales Exec Profile's Activity log section). **Followups**
+  *is* now built — real personal + owner-assigned reminders with actual
+  push notifications, see the dedicated Follow-ups section below — but
+  editing an existing follow-up's details and a standalone Follow-ups list
+  page are still out of scope for this pass (only create and mark-done
+  exist in the UI).
 - **Sales Exec Profile + redesigned Lead Profile** (`/employees/:id`,
   `/leads/:id` — see their own sections below) were built from a second
   Claude Design handoff (`design_handoff_detail_pages/README.md`/
   `FLOW.md`/`DATA_CONTRACT.md`). That handoff's data model treats "lead" and
   "client" as the same record and assumes a 3-tier admin/manager/exec role
   system with tables this app doesn't have (`quotes`, `orders`,
-  `order_items`, `lead_contacts`, `follow_ups`) — every field on both pages
+  `order_items`, `lead_contacts`, and a `follow_ups` unrelated to the real,
+  differently-shaped `follow_ups` table added later — see the Follow-ups
+  section) — every field on both pages
   is mapped onto this app's real schema instead (see each section for the
   exact mapping), nothing is fabricated, and the manager tier is dropped
   since this app only has `owner`/`sales_executive`. **Outstanding**: the
@@ -109,7 +110,8 @@ src/
                 PartiesCard, NeedsAttentionCard, KpiSparkRow,
                 DashboardHeatmap, DonutChart, DrilldownPanel,
                 AddEmployeeForm, ManageEmployeesSection,
-                DeleteLeadSection, InstallPrompt, OfflineIndicator)
+                DeleteLeadSection, InstallPrompt, NotificationPrompt,
+                OfflineIndicator, FollowUpForm, FollowUpList)
   pages/        top-level views (Login, Home, Account, Search, Dashboard,
                 LeadQuickCapture, LeadDetail, EmployeeProfile, ActivityLog,
                 Settings, ...)
@@ -124,11 +126,17 @@ src/
                 dateRanges.js, dashboardQueries.js, searchQueries.js, format.js,
                 targetMetrics.js, targetPeriods.js, targetQueries.js,
                 partyQueries.js, employeeQueries.js, leadOwnerHistory.js,
-                homeTiles.js, attention.js, drilldownBuilders.js)
+                homeTiles.js, attention.js, drilldownBuilders.js,
+                followUpQueries.js, followupDates.js, pushSubscription.js)
   assets/       images, icons, etc.
   vipsar-theme.css   the app's one design-system stylesheet — see Design
                 system below
 ```
+
+Outside `src/`, `supabase/functions/send-followup-reminders/` is the one
+piece of backend code in this repo — a Deno Edge Function, not part of the
+Vite build, deployed independently (see the Follow-ups section and
+Conventions).
 
 Routing is set up in `App.jsx` (`react-router-dom`): `/` (Home, landing
 page after login), `/account`, `/search`, `/dashboard`, `/leads/new`,
@@ -512,10 +520,12 @@ toggle button so at most one is open at a time:
   same component (chip-select + mandatory loss-reason-on-lost prompt,
   unchanged) instead of it always being on-screen. Everything documented
   about it before is still true.
-* **Set follow-up** — new, writes the existing `leads.next_followup_date`
-  field (Tomorrow / In 3 days / Next Monday / In 2 weeks / a custom date
-  input) — a second entry point onto the same field `ActivityLog` already
-  sets, not a new Followups feature (see "Current state" above).
+* **Set follow-up** — writes the existing `leads.next_followup_date` field
+  directly (Tomorrow / In 3 days / Next Monday / In 2 weeks / a custom date
+  input) — one more entry point onto the same field `ActivityLog` already
+  sets, and distinct from the real Follow-ups feature (see its own section)
+  even though it shares that feature's date-picker logic via
+  `src/lib/followupDates.js`.
 * **Reassign owner** — **owner-only**, even within `canEdit` (a sales exec
   who owns the lead gets the other two actions but never this one, per the
   design handoff's `FLOW.md` §4). Updates `leads.owner_employee_id`
@@ -637,6 +647,115 @@ Bookings tile — both read the same won-count query), **Pipeline owned**
 activity feed across all types, reusing `fetchActivityLogForEmployee` —
 distinct from the per-activity-type `fetchActivityLogForExec` the
 Dashboard heatmap's cell drill-down already uses).
+
+### Follow-ups (personal + owner-assigned reminders, with real push notifications)
+
+New `follow_ups` table (self-service reminders, not tied to logging an
+activity — see Conventions for its RLS shape) plus `push_subscriptions`
+(one row per subscribed browser/device). Fills the gap the "Current state"
+list used to flag: a sales exec can set a reminder for themselves, and an
+owner can assign one to any sales exec — each with a required due date, an
+optional time, a required short title, an optional link to a party, an
+activity-type tag once a party's linked, and an always-optional notes field.
+
+* **`FollowUpForm.jsx`/`FollowUpList.jsx`** (`src/components/`) — the shared
+  create form and row-list, reused by both surfaces below. The date field
+  reuses `FOLLOWUP_OPTIONS`/`followupDateFor` from `src/lib/followupDates.js`
+  (extracted out of `LeadQuickActions.jsx`'s existing "Set follow-up" quick
+  action so both can't drift into different date math). Linking is
+  **party-only** in the UI — there's no separate "pick a lead" step — but
+  `FollowUpForm` silently resolves that party's most recent lead app-side via
+  the *existing* `fetchLeadsByParty`/`mostRecentLeadByParty` helpers in
+  `src/lib/partyQueries.js` (the same ones `PartiesCard` already uses for its
+  "worked with" links), and if one resolves, saving the follow-up **also**
+  sets that lead's `next_followup_date` to the same due date in the same
+  save call — mirrors `LeadQuickActions`' existing "Set follow-up" write
+  exactly (a plain overwrite, not a merge), so this doesn't create a second,
+  out-of-sync "when's the next touch" field. A party with more than one lead
+  resolves to whichever is most recently created — same ambiguity
+  `PartiesCard`'s "worked with" column already accepts, not a new one.
+  Activity type (shown only once a party's picked) reuses the canonical
+  `ACTIVITY_TYPES` list plus an `other` option, rather than inventing a
+  parallel taxonomy. Editing an existing follow-up's details, and any delete
+  UI, are **out of scope for this pass** — only create and mark-done exist
+  in the UI (owner-only DELETE still exists at the RLS layer, same as every
+  other table, for manual cleanup).
+* **Home** (`src/pages/Home.jsx`) — a "Your reminders" card, identical for
+  both roles, showing this employee's own not-done follow-ups due today or
+  earlier (`fetchDueFollowUpsForEmployee`), with a "+ Add reminder" toggle
+  that mounts `FollowUpForm` with `assignedTo` locked to yourself. This is
+  also how an **owner** sets a personal reminder for themselves — Home
+  renders identically regardless of role.
+* **Sales Exec Profile** (`src/pages/EmployeeProfile.jsx`) — a "Follow-ups"
+  card in the right rail (after Activity log) showing every follow-up ever
+  assigned to this exec, done or not (`fetchFollowUpsForEmployee`), with a
+  "+ Assign follow-up" toggle mounting `FollowUpForm` with `assignedTo`
+  locked to the exec whose page this is — the actual "owner assigns to a
+  specific exec" entry point, and also how an exec adds one for themselves
+  from their own profile. `FollowUpList` shows "Assigned by {name}" whenever
+  `created_by !== assigned_to`, so an owner reviewing this page can see
+  whether their own assigned reminders were followed up on and marked done.
+* **Account** (`src/pages/Account.jsx`) — a "Notifications" card between the
+  identity facts and Log out, showing this device's actual
+  `Notification.permission` state (unsupported/blocked/available) and, when
+  available, a plain `.vip-check` checkbox toggling this device's push
+  subscription on/off — no dedicated toggle-switch component exists in this
+  app, so this matches the checkbox style already used elsewhere.
+* **`NotificationPrompt.jsx`** (`src/components/`, mounted globally in
+  `App.jsx` next to `InstallPrompt`/`OfflineIndicator`) — a one-time
+  dismissible banner (same `sessionStorage`-flag/`.vip-install`-class shape
+  as `InstallPrompt.jsx`) prompting to enable notifications, shown only when
+  permission has never been asked and this device isn't already subscribed.
+  Necessary for discoverability, not polish — without it, push never fires
+  for anyone who doesn't independently find the toggle buried in Account.
+
+**Push delivery** — real OS-level notifications, not just an in-app badge,
+which needed new infrastructure this app didn't have before:
+* `src/lib/pushSubscription.js` — `subscribeToPush`/`unsubscribeFromPush`
+  wrap the browser's own `Notification`/`PushManager` APIs and upsert/delete
+  the matching `push_subscriptions` row (keyed on `endpoint`, so the same
+  device re-subscribing updates its row instead of duplicating it).
+* `vite.config.js`'s `VitePWA` plugin switched from the default `generateSW`
+  strategy to `injectManifest` (`strategies: 'injectManifest', srcDir: 'src',
+  filename: 'sw.js'`) specifically because `generateSW` can't add custom
+  event listeners — `src/sw.js` is now a real, checked-in service worker
+  source file that calls `precacheAndRoute(self.__WB_MANIFEST)` itself (same
+  file list that used to live under `workbox.globPatterns`, now under
+  `injectManifest.globPatterns`) plus its own `push`/`notificationclick`
+  handlers. `devOptions.enabled` is still off for the same reason noted
+  under PWA installability below — test this via `npm run build && npm run
+  preview`, never `npm run dev` (no service worker registers under `dev` at
+  all, so `hasActiveSubscription()`/`NotificationPrompt` are effectively
+  inert there — not a bug, matches every other SW-dependent behavior here).
+* `supabase/functions/send-followup-reminders/index.ts` — a Deno Edge
+  Function, deployed and scheduled separately from this app's own Vercel
+  build (see Conventions — this needed the same kind of user-driven hand-off
+  as a schema migration, just via the `supabase` CLI instead of the SQL
+  Editor). Uses the `service_role` key (bypasses RLS entirely — the one
+  legitimate place in this app that reads/writes across every employee's
+  rows, since a cron job has no `auth.uid()` to satisfy "own data or owner
+  role" policies with), finds `follow_ups` rows that are due, not done, and
+  not yet notified, sends via `npm:web-push` to every subscribed device for
+  that employee, stamps `notified_at` once a send was actually attempted
+  (skipped, and retried on the next run, for an employee with no subscribed
+  device yet — never silently marked "notified" with nothing sent), and
+  prunes any `push_subscriptions` row a send comes back 404/410 against (an
+  expired subscription). `due_date`/`due_time` have no timezone (same as
+  every other date column in this schema) — the function treats them as IST
+  explicitly, defaulting to 09:00 when `due_time` is null. Scheduled via
+  Supabase's Cron Jobs (every 5 minutes) — either its dashboard "Invoke Edge
+  Function" UI, or a `pg_cron`+`pg_net` SQL job as a fallback.
+* VAPID keypair generated once via `npx web-push generate-vapid-keys`. The
+  public half lives in `.env`/`.env.example` as `VITE_VAPID_PUBLIC_KEY`
+  (safe client-side, that's the point of VAPID); the private half is a
+  Supabase Edge Function secret (`VAPID_PRIVATE_KEY`), never committed.
+
+**Not yet verified against a real device**: the actual "grant notification
+permission → receive a real push on a locked phone" path — this sandbox's
+automated browser can't grant real OS-level notification permission (same
+class of limitation already noted for `InstallPrompt`'s iOS hint), so
+everything up to and including the `push_subscriptions` write was verified,
+but the live end-to-end push send needs a real phone once this ships.
 
 ### ActivityLog (`src/pages/ActivityLog.jsx`)
 
@@ -1092,9 +1211,11 @@ safe-zone circle (measured half-diagonal ≈0.27× icon size, vs. the 0.4×
 limit). The regeneration script (Python + Pillow) was a one-off, not
 checked into the repo — regenerate by hand if the logo ever changes.
 
-`vite.config.js`'s `workbox.globPatterns` is scoped to
-`**/*.{js,css,html,svg,png,ico,webmanifest}` — this precaches the app shell
-only. No `runtimeCaching` rule was added for Supabase, so API calls are
+`vite.config.js`'s `injectManifest.globPatterns` (moved here from
+`workbox.globPatterns` when the Follow-ups feature's push notifications
+needed a custom `src/sw.js` — see that section) is scoped to
+`**/*.{js,css,html,svg,png,ico,webmanifest,woff2}` — this precaches the app
+shell only. No `runtimeCaching` rule was added for Supabase, so API calls are
 untouched by the service worker and always hit the network (fail honestly
 offline instead of silently serving stale data). `devOptions.enabled: true`
 was tried, to get a service worker running under `npm run dev` too, and then
@@ -1168,7 +1289,8 @@ renders) rather than assuming a fresh tab means a fresh session.
 - Secrets (Supabase URL/keys, etc.) go in a git-ignored `.env` file — never commit them. `.env.example` documents the required variable names with placeholders.
 - The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Currently outstanding: `tostem_crm_schema.sql`'s `parties.party_type` CHECK includes `'pmc'` but this has not been run live — the constraint is named `parties_party_type_check` (confirmed via the exact error it throws today), so `ALTER TABLE parties DROP CONSTRAINT parties_party_type_check, ADD CONSTRAINT parties_party_type_check CHECK (party_type IN ('client','architect','builder','firm','other','pmc'));` is the migration once someone's ready to run it. Also outstanding: `tostem_crm_schema.sql`'s `targets.period_type` CHECK now includes `'quarter'` (added for the Set-a-target Quarter option — see the Dashboard section's Targets vs. actuals bullet) but this hasn't been run live either — Postgres's default name for an unnamed inline CHECK is `<table>_<column>_check`, so (unconfirmed against the live error, unlike the `pmc` case above — verify the constraint name first if it errors) the expected migration is `ALTER TABLE targets DROP CONSTRAINT targets_period_type_check, ADD CONSTRAINT targets_period_type_check CHECK (period_type IN ('week','month','quarter','year'));`. Until this runs, saving a Quarter target through the UI will fail with a CHECK-violation error from Supabase. Also outstanding: `tostem_crm_schema.sql`'s new `lead_owner_history` table (added for the Lead Profile's "Reassign owner" action and its ownership-history list — same append-only shape as `stage_history`) hasn't been created live yet — run the `CREATE TABLE lead_owner_history (...)` statement from the schema file plus its matching `authenticated_select`/`authenticated_insert` policies from `rls_policies.sql` before that action will work; until then, reassigning an owner will fail with a "relation does not exist" error from Supabase.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
-- Row Level Security (full policies in `Schema/rls_policies.sql`): `activities`/`leads`/`plans`/`targets` use "own data or owner role" (by `employee_id`/`owner_employee_id`, or role=`'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT open, INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`: SELECT/INSERT open to all (needed for search-before-create across reps), UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts`: SELECT/INSERT open, UPDATE/DELETE owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products`: SELECT open, else owner-only. `stage_history`: SELECT/INSERT open, no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `lead_owner_history` is the same shape/policy as `stage_history` (SELECT/INSERT open, no UPDATE/DELETE ever) — see the outstanding-migration note above, it isn't live yet. `loss_reasons`: SELECT owner-only, INSERT open, no UPDATE/DELETE ever, same append-only-forever reasoning. A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the ten tables with an `owner_only_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
+- Row Level Security (full policies in `Schema/rls_policies.sql`): `activities`/`leads`/`plans`/`targets` use "own data or owner role" (by `employee_id`/`owner_employee_id`, or role=`'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT open, INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`: SELECT/INSERT open to all (needed for search-before-create across reps), UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts`: SELECT/INSERT open, UPDATE/DELETE owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products`: SELECT open, else owner-only. `stage_history`: SELECT/INSERT open, no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `lead_owner_history` is the same shape/policy as `stage_history` (SELECT/INSERT open, no UPDATE/DELETE ever) — see the outstanding-migration note above, it isn't live yet. `loss_reasons`: SELECT owner-only, INSERT open, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it; real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely. A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
+- Deploying/configuring anything on Supabase's or Vercel's side beyond a plain SQL migration — Edge Function deployment, Edge Function secrets, Cron Job scheduling, Vercel environment variables — also can't be done from this sandbox (no `service_role` key, no logged-in `supabase`/`vercel` CLI session here) and gets handed to the user as exact commands/dashboard steps, same spirit as the DDL-migration convention above. The Follow-ups feature's push-notification pipeline (`supabase/functions/send-followup-reminders/`) is the first thing in this repo that needed this — see the Follow-ups section for what was handed off.
 - No GPS, geocoding, or drag-and-drop libraries in this project — deliberate (see DECISIONS.md and the Kanban board note above). No icon library either (no `lucide-react`/icon-font dependency) — `src/components/NavIcons.jsx` hand-authors BottomNav's icons as plain inline SVG instead; reuse/extend that file for any new icon rather than adding a package. Everything else icon-shaped stays plain text/CSS.
 
 ## Roadmap
@@ -1186,8 +1308,8 @@ renders) rather than assuming a fresh tab means a fresh session.
    of failed submissions, iOS's more aggressive cache-clearing on inactive
    PWAs.
 7. ⬅️ current — Deploy + pilot with 1-2 sales execs before full rollout.
-   Still open from the "Current state" list above: Followups, a
-   `plans`-table screen, role-differentiated Home content, and a screen
-   listing past activities.
+   Still open from the "Current state" list above: a `plans`-table screen,
+   role-differentiated Home content, and a screen listing past activities.
+   Followups (see the dedicated section) shipped during this phase.
 
 For domain model, lead-sourcing logic, and locked-in design decisions, see DECISIONS.md.

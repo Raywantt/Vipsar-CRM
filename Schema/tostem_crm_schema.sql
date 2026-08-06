@@ -251,6 +251,48 @@ CREATE TABLE loss_reasons (
 );
 
 
+-- ---------- STEP 9: FOLLOW-UPS ----------
+-- Personal + owner-assigned reminders (self-service, not tied to any one
+-- activity). assigned_to is who it's for; created_by is who set it — for a
+-- self-reminder both are the same employee, for an owner-assigned one
+-- they differ. party_id is the only user-facing link (picked via
+-- PartySearchOrCreate); lead_id is auto-resolved app-side from that
+-- party's most recent lead (same fetchLeadsByParty/mostRecentLeadByParty
+-- helper PartiesCard already uses) and, when it resolves, the app also
+-- writes the same due_date onto that lead's next_followup_date so this
+-- doesn't create a second, out-of-sync "when's the next touch" field.
+CREATE TABLE follow_ups (
+  id             SERIAL PRIMARY KEY,
+  assigned_to    INTEGER NOT NULL REFERENCES employees(id),
+  created_by     INTEGER NOT NULL REFERENCES employees(id),
+  party_id       INTEGER REFERENCES parties(id),
+  lead_id        INTEGER REFERENCES leads(id),
+  activity_type  TEXT CHECK (activity_type IS NULL OR activity_type IN
+                    ('site_visit','call','rfq_raised','office_day','booking_update','other')),
+  title          TEXT NOT NULL,
+  notes          TEXT,
+  due_date       DATE NOT NULL,
+  due_time       TIME,
+  is_done        BOOLEAN NOT NULL DEFAULT false,
+  done_at        TIMESTAMP,
+  notified_at    TIMESTAMP,   -- set by the push-sending Edge Function once sent
+  created_at     TIMESTAMP DEFAULT now()
+);
+
+-- One row per subscribed browser/device — an employee can have several
+-- (phone + desktop). Populated client-side via the Web Push API, read by
+-- the Edge Function (service_role, bypasses RLS) to know where to send.
+CREATE TABLE push_subscriptions (
+  id          SERIAL PRIMARY KEY,
+  employee_id INTEGER NOT NULL REFERENCES employees(id),
+  endpoint    TEXT NOT NULL UNIQUE,
+  p256dh      TEXT NOT NULL,
+  auth        TEXT NOT NULL,
+  user_agent  TEXT,
+  created_at  TIMESTAMP DEFAULT now()
+);
+
+
 -- ============================================================
 -- INDEXES — speed up the lookups you'll run constantly.
 -- Plain indexes help exact/prefix matches. Note: ILIKE '%text%'
@@ -268,3 +310,6 @@ CREATE INDEX idx_activities_lead       ON activities(lead_id);
 CREATE INDEX idx_site_contacts_site    ON site_contacts(site_id);
 CREATE INDEX idx_site_contacts_party   ON site_contacts(party_id);
 CREATE INDEX idx_stage_history_lead    ON stage_history(lead_id);
+CREATE INDEX idx_follow_ups_assigned_due ON follow_ups(assigned_to, due_date) WHERE is_done = false;
+CREATE INDEX idx_follow_ups_due_notify   ON follow_ups(due_date, due_time) WHERE is_done = false AND notified_at IS NULL;
+CREATE INDEX idx_push_subscriptions_employee ON push_subscriptions(employee_id);
