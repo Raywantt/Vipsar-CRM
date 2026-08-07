@@ -1152,17 +1152,49 @@ effects below, since neither is part of the date-range-scoped report data.
   to a derived, cross-lead computation like this one.
 * **My Leads / All Leads** (`LeadsListCard.jsx`, reached via Home's "All
   Leads" tile or the sidebar's All Leads link — see the "no more in-page
-  tab buttons" note above) — a browsable table of individual leads
-  (Party/Site/Owner/Source/Stage/Order value/Created — Owner shows for both
-  roles: trivially always themselves for a sales exec, but "wherever a lead
-  appears, show its owner" won out over trimming a redundant column), party
-  name links to `/leads/:id`, `fetchLeadsList` in `dashboardQueries.js`,
-  ordered `created_at` desc, capped at 100. Deliberately **not** wired to
-  the Reports view's date-range selector — it's a browse/lookup tool, not a
-  period report. For the owner, a "Sales exec" filter (`employeeFilter` state, default
-  "— All employees —") re-queries with `.eq('owner_employee_id', ...)`; for
-  a sales exec, RLS already scopes the query, so the filter doesn't render
-  at all. Also reused, unmodified, by Settings' Delete a lead section.
+  tab buttons" note above) — a browsable, filterable list of individual
+  leads (party name links to `/leads/:id`), ordered `created_at` desc,
+  capped at 100. Deliberately **not** wired to the Reports view's
+  date-range selector — it's a browse/lookup tool, not a period report.
+  **Redesigned** in a later pass to fix real drift from the rest of the
+  app (a party-less row fell back straight to `'(no party)'` instead of
+  the site-name fallback chain `LeadStageBoard` already used — despite
+  that card's own comment claiming they matched — and `source_type`/
+  `created_at` were being fetched but never rendered) and to add real
+  filtering, which this screen never had. A search box (party/site/owner,
+  client-side over the fetched page — same precedent as Parties/My Team)
+  sits above a single **Filters** toggle that reveals one panel holding
+  all five facets together — Owner, Stage (the same tinted
+  `vip-chip-select` pills `LeadStageSection` uses to *set* a stage),
+  Source, Status, Quote value — rather than a category-then-value picker;
+  closing the panel collapses whatever's active into small removable
+  chips (`vip-filter-chip`, the one new theme class this needed) plus a
+  "Clear all", so the resting screen stays as clean as before any
+  filtering existed. Owner/Stage/Source/Status/Quote value are all applied
+  server-side via the now filters-object `fetchLeadsList({ employeeId,
+  stage, source, status, minValue, maxValue })` (`dashboardQueries.js`,
+  DeleteLeadSection's own call site updated to match) — correct even under
+  the 100-row cap, unlike filtering client-side after the fact would be.
+  Status is a binary Active/Inactive (`current_stage` not-in vs. in
+  `(won,lost)`, mirroring `fetchClosureForecast`'s own not-won-not-lost
+  filter) rather than stage-level granularity, since picking one exact
+  stage is already what the Stage facet is for. Quote value filters on
+  `quote_value` specifically (min/max, debounced 400ms same as any
+  free-typed query trigger elsewhere in this app), not `order_value` — the
+  two can genuinely differ on a won lead, so a row's displayed figure
+  (`order_value ?? quote_value`, the same fallback `attention.js`/My
+  Team's stats already use) can rarely sit outside a quote-value range
+  that still matched it; accepted as a minor edge case rather than adding
+  complexity to reconcile the two fields. Owner shows for both roles
+  (trivially always themselves for a sales exec, but "wherever a lead
+  appears, show its owner" won out over trimming a redundant column) — for
+  the owner it's now one more facet inside the same filter panel
+  (`employeeFilter` state, default "— All employees —") instead of its own
+  always-visible row above the card; for a sales exec, RLS already scopes
+  the query, so it doesn't render at all. Also reused by Settings' Delete
+  a lead section, which calls the same function unfiltered
+  (`fetchLeadsList()`) — its own client-side search over party/site/owner
+  is untouched.
 * `ACTIVITY_TYPES`/`ACTIVITY_LABELS` live in `src/lib/activityTypes.js`
   (canonical, kept in sync with the `activities.activity_type` CHECK) —
   `ActivityLog.jsx` imports from there instead of defining its own copy.

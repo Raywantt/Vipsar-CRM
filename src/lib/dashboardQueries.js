@@ -22,20 +22,33 @@ export function fetchNewLeadsBySource(range) {
 
 // Not scoped to a date range — a browsable list for the Leads tab, not an
 // aggregate report. RLS already narrows this to "own leads" for a sales
-// exec; the owner passes employeeId to filter further, or omits it for
-// everyone.
-export function fetchLeadsList(employeeId) {
+// exec; the owner passes filters to narrow further, or omits them for
+// everyone. All five facets are plain top-level `leads` columns, so they're
+// applied server-side (before the 100-row cap) rather than client-side —
+// unlike the free-text party/site search in LeadsListCard.jsx, which stays
+// client-side over the fetched page, same precedent as Search.jsx's own
+// "no embedded-relation ILIKE filtering" rule.
+export function fetchLeadsList(filters = {}) {
+  const { employeeId, stage, source, status, minValue, maxValue } = filters
+
   let query = supabase
     .from('leads')
     .select(
-      'id, current_stage, source_type, order_value, created_at, owner_employee_id, parties!party_id(name), sites(nickname, locality), employees!owner_employee_id(name)'
+      'id, current_stage, source_type, order_value, quote_value, created_at, owner_employee_id, parties!party_id(name), sites(nickname, locality), employees!owner_employee_id(name)'
     )
     .order('created_at', { ascending: false })
     .limit(100)
 
-  if (employeeId) {
-    query = query.eq('owner_employee_id', employeeId)
-  }
+  if (employeeId) query = query.eq('owner_employee_id', employeeId)
+  if (stage) query = query.eq('current_stage', stage)
+  if (source) query = query.eq('source_type', source)
+  // "Active" mirrors fetchClosureForecast's own not-won-not-lost filter;
+  // "Inactive" is literally the complement (won or lost) — a lead has no
+  // third state.
+  if (status === 'active') query = query.not('current_stage', 'in', '(won,lost)')
+  if (status === 'inactive') query = query.in('current_stage', ['won', 'lost'])
+  if (minValue != null) query = query.gte('quote_value', minValue)
+  if (maxValue != null) query = query.lte('quote_value', maxValue)
 
   return query
 }

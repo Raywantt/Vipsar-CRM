@@ -12,7 +12,7 @@ function DeleteLeadSection() {
 
   useEffect(() => {
     let active = true
-    fetchLeadsList(null).then(({ data, error }) => {
+    fetchLeadsList().then(({ data, error }) => {
       if (!active) return
       setLoading(false)
       if (error) {

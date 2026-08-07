@@ -1232,3 +1232,20 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
   .vip-team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; align-items: start; }
 }
 
+/* ---------- 20. Leads filter chips (All Leads / My Leads) ---------------
+   Active facets (Owner/Stage/Source/Status/Quote value) collapse into these
+   once the filter panel is closed, so the list's resting state stays as
+   clean as before any filtering existed — same instinct as vip-tag/vip-pill,
+   just interactive (click to remove that one filter). The panel itself
+   reuses existing primitives (vip-chip-select, vip-seg-outline, vip-select,
+   vip-grid-2) rather than new markup — this is the only genuinely new class
+   the redesign needed. */
+.vip-filter-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; color: var(--vip-body);
+  padding: 5px 8px 5px 10px; border-radius: var(--vip-r-pill);
+  background: var(--vip-line-soft); border: 1px solid transparent; cursor: pointer;
+}
+.vip-filter-chip:hover { border-color: var(--vip-line); }
+.vip-filter-chip-x { font-size: 13px; line-height: 1; color: var(--vip-muted); }
+
