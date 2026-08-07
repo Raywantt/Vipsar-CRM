@@ -12,7 +12,6 @@ import LeadsByCategoryCard from '../components/LeadsByCategoryCard'
 import LeadStageBoard from '../components/LeadStageBoard'
 import SalesFunnelCard from '../components/SalesFunnelCard'
 import LossReasonsCard from '../components/LossReasonsCard'
-import PartiesCard from '../components/PartiesCard'
 import NeedsAttentionCard from '../components/NeedsAttentionCard'
 import KpiSparkRow from '../components/KpiSparkRow'
 import DrilldownPanel from '../components/DrilldownPanel'
@@ -48,7 +47,6 @@ import {
   fetchActivitiesTrendWindow,
 } from '../lib/dashboardQueries'
 import { fetchEmployees, fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
-import { fetchAllParties, fetchLeadsByParty, fetchPartyEmployeeLinks, mostRecentLeadByParty } from '../lib/partyQueries'
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10)
@@ -80,15 +78,15 @@ function Dashboard() {
   const isOwner = employee?.role === 'owner'
   const [searchParams] = useSearchParams()
 
-  // No more in-page tab buttons — Reports/All leads/Parties is chosen purely
-  // by ?tab=, either from Home's "All leads" tile or the sidebar's All
-  // Leads/Parties links (BottomNav.jsx). Re-read on every searchParams
-  // change, not just mount, since switching sidebar links while already on
-  // /dashboard doesn't remount this component.
+  // No more in-page tab buttons — Reports/All leads is chosen purely by
+  // ?tab=, either from Home's "All leads" tile or the sidebar's All Leads
+  // link (BottomNav.jsx). Re-read on every searchParams change, not just
+  // mount, since switching sidebar links while already on /dashboard
+  // doesn't remount this component.
   const [activeTab, setActiveTab] = useState('reports')
   useEffect(() => {
     const tab = searchParams.get('tab')
-    setActiveTab(tab === 'leads' ? 'leads' : tab === 'parties' ? 'parties' : 'reports')
+    setActiveTab(tab === 'leads' ? 'leads' : 'reports')
   }, [searchParams])
   const [stageView, setStageView] = useState('table')
 
@@ -105,9 +103,6 @@ function Dashboard() {
   const [breakdownLeads, setBreakdownLeads] = useState([])
   const [funnelStageHistory, setFunnelStageHistory] = useState([])
   const [lossReasons, setLossReasons] = useState([])
-  const [parties, setParties] = useState([])
-  const [partyEmployeeLinks, setPartyEmployeeLinks] = useState([])
-  const [leadsByParty, setLeadsByParty] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
   const [decidedStageHistory, setDecidedStageHistory] = useState([])
   const [activitiesTrendWindow, setActivitiesTrendWindow] = useState([])
@@ -287,39 +282,6 @@ function Dashboard() {
       active = false
     }
   }, [isOwner])
-
-  useEffect(() => {
-    let active = true
-    fetchAllParties().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setParties(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    fetchPartyEmployeeLinks().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setPartyEmployeeLinks(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    fetchLeadsByParty().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setLeadsByParty(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [])
 
   const openPipelineValue = breakdownLeads
     .filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
@@ -615,10 +577,6 @@ function Dashboard() {
       )}
 
       {activeTab === 'leads' && <LeadsListCard isOwner={isOwner} employees={employees} />}
-
-      {activeTab === 'parties' && (
-        <PartiesCard parties={parties} employeeLinks={partyEmployeeLinks} mostRecentLeadByParty={mostRecentLeadByParty(leadsByParty)} />
-      )}
     </div>
   )
 }

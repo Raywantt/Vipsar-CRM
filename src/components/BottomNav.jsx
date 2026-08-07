@@ -1,7 +1,7 @@
 import { NavLink, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getInitials } from '../lib/initials'
-import { IconActivity, IconGrid, IconHome, IconList, IconPlus, IconSearch, IconTeam, IconUsers } from './NavIcons'
+import { IconActivity, IconGrid, IconHome, IconList, IconPlus, IconSearch, IconTeam } from './NavIcons'
 
 function tabClass({ isActive }) {
   return isActive ? 'vip-active' : undefined
@@ -42,18 +42,14 @@ function BottomNav() {
         <IconGrid />
         <span className="vip-nav-label">Dashboard</span>
       </NavLink>
-      {/* Reports/All leads/Parties used to be an in-page tab row on the
-          Dashboard itself — moved here so they're reachable without it (see
+      {/* Reports/All leads used to be an in-page tab row on the Dashboard
+          itself — moved here so it's reachable without it (see
           Dashboard.jsx's activeTab, now driven purely by ?tab= instead of
-          buttons). Placeholder destinations for now, not full standalone
-          pages yet. */}
+          buttons). Parties used to have its own tab/link here too — folded
+          into Search instead, see Search.jsx. */}
       <NavLink to="/dashboard?tab=leads" className={extraTabClass} title="All Leads">
         <IconList />
         <span className="vip-nav-label">All Leads</span>
-      </NavLink>
-      <NavLink to="/dashboard?tab=parties" className={extraTabClass} title="Parties">
-        <IconUsers />
-        <span className="vip-nav-label">Parties</span>
       </NavLink>
       {employee?.role === 'owner' && (
         <NavLink to="/team" className={extraTabClass} title="My Team">

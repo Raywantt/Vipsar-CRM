@@ -10,10 +10,10 @@ import PartySearchOrCreate from './PartySearchOrCreate'
 // EmployeeProfile for an owner assigning one) decides who this is for.
 // party_id is the only link the user picks; lead_id is resolved silently
 // from that party's most recent lead via the same fetchLeadsByParty/
-// mostRecentLeadByParty helpers PartiesCard already uses for "worked with"
-// links, then folded into both the follow_ups insert and (if resolved) a
-// sync onto that lead's next_followup_date — mirrors LeadQuickActions'
-// existing "Set follow-up" write exactly.
+// mostRecentLeadByParty helpers Search.jsx already uses for its party
+// directory's "worked with" links, then folded into both the follow_ups
+// insert and (if resolved) a sync onto that lead's next_followup_date —
+// mirrors LeadQuickActions' existing "Set follow-up" write exactly.
 function FollowUpForm({ assignedTo, createdBy, onSaved, onCancel }) {
   const [followupChoice, setFollowupChoice] = useState('')
   const [customDate, setCustomDate] = useState('')

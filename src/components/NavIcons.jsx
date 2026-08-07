@@ -73,20 +73,9 @@ export function IconList({ className = 'vip-nav-icon', ...rest }) {
   )
 }
 
-export function IconUsers({ className = 'vip-nav-icon', ...rest }) {
-  return (
-    <svg {...baseProps(className)} {...rest}>
-      <circle cx="7.5" cy="7" r="2.6" />
-      <path d="M2.8 16c.8-2.9 3-4.4 4.7-4.4s3.9 1.5 4.7 4.4" />
-      <circle cx="14" cy="7.5" r="2.1" />
-      <path d="M13 11.2c1.5.2 3 1.5 3.6 3.8" />
-    </svg>
-  )
-}
-
-// Three-person roster glyph for My Team — deliberately distinct from
-// IconUsers (two people, already used for Parties) so the two destinations
-// don't read as the same icon in the sidebar.
+// Three-person roster glyph for My Team — deliberately distinct from a
+// plain two-person icon so it doesn't read as some other contacts/list
+// destination in the sidebar.
 export function IconTeam({ className = 'vip-nav-icon', ...rest }) {
   return (
     <svg {...baseProps(className)} {...rest}>

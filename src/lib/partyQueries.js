@@ -24,7 +24,7 @@ export function fetchPartyEmployeeLinks() {
 // party_id counts here. Fetched unbounded and pre-sorted, reduced client-side
 // to one row per party (its most recent lead) — same shape as
 // fetchLastActivityPerLead's reduction. Powers the "lead and client are the
-// same record" click-through rule for Parties/Search rows that have no
+// same record" click-through rule for Search's party rows that have no
 // single lead already in view.
 export function fetchLeadsByParty() {
   return supabase.from('leads').select('id, party_id, created_at').order('created_at', { ascending: false })

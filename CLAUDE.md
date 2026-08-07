@@ -71,19 +71,32 @@ needs before touching anything:
 - **Dashboard v2** (Needs Attention + a universal drill-down panel reused
   across every metric — see the Dashboard section and its Design-system
   bullet) is desktop-first: the KPI sparkline row, exec heatmap, and source
-  donut only render at ≥1024px, and **All Leads/Parties currently have no
-  mobile entry point at all** (the in-page tab row that used to carry them
-  on a phone is gone; their sidebar-link replacement is desktop-only) —
-  known, deliberately deferred, not an oversight. Don't "fix" the mobile gap
-  as a side effect of unrelated work; it needs its own discussion (see the
+  donut only render at ≥1024px, and **All Leads currently has no mobile
+  entry point at all** (the in-page tab row that used to carry it on a
+  phone is gone; its sidebar-link replacement is desktop-only) — known,
+  deliberately deferred, not an oversight. Don't "fix" the mobile gap as a
+  side effect of unrelated work; it needs its own discussion (see the
   `BottomNav` paragraph in Structure below for the current state).
 - **My Team** (`/team`, owner-only — see its own section below) is a card-
   grid directory of the owner's non-owner employees (today, just
   `sales_executive`), with a name search and a role filter, each card
-  linking to that employee's Sales Exec Profile. Unlike All Leads/Parties
-  above, it has a real mobile entry point (a `HOME_TILES` tile), not just a
-  desktop `.vip-nav-extra` sidebar link — see the Structure section's
-  `BottomNav` paragraph.
+  linking to that employee's Sales Exec Profile. Unlike All Leads above, it
+  has a real mobile entry point (a `HOME_TILES` tile), not just a desktop
+  `.vip-nav-extra` sidebar link — see the Structure section's `BottomNav`
+  paragraph.
+- **Search absorbed the old Parties tab.** Dashboard's `?tab=parties` view
+  (`PartiesCard.jsx`, desktop-sidebar-only) and the global `Search` screen
+  used to be two separate, confusingly overlapping "find a party" UIs with
+  different filter mechanics and different reachability. `PartiesCard.jsx`
+  is deleted; its always-loaded party directory (type filter, "Worked with"
+  employee links, name/mobile search) now lives inside `Search.jsx` — see
+  its own section below — styled with the same Filters-toggle/active-chip
+  language `LeadsListCard`'s All Leads redesign introduced, for visual
+  consistency. Search was already reachable on every device via
+  `BottomNav`'s Search tab, so folding Parties into it also closes "Parties
+  has no mobile entry point" as a side effect, not a separate project.
+  There is no more `/dashboard?tab=parties` and no more Parties link in
+  `BottomNav`.
 - **Account and Settings were merged into one page, `Profile`** (`/profile`,
   see its own section below) — reached by tapping the avatar/nametag
   (header, desktop sidebar, or Home's own mobile-only one) rather than a
@@ -125,7 +138,7 @@ src/
                 LeadsBySourceCard, ClosureForecastCard, TargetsVsActualsCard,
                 SetTargetForm, LeadsListCard, LeadsByCategoryCard,
                 LeadStageBoard, SalesFunnelCard, LossReasonsCard,
-                PartiesCard, NeedsAttentionCard, KpiSparkRow,
+                NeedsAttentionCard, KpiSparkRow,
                 DashboardHeatmap, DonutChart, DrilldownPanel,
                 AddEmployeeForm, ManageEmployeesSection,
                 DeletePartySection, ChangePasswordForm, InstallPrompt,
@@ -188,11 +201,14 @@ Home section below).
 **`BottomNav` is the one place for primary navigation in this app — don't
 add nav links back to `AppNav`.** At ≥1024px `BottomNav` becomes the
 sidebar and also carries `.vip-nav-extra` links a phone doesn't show,
-including **All Leads**, **Parties**, and (owner-only) **My Team** (see the
-Desktop layout bullet below) — All Leads/Parties currently have **no
-mobile entry point at all** (dropped along with Dashboard's old in-page tab
-row, see the Dashboard section); that's a known, deliberately deferred gap,
-not an oversight. My Team doesn't share that gap — it also has a
+including **All Leads** and (owner-only) **My Team** (see the Desktop
+layout bullet below) — All Leads currently has **no mobile entry point at
+all** (dropped along with Dashboard's old in-page tab row, see the
+Dashboard section); that's a known, deliberately deferred gap, not an
+oversight. Parties used to be a third `.vip-nav-extra` link here with the
+same gap — it's gone now, folded into `Search` (a `BottomNav` tab reachable
+on every device already), see "Current state" above and the Search section
+below. My Team doesn't share the All Leads gap — it also has a
 `HOME_TILES` entry for the owner, so it's reachable on a phone too, same as
 New Lead/Dashboard. `AppNav` is a per-route header (title/sub/back button/avatar),
 not a nav bar — see Design system. Sized off `vipsar-theme.css`'s
@@ -274,12 +290,12 @@ approximation of it.** Concretely:
   rather than fill a chip (the stage board's column border, the sales
   funnel's bar fill, `LeadStageSection`'s selectable chips below).
 * **Lists are rows, not tables** — every list/breakdown screen (Closure
-  forecast, Leads list, Parties, the category breakdowns, activity-by-exec)
-  renders `.vip-row`/`.vip-bar-row`/`.vip-matrix-row` stacks instead of a
-  `<table>` — the design handoff's other top complaint, a wide table only
-  reading correctly on desktop. Segmented controls (`.vip-seg`) replaced
-  full-width button rows everywhere there's a tab or filter (the date-range
-  selector, exec filters, Search's type filter — Dashboard's own
+  forecast, Leads list, Search's party directory, the category breakdowns,
+  activity-by-exec) renders `.vip-row`/`.vip-bar-row`/`.vip-matrix-row`
+  stacks instead of a `<table>` — the design handoff's other top complaint,
+  a wide table only reading correctly on desktop. Segmented controls
+  (`.vip-seg`) replaced full-width button rows everywhere there's a tab or
+  filter (the date-range selector, exec filters — Dashboard's own
   Reports/Leads/Parties tabs used to be one of these too, but that row is
   gone now, see the Dashboard section). Where this doc's per-screen sections
   below still say "table", read it as "this shape of data", not literal
@@ -305,8 +321,8 @@ approximation of it.** Concretely:
   FLOW.md`, applied globally: a person's name is always a link to
   `/employees/:id`; a lead or client's name is always a link to
   `/leads/:id`. Covers `LeadsListCard`, `ClosureForecastCard`,
-  `LeadStageBoard`, `PartiesCard`'s "Worked with" column, `Search`'s
-  Leads/Parties results, `LeadActivityTimeline`'s "by {employee}", and the
+  `LeadStageBoard`, `Search`'s party directory "Worked with" links, its
+  Leads results, `LeadActivityTimeline`'s "by {employee}", and the
   Dashboard heatmap's row-header name (clicking a **cell** still opens the
   existing metric drill-down, unchanged — only the name itself navigates).
   `EmployeeLink.jsx` exists specifically for the case a person's name has
@@ -314,32 +330,35 @@ approximation of it.** Concretely:
   lead, a party) — a literal nested `<a>` would be invalid HTML and break
   the outer row's click target, so it navigates via `useNavigate` +
   `stopPropagation` instead; use a plain `<Link to={`/employees/${id}`}>`
-  anywhere there's no outer link to nest inside. `PartiesCard` rows and
-  `Search`'s Parties results (no single lead in view) link to that party's
-  **most recent lead** if they have one (`fetchLeadsByParty`/
-  `mostRecentLeadByParty` in `partyQueries.js` — `party_id` only, not
-  `referred_by_party_id`/`other_party_id`, since only `party_id` makes them
-  "the lead"), else stay non-clickable, same as before. **Known gap, not
-  finished everywhere**: owner-name badges inside `DrilldownPanel.jsx`'s
-  deeper bodies aren't linked yet — see "Current state" above.
+  anywhere there's no outer link to nest inside. `Search`'s party rows (no
+  single lead in view) link to that party's **most recent lead** if they
+  have one (`fetchLeadsByParty`/`mostRecentLeadByParty` in
+  `partyQueries.js` — `party_id` only, not `referred_by_party_id`/
+  `other_party_id`, since only `party_id` makes them "the lead"), else stay
+  non-clickable, same as before. **Known gap, not finished everywhere**:
+  owner-name badges inside `DrilldownPanel.jsx`'s deeper bodies aren't
+  linked yet — see "Current state" above.
 * Home's tiles gained a fourth entry, **All Leads** (links to
   `/dashboard?tab=leads`) — `Dashboard.jsx` has no in-page tab buttons
   anymore (see the Dashboard section's "no more in-page tab buttons" bullet),
-  so `?tab=leads`/`?tab=parties` via `useSearchParams()` is now the *only*
-  way to land on those two views; a plain `/dashboard` (or `?tab=` unset)
-  always means Reports. Synced with a `useEffect` on `searchParams`, not a
-  `useState` initializer, since navigating between sidebar links while
-  already on `/dashboard` changes the query string without remounting the
-  page — an initializer would only ever see the very first value.
+  so `?tab=leads` via `useSearchParams()` is now the *only* way to land on
+  that view (`?tab=parties` used to be a second one, before Parties merged
+  into Search — see "Current state" above); a plain `/dashboard` (or
+  `?tab=` unset) always means Reports. Synced with a `useEffect` on
+  `searchParams`, not a `useState` initializer, since navigating between
+  sidebar links while already on `/dashboard` changes the query string
+  without remounting the page — an initializer would only ever see the
+  first value.
 * **Desktop layout (≥1024px)** — below 1024px this app is pixel-identical to
   before; nothing here changes mobile. At ≥1024px, `BottomNav.jsx` becomes a
   persistent left sidebar (`--vip-sidebar-w`, 232px): the same Home/Search
-  links plus six `.vip-nav-extra` ones (New Lead, Activity
-  Log, Dashboard, All Leads, Parties, and — owner-only — My Team) — New
+  links plus five `.vip-nav-extra` ones (New Lead, Activity
+  Log, Dashboard, All Leads, and — owner-only — My Team) — New
   Lead/Activity Log/Dashboard/My Team are reachable on a phone via Home's
-  tiles instead, but **All Leads/Parties currently have no mobile path at
-  all** (see the Structure section's
-  `BottomNav` paragraph above), a brand block
+  tiles instead, but **All Leads currently has no mobile path at all** (see
+  the Structure section's `BottomNav` paragraph above; Parties used to be a
+  sixth link with the same gap, now gone — folded into Search, which has no
+  such gap), a brand block
   (`.vip-sidebar-brand`) up top, and the employee's name/role pinned at the
   bottom (`.vip-sidebar-foot`, now a `Link` to `/profile` — see the Structure
   section above) — all hidden on mobile via CSS, not conditional
@@ -355,7 +374,7 @@ approximation of it.** Concretely:
   returned content in one of two width utilities (a plain wrapper div, not a
   layout rewrite): `.vip-narrow` (700px, centered — forms, detail pages,
   single lists: LeadDetail, LeadQuickCapture, ActivityLog, Profile,
-  Search, and Dashboard's Leads/Parties tabs) or `.vip-wide` (1180px —
+  Search, and Dashboard's Leads tab) or `.vip-wide` (1180px —
   Home, and Dashboard's Reports tab). Inside `.vip-wide`, Dashboard's report
   cards sit in `.vip-report-grid` (2 columns); a card wrapped in
   `.vip-span-2` breaks out to the full row instead — used for cards whose
@@ -482,25 +501,63 @@ Reuse these for any future party/site picker — don't write another search inpu
 
 ### Search (`src/pages/Search.jsx`)
 
-Global search, reachable via `BottomNav`'s **Search** tab, both roles.
+Global search, reachable via `BottomNav`'s **Search** tab, both roles — and
+now the *one* place in the app to find or browse a party, since the old
+`/dashboard?tab=parties` view (`PartiesCard.jsx`) was folded in here (see
+"Current state" above). The two used to be confusingly separate: Search
+required 2+ typed characters and hit the DB for a bounded top-10 party
+match, while the Dashboard's Parties tab eagerly loaded and client-side-
+filtered the *entire* party directory, with its own differently-shaped
+type filter, and was desktop-sidebar-only. There is exactly one "find a
+party" UI now.
+
 Deliberately **not** built on `PartySearchOrCreate`/`SiteSearchOrCreate` —
 this searches across all three entities at once and neither party nor site
 results are meant to be created inline here (this is a lookup screen, not
-an intake screen). `src/lib/searchQueries.js`'s `searchAll(term)` is a
-two-step query, not embedded-relation ILIKE filtering (no precedent for
-that anywhere in this codebase, and it's fragile PostgREST syntax): first
-searches `parties` (name/mobile) and `sites` (nickname/locality/house_no)
-directly — same `.or()` + `sanitizeForIlike` pattern as the search-before-
-create components, just without `SiteSearchOrCreate`'s hard area scope
-(global search shouldn't require picking an area first) — then takes the
-matched party/site ids and finds every `leads` row linked to any of them
-via a plain `.or('party_id.in.(...),site_id.in.(...)')`, fully precedented,
-RLS applies normally. Results render in three sections: **Leads** are
-clickable (`<Link to="/leads/:id">`) since that's the one entity with a
-real detail page; **Parties**/**Sites** are read-only lookup rows — **there
-is no `/parties/:id` or `/sites/:id` page anywhere in this app**, so those
-results can't link anywhere, matching the existing "search before create"
-duplicate-check use case rather than pretending to be a navigation target.
+an intake screen).
+
+* **Parties** — `fetchAllParties`/`fetchPartyEmployeeLinks`/
+  `fetchLeadsByParty` (`src/lib/partyQueries.js`, the same three queries
+  `PartiesCard` used to fetch) load on mount, independent of the search
+  box — `parties` SELECT is open to everyone, so this is the full directory
+  regardless of role. The search box and a Type filter (a `Filters` toggle
+  revealing `vip-chip-select` pills, dynamically discovered from the data
+  the same way `PartiesCard` used to, plus the `vip-filter-chip`/"Clear
+  all" active-chip language `LeadsListCard`'s All Leads redesign
+  established) both apply **client-side and instantly** — no 2-character
+  minimum, no debounce, since it's a plain array filter over already-loaded
+  data. A **"Worked with"** list per row shows which employee(s) own a lead
+  connected to that party (as `party_id`, `other_party_id`, or
+  `referred_by_party_id`), derived client-side by `buildEmployeeMap` (a
+  private helper local to `Search.jsx` now, not a shared export — it only
+  ever had the one consumer). **RLS caveat carried over unchanged from
+  `PartiesCard`**: a sales exec's `leads` query only ever returns their own
+  leads, so they'll only ever see themselves in "Worked with", even when
+  another rep has also worked with that party — full multi-employee
+  associations are only visible to the owner. Each row links to that
+  party's **most recent lead** if they have one (`mostRecentLeadByParty`,
+  `party_id` only — see the Universal linking bullet above), else stays
+  non-clickable. A side effect of this merge: party browsing is now
+  reachable on a phone for the first time — `PartiesCard`'s desktop-sidebar
+  gap is closed, not by giving Parties its own mobile entry point, but by
+  it no longer being a separate destination at all.
+* **Leads/Sites** — unchanged from before: `src/lib/searchQueries.js`'s
+  `searchAll(term)` still gates on `MIN_QUERY_LENGTH` (2 chars) and a
+  350ms debounce, since these still hit the DB. It's a two-step query, not
+  embedded-relation ILIKE filtering (no precedent for that anywhere in this
+  codebase, and it's fragile PostgREST syntax): first searches `parties`
+  (name/mobile, used only internally now to resolve ids — its own result
+  rows are ignored in favor of the always-loaded directory above) and
+  `sites` (nickname/locality/house_no) directly — same `.or()` +
+  `sanitizeForIlike` pattern as the search-before-create components, just
+  without `SiteSearchOrCreate`'s hard area scope — then takes the matched
+  party/site ids and finds every `leads` row linked to any of them via a
+  plain `.or('party_id.in.(...),site_id.in.(...)')`, fully precedented, RLS
+  applies normally. **Leads** results are clickable (`<Link to="/leads/:id">`)
+  since that's the one entity with a real detail page; **Sites** results
+  are read-only lookup rows — **there is no `/sites/:id` page anywhere in
+  this app** — matching the existing "search before create" duplicate-check
+  use case rather than pretending to be a navigation target.
 
 ### LeadQuickCapture (`src/pages/LeadQuickCapture.jsx`)
 
@@ -705,11 +762,11 @@ Dashboard heatmap's cell drill-down already uses).
 same as any other role mismatch; there's also no nav link or `HOME_TILES`
 entry pointing here for that role, so it's never surfaced to them). A card-
 grid directory of the owner's team, reachable from `BottomNav`'s desktop
-sidebar (a `.vip-nav-extra` link right after Parties, with its own icon —
-`IconTeam` in `NavIcons.jsx`, deliberately a 3-person glyph, distinct from
-`IconUsers`'s 2-person one already used for Parties) and, unlike All
-Leads/Parties, from a real `HOME_TILES` entry too, so the owner can reach it
-on a phone.
+sidebar (a `.vip-nav-extra` link, with its own icon — `IconTeam` in
+`NavIcons.jsx`, a deliberately distinct 3-person glyph so it doesn't read
+as some other contacts/list destination in the sidebar) and, unlike All
+Leads, from a real `HOME_TILES` entry too, so the owner can reach it on a
+phone.
 
 * **Data** — `fetchTeamMembers()` (`src/lib/employeeQueries.js`) selects
   every employee row with `role != 'owner'` — "my team" is defined as the
@@ -721,13 +778,14 @@ on a phone.
   inactive row gets a muted "Inactive" pill next to their name instead of
   being filtered out.
 * **Search + role filter** — a plain client-side name search (`vip-input`,
-  same pattern as `PartiesCard`'s), plus a `vip-seg-outline` segmented
-  control for role, built from `[...new Set(employees.map(e => e.role))]`
-  rather than a hardcoded list — so if a role beyond `sales_executive` ever
-  gets added to the team, the filter grows on its own with no code change
-  here, same reasoning `PartiesCard`'s dynamic `party_type` filter already
-  uses. `ROLE_LABELS` in `MyTeam.jsx` is the one place a role gets a
-  human-readable label; extend it, don't hardcode a new label inline.
+  same pattern as Search's own party directory), plus a `vip-seg-outline`
+  segmented control for role, built from `[...new Set(employees.map(e =>
+  e.role))]` rather than a hardcoded list — so if a role beyond
+  `sales_executive` ever gets added to the team, the filter grows on its
+  own with no code change here, same reasoning Search's dynamic
+  `party_type` filter already uses. `ROLE_LABELS` in `MyTeam.jsx` is the
+  one place a role gets a human-readable label; extend it, don't hardcode a
+  new label inline.
 * **Per-card stats** — "Open leads" count and "Open pipeline" value, computed
   client-side from `fetchLeadsForBreakdown()` (`src/lib/dashboardQueries.js`)
   — the same unbounded, RLS-open-to-owner query Dashboard/EmployeeProfile
@@ -769,14 +827,15 @@ activity-type tag once a party's linked, and an always-optional notes field.
   **party-only** in the UI — there's no separate "pick a lead" step — but
   `FollowUpForm` silently resolves that party's most recent lead app-side via
   the *existing* `fetchLeadsByParty`/`mostRecentLeadByParty` helpers in
-  `src/lib/partyQueries.js` (the same ones `PartiesCard` already uses for its
-  "worked with" links), and if one resolves, saving the follow-up **also**
-  sets that lead's `next_followup_date` to the same due date in the same
-  save call — mirrors `LeadQuickActions`' existing "Set follow-up" write
-  exactly (a plain overwrite, not a merge), so this doesn't create a second,
-  out-of-sync "when's the next touch" field. A party with more than one lead
-  resolves to whichever is most recently created — same ambiguity
-  `PartiesCard`'s "worked with" column already accepts, not a new one.
+  `src/lib/partyQueries.js` (the same ones `Search` already uses for its
+  party directory's "worked with" links), and if one resolves, saving the
+  follow-up **also** sets that lead's `next_followup_date` to the same due
+  date in the same save call — mirrors `LeadQuickActions`' existing "Set
+  follow-up" write exactly (a plain overwrite, not a merge), so this
+  doesn't create a second, out-of-sync "when's the next touch" field. A
+  party with more than one lead resolves to whichever is most recently
+  created — same ambiguity Search's "worked with" list already accepts,
+  not a new one.
   Activity type (shown only once a party's picked) reuses the canonical
   `ACTIVITY_TYPES` list plus an `other` option, rather than inventing a
   parallel taxonomy. Editing an existing follow-up's details, and any delete
@@ -920,18 +979,19 @@ serve both roles unchanged — RLS already scopes `activities`/`leads` to "own
 data or owner role", so a sales exec's query naturally returns only their own
 rows with no client-side filter needed.
 
-**No more in-page tab buttons.** `activeTab` (`'reports' | 'leads' | 'parties'`)
-used to be three `.vip-seg` buttons at the top of the page; that row is gone
-(see the Dashboard-v2 Design-system bullet's sibling note above) and
-`activeTab` is now driven purely by `?tab=` via a `useEffect` on
-`useSearchParams()` — `?tab=leads`/`?tab=parties` (Home's "All Leads" tile,
-or the sidebar's All Leads/Parties links at ≥1024px, see Structure above),
-anything else (including no `?tab=` at all) means **Reports**, which holds
-everything below including the category-breakdown cards. **Reports** is the
-only one of the three with any mobile entry point right now — Leads/Parties
-are desktop-sidebar-only until that gap gets addressed (see Structure).
-`LeadsListCard`/`PartiesCard` still fetch independently of the Reports
-effects below, since neither is part of the date-range-scoped report data.
+**No more in-page tab buttons.** `activeTab` (`'reports' | 'leads'` — a
+third value, `'parties'`, existed until Parties merged into Search, see
+"Current state" above) used to be three `.vip-seg` buttons at the top of
+the page; that row is gone (see the Dashboard-v2 Design-system bullet's
+sibling note above) and `activeTab` is now driven purely by `?tab=` via a
+`useEffect` on `useSearchParams()` — `?tab=leads` (Home's "All Leads" tile,
+or the sidebar's All Leads link at ≥1024px, see Structure above), anything
+else (including no `?tab=` at all) means **Reports**, which holds
+everything below including the category-breakdown cards. **Reports** is
+the only one of the two with any mobile entry point right now — Leads is
+desktop-sidebar-only until that gap gets addressed (see Structure).
+`LeadsListCard` still fetches independently of the Reports effects below,
+since it isn't part of the date-range-scoped report data.
 
 * **Date range** (`DateRangeSelector.jsx`) — **Week** (Monday–today) /
   **15D** (rolling 15 days ending today, not calendar-aligned) / **Month** /
@@ -1175,20 +1235,6 @@ effects below, since neither is part of the date-range-scoped report data.
   "lost this month" row list this compact card doesn't have room for
   (party/owner/value/date, needs `fetchLossReasons`'s embedded `leads` —
   the compact card's own reason/competitor tallies never needed that join).
-* **Parties** (`PartiesCard.jsx`, reached via the sidebar's Parties link —
-  see the "no more in-page tab buttons" note above) — every party ever created
-  (`fetchAllParties` in `src/lib/partyQueries.js` — `parties` SELECT is open
-  to everyone, so this is the same full directory regardless of role), with
-  a Type filter dropdown and a client-side name search. A **"Worked with"**
-  column shows which employee(s) own a lead connected to that party (as
-  `party_id`, `other_party_id`, or `referred_by_party_id`) — derived
-  client-side from `fetchPartyEmployeeLinks` (all `leads` rows, RLS-scoped)
-  by `buildEmployeeMap`, not a stored relationship. **RLS caveat**: a sales
-  exec's `leads` query only ever returns their own leads, so they'll only
-  ever see themselves in this column, even when another rep has also worked
-  with that party — full multi-employee associations are only visible to
-  the owner. Not a bug, just what "own data or owner role" RLS means applied
-  to a derived, cross-lead computation like this one.
 * **My Leads / All Leads** (`LeadsListCard.jsx`, reached via Home's "All
   Leads" tile or the sidebar's All Leads link — see the "no more in-page
   tab buttons" note above) — a browsable, filterable list of individual
@@ -1200,9 +1246,13 @@ effects below, since neither is part of the date-range-scoped report data.
   the site-name fallback chain `LeadStageBoard` already used — despite
   that card's own comment claiming they matched — and `source_type`/
   `created_at` were being fetched but never rendered) and to add real
-  filtering, which this screen never had. A search box (party/site/owner,
-  client-side over the fetched page — same precedent as Parties/My Team)
-  sits above a single **Filters** toggle that reveals one panel holding
+  filtering, which this screen never had. This redesign's Filters-toggle/
+  active-chip language was, in turn, the template Search's party directory
+  copied when Parties merged into it — see the Search section and "Current
+  state" above; there is no more standalone Parties card/tab in Dashboard
+  at all. A search box (party/site/owner, client-side over the fetched
+  page — same precedent as Search/My Team) sits above a single **Filters**
+  toggle that reveals one panel holding
   all five facets together — Owner, Stage (the same tinted
   `vip-chip-select` pills `LeadStageSection` uses to *set* a stage),
   Source, Status, Quote value — rather than a category-then-value picker;
