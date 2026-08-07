@@ -1,11 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchLeadsList } from '../lib/dashboardQueries'
+import { fetchLeadsList, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { stageChipClass, stageFg } from '../lib/statusColors'
+import { STALE_DAYS } from '../lib/attention'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
 import { formatCurrencyCompact } from '../lib/format'
 import EmployeeLink from './EmployeeLink'
+
+// "touched today" / "Nd ago", turning "Nd silent" + red past STALE_DAYS —
+// same threshold attention.js already uses elsewhere, not a second
+// definition of staleness.
+function recencyInfo(lead, lastActivityByLead) {
+  const lastAt = lastActivityByLead.get(lead.id) ?? lead.created_at
+  const days = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000)
+  const isStale = days >= STALE_DAYS
+  return { label: isStale ? `${days}d silent` : days <= 0 ? 'touched today' : `${days}d ago`, isStale }
+}
 
 // Debounce only the two free-typed value inputs — a select/chip/segmented
 // click should refetch instantly, same split PartySearchOrCreate already
@@ -45,6 +56,7 @@ function LeadsListCard({ isOwner, employees }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
 
   // Only the value inputs are debounced — everything else here is a
   // click/select, not free typing, so it can refetch immediately.
@@ -83,6 +95,26 @@ function LeadsListCard({ isOwner, employees }) {
     }
   }, [employeeFilter, stageFilter, sourceFilter, statusFilter, minValue, maxValue])
 
+  // Powers the mobile grouped view's recency line ("touched today"/"Nd
+  // silent") — independent of the filters above (last-activity data doesn't
+  // change per filter), so fetched once rather than refetched alongside leads.
+  useEffect(() => {
+    let active = true
+    fetchLastActivityPerLead().then(({ data, error }) => {
+      if (!active) return
+      if (error) return
+      const map = new Map()
+      ;(data ?? []).forEach((row) => {
+        const existing = map.get(row.lead_id)
+        if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
+      })
+      setLastActivityByLead(map)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
   const term = search.trim().toLowerCase()
   const filtered = term
     ? leads.filter((lead) => {
@@ -92,6 +124,25 @@ function LeadsListCard({ isOwner, employees }) {
         return party.includes(term) || site.includes(term) || owner.includes(term)
       })
     : leads
+
+  // Mobile's grouped-by-stage default (LEAD_STAGE_OPTIONS order first, then
+  // any free-text "Other…" stage present in the data) — desktop keeps the
+  // flat list below unchanged.
+  const groups = useMemo(() => {
+    const byStage = new Map()
+    filtered.forEach((lead) => {
+      const stage = lead.current_stage ?? 'new'
+      if (!byStage.has(stage)) byStage.set(stage, [])
+      byStage.get(stage).push(lead)
+    })
+    const order = [...LEAD_STAGE_OPTIONS, ...[...byStage.keys()].filter((s) => !LEAD_STAGE_OPTIONS.includes(s))]
+    return order
+      .filter((stage) => byStage.has(stage))
+      .map((stage) => {
+        const rows = byStage.get(stage)
+        return { stage, rows, value: rows.reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0) }
+      })
+  }, [filtered])
 
   function clearAllFilters() {
     setEmployeeFilter('')
@@ -315,26 +366,64 @@ function LeadsListCard({ isOwner, employees }) {
       ) : filtered.length === 0 ? (
         <p className="vip-empty">{leads.length === 0 ? 'No leads match these filters.' : 'No leads match your search.'}</p>
       ) : (
-        filtered.map((lead) => (
-          <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
-            <div className="vip-row-main">
-              <div className="vip-row-title">{partyLabel(lead)}</div>
-              <div className="vip-row-sub">
-                {lead.parties?.name && (lead.sites?.nickname || lead.sites?.locality) && (
-                  <>{lead.sites?.nickname || lead.sites?.locality} · </>
-                )}
-                <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />
+        <>
+          {/* Desktop: unchanged flat list inside this card. */}
+          <div className="vip-only-desktop">
+            {filtered.map((lead) => (
+              <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
+                <div className="vip-row-main">
+                  <div className="vip-row-title">{partyLabel(lead)}</div>
+                  <div className="vip-row-sub">
+                    {lead.parties?.name && (lead.sites?.nickname || lead.sites?.locality) && (
+                      <>{lead.sites?.nickname || lead.sites?.locality} · </>
+                    )}
+                    <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />
+                  </div>
+                  <div className="vip-row-meta">
+                    {SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type ?? 'Unknown source'} · {formatShortDate(lead.created_at)}
+                  </div>
+                </div>
+                <div className="vip-row-side" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className={stageChipClass(lead.current_stage ?? 'new')}>{lead.current_stage ?? 'new'}</span>
+                  <div className="vip-row-value">{formatCurrencyCompact(lead.order_value ?? lead.quote_value)}</div>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {/* Mobile default: grouped by stage, full-bleed rows. */}
+          <div className="vip-only-mobile vip-lead-groups">
+            {groups.map((group) => (
+              <div key={group.stage}>
+                <div className="vip-lead-group-head">
+                  <span className="vip-lead-group-swatch" style={{ background: stageFg(group.stage) }} />
+                  <span className="vip-lead-group-name">{group.stage}</span>
+                  <span className="vip-lead-group-count">{group.rows.length}</span>
+                  <span className="vip-lead-group-value">{formatCurrencyCompact(group.value)}</span>
+                </div>
+                {group.rows.map((lead) => {
+                  const recency = recencyInfo(lead, lastActivityByLead)
+                  return (
+                    <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-lead-row">
+                      <div className="vip-lead-row-main">
+                        <div className="vip-lead-row-party">{partyLabel(lead)}</div>
+                        <div className="vip-lead-row-sub">
+                          {[lead.sites?.nickname || lead.sites?.locality, SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      </div>
+                      <div className="vip-lead-row-side">
+                        <div className="vip-lead-row-value">{formatCurrencyCompact(lead.order_value ?? lead.quote_value)}</div>
+                        <div className={recency.isStale ? 'vip-lead-row-recency vip-stale' : 'vip-lead-row-recency'}>{recency.label}</div>
+                      </div>
+                    </Link>
+                  )
+                })}
               </div>
-              <div className="vip-row-meta">
-                {SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type ?? 'Unknown source'} · {formatShortDate(lead.created_at)}
-              </div>
-            </div>
-            <div className="vip-row-side" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className={stageChipClass(lead.current_stage ?? 'new')}>{lead.current_stage ?? 'new'}</span>
-              <div className="vip-row-value">{formatCurrencyCompact(lead.order_value ?? lead.quote_value)}</div>
-            </div>
-          </Link>
-        ))
+            ))}
+          </div>
+        </>
       )}
     </div>
   )

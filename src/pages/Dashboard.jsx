@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import DateRangeSelector from '../components/DateRangeSelector'
@@ -118,10 +118,20 @@ function Dashboard() {
   // week/month/quarter check a second way.
   const isTargetPeriod = periodForPreset(preset) != null
 
+  // The Leads tab gets its own title ("My leads"/"All leads") + a live open
+  // count/value sub, mirroring the mobile "Leads" screen's header — computed
+  // from breakdownLeads (already fetched unbounded for the category-breakdown
+  // cards below) rather than a second query.
   useEffect(() => {
-    setOverride({ sub: `${isOwner ? 'Team performance' : 'Your performance'} · ${RANGE_LABELS[preset]}` })
+    if (activeTab === 'leads') {
+      const openLeads = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
+      const value = openLeads.reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0)
+      setOverride({ title: isOwner ? 'All leads' : 'My leads', sub: `${openLeads.length} open · ${formatCurrencyCompact(value)}` })
+    } else {
+      setOverride({ sub: `${isOwner ? 'Team performance' : 'Your performance'} · ${RANGE_LABELS[preset]}` })
+    }
     return () => setOverride(null)
-  }, [isOwner, preset, setOverride])
+  }, [activeTab, isOwner, preset, breakdownLeads, setOverride])
 
   useEffect(() => {
     const range = rangeForPreset(preset, customStart, customEnd)
@@ -329,6 +339,22 @@ function Dashboard() {
     <div className={activeTab === 'reports' ? 'vip-wide' : 'vip-narrow'}>
       <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
 
+      {/* My Team has no mobile tab of its own (only 4 fit the FAB layout,
+          see BottomNav.jsx) and Home's old tile grid — its only other mobile
+          entry point — is gone (see Home.jsx's Today redesign), so this is
+          now the one mobile path to it, matching the mobile handoff's "My
+          Team › row in this screen's header area" note. Desktop keeps the
+          sidebar link it already had, unaffected. */}
+      {isOwner && (
+        <Link to="/team" className="vip-tile vip-only-mobile" style={{ textDecoration: 'none' }}>
+          <div>
+            <div className="vip-tile-label">My Team</div>
+            <div className="vip-tile-desc">Browse your sales team</div>
+          </div>
+          <div className="vip-tile-chevron">›</div>
+        </Link>
+      )}
+
       {activeTab === 'reports' && (
         <>
           <DateRangeSelector
@@ -343,35 +369,12 @@ function Dashboard() {
           {error && <p className="vip-error">{error}</p>}
           {!range && <p className="vip-empty">Pick both a start and end date.</p>}
 
-          {!loading && (
-            <div className="vip-only-mobile">
-              <div className="vip-kpi-grid">
-                <div className="vip-kpi">
-                  <div className="vip-kpi-label">Activities</div>
-                  <div className="vip-kpi-value">{activities.length}</div>
-                  <div className="vip-kpi-note">{rangeLabel}</div>
-                </div>
-                <div className="vip-kpi">
-                  <div className="vip-kpi-label">New leads</div>
-                  <div className="vip-kpi-value">{leads.length}</div>
-                  <div className="vip-kpi-note">{rangeLabel}</div>
-                </div>
-                <div className="vip-kpi">
-                  <div className="vip-kpi-label">Pipeline</div>
-                  <div className="vip-kpi-value">{formatCurrencyCompact(openPipelineValue)}</div>
-                  <div className="vip-kpi-note">open, not won/lost</div>
-                </div>
-                <div className="vip-kpi">
-                  <div className="vip-kpi-label">Won</div>
-                  <div className="vip-kpi-value">{formatCurrencyCompact(wonThisRange)}</div>
-                  <div className="vip-kpi-note">{rangeLabel}</div>
-                </div>
-              </div>
-            </div>
-          )}
-
+          {/* KpiSparkRow now renders at every width — its own vip-dd-kpi-grid
+              is 2 columns on mobile, widening to 6 at ≥1024px (section 16's
+              override) — replacing the plainer 4-tile vip-kpi-grid mobile
+              used to fall back to. */}
           {!loading && range && (
-            <div className="vip-only-desktop">
+            <>
               <KpiSparkRow
                 orderValueActual={wonThisRange}
                 activitiesCount={activities.length}
@@ -391,7 +394,7 @@ function Dashboard() {
                 onOpenStale={() => setPanel(buildAgeingPanel(staleBucket))}
                 onOpenForecast={() => setPanel(buildForecastPanel({ forecast }))}
               />
-            </div>
+            </>
           )}
 
           <div className="vip-report-grid">

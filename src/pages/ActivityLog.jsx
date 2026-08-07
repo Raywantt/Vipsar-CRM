@@ -5,9 +5,84 @@ import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import LeadSearchSelect from '../components/LeadSearchSelect'
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
+import { fetchLeadsList, fetchLastActivityPerLead } from '../lib/dashboardQueries'
+import { stageChipClass } from '../lib/statusColors'
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function touchLabel(lastAt) {
+  if (!lastAt) return 'no activity yet'
+  const days = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000)
+  if (days <= 0) return 'touched today'
+  return `${days}d ago`
+}
+
+// Default anchor picker for Site Visit/RFQ Raised/Call/Booking Update —
+// this employee's own leads (fetchLeadsList, already scoped by RLS/the
+// employeeId filter), newest-touched first via fetchLastActivityPerLead,
+// falling back to created_at for a lead with no activity logged yet. Both
+// queries are reused as-is (no new query function), per the mobile handoff's
+// "no new query needed" note. "Search all" (ActivityLog.jsx) falls back to
+// the full LeadSearchSelect for anything not in this recent list.
+function RecentLeadsPicker({ employeeId, selected, onSelect }) {
+  const [leads, setLeads] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!employeeId) return
+    let active = true
+    Promise.all([fetchLeadsList({ employeeId }), fetchLastActivityPerLead()]).then(([leadsRes, activityRes]) => {
+      if (!active) return
+      setLoading(false)
+      if (leadsRes.error) return
+      const lastByLead = new Map()
+      ;(activityRes.data ?? []).forEach((row) => {
+        const existing = lastByLead.get(row.lead_id)
+        if (!existing || new Date(row.created_at) > new Date(existing)) lastByLead.set(row.lead_id, row.created_at)
+      })
+      const sorted = [...(leadsRes.data ?? [])].sort((a, b) => {
+        const aAt = lastByLead.get(a.id) ?? a.created_at
+        const bAt = lastByLead.get(b.id) ?? b.created_at
+        return new Date(bAt) - new Date(aAt)
+      })
+      setLeads(sorted.slice(0, 8).map((l) => ({ ...l, lastTouchedAt: lastByLead.get(l.id) ?? null })))
+    })
+    return () => {
+      active = false
+    }
+  }, [employeeId])
+
+  if (loading) return <p className="vip-empty">Loading your leads…</p>
+  if (leads.length === 0) return <p className="vip-empty">You don't have any leads yet — use Search all.</p>
+
+  return (
+    <div className="vip-card">
+      {leads.map((lead) => {
+        const place = lead.sites?.nickname || lead.sites?.locality
+        const label = lead.parties?.name ?? place ?? `Lead #${lead.id}`
+        return (
+          <button
+            key={lead.id}
+            type="button"
+            className="vip-radio-row"
+            onClick={() => onSelect({ id: lead.id, current_stage: lead.current_stage, source_type: lead.source_type, parties: lead.parties, sites: lead.sites })}
+          >
+            <span className={selected?.id === lead.id ? 'vip-radio-dot vip-active' : 'vip-radio-dot'} />
+            <span className="vip-row-main" style={{ flex: 1 }}>
+              <span className="vip-row-title">{label}</span>
+              <span className="vip-row-sub">
+                {place && lead.parties?.name ? `${place} · ` : ''}
+                {touchLabel(lead.lastTouchedAt)}
+              </span>
+            </span>
+            <span className={stageChipClass(lead.current_stage ?? 'new')}>{lead.current_stage ?? 'new'}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 function ActivityLog() {
@@ -16,6 +91,7 @@ function ActivityLog() {
   const [activityType, setActivityType] = useState(null)
   const [selectedLead, setSelectedLead] = useState(null)
   const [selectedParty, setSelectedParty] = useState(null)
+  const [searchAll, setSearchAll] = useState(false)
   const [notes, setNotes] = useState('')
   const [accompaniedBy, setAccompaniedBy] = useState('')
   const [leadsGenerated, setLeadsGenerated] = useState('')
@@ -60,6 +136,7 @@ function ActivityLog() {
     setActivityType(null)
     setSelectedLead(null)
     setSelectedParty(null)
+    setSearchAll(false)
     setNotes('')
     setAccompaniedBy('')
     setLeadsGenerated('')
@@ -166,7 +243,7 @@ function ActivityLog() {
   }
 
   return (
-    <form className="vip-form vip-narrow" onSubmit={handleSubmit}>
+    <form className="vip-form vip-narrow vip-pad-sticky-footer" onSubmit={handleSubmit}>
       <div className="vip-lede">What did you do?</div>
 
       <div className="vip-choice-grid">
@@ -184,7 +261,17 @@ function ActivityLog() {
 
       {needsAnchor && (
         <>
-          <LeadSearchSelect onSelect={setSelectedLead} />
+          <div className="vip-card-head">
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>Against which lead?</div>
+            <button type="button" className="vip-btn-link" onClick={() => setSearchAll((v) => !v)}>
+              {searchAll ? 'Recent leads' : 'Search all'}
+            </button>
+          </div>
+          {searchAll ? (
+            <LeadSearchSelect onSelect={setSelectedLead} />
+          ) : (
+            <RecentLeadsPicker employeeId={employee?.id} selected={selectedLead} onSelect={setSelectedLead} />
+          )}
           {showPartyPicker && (
             <PartySearchOrCreate label="Party" allowCreate={false} onSelect={setSelectedParty} />
           )}
@@ -252,9 +339,11 @@ function ActivityLog() {
 
       {submitError && <p className="vip-error">{submitError}</p>}
 
-      <button className="vip-btn" type="submit" disabled={!canSubmit}>
-        {submitting ? 'Saving…' : 'Log it'}
-      </button>
+      <div className="vip-sticky-footer">
+        <button className="vip-btn" type="submit" disabled={!canSubmit}>
+          {submitting ? 'Saving…' : 'Log it'}
+        </button>
+      </div>
     </form>
   )
 }

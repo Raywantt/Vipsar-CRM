@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { TAB_ROUTES } from '../lib/tabRoutes'
 import AppNav from './AppNav'
 import BottomNav from './BottomNav'
 
@@ -33,9 +34,15 @@ function ProtectedRoute({ allowedRoles, children }) {
   }
 
   const isHome = location.pathname === '/'
+  // Every route reached by "drilling in" from a tab (New Lead, Log Activity,
+  // Lead Detail, Profile, My Team, Sales Exec Profile — anything not in
+  // TAB_ROUTES) hides the mobile tab bar entirely below 1024px, replaced by
+  // each page's own sticky action bar or nothing (see vipsar-theme.css's
+  // .vip-drilled rules) — the ≥1024px sidebar is unaffected either way.
+  const isDrilled = !TAB_ROUTES.has(location.pathname)
 
   return (
-    <div className={isHome ? 'vip-app vip-home' : 'vip-app'}>
+    <div className={isHome ? 'vip-app vip-home' : isDrilled ? 'vip-app vip-drilled' : 'vip-app'}>
       <AppNav />
       <div className="vip-body">{children}</div>
       <BottomNav />

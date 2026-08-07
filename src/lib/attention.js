@@ -167,9 +167,19 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
 // Shared "ageing" drill-down shape — used for each Needs Attention bucket
 // above and reused as-is by the KPI row's "Stale leads" tile (same bucket,
 // same builder, matching how the two surfaces show the same underlying
-// data). No verdict/narrative field — just the owner rollup and the row list
-// the compact card already summarized.
-export function buildAgeingPanel(bucket) {
+// data), and by Today's work queue (src/pages/Home.jsx) with `bucket`
+// already pre-filtered to just that employee's own leads. No verdict/
+// narrative field — just the owner rollup and the row list the compact card
+// already summarized. `scopeLabel` names whose leads `bucket` covers in the
+// eyebrow — 'Company' (Dashboard's company-wide buckets, the default) vs
+// 'You' (Today's personal queue, design_handoff_vipsar_mobile screen 9).
+// `viewerEmployeeId` is only used (and only needed) for the 'You' case — it
+// becomes the `employee_id` on a "Log call" swipe action's activities
+// insert, and `queueActions` (derived from scopeLabel, not a separate flag
+// callers have to remember to pass) gates whether AgeingBody renders the
+// swipe actions/bulk footer button at all, since bulk-editing leads that
+// aren't the viewer's own (Dashboard's company-wide buckets) isn't offered.
+export function buildAgeingPanel(bucket, scopeLabel = 'Company', viewerEmployeeId = null) {
   const owners = new Map()
   bucket.rows.forEach((row) => {
     const key = row.ownerId ?? 'unassigned'
@@ -185,10 +195,12 @@ export function buildAgeingPanel(bucket) {
 
   return {
     kind: 'ageing',
-    eyebrow: `Company · ${bucket.title.toLowerCase()}`,
+    eyebrow: `${scopeLabel} · ${bucket.title.toLowerCase()}`,
     title: bucket.title,
     value: String(bucket.count),
     note: bucket.note,
+    queueActions: scopeLabel !== 'Company',
+    viewerEmployeeId,
     stats: [
       { label: 'Value involved', value: formatCurrencyCompact(totalValue), sub: `across ${bucket.count} lead${bucket.count === 1 ? '' : 's'}`, color: '#b4232a' },
       { label: 'Oldest', value: ages.length ? `${ages[ages.length - 1]}d` : '—', sub: 'longest waiting', color: '#b4232a' },

@@ -93,7 +93,11 @@
   --vip-r-pill: 999px;
   --vip-app-max: 460px;   /* the app column never gets wider than a phone */
   --vip-header-h: 60px;
-  --vip-bottom-nav-h: 60px;
+  /* 82px on mobile (Mobile Shell handoff §Navigation) to fit the FAB's
+     poke-above-the-bar ring; the ≥1024px sidebar overrides its own
+     min-height back down to 44px per link (section 16), so this only ever
+     affects the phone tab bar + .vip-body's bottom padding allowance. */
+  --vip-bottom-nav-h: 82px;
   --vip-sidebar-w: 232px;   /* desktop-only left nav rail, see the ≥1024px block below */
   --vip-sidebar-w-collapsed: 68px;   /* icon-only rail, toggled via .vip-sidebar-collapsed */
   --vip-narrow-max: 700px;  /* desktop reading column — forms, single lists, detail pages */
@@ -251,18 +255,8 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-card-note { font-size: 11px; color: var(--vip-muted); }
 .vip-empty { font-size: 13px; color: var(--vip-faint); padding: 2px 0 4px; }
 
-.vip-home-head {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
-}
-
-/* groups the period selector with the mobile-only nametag (Home has no
-   AppNav header, so this is its only avatar entry point on a phone — see
-   BottomNav's sidebar-foot avatar for the desktop equivalent). min-width on
-   the greeting above forces this group onto its own wrapped line, right-
-   aligned via margin-left: auto, rather than squeezing the greeting to a
-   cramped 3-line wrap on a narrow phone. */
-.vip-home-head-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; margin-left: auto; }
-
+/* Today's greeting bar — see section 21 for .vip-today-head/.vip-sync-pill,
+   the Mobile Shell handoff's replacement for the old tile-based Home. */
 .vip-greeting {
   font-family: var(--vip-display); font-weight: 600; font-size: 20px; color: var(--vip-ink);
   flex: 1 1 auto; min-width: 200px;
@@ -943,6 +937,27 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-dd-age-value { font-size: 10px; color: var(--vip-faint); }
 .vip-dd-age-owner { flex: 0 0 100px; display: flex; align-items: center; gap: 6px; justify-content: flex-end; font-size: 11px; color: var(--vip-body); }
 
+/* Swipe-to-reveal row actions (Today's work-queue drill-down only, see
+   AgeingBody's `panel.queueActions` gate in DrilldownPanel.jsx) — a plain
+   ageing row (Dashboard's Needs Attention) stays exactly as above, an
+   unwrapped <Link>. Here the row sits in a clipped container with two fixed
+   78px action buttons positioned behind it; a touch/mouse drag translates
+   the row left to reveal them, tap-without-drag still navigates. */
+.vip-dd-age-swipe { position: relative; overflow: hidden; }
+.vip-dd-age-actions { position: absolute; inset: 0; display: flex; justify-content: flex-end; }
+.vip-dd-age-action {
+  width: 78px; flex: 0 0 78px; border: 0; color: #fff;
+  font-size: 12px; font-weight: 600; text-align: center; line-height: 1.3; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.vip-dd-age-action-call { background: var(--vip-teal); }
+.vip-dd-age-action-date { background: var(--vip-shell-2); }
+.vip-dd-age-row-swipe {
+  position: relative; z-index: 1; background: var(--vip-surface);
+  touch-action: pan-y;
+}
+.vip-dd-age-msg { font-size: 11px; color: var(--vip-muted); padding: 0 0 9px; }
+
 /* attain kind: pace bar + cumulative line + contribution rows */
 .vip-dd-pace-svg { width: 100%; height: 130px; }
 .vip-dd-pace-legend { display: flex; align-items: center; gap: 16px; font-size: 10px; color: var(--vip-muted); }
@@ -1020,9 +1035,12 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-dd-comp-card { flex: 1; min-width: 100px; padding: 12px 13px; border-radius: var(--vip-r-field); border: 1px solid var(--vip-line-soft); background: var(--vip-surface); display: flex; flex-direction: column; gap: 3px; }
 .vip-dd-comp-count { font-family: var(--vip-display); font-size: 20px; font-weight: 600; color: var(--vip-ink); line-height: 1; }
 
-/* KPI sparkline row (desktop-only, see .vip-only-desktop above) */
+/* Hairline metric grid — KPI sparkline row (Dashboard, now shown at every
+   width, see the KpiSparkRow usage below), Today's "My numbers" KPI block,
+   and Sales Exec Profile's 6 metric tiles all share this. 2-up on mobile,
+   widening to a single row (6-up) at ≥1024px in section 16's media query. */
 .vip-dd-kpi-grid {
-  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px;
   background: var(--vip-line); border: 1px solid var(--vip-line);
   border-radius: var(--vip-r-field); overflow: hidden;
 }
@@ -1036,6 +1054,9 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-dd-kpi-value-row { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
 .vip-dd-kpi-value { font-family: var(--vip-display); font-weight: 600; font-size: 23px; line-height: 1; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
 .vip-dd-kpi-delta { font-size: 11px; font-weight: 600; color: var(--vip-muted); }
+/* plain descriptive sub-line, for a tile with no delta/target to show
+   (Today's "My numbers" grid — see section 21) */
+.vip-dd-kpi-sub { font-size: 10.5px; color: var(--vip-faint); }
 .vip-dd-kpi-delta-up { color: var(--vip-won); }
 .vip-dd-kpi-delta-down { color: var(--vip-lost); }
 .vip-dd-kpi-spark { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
@@ -1087,6 +1108,10 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
   }
 
   .vip-dd-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  /* Placed here (after the base .vip-dd-kpi-grid rule in source order, not
+     section 16's earlier ≥1024px block) so this override actually wins the
+     cascade — same specificity, later rule wins. */
+  .vip-dd-kpi-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
 
 /* ---------- 18. Profile pages (Sales Exec Profile + redesigned Lead Profile)
@@ -1257,4 +1282,250 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 }
 .vip-filter-chip:hover { border-color: var(--vip-line); }
 .vip-filter-chip-x { font-size: 13px; line-height: 1; color: var(--vip-muted); }
+
+/* ---------- 21. Mobile shell v2 — 4 tabs + FAB, sheets, Today, work queue,
+   collapsible sections (design_handoff_vipsar_mobile). Below 1024px only —
+   the ≥1024px sidebar (section 16) is untouched by every rule in this
+   section; each one either targets a class that doesn't exist in the
+   desktop sidebar markup, or is explicitly re-hidden inside section 16's
+   own media query. */
+
+/* Today/Search/Dashboard/Leads tabs stay full desktop-sidebar links too
+   (BottomNav.jsx renders one Home/Search + duplicate mobile-only Leads/
+   Dashboard tabs so the sidebar's existing DOM order needs no changes) —
+   these two only ever exist to be seen on a phone. */
+.vip-bottom-nav a.vip-mobile-tab { text-decoration: none; }
+
+.vip-fab-slot { display: none; }
+
+@media (max-width: 1023.98px) {
+  /* A reserved 76px gap between the Leads and Dashboard tabs (README's nav
+     diagram) — without this, 4 equal flex:1 tabs put each tab's icon+label
+     at 1/8, 3/8, 5/8, 7/8 of the bar width, not at the tabs' shared edges,
+     so an absolutely-centered FAB clipped straight through the Dashboard
+     tab's label. Reserving this slot's own width, and centering the FAB
+     within *it* (not the whole bar), fixes that regardless of bar width. */
+  .vip-fab-slot {
+    display: flex; flex: 0 0 76px; position: relative;
+  }
+  .vip-fab {
+    display: flex; align-items: center; justify-content: center;
+    position: absolute; left: 50%; bottom: 36px; transform: translateX(-50%);
+    width: 60px; height: 60px; border-radius: 50%;
+    border: 0; background: var(--vip-teal); color: #fff; cursor: pointer;
+    box-shadow: 0 8px 20px rgba(15, 107, 107, .42), 0 0 0 5px var(--vip-shell);
+    z-index: 21;
+  }
+  .vip-fab-icon { width: 26px; height: 26px; }
+}
+
+/* --- FAB sheet (New lead / Log activity) --- */
+.vip-sheet-backdrop {
+  position: fixed; inset: 0; background: rgba(16, 22, 23, .5); z-index: 50;
+}
+.vip-sheet {
+  position: fixed; left: 50%; bottom: 0; transform: translateX(-50%);
+  width: 100%; max-width: var(--vip-app-max); z-index: 51;
+  background: var(--vip-surface); border-radius: 22px 22px 0 0;
+  box-shadow: 0 -20px 50px rgba(16, 22, 23, .28);
+  padding: 12px 16px calc(30px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 14px;
+}
+.vip-sheet-handle {
+  width: 38px; height: 4px; border-radius: var(--vip-r-pill);
+  background: var(--vip-line); margin: 0 auto;
+}
+.vip-sheet-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 15px 16px; border-radius: 14px;
+  text-decoration: none; cursor: pointer; border: 1px solid var(--vip-line);
+  background: var(--vip-surface);
+}
+.vip-sheet-row:hover { text-decoration: none; border-color: var(--vip-teal); }
+.vip-sheet-row-primary { background: var(--vip-teal); border-color: var(--vip-teal); }
+.vip-sheet-icon {
+  width: 42px; height: 42px; flex: 0 0 42px; border-radius: 12px;
+  display: grid; place-items: center; background: var(--vip-canvas); color: var(--vip-teal);
+}
+.vip-sheet-row-primary .vip-sheet-icon { background: rgba(255, 255, 255, .15); color: #fff; }
+.vip-sheet-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.vip-sheet-title { font-size: 16px; font-weight: 600; color: var(--vip-ink); }
+.vip-sheet-row-primary .vip-sheet-title { color: #fff; }
+.vip-sheet-sub { font-size: 12px; color: var(--vip-faint); }
+.vip-sheet-row-primary .vip-sheet-sub { color: var(--vip-teal-on-dark); }
+.vip-sheet-foot { text-align: center; font-size: 11.5px; color: var(--vip-faint); line-height: 1.5; }
+
+@media (min-width: 1024px) {
+  .vip-bottom-nav a.vip-mobile-tab, .vip-fab-slot { display: none; }
+}
+
+/* --- Today (Home.jsx) --- */
+.vip-today-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--vip-line);
+  margin-bottom: 2px;
+}
+.vip-today-date { font-size: 12px; color: var(--vip-muted); margin-top: 2px; }
+.vip-today-head-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.vip-sync-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 11px; border-radius: var(--vip-r-pill);
+  background: var(--vip-surface); border: 1px solid var(--vip-line);
+  font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--vip-body); white-space: nowrap;
+}
+.vip-sync-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--vip-won); }
+.vip-sync-pill-offline { border-color: #f0e2b8; }
+.vip-sync-pill-offline .vip-sync-dot { background: var(--vip-amber); }
+
+/* --- Work queue (Today) --- */
+.vip-queue-card { padding: 2px 15px; }
+.vip-queue-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  border: 0; background: none; padding: 14px 0; cursor: pointer; text-align: left;
+  border-top: 1px solid var(--vip-line-soft); font-family: inherit;
+}
+.vip-queue-row:first-of-type { border-top: 0; }
+.vip-queue-bar { width: 3px; align-self: stretch; border-radius: 2px; flex: 0 0 3px; min-height: 32px; }
+.vip-queue-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.vip-queue-title { font-size: 14px; font-weight: 600; color: var(--vip-ink); }
+.vip-queue-sub {
+  font-size: 11px; color: var(--vip-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vip-queue-count-num { font-family: var(--vip-display); font-size: 20px; font-weight: 600; color: var(--vip-ink); flex: 0 0 auto; }
+.vip-queue-chevron { font-size: 17px; color: var(--vip-faint); flex: 0 0 auto; }
+
+/* --- Disclosure row (New Lead's collapsed "other party" field) --- */
+.vip-disclosure-row {
+  min-height: 52px; width: 100%; padding: 0 14px;
+  border: 1px dashed var(--vip-line); border-radius: var(--vip-r-card);
+  background: var(--vip-surface); cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font: 600 14px var(--vip-sans); color: var(--vip-ink);
+}
+.vip-disclosure-hint { font-size: 12px; font-weight: 400; color: var(--vip-faint); }
+
+/* --- Radio-style row (Log Activity's "recent leads" picker) --- */
+.vip-radio-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 13px 0; border: 0; border-top: 1px solid var(--vip-line-soft);
+  background: none; cursor: pointer; text-align: left; font-family: inherit;
+}
+.vip-radio-row:first-of-type { border-top: 0; }
+.vip-radio-dot {
+  width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%;
+  border: 2px solid var(--vip-line); position: relative;
+}
+.vip-radio-dot.vip-active { border-color: var(--vip-teal); }
+.vip-radio-dot.vip-active::after {
+  content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--vip-teal);
+}
+
+/* --- Lead Detail's collapsed sections (mobile) --- */
+.vip-detail-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%;
+  padding: 13px 0; border: 0; border-top: 1px solid var(--vip-line-soft);
+  background: none; cursor: pointer; text-align: left; font-family: inherit;
+}
+.vip-detail-row:first-of-type { border-top: 0; }
+.vip-detail-row-title { font-size: 14px; font-weight: 600; color: var(--vip-ink); flex: 0 0 auto; }
+.vip-detail-row-summary {
+  font-size: 11.5px; color: var(--vip-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Lead Detail's sticky bottom action bar (mobile) — Log activity/Call client
+   share the row, the ⇄ quick-actions button is fixed-width alongside them. */
+.vip-lead-actionbar { display: flex; gap: 8px; align-items: stretch; }
+.vip-lead-actionbar .vip-btn { flex: 1; width: auto; }
+.vip-lead-actionbar-toggle {
+  flex: 0 0 48px; width: 48px; border-radius: var(--vip-r-card);
+  border: 1px solid var(--vip-field-line); background: var(--vip-surface); color: var(--vip-teal);
+  font-size: 18px; cursor: pointer; display: grid; place-items: center;
+}
+
+/* --- Leads grouped by stage (mobile default, LeadsListCard.jsx) — full-
+   bleed rows breaking out of .vip-body's 16px gutter via negative margin,
+   unlike every other card on this screen. Desktop keeps the existing flat
+   .vip-row list inside .vip-card, unchanged (see .vip-only-desktop there). */
+@media (max-width: 1023.98px) {
+  .vip-lead-groups { margin: 0 -16px; }
+}
+.vip-lead-group-head {
+  position: sticky; top: var(--vip-header-h); z-index: 2;
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 16px;
+  background: var(--vip-canvas-2);
+  border-top: 1px solid var(--vip-line); border-bottom: 1px solid var(--vip-line);
+}
+.vip-lead-group-swatch { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 8px; }
+.vip-lead-group-name { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--vip-ink); }
+.vip-lead-group-count { font-size: 12px; color: var(--vip-muted); }
+.vip-lead-group-value { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
+
+.vip-lead-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 13px 16px; background: var(--vip-surface); border-bottom: 1px solid var(--vip-line-soft);
+  text-decoration: none; cursor: pointer;
+}
+.vip-lead-row:hover { text-decoration: none; }
+.vip-lead-row-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vip-lead-row-party {
+  font-size: 14.5px; font-weight: 600; color: var(--vip-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vip-lead-row-sub {
+  font-size: 11.5px; color: var(--vip-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vip-lead-row-side { flex: 0 0 auto; text-align: right; }
+.vip-lead-row-value { font-size: 13px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
+.vip-lead-row-recency { font-size: 11px; color: var(--vip-faint); }
+.vip-lead-row-recency.vip-stale { color: var(--vip-lost); }
+
+/* Search's Parties/Leads/Sites switch is mobile-only — desktop stacks all
+   three sections (unchanged); this class just hides a non-active section
+   below 1024px, no rule outside the query so desktop is never affected. */
+@media (max-width: 1023.98px) {
+  .vip-search-hide-mobile { display: none; }
+}
+
+/* --- Offline note under a sticky submit button (New Lead) --- */
+.vip-offline-note {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: 12px; color: var(--vip-amber);
+}
+.vip-offline-note-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--vip-amber); flex: 0 0 auto; }
+
+/* --- Drilled-into screens hide the mobile tab bar (ProtectedRoute.jsx's
+   .vip-drilled, driven by TAB_ROUTES) — replaced by each page's own sticky
+   footer/action bar (.vip-sticky-footer below) or nothing. ≥1024px is
+   untouched: the sidebar always shows, on every route, unchanged. */
+@media (max-width: 1023.98px) {
+  .vip-drilled .vip-bottom-nav { display: none; }
+  .vip-drilled .vip-body {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 20px);
+  }
+}
+
+/* Sticky submit/action bar replacing a drilled-into screen's bottom tab bar
+   (New Lead's Save button, Log Activity's Log-it button, Lead Detail's
+   action bar) — a normal static block at desktop (where the tab bar was
+   never hidden and there's no need to pin anything), fixed to the viewport
+   bottom only below 1024px. */
+.vip-sticky-footer {
+  display: flex; flex-direction: column; gap: 8px;
+}
+@media (max-width: 1023.98px) {
+  .vip-sticky-footer {
+    position: fixed; left: 50%; bottom: 0; transform: translateX(-50%);
+    width: 100%; max-width: var(--vip-app-max); z-index: 15;
+    background: var(--vip-surface); border-top: 1px solid var(--vip-line);
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  }
+  /* Scrollable content behind a sticky footer needs its own clearance so
+     the footer doesn't permanently cover the last field/row. */
+  .vip-pad-sticky-footer { padding-bottom: 88px; }
+}
 

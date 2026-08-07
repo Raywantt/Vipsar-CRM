@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchTeamMembers } from '../lib/employeeQueries'
-import { fetchLeadsForBreakdown } from '../lib/dashboardQueries'
+import { fetchLeadsForBreakdown, fetchLastActivityPerLead } from '../lib/dashboardQueries'
+import { computeAttentionBuckets } from '../lib/attention'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
+
+const BAD = '#b4232a'
+const OK = '#7a6413'
 
 // Only sales_executive exists today (fetchTeamMembers already excludes
 // owner rows) — kept as a map, not a hardcoded label, so a future role
@@ -15,6 +19,7 @@ const ROLE_LABELS = {
 function MyTeam() {
   const [employees, setEmployees] = useState([])
   const [leads, setLeads] = useState([])
+  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [roleFilter, setRoleFilter] = useState('')
@@ -22,16 +27,24 @@ function MyTeam() {
 
   useEffect(() => {
     let active = true
-    Promise.all([fetchTeamMembers(), fetchLeadsForBreakdown()]).then(([teamRes, leadsRes]) => {
-      if (!active) return
-      setLoading(false)
-      if (teamRes.error) {
-        setError(teamRes.error.message)
-        return
+    Promise.all([fetchTeamMembers(), fetchLeadsForBreakdown(), fetchLastActivityPerLead()]).then(
+      ([teamRes, leadsRes, activityRes]) => {
+        if (!active) return
+        setLoading(false)
+        if (teamRes.error) {
+          setError(teamRes.error.message)
+          return
+        }
+        setEmployees(teamRes.data ?? [])
+        setLeads(leadsRes.data ?? [])
+        const map = new Map()
+        ;(activityRes.data ?? []).forEach((row) => {
+          const existing = map.get(row.lead_id)
+          if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
+        })
+        setLastActivityByLead(map)
       }
-      setEmployees(teamRes.data ?? [])
-      setLeads(leadsRes.data ?? [])
-    })
+    )
     return () => {
       active = false
     }
@@ -52,6 +65,20 @@ function MyTeam() {
     })
     return map
   }, [leads])
+
+  // Needs-attention count per employee — sum of all 5 attention.js buckets
+  // (stale/silent quotes/overdue follow-ups/slipped close/pending RFQ) for
+  // that employee's own leads, the same holistic total the Dashboard's own
+  // Needs Attention card badge shows, just scoped to one exec at a time.
+  const attentionByEmployee = useMemo(() => {
+    const map = new Map()
+    employees.forEach((emp) => {
+      const empLeads = leads.filter((l) => l.owner_employee_id === emp.id)
+      const buckets = computeAttentionBuckets(empLeads, lastActivityByLead)
+      map.set(emp.id, buckets.reduce((s, b) => s + b.count, 0))
+    })
+    return map
+  }, [employees, leads, lastActivityByLead])
 
   const roles = useMemo(() => [...new Set(employees.map((e) => e.role))].sort(), [employees])
 
@@ -111,6 +138,7 @@ function MyTeam() {
         <div className="vip-team-grid">
           {filtered.map((emp) => {
             const stats = statsByEmployee.get(emp.id)
+            const needsAttn = attentionByEmployee.get(emp.id) ?? 0
             return (
               <Link key={emp.id} to={`/employees/${emp.id}`} className="vip-team-card">
                 <div className="vip-team-card-top">
@@ -139,6 +167,12 @@ function MyTeam() {
                   <div className="vip-team-stat">
                     <span className="vip-team-stat-label">Open pipeline</span>
                     <span className="vip-team-stat-value">{formatCurrencyCompact(stats?.value ?? 0)}</span>
+                  </div>
+                  <div className="vip-team-stat">
+                    <span className="vip-team-stat-label">Needs attn.</span>
+                    <span className="vip-team-stat-value" style={{ color: needsAttn >= 5 ? BAD : OK }}>
+                      {needsAttn}
+                    </span>
                   </div>
                 </div>
               </Link>

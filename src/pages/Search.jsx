@@ -53,6 +53,9 @@ function Search() {
   const [leadsByParty, setLeadsByParty] = useState([])
   const [typeFilter, setTypeFilter] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
+  // Mobile-only — desktop always stacks all three sections (see
+  // .vip-search-hide-mobile, only active below 1024px).
+  const [mobileTab, setMobileTab] = useState('parties')
 
   useEffect(() => {
     let active = true
@@ -139,10 +142,27 @@ function Search() {
         autoFocus
       />
 
+      <div className="vip-seg vip-only-mobile" role="group" aria-label="Result type">
+        {[
+          { value: 'parties', label: 'Parties' },
+          { value: 'leads', label: 'Leads' },
+          { value: 'sites', label: 'Sites' },
+        ].map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            className={mobileTab === opt.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+            onClick={() => setMobileTab(opt.value)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       {hasQuery && searching && <p className="vip-empty">Searching leads &amp; sites…</p>}
 
       {hasQuery && results.leads.length > 0 && (
-        <div className="vip-card">
+        <div className={mobileTab === 'leads' ? 'vip-card' : 'vip-card vip-search-hide-mobile'}>
           <div className="vip-card-title">Leads · {results.leads.length}</div>
           {results.leads.map((lead) => (
             <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
@@ -155,7 +175,7 @@ function Search() {
         </div>
       )}
 
-      <div className="vip-card">
+      <div className={mobileTab === 'parties' ? 'vip-card' : 'vip-card vip-search-hide-mobile'}>
         <div className="vip-card-title">Parties</div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -260,7 +280,7 @@ function Search() {
       </div>
 
       {hasQuery && results.sites.length > 0 && (
-        <div className="vip-card">
+        <div className={mobileTab === 'sites' ? 'vip-card' : 'vip-card vip-search-hide-mobile'}>
           <div className="vip-card-title">Sites · {results.sites.length}</div>
           {results.sites.map((site) => (
             <div key={site.id} className="vip-row">

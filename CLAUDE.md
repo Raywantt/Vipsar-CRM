@@ -39,9 +39,11 @@ needs before touching anything:
 - Deliberately **not built yet** — these need their own discussion first,
   don't add them as a side effect of unrelated work: a
   **`plans`-table screen** (the table has full RLS wired up and zero UI
-  anywhere in `src/`), **further role-differentiated Home content** beyond
-  today's Activity Log tile split (`HOME_TILES` is role-keyed and ready for
-  more of this), and **a screen listing past activities** (`ActivityLog`
+  anywhere in `src/`), **further role-differentiated Home/Today content**
+  (the old role-keyed `HOME_TILES`/`src/lib/homeTiles.js` tile-grid pattern
+  is gone — see the Mobile redesign section's Today bullet — so a future
+  role would need its own new mechanism, not an entry in a map that no
+  longer exists), and **a screen listing past activities** (`ActivityLog`
   only logs new ones; nothing browses old ones outside a lead's own
   timeline or a Sales Exec Profile's Activity log section). **Followups**
   *is* now built — real personal + owner-assigned reminders with actual
@@ -70,20 +72,20 @@ needs before touching anything:
   rushed edits to that already-shipped file.
 - **Dashboard v2** (Needs Attention + a universal drill-down panel reused
   across every metric — see the Dashboard section and its Design-system
-  bullet) is desktop-first: the KPI sparkline row, exec heatmap, and source
-  donut only render at ≥1024px, and **All Leads currently has no mobile
-  entry point at all** (the in-page tab row that used to carry it on a
-  phone is gone; its sidebar-link replacement is desktop-only) — known,
-  deliberately deferred, not an oversight. Don't "fix" the mobile gap as a
-  side effect of unrelated work; it needs its own discussion (see the
-  `BottomNav` paragraph in Structure below for the current state).
+  bullet) originally shipped desktop-first (KPI sparkline row/exec heatmap/
+  source donut ≥1024px-only, All Leads with no mobile entry point at all) —
+  the Mobile redesign pass below closed the All Leads gap (a real `Leads`
+  tab now exists on the 4-tab mobile bar) and unhid `KpiSparkRow` at every
+  width; the exec heatmap/source donut are still desktop-only by design
+  (an owner-facing team comparison view, not meant for a phone).
 - **My Team** (`/team`, owner-only — see its own section below) is a card-
   grid directory of the owner's non-owner employees (today, just
   `sales_executive`), with a name search and a role filter, each card
-  linking to that employee's Sales Exec Profile. Unlike All Leads above, it
-  has a real mobile entry point (a `HOME_TILES` tile), not just a desktop
-  `.vip-nav-extra` sidebar link — see the Structure section's `BottomNav`
-  paragraph.
+  linking to that employee's Sales Exec Profile. Its mobile entry point
+  used to be a `HOME_TILES` tile on Home; since the Mobile redesign removed
+  that tile grid entirely, it's now a `.vip-tile` row at the top of
+  Dashboard instead (owner-only, mobile-only — see the Mobile redesign
+  section's Dashboard bullet) — still a real mobile path, just relocated.
 - **Search absorbed the old Parties tab.** Dashboard's `?tab=parties` view
   (`PartiesCard.jsx`, desktop-sidebar-only) and the global `Search` screen
   used to be two separate, confusingly overlapping "find a party" UIs with
@@ -142,23 +144,28 @@ src/
                 DashboardHeatmap, DonutChart, DrilldownPanel,
                 AddEmployeeForm, ManageEmployeesSection,
                 DeletePartySection, ChangePasswordForm, InstallPrompt,
-                NotificationPrompt, OfflineIndicator, FollowUpForm, FollowUpList)
-  pages/        top-level views (Login, Home, Profile, Search, Dashboard,
+                NotificationPrompt, OfflineIndicator, FollowUpForm, FollowUpList,
+                FabSheet — the mobile shell's FAB bottom sheet, see the
+                Mobile redesign section)
+  pages/        top-level views (Login, Home [renders Today, see the Mobile
+                redesign section], Profile, Search, Dashboard,
                 LeadQuickCapture, LeadDetail, EmployeeProfile, MyTeam,
                 ActivityLog, ...)
   contexts/     AuthContext — session + employee (id/name/mobile/role) lookup;
                 HeaderContext — lets Lead Detail/Sales Exec Profile/Dashboard
-                push a dynamic sub into AppNav's header (see Design system
-                below)
-  hooks/        custom React hooks
+                push a dynamic {title, sub} override into AppNav's header
+                (see Design system below)
+  hooks/        custom React hooks (useOnlineStatus.js — added for the
+                Mobile redesign's SYNCED/OFFLINE pill + offline notes)
   lib/          integrations & utilities (supabaseClient.js, sanitizeForIlike.js,
                 siteStageOptions.js, leadStageOptions.js, lossReasonOptions.js,
                 statusColors.js, activityTypes.js, sourceTypeOptions.js,
                 dateRanges.js, dashboardQueries.js, searchQueries.js, format.js,
                 targetMetrics.js, targetPeriods.js, targetQueries.js,
                 partyQueries.js, employeeQueries.js, leadOwnerHistory.js,
-                homeTiles.js, attention.js, drilldownBuilders.js,
-                followUpQueries.js, followupDates.js, pushSubscription.js)
+                tabRoutes.js, attention.js, drilldownBuilders.js,
+                followUpQueries.js, followupDates.js, pushSubscription.js —
+                `homeTiles.js` is deleted, see the Mobile redesign section)
   assets/       images, icons, etc.
   vipsar-theme.css   the app's one design-system stylesheet — see Design
                 system below
@@ -201,16 +208,16 @@ Home section below).
 **`BottomNav` is the one place for primary navigation in this app — don't
 add nav links back to `AppNav`.** At ≥1024px `BottomNav` becomes the
 sidebar and also carries `.vip-nav-extra` links a phone doesn't show,
-including **All Leads** and (owner-only) **My Team** (see the Desktop
-layout bullet below) — All Leads currently has **no mobile entry point at
-all** (dropped along with Dashboard's old in-page tab row, see the
-Dashboard section); that's a known, deliberately deferred gap, not an
-oversight. Parties used to be a third `.vip-nav-extra` link here with the
-same gap — it's gone now, folded into `Search` (a `BottomNav` tab reachable
-on every device already), see "Current state" above and the Search section
-below. My Team doesn't share the All Leads gap — it also has a
-`HOME_TILES` entry for the owner, so it's reachable on a phone too, same as
-New Lead/Dashboard. `AppNav` is a per-route header (title/sub/back button/avatar),
+including **New Lead**, **Activity Log**, **All Leads**, and (owner-only)
+**My Team** (see the Desktop layout bullet below) — these all have their
+own separate mobile-reachable paths instead (the 4-tab bar + FAB for New
+Lead/Activity Log/Dashboard/Leads, a Dashboard-page tile for My Team — see
+the Mobile redesign section for the current shape of all of this; the old
+"All Leads/My Team have no mobile path" gaps this paragraph used to
+describe are closed). Parties used to be a third `.vip-nav-extra` link
+here with the same kind of gap — it's gone now, folded into `Search` (a
+`BottomNav` tab reachable on every device already), see "Current state"
+above and the Search section below. `AppNav` is a per-route header (title/sub/back button/avatar),
 not a nav bar — see Design system. Sized off `vipsar-theme.css`'s
 `--vip-header-h`/`--vip-bottom-nav-h` and `env(safe-area-inset-bottom)`
 (needs `viewport-fit=cover` on `index.html`'s viewport meta) so the bottom
@@ -267,9 +274,13 @@ approximation of it.** Concretely:
   app shell (see PWA installability below). `vite.config.js`'s
   `workbox.globPatterns` includes `woff2` for this.
 * **Header** (`AppNav.jsx`) — a per-route title + sub (a small
-  `ROUTE_HEADERS` lookup, same spirit as `HOME_TILES`), a back button
-  (`vip-iconbtn`) on every route except `BottomNav`'s two tabs (Home,
-  Search — `/profile` deliberately isn't a tab route either, so it keeps
+  `ROUTE_HEADERS` lookup), a back button
+  (`vip-iconbtn`) on every route except `src/lib/tabRoutes.js`'s
+  `TAB_ROUTES` (`/`, `/search`, `/dashboard` — the Mobile redesign's 4-tab
+  bar's routes, see that section; the same set also drives
+  `ProtectedRoute.jsx`'s `.vip-drilled` class, which hides the whole mobile
+  tab bar on every other route
+  — `/profile` deliberately isn't one of these either, so it keeps
   its back button, see the Structure section above), and an avatar
   (initials from `employee.name`, via `getInitials` — see the Profile
   section for the exact first+surname rule) that's now a `Link` to
@@ -349,16 +360,17 @@ approximation of it.** Concretely:
   sidebar links while already on `/dashboard` changes the query string
   without remounting the page — an initializer would only ever see the
   first value.
-* **Desktop layout (≥1024px)** — below 1024px this app is pixel-identical to
-  before; nothing here changes mobile. At ≥1024px, `BottomNav.jsx` becomes a
-  persistent left sidebar (`--vip-sidebar-w`, 232px): the same Home/Search
-  links plus five `.vip-nav-extra` ones (New Lead, Activity
-  Log, Dashboard, All Leads, and — owner-only — My Team) — New
-  Lead/Activity Log/Dashboard/My Team are reachable on a phone via Home's
-  tiles instead, but **All Leads currently has no mobile path at all** (see
-  the Structure section's `BottomNav` paragraph above; Parties used to be a
-  sixth link with the same gap, now gone — folded into Search, which has no
-  such gap), a brand block
+* **Desktop layout (≥1024px)** — this bullet describes ≥1024px only and is
+  unaffected by anything in the Mobile redesign section further down (that
+  pass only ever touches `@media (max-width: 1023.98px)` rules or the
+  `.vip-only-mobile` side of a paired class, never this breakpoint). At
+  ≥1024px, `BottomNav.jsx` becomes a persistent left sidebar
+  (`--vip-sidebar-w`, 232px): the same Home/Search links plus five
+  `.vip-nav-extra` ones (New Lead, Activity Log, Dashboard, All Leads, and
+  — owner-only — My Team) — all five have their own separate mobile paths
+  too now (the 4-tab bar + FAB, plus a Dashboard-page tile for My Team —
+  see the Mobile redesign section, not Home's tiles, which no longer
+  exist), a brand block
   (`.vip-sidebar-brand`) up top, and the employee's name/role pinned at the
   bottom (`.vip-sidebar-foot`, now a `Link` to `/profile` — see the Structure
   section above) — all hidden on mobile via CSS, not conditional
@@ -435,42 +447,27 @@ approximation of it.** Concretely:
   `buildAgeingPanel(staleBucket)`, and "Leads by stage (detail)" opens the
   identical panel Pipeline-by-stage's own "Details" link does.
 
-### Home (`src/pages/Home.jsx`)
+### Today (`src/pages/Home.jsx`)
 
-`/` is the landing page after login for both roles — a time-of-day greeting
-("Good morning/afternoon/evening, {first name}", falling back to "Hello"
-late at night — `greetingForHour` in `Home.jsx`), a KPI grid (open
-leads/pipeline/visits this week/won this month, see Design system above),
-tappable shortcut tiles, and a "Closing next" card (top 4 rows from the
-same closure-forecast query the Dashboard card uses). Home is the one route
+`/` is the landing page after login for both roles, still the one route
 `AppNav` renders nothing for (`AppNav.jsx` returns `null` when
-`pathname === '/'`) — the greeting is the page's own heading instead of a
-"Today / date · name" bar, so the screen starts flush at the top
-(`.vip-home .vip-body` in `vipsar-theme.css` swaps the fixed-header
-padding-top allowance for a small safe-area-aware one instead). Every other
-route keeps its normal `AppNav` header. Tiles come from a
-role-keyed config, `HOME_TILES` in `src/lib/homeTiles.js` (currently New
-Lead/Dashboard/All Leads for both roles, plus Activity Log for
-`sales_executive` only and My Team for `owner` only — owners don't log
-field activity, sales execs have no team to browse, see the ActivityLog and
-My Team sections below), rather than inline `isOwner`-style JSX branching
-like every other role-aware page
-in this app uses — deliberate groundwork: more roles are planned later,
-each potentially with a home screen that looks substantially different,
-and a role-keyed data map means adding one is a new entry in `HOME_TILES`,
-not a rewrite of `Home.jsx`.
-
-Home is also the one route with no `AppNav` header, so it's the one place
-in the app that needs its own avatar/nametag markup rather than inheriting
-it — a mobile-only (`vip-only-mobile`) `Link` to `/profile` sits top-right
-of the greeting row (`.vip-home-head-actions`, grouped with the KPI period
-selector so both stay right-aligned together). `.vip-home-head` wraps
-(`flex-wrap: wrap`) and `.vip-greeting` carries a `min-width: 200px` so a
-longer greeting forces the period-selector+avatar group onto its own
-right-aligned line below, instead of squeezing the greeting text down to
-an ugly 3-line wrap on a narrow phone — confirmed live at 375px width. At
-≥1024px this avatar hides (the sidebar's own avatar, bottom-left, already
-covers Home there — see the Profile section below).
+`pathname === '/'`) — a greeting bar (`.vip-today-head`: time-of-day
+greeting via `greetingForTime`, falling back to "Hello" late at night, plus
+a SYNCED/OFFLINE `.vip-sync-pill` from `useOnlineStatus()` and an avatar
+`Link` to `/profile`) is the page's own heading, so the screen starts flush
+at the top (`.vip-home .vip-body` swaps the fixed-header padding-top
+allowance for a small safe-area-aware one instead). Rebuilt in the Mobile
+redesign pass (see that section for the full breakdown — greeting bar/KPI
+grid/target bar/work queue/reminders/closing-next) from a tile-based
+shortcut screen into the current form; `src/lib/homeTiles.js`/`HOME_TILES`
+(the old role-keyed tile config) is deleted, not just unused — read the
+Mobile redesign section before assuming a "Home tile" mechanism still
+exists anywhere. The KPI grid renders twice — `.vip-only-mobile` (hairline
+`.vip-dd-kpi-grid`) and `.vip-only-desktop` (the older separated
+`.vip-kpi-grid` cards) — both driven by the same `KPI_TILES` data array so
+the two markups can't drift on values; every other block on this page
+(target bar, work queue, reminders, closing next) is unchanged between
+mobile and desktop, just narrower inside `.vip-wide`'s desktop cap.
 
 ### Search-before-create components
 
@@ -500,6 +497,11 @@ HTML.
 Reuse these for any future party/site picker — don't write another search input.
 
 ### Search (`src/pages/Search.jsx`)
+
+Mobile-only addition from the Mobile redesign pass, not described below:
+below 1024px a `.vip-seg` Parties/Leads/Sites switch shows one section at a
+time (`.vip-search-hide-mobile`) — desktop still stacks all three exactly
+as this section describes. See the Mobile redesign section for the class.
 
 Global search, reachable via `BottomNav`'s **Search** tab, both roles — and
 now the *one* place in the app to find or browse a party, since the old
@@ -561,6 +563,11 @@ an intake screen).
 
 ### LeadQuickCapture (`src/pages/LeadQuickCapture.jsx`)
 
+Field order below is desktop's; the Mobile redesign pass reordered it
+(source first, "other party" collapsed behind a disclosure) and added a
+sticky Save-lead footer with an offline note — see that section, not
+described again here.
+
 The sales_executive landing screen at `/leads/new` — deliberately not a
 structured form: three optional fields (Client name, Site nickname,
 Other's name) plus a required Scanning/Lixil/Referral tap-select (three
@@ -598,6 +605,12 @@ deliberately — an owner can personally log leads, not a testing workaround.
   id, but nothing auto-cleans up).
 
 ### LeadDetail (`src/pages/LeadDetail.jsx`) — the Lead Profile
+
+Everything below is desktop's layout, unchanged. Below 1024px the four
+edit sections (Sales progress/Site details/Client details/Contacts)
+collapse into tap-to-expand summary rows and the quick-actions/Log-activity/
+Call-client controls move into a sticky bottom bar — see the Mobile
+redesign section, not repeated here.
 
 `/leads/:id`, reachable from every place in the app a lead or a client
 appears — a client and their lead are treated as the same record in this
@@ -757,16 +770,20 @@ Dashboard heatmap's cell drill-down already uses).
 
 ### My Team (`src/pages/MyTeam.jsx`)
 
+The Mobile redesign pass added a third `.vip-team-stats` cell, **Needs
+attn.** (sum of that employee's `computeAttentionBuckets` counts) — see
+that section, not described again here.
+
 `/team`, **owner-only** (`ProtectedRoute allowedRoles={['owner']}` in
 `App.jsx` — a sales exec hitting this URL directly gets redirected to `/`,
-same as any other role mismatch; there's also no nav link or `HOME_TILES`
-entry pointing here for that role, so it's never surfaced to them). A card-
+same as any other role mismatch; there's also no nav link pointing here for
+that role, so it's never surfaced to them). A card-
 grid directory of the owner's team, reachable from `BottomNav`'s desktop
 sidebar (a `.vip-nav-extra` link, with its own icon — `IconTeam` in
 `NavIcons.jsx`, a deliberately distinct 3-person glyph so it doesn't read
-as some other contacts/list destination in the sidebar) and, unlike All
-Leads, from a real `HOME_TILES` entry too, so the owner can reach it on a
-phone.
+as some other contacts/list destination in the sidebar) and, on mobile,
+from a `.vip-tile` row at the top of `Dashboard.jsx` (see the Mobile
+redesign section) so the owner can reach it on a phone too.
 
 * **Data** — `fetchTeamMembers()` (`src/lib/employeeQueries.js`) selects
   every employee row with `role != 'owner'` — "my team" is defined as the
@@ -922,9 +939,14 @@ but the live end-to-end push send needs a real phone once this ships.
 
 ### ActivityLog (`src/pages/ActivityLog.jsx`)
 
+The Mobile redesign pass changed the anchor-picking step below (a
+`RecentLeadsPicker` radio list by default, "Search all" falls back to
+`LeadSearchSelect`) and added a sticky "Log it" footer — see that section.
+
 DPR replacement at `/activity`, **sales_executive-only** (`ProtectedRoute`
-in `App.jsx`, plus the Home tile and sidebar nav link are both omitted for
-`owner` in `homeTiles.js`/`BottomNav.jsx`) — owners don't do field work
+in `App.jsx`, plus the FAB sheet and sidebar nav link are both omitted for
+`owner` — see the Mobile redesign section and `BottomNav.jsx`) — owners
+don't do field work
 themselves, so logging a site visit/call/RFQ/etc. isn't something they need;
 they still see every rep's logged activity through the Dashboard and a
 lead's own timeline. `LeadDetail`'s "Log activity" button is hidden for
@@ -970,6 +992,15 @@ found." `PartySearchOrCreate` has an `allowCreate` prop (default `true`)
 for this screen's selection-only use.
 
 ### Dashboard (`src/pages/Dashboard.jsx`)
+
+The Mobile redesign pass unhid `KpiSparkRow` at every width (see the KPI
+band bullet below — it no longer needs a separate mobile-only fallback
+grid), capped `NeedsAttentionCard` to 3 buckets + "+N more" below 1024px
+regardless of `wide`, added an owner-only mobile "My Team" tile at the top
+of this page (My Team's only mobile path now that Home's tile grid is
+gone), and gave `LeadsListCard`'s mobile view a grouped-by-stage layout (see
+its own bullet below). See the Mobile redesign section for all of this;
+not repeated inline below.
 
 Single page at `/dashboard`, reachable by both roles — no separate owner/
 sales-exec page. Role branching is just one derived boolean:
@@ -1343,6 +1374,11 @@ the tile grid at phone width.
 
 ### Profile (`src/pages/Profile.jsx`)
 
+The Mobile redesign pass hid the whole owner-only admin block below (Add
+employee/Manage employees/Delete a party) below 1024px — `.vip-only-desktop`
+now wraps it; identity facts/Notifications/Change password/Log out are
+unchanged at every width. See that section.
+
 `/profile`, both roles — the merged replacement for what used to be two
 separate screens, `Account` (`/account`) and owner-only `Settings`
 (`/settings`). There's no tab or sidebar link for it (unlike the old
@@ -1443,6 +1479,142 @@ the live dev database's test data or credentials for no verification
 benefit beyond what the error-path testing above already proved) — same
 category of "reasoned through, not independently re-run" as the second
 `sales_executive` login check noted earlier in this doc.
+
+### Mobile redesign (`design_handoff_vipsar_mobile`)
+
+A second Claude Design handoff redesigned the below-1024px experience end to
+end for a sales exec working in the field — desktop is untouched throughout
+(every change here is gated by the `.vip-only-mobile`/`.vip-only-desktop`
+pattern section 17 already established, or CSS scoped to
+`@media (max-width: 1023.98px)`). No schema change, no new query — every
+value shown was already produced by an existing `src/lib/*Queries.js`
+function.
+
+* **Navigation** — the old "just Home + Search visible, everything else
+  desktop-sidebar-only" mobile bar is gone. `BottomNav.jsx` now renders 4
+  mobile tabs (**Today**/**Leads**/**Dashboard**/**Search** — Leads and
+  Dashboard are new `.vip-mobile-tab` links placed right after Home in the
+  DOM so they don't disturb the desktop sidebar's existing link order,
+  itself completely unchanged) plus a centre **FAB** (`.vip-fab-slot`/
+  `.vip-fab`, a reserved 76px gap between the Leads/Dashboard tabs, not an
+  absolutely-centred circle over 4 equal tabs — that clipped through the
+  Dashboard label the first time this was built) opening `FabSheet.jsx`, a
+  two-choice bottom sheet (New Lead / Log Activity — Log Activity omitted
+  for an owner, `/activity` is sales_executive-only). `src/lib/tabRoutes.js`
+  now holds the shared `TAB_ROUTES` set (`/`, `/search`, `/dashboard`) —
+  `AppNav.jsx` reads it for the back-button gate, `ProtectedRoute.jsx` reads
+  the same set to add a `.vip-drilled` class to `.vip-app` for every other
+  route. Below 1024px, `.vip-drilled` hides `BottomNav` entirely (New Lead,
+  Log Activity, Lead Detail, Profile, My Team, Sales Exec Profile) —
+  replaced by each page's own `.vip-sticky-footer` (a normal static block at
+  desktop, `position: fixed` above the safe-area only below 1024px) or
+  nothing. A page using `.vip-sticky-footer` gives its scrollable content
+  `.vip-pad-sticky-footer` (88px bottom padding, mobile-only) so the footer
+  doesn't permanently cover the last field.
+* **Today replaces Home** (`src/pages/Home.jsx`) — HOME_TILES/
+  `src/lib/homeTiles.js` and the tile-grid shortcut stack are gone entirely
+  (deleted, not just unused — its one consumer was Home's old mobile tile
+  grid, which this redesign replaces). Today is now: a greeting bar (a
+  SYNCED/OFFLINE pill from the new `src/hooks/useOnlineStatus.js` +
+  avatar-linking-to-`/profile`), a "My numbers" `.vip-seg-mini` W/M/Q/Y
+  block feeding a hairline 2×2 KPI grid (`.vip-dd-kpi-grid` — now 2 columns
+  by default, widening to 6 only at ≥1024px, shared with `KpiSparkRow`/
+  `EmployeeProfile`'s 6-metric grids, see below), an **order-value-vs-target
+  bar** (new — `fetchTargetsForPeriod`/`targetFor`, scoped to *this*
+  employee specifically via `computeOrderValueActuals(..., true).get(employee.id)`,
+  even for an owner — deliberately personal, not the company-wide total the
+  KPI tiles above it show), and a **work queue**: 2 rows from
+  `fetchDueFollowUpsForEmployee` (Overdue / Due today, split on
+  `due_date` vs today) + 3 of `computeAttentionBuckets`' 5 buckets (stale,
+  silent quotes, slipped — `followups_overdue`/`pending_rfq` deliberately
+  excluded, the first as redundant with the real follow-up rows, the second
+  not shown on this screen at all), buckets pre-filtered to
+  `owner_employee_id === employee.id` client-side (breakdownLeads/
+  lastActivityByLead are company-wide for an owner under RLS). Tapping a
+  queue row opens `DrilldownPanel` — the 3 attention rows via the existing
+  `buildAgeingPanel(bucket, 'You', employee.id)` (new `scopeLabel` param,
+  default `'Company'` for Dashboard's unchanged usage — the eyebrow used to
+  hardcode "Company" even for this personal case), the 2 follow-up rows via
+  a new `followup` panel kind (`DrilldownPanel.jsx`'s `FollowUpBody`, just
+  `FollowUpList` reused as-is — a follow-up doesn't always resolve to a
+  lead, so it can't reuse `AgeingBody`'s per-row `<Link>`). "Your reminders"
+  (create a personal follow-up) and "Closing next" are unchanged from the
+  old Home.
+* **Queue drill-down row actions** — `buildAgeingPanel`'s `queueActions`
+  flag (true whenever `scopeLabel !== 'Company'`, i.e. only Today's own
+  calls) makes `AgeingBody` render `SwipeAgeRow` instead of a plain
+  `<Link>`: drag left (touch or mouse, no drag library — see Conventions)
+  to reveal **Log call** (inserts an `activities` row, same shape
+  `ActivityLog.jsx` uses) and **Set date** (writes
+  `leads.next_followup_date` via a small inline date picker reusing
+  `.vip-action-panel`), snapping open past 40% travel. A footer button,
+  "Set a follow-up on all N", bulk-writes the same column across every row
+  in the panel and optimistically empties the local list (not a real
+  bucket recomputation). Dashboard's own Needs Attention rows are
+  unaffected — `queueActions` is false there, same plain `<Link>` as always.
+* **New Lead** (`LeadQuickCapture.jsx`) — reordered: **Where from** (the
+  only required field) now comes first, Client name, Site nickname, then
+  "other party" collapsed behind a `.vip-disclosure-row` ("+ Architect /
+  PMC / someone else") until tapped or already filled. Sticky footer Save
+  button shows a `.vip-offline-note` when `useOnlineStatus()` is false.
+* **Log Activity** (`ActivityLog.jsx`) — "Against which lead?" now defaults
+  to a `RecentLeadsPicker` (radio rows, `.vip-radio-row`/`.vip-radio-dot`,
+  `fetchLeadsList({employeeId})` + `fetchLastActivityPerLead()` sorted by
+  last touch, capped to 8) instead of search-first — a "Search all" toggle
+  falls back to the original `LeadSearchSelect`. Sticky footer for "Log it".
+* **Lead Detail** (`LeadDetail.jsx`) — desktop is the exact same inline rail
+  + always-visible `LeadQuickActions` as before (now wrapped in
+  `.vip-only-desktop`, that's the only change on that side). Mobile
+  collapses `SalesProgressSection`/`SiteDetailsSection`/
+  `ClientDetailsSection`/`AdditionalContactsSection` into one `.vip-card` of
+  `.vip-detail-row` summary lines (`quote sent 12 Jul ›`, `Model Town ·
+  finishing ›`, etc., derived from state already loaded, no new fetch) —
+  tapping one pushes the *same* section component into a full-screen
+  `.vip-dd-panel` overlay (reusing the drill-down's own backdrop/panel CSS
+  for a form instead of a data view). A `mobileActionBar` (Log
+  activity/Call client, available to every viewer same as the old
+  unconditional btn-row, plus a `canEdit`-only 48px ⇄ button) replaces the
+  desktop btn-row below 1024px, opening the exact same `LeadQuickActions`
+  as a `FabSheet`-style bottom sheet instead of always-inline.
+* **Leads list** (`LeadsListCard.jsx`) — mobile default is grouped by stage:
+  sticky `.vip-lead-group-head` (stage colour square via `stageFg()`,
+  count, summed value) over full-bleed `.vip-lead-row`s (breaking out of
+  `.vip-body`'s 16px gutter via `.vip-lead-groups`'s negative margin,
+  mobile-only) each showing a recency line ("touched today" / "Nd silent"
+  in `--vip-lost` past `STALE_DAYS`, from a new `fetchLastActivityPerLead()`
+  call this card didn't previously make). Desktop keeps the exact old flat
+  `.vip-row` list, now just wrapped in `.vip-only-desktop`. Search/filter
+  state and queries are unchanged. Dashboard's own header pushes a
+  `{title, sub}` override when `?tab=leads` ("My leads"/"All leads" + a live
+  open-count/value from `breakdownLeads`) — `AppNav.jsx`'s override now
+  supports a `title` override, not just `sub` (still only used by this one
+  case).
+* **Dashboard** (`Dashboard.jsx`) — `KpiSparkRow` lost its `.vip-only-desktop`
+  wrapper and now renders at every width (the old separate 4-tile mobile
+  `.vip-kpi-grid` fallback is gone); `NeedsAttentionCard` caps to the first
+  3 buckets + a "+N more buckets" expand link below 1024px regardless of its
+  `wide` prop (desktop is unaffected either way — plain list or the
+  existing tile grid). Owner-only, mobile-only: a "My Team" `.vip-tile` row
+  now sits at the top of this page — Home's old tile grid was My Team's
+  *only* mobile entry point before this redesign removed it, so without
+  this row an owner would have no way to reach `/team` on a phone at all.
+* **Search** (`Search.jsx`) — a mobile-only `.vip-seg` Parties/Leads/Sites
+  switch (`.vip-search-hide-mobile`, a class with no rule outside
+  `max-width: 1023.98px`) now shows one section at a time; desktop still
+  stacks all three, unchanged.
+* **Profile** (`Profile.jsx`) — the owner-only admin block (Add employee /
+  Manage employees / Delete a party) is now `.vip-only-desktop` — mobile
+  Profile stays a lean personal screen (identity facts, Notifications,
+  Change password, Log out), matching the handoff's "not shown on mobile"
+  note. `AddEmployeeForm`/`ManageEmployeesSection`/`DeletePartySection`
+  themselves are unchanged; only their visibility is new.
+* **My Team** (`MyTeam.jsx`) — each card's `.vip-team-stats` strip gained a
+  third cell, **Needs attn.** (red at 5+, amber below) — the sum of all 5
+  `computeAttentionBuckets` bucket counts for that employee's own leads, a
+  new `fetchLastActivityPerLead()` call this page didn't previously make.
+* **Sales Exec Profile** — needed no direct changes; its 6-tile
+  `.vip-dd-kpi-grid` metric grid automatically picked up the 2-column
+  mobile layout from the shared CSS fix above.
 
 ### PWA installability (`src/components/InstallPrompt.jsx`, `OfflineIndicator.jsx`)
 
@@ -1557,7 +1729,9 @@ renders) rather than assuming a fresh tab means a fresh session.
    PWAs.
 7. ⬅️ current — Deploy + pilot with 1-2 sales execs before full rollout.
    Still open from the "Current state" list above: a `plans`-table screen,
-   role-differentiated Home content, and a screen listing past activities.
-   Followups (see the dedicated section) shipped during this phase.
+   role-differentiated Home/Today content, and a screen listing past
+   activities. Followups (see the dedicated section) and the Mobile
+   redesign (see the dedicated section — the below-1024px experience end to
+   end, desktop untouched) both shipped during this phase.
 
 For domain model, lead-sourcing logic, and locked-in design decisions, see DECISIONS.md.

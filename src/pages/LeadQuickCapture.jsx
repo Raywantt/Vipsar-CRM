@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
 
 const SOURCE_OPTIONS = [
@@ -14,11 +15,13 @@ const SOURCE_LABELS = Object.fromEntries(SOURCE_OPTIONS.map((o) => [o.value, o.l
 
 function LeadQuickCapture() {
   const { employee } = useAuth()
+  const isOnline = useOnlineStatus()
 
   const [sourceType, setSourceType] = useState(null)
   const [clientParty, setClientParty] = useState(null)
   const [siteNickname, setSiteNickname] = useState('')
   const [otherParty, setOtherParty] = useState(null)
+  const [otherOpen, setOtherOpen] = useState(false)
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
@@ -32,6 +35,7 @@ function LeadQuickCapture() {
     setClientParty(null)
     setSiteNickname('')
     setOtherParty(null)
+    setOtherOpen(false)
     setSubmitError(null)
     setCreatedLead(null)
   }
@@ -136,8 +140,24 @@ function LeadQuickCapture() {
   }
 
   return (
-    <form className="vip-form vip-narrow" onSubmit={handleSubmit}>
-      <div className="vip-lede">Fill any one. Details later.</div>
+    <form className="vip-form vip-narrow vip-pad-sticky-footer" onSubmit={handleSubmit}>
+      {/* Source first — the only required field, see the mobile handoff's
+          reordering rationale (README's New Lead section). */}
+      <div className="vip-stack-s">
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>Where from *</div>
+        <div className="vip-choice-row">
+          {SOURCE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={sourceType === opt.value ? 'vip-choice vip-active' : 'vip-choice'}
+              onClick={() => setSourceType(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <PartySearchOrCreate
         label="Client name"
@@ -156,36 +176,39 @@ function LeadQuickCapture() {
         />
       </label>
 
-      <PartySearchOrCreate
-        label="Other's name (architect / PMC / anyone else)"
-        defaultPartyType="architect"
-        typeOptions={['architect', 'builder', 'pmc', 'other']}
-        onSelect={setOtherParty}
-      />
-
-      <div className="vip-stack-s">
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>Where from *</div>
-        <div className="vip-choice-row">
-          {SOURCE_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              className={sourceType === opt.value ? 'vip-choice vip-active' : 'vip-choice'}
-              onClick={() => setSourceType(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Collapsed behind a disclosure — the optional "other party" field,
+          expands to the same PartySearchOrCreate as before. Once a value is
+          picked it stays open so "Change"/"Create another" remain reachable. */}
+      {otherOpen || otherParty ? (
+        <PartySearchOrCreate
+          label="Other's name (architect / PMC / anyone else)"
+          defaultPartyType="architect"
+          typeOptions={['architect', 'builder', 'pmc', 'other']}
+          onSelect={setOtherParty}
+        />
+      ) : (
+        <button type="button" className="vip-disclosure-row" onClick={() => setOtherOpen(true)}>
+          + Architect / PMC / someone else
+          <span className="vip-disclosure-hint">optional</span>
+        </button>
+      )}
 
       {submitError && <p className="vip-error">{submitError}</p>}
 
-      <button className="vip-btn" type="submit" disabled={!canSubmit}>
-        {submitting ? 'Saving…' : 'Save lead'}
-      </button>
       <div className="vip-form-note">
         Duplicate check runs on the name and mobile you type. Pick the existing record if it shows up.
+      </div>
+
+      <div className="vip-sticky-footer">
+        <button className="vip-btn" type="submit" disabled={!canSubmit}>
+          {submitting ? 'Saving…' : 'Save lead'}
+        </button>
+        {!isOnline && (
+          <div className="vip-offline-note">
+            <span className="vip-offline-note-dot" />
+            Offline — saves on this phone, syncs later
+          </div>
+        )}
       </div>
     </form>
   )

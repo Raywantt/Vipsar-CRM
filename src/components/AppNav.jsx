@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import { getInitials } from '../lib/initials'
+import { TAB_ROUTES } from '../lib/tabRoutes'
 
 // Static per-route title/sub, matched by exact path first, then by prefix
 // for dynamic routes (/leads/:id). Two routes (Lead Detail, Dashboard) need
@@ -15,12 +16,6 @@ const ROUTE_HEADERS = {
   '/activity': { title: 'Log activity' },
   '/team': { title: 'My Team', sub: 'Your sales team' },
 }
-
-// BottomNav's own destinations — the only routes that don't get a back
-// button, since they're reached by tapping a tab, not by drilling in.
-// /profile is deliberately not here — it's reached by tapping the avatar
-// (nametag), not a tab, so it keeps its back button like any drilled-into page.
-const TAB_ROUTES = new Set(['/', '/search'])
 
 function routeHeader(pathname) {
   if (ROUTE_HEADERS[pathname]) return ROUTE_HEADERS[pathname]
@@ -37,7 +32,8 @@ function AppNav() {
 
   if (location.pathname === '/') return null
 
-  const { title, sub: staticSub } = routeHeader(location.pathname)
+  const { title: staticTitle, sub: staticSub } = routeHeader(location.pathname)
+  const title = override?.title ?? staticTitle
   const sub = override?.sub ?? staticSub
   const showBack = !TAB_ROUTES.has(location.pathname)
 

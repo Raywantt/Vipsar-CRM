@@ -62,6 +62,12 @@ function LeadDetail() {
   const [lastActivityAt, setLastActivityAt] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
+  // Mobile-only: which collapsed section (if any) is pushed open as a
+  // full-screen editor, and whether the sticky action bar's ⇄ button has
+  // opened LeadQuickActions as a sheet. Both unused at ≥1024px, where the
+  // desktop rail/inline quick actions render unconditionally instead.
+  const [openSection, setOpenSection] = useState(null)
+  const [quickActionsSheetOpen, setQuickActionsSheetOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -252,6 +258,29 @@ function LeadDetail() {
 
   const product = products.find((p) => p.id === lead.product_id)
 
+  // Mobile's collapsed-sections card (see the return below) — one summary
+  // line per section, derived from data already loaded above, not a new
+  // fetch. Desktop keeps the four full sections inline instead of this card.
+  const detailSections = [
+    {
+      key: 'sales',
+      title: 'Sales progress',
+      summary: lead.quote_sent ? `quote sent ${shortDate(lead.quote_sent_at)}` : isWon ? 'order booked' : 'not started yet',
+    },
+    site && {
+      key: 'site',
+      title: 'Site details',
+      summary: [site.locality || site.nickname, site.site_stage].filter(Boolean).join(' · ') || 'no details yet',
+    },
+    party && { key: 'client', title: 'Client details', summary: party.mobile || 'no mobile on file' },
+    site && {
+      key: 'contacts',
+      title: 'Contacts',
+      summary: siteContacts.length > 0 ? `${siteContacts.length} on site` : 'none added yet',
+    },
+  ].filter(Boolean)
+  const SECTION_TITLES = { sales: 'Sales progress', site: 'Site details', client: 'Client details', contacts: 'Contacts' }
+
   const rail = (
     <div className="vip-stack">
       <div className="vip-card">
@@ -334,39 +363,45 @@ function LeadDetail() {
         </div>
       </div>
 
-      <div className="vip-btn-row">
-        {employee?.role !== 'owner' && (
-          <a className="vip-btn vip-btn-sm" href="/activity">
-            Log activity
-          </a>
-        )}
-        {party?.mobile ? (
-          <a className="vip-btn vip-btn-secondary vip-btn-sm" href={`tel:${party.mobile}`}>
-            Call client
-          </a>
-        ) : (
-          <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" disabled>
-            Call client
-          </button>
+      {/* Desktop: unchanged inline row + always-visible quick actions. Mobile
+          gets its own sticky bottom bar + a quick-actions sheet instead (see
+          the bottom of this component's return) — same underlying data and
+          the exact same LeadQuickActions component, just relocated. */}
+      <div className="vip-only-desktop">
+        <div className="vip-btn-row">
+          {employee?.role !== 'owner' && (
+            <a className="vip-btn vip-btn-sm" href="/activity">
+              Log activity
+            </a>
+          )}
+          {party?.mobile ? (
+            <a className="vip-btn vip-btn-secondary vip-btn-sm" href={`tel:${party.mobile}`}>
+              Call client
+            </a>
+          ) : (
+            <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" disabled>
+              Call client
+            </button>
+          )}
+        </div>
+
+        {canEdit && (
+          <LeadQuickActions
+            lead={lead}
+            isOwner={isOwner}
+            activeSalesExecs={activeSalesExecs}
+            onStageChanged={(updatedLead, historyRow) => {
+              setLead((prev) => ({ ...prev, ...updatedLead }))
+              if (historyRow) setStageHistory((prev) => [...prev, historyRow])
+            }}
+            onFollowUpSaved={(updatedLead) => setLead((prev) => ({ ...prev, ...updatedLead }))}
+            onOwnerReassigned={(updatedLead, historyRow) => {
+              setLead((prev) => ({ ...prev, ...updatedLead }))
+              if (historyRow) setOwnerHistory((prev) => [...prev, historyRow])
+            }}
+          />
         )}
       </div>
-
-      {canEdit && (
-        <LeadQuickActions
-          lead={lead}
-          isOwner={isOwner}
-          activeSalesExecs={activeSalesExecs}
-          onStageChanged={(updatedLead, historyRow) => {
-            setLead((prev) => ({ ...prev, ...updatedLead }))
-            if (historyRow) setStageHistory((prev) => [...prev, historyRow])
-          }}
-          onFollowUpSaved={(updatedLead) => setLead((prev) => ({ ...prev, ...updatedLead }))}
-          onOwnerReassigned={(updatedLead, historyRow) => {
-            setLead((prev) => ({ ...prev, ...updatedLead }))
-            if (historyRow) setOwnerHistory((prev) => [...prev, historyRow])
-          }}
-        />
-      )}
 
       <div className="vip-card">
         <div className="vip-card-head">
@@ -444,44 +479,150 @@ function LeadDetail() {
     </div>
   )
 
+  // Mobile-only sticky bar, replacing the desktop btn-row in mainContent —
+  // Log activity/Call client are available to every viewer (not gated by
+  // canEdit, matching the original unconditional btn-row), the ⇄
+  // quick-actions button only for canEdit (opens LeadQuickActions as a sheet).
+  const mobileActionBar = (
+    <div className="vip-only-mobile">
+      <div className="vip-sticky-footer">
+        <div className="vip-lead-actionbar">
+          {employee?.role !== 'owner' && (
+            <a className="vip-btn" href="/activity">
+              Log activity
+            </a>
+          )}
+          {party?.mobile ? (
+            <a className="vip-btn vip-btn-secondary" href={`tel:${party.mobile}`}>
+              Call client
+            </a>
+          ) : (
+            <button type="button" className="vip-btn vip-btn-secondary" disabled>
+              Call client
+            </button>
+          )}
+          {canEdit && (
+            <button
+              type="button"
+              className="vip-lead-actionbar-toggle"
+              onClick={() => setQuickActionsSheetOpen(true)}
+              aria-label="Quick actions"
+            >
+              ⇄
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
   if (!canEdit) {
     return (
-      <div className="vip-narrow">
-        {mainContent}
-        <p className="vip-empty">
-          This lead belongs to {lead.employees?.name ?? 'another sales exec'} — you can view the summary above, but
-          only they or an owner can make changes to it.
-        </p>
-      </div>
+      <>
+        <div className="vip-narrow vip-pad-sticky-footer">
+          {mainContent}
+          <p className="vip-empty">
+            This lead belongs to {lead.employees?.name ?? 'another sales exec'} — you can view the summary above, but
+            only they or an owner can make changes to it.
+          </p>
+        </div>
+        {mobileActionBar}
+      </>
     )
   }
 
+  const salesProgressEditor = (
+    <SalesProgressSection
+      lead={lead}
+      products={products}
+      onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
+    />
+  )
+  const siteDetailsEditor = site && <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />
+  const clientDetailsEditor = party && <ClientDetailsSection party={party} onSaved={setParty} />
+  const contactsEditor = site && (
+    <AdditionalContactsSection
+      site={site}
+      otherParty={otherParty}
+      siteContacts={siteContacts}
+      onContactAdded={(contact) => setSiteContacts((prev) => [...prev, contact])}
+    />
+  )
+  const quickActionsProps = {
+    lead,
+    isOwner,
+    activeSalesExecs,
+    onStageChanged: (updatedLead, historyRow) => {
+      setLead((prev) => ({ ...prev, ...updatedLead }))
+      if (historyRow) setStageHistory((prev) => [...prev, historyRow])
+    },
+    onFollowUpSaved: (updatedLead) => setLead((prev) => ({ ...prev, ...updatedLead })),
+    onOwnerReassigned: (updatedLead, historyRow) => {
+      setLead((prev) => ({ ...prev, ...updatedLead }))
+      if (historyRow) setOwnerHistory((prev) => [...prev, historyRow])
+    },
+  }
+
   return (
-    <div className="vip-cols">
-      {mainContent}
-      <div className="vip-stack">
-        {rail}
+    <>
+      <div className="vip-cols vip-pad-sticky-footer">
+        {mainContent}
+        <div className="vip-stack">
+          {rail}
 
-        <SalesProgressSection
-          lead={lead}
-          products={products}
-          onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
-        />
+          {/* Desktop: the four sections stay inline, always editable, as
+              before. Mobile: one card of tap-to-expand summary rows instead
+              (see the full-screen editor overlay below). */}
+          <div className="vip-only-desktop">
+            {salesProgressEditor}
+            {siteDetailsEditor}
+            {clientDetailsEditor}
+            {contactsEditor}
+          </div>
 
-        {site && <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />}
-
-        {party && <ClientDetailsSection party={party} onSaved={setParty} />}
-
-        {site && (
-          <AdditionalContactsSection
-            site={site}
-            otherParty={otherParty}
-            siteContacts={siteContacts}
-            onContactAdded={(contact) => setSiteContacts((prev) => [...prev, contact])}
-          />
-        )}
+          <div className="vip-card vip-only-mobile">
+            {detailSections.map((s) => (
+              <button key={s.key} type="button" className="vip-detail-row" onClick={() => setOpenSection(s.key)}>
+                <span className="vip-detail-row-title">{s.title}</span>
+                <span className="vip-detail-row-summary">{s.summary} ›</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
-    </div>
+
+      {openSection && (
+        <>
+          <div className="vip-dd-backdrop" onClick={() => setOpenSection(null)} />
+          <div className="vip-dd-panel">
+            <div className="vip-dd-head">
+              <div className="vip-dd-head-text">
+                <div className="vip-dd-title">{SECTION_TITLES[openSection]}</div>
+              </div>
+              <button type="button" className="vip-dd-close" onClick={() => setOpenSection(null)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+            {openSection === 'sales' && salesProgressEditor}
+            {openSection === 'site' && siteDetailsEditor}
+            {openSection === 'client' && clientDetailsEditor}
+            {openSection === 'contacts' && contactsEditor}
+          </div>
+        </>
+      )}
+
+      {mobileActionBar}
+
+      {quickActionsSheetOpen && (
+        <>
+          <div className="vip-sheet-backdrop" onClick={() => setQuickActionsSheetOpen(false)} />
+          <div className="vip-sheet">
+            <div className="vip-sheet-handle" />
+            <LeadQuickActions {...quickActionsProps} />
+          </div>
+        </>
+      )}
+    </>
   )
 }
 

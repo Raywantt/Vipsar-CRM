@@ -117,38 +117,43 @@ function Profile() {
         {notifError && <p className="vip-error">{notifError}</p>}
       </div>
 
+      {/* Owner-only admin tooling — desktop only (design_handoff_vipsar_mobile:
+          "not shown on mobile"). A phone-width Profile stays a lean personal
+          screen; team/data management stays a desktop task. */}
       {isOwner && (
-        <>
-          <p className="vip-lede">Owner-only tools for managing the team and cleaning up data.</p>
+        <div className="vip-only-desktop">
+          <div className="vip-stack">
+            <p className="vip-lede">Owner-only tools for managing the team and cleaning up data.</p>
 
-          <div className="vip-card">
-            <div className="vip-card-head">
-              <div className="vip-card-title">Add employee</div>
-              {!addingEmployee && (
-                <button type="button" className="vip-btn-link" onClick={() => setAddingEmployee(true)}>
-                  + Add
-                </button>
+            <div className="vip-card">
+              <div className="vip-card-head">
+                <div className="vip-card-title">Add employee</div>
+                {!addingEmployee && (
+                  <button type="button" className="vip-btn-link" onClick={() => setAddingEmployee(true)}>
+                    + Add
+                  </button>
+                )}
+              </div>
+              {addingEmployee && (
+                <AddEmployeeForm
+                  onCreated={(row) => {
+                    upsertEmployee(row)
+                    setAddingEmployee(false)
+                  }}
+                  onCancel={() => setAddingEmployee(false)}
+                />
               )}
             </div>
-            {addingEmployee && (
-              <AddEmployeeForm
-                onCreated={(row) => {
-                  upsertEmployee(row)
-                  setAddingEmployee(false)
-                }}
-                onCancel={() => setAddingEmployee(false)}
-              />
+
+            {employeesLoading ? (
+              <p className="vip-empty">Loading employees…</p>
+            ) : (
+              <ManageEmployeesSection employees={employees} currentEmployeeId={employee?.id} onUpdated={upsertEmployee} />
             )}
+
+            <DeletePartySection />
           </div>
-
-          {employeesLoading ? (
-            <p className="vip-empty">Loading employees…</p>
-          ) : (
-            <ManageEmployeesSection employees={employees} currentEmployeeId={employee?.id} onUpdated={upsertEmployee} />
-          )}
-
-          <DeletePartySection />
-        </>
+        </div>
       )}
 
       <div className="vip-card">
