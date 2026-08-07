@@ -198,8 +198,8 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 }
 a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 
-/* right side of the header: avatar always, search/add shortcuts desktop-only
-   (see the ≥1024px block below) */
+/* right side of the header: avatar + search/add shortcuts, mobile only —
+   the sidebar already covers all three at ≥1024px (see that block below) */
 .vip-header-actions { display: flex; align-items: center; gap: 8px; }
 .vip-header-search, .vip-header-add { display: none; }
 
@@ -652,20 +652,11 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
     padding: 14px 32px;
   }
 
-  /* quick search + add-lead shortcuts, desktop only — hidden below this
-     breakpoint (base rule above), no live filtering, just navigation */
-  .vip-header-search, .vip-header-add {
-    display: flex; align-items: center; white-space: nowrap;
-    min-height: 38px; padding: 0 14px; border-radius: var(--vip-r-control);
-    font: 600 13px var(--vip-sans);
-  }
-  .vip-header-search {
-    font-weight: 400; color: var(--vip-muted); cursor: pointer;
-    background: var(--vip-surface); border: 1px solid var(--vip-field-line);
-  }
-  .vip-header-search:hover { color: var(--vip-ink); border-color: var(--vip-teal); }
-  .vip-header-add { background: var(--vip-teal); color: #fff; border: 0; text-decoration: none; }
-  .vip-header-add:hover { background: var(--vip-teal-dark); text-decoration: none; }
+  /* Header's search/+New Lead/avatar trio is redundant once the sidebar is
+     visible (it already has Search, New Lead, and the profile link at its
+     foot) — hidden entirely at this breakpoint rather than shown, unlike
+     below 1024px where AppNav's avatar is the only way to reach /profile. */
+  .vip-header-actions { display: none; }
 
   /* --- BottomNav becomes a hover-triggered sidebar: an icon-only rail at
      rest that expands over the content (not pushing it) on :hover. Labels
@@ -762,7 +753,6 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
   .vip-offline { max-width: none; }
 
   .vip-kpi-grid { grid-template-columns: repeat(4, 1fr); }
-  .vip-tile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
   .vip-report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
   .vip-span-2 { grid-column: span 2; }

@@ -1,4 +1,4 @@
-import { NavLink, Link } from 'react-router-dom'
+import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getInitials } from '../lib/initials'
 import { IconActivity, IconGrid, IconHome, IconList, IconPlus, IconSearch, IconTeam } from './NavIcons'
@@ -16,6 +16,15 @@ function extraTabClass({ isActive }) {
 
 function BottomNav() {
   const { employee } = useAuth()
+  const location = useLocation()
+
+  // Dashboard and All Leads both resolve to pathname "/dashboard" — plain
+  // NavLink matching ignores the query string entirely, so both used to
+  // light up together regardless of ?tab=. Compare the tab param directly
+  // instead so only one is ever active.
+  const onLeadsTab = location.pathname === '/dashboard' && new URLSearchParams(location.search).get('tab') === 'leads'
+  const dashboardClass = !onLeadsTab && location.pathname === '/dashboard' ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
+  const leadsClass = onLeadsTab ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
 
   return (
     <nav className="vip-bottom-nav">
@@ -38,19 +47,21 @@ function BottomNav() {
           <span className="vip-nav-label">Activity Log</span>
         </NavLink>
       )}
-      <NavLink to="/dashboard" end className={extraTabClass} title="Dashboard">
+      <Link to="/dashboard" className={dashboardClass} title="Dashboard">
         <IconGrid />
         <span className="vip-nav-label">Dashboard</span>
-      </NavLink>
+      </Link>
       {/* Reports/All leads used to be an in-page tab row on the Dashboard
           itself — moved here so it's reachable without it (see
           Dashboard.jsx's activeTab, now driven purely by ?tab= instead of
           buttons). Parties used to have its own tab/link here too — folded
-          into Search instead, see Search.jsx. */}
-      <NavLink to="/dashboard?tab=leads" className={extraTabClass} title="All Leads">
+          into Search instead, see Search.jsx. Both use a manually computed
+          active class (above), not NavLink's own matching, since NavLink
+          ignores the query string and would light up both links at once. */}
+      <Link to="/dashboard?tab=leads" className={leadsClass} title="All Leads">
         <IconList />
         <span className="vip-nav-label">All Leads</span>
-      </NavLink>
+      </Link>
       {employee?.role === 'owner' && (
         <NavLink to="/team" className={extraTabClass} title="My Team">
           <IconTeam />

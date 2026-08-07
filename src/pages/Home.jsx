@@ -153,9 +153,12 @@ function Home() {
       )}
 
       {tiles.length === 0 ? (
-        <p className="vip-empty">No shortcuts set up for your role yet.</p>
+        <p className="vip-empty vip-only-mobile">No shortcuts set up for your role yet.</p>
       ) : (
-        <div className="vip-tile-grid">
+        // Desktop already has every one of these destinations in the
+        // sidebar (see BottomNav.jsx's .vip-nav-extra links) — the tile
+        // grid is a phone-only shortcut, not shown at ≥1024px.
+        <div className="vip-tile-grid vip-only-mobile">
           {tiles.map((tile, i) => (
             <Link key={tile.to} to={tile.to} className={i === 0 ? 'vip-tile vip-tile-primary' : 'vip-tile'}>
               <div>
