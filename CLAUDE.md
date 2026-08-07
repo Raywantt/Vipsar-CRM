@@ -77,6 +77,13 @@ needs before touching anything:
   known, deliberately deferred, not an oversight. Don't "fix" the mobile gap
   as a side effect of unrelated work; it needs its own discussion (see the
   `BottomNav` paragraph in Structure below for the current state).
+- **My Team** (`/team`, owner-only — see its own section below) is a card-
+  grid directory of the owner's non-owner employees (today, just
+  `sales_executive`), with a name search and a role filter, each card
+  linking to that employee's Sales Exec Profile. Unlike All Leads/Parties
+  above, it has a real mobile entry point (a `HOME_TILES` tile), not just a
+  desktop `.vip-nav-extra` sidebar link — see the Structure section's
+  `BottomNav` paragraph.
 - `LeadsByAreaCard.jsx` was tried as its own component/tab twice and
   removed both times — permanently merged into the generic
   `LeadsByCategoryCard` instead (see Dashboard section). Don't recreate it.
@@ -113,8 +120,8 @@ src/
                 DeleteLeadSection, InstallPrompt, NotificationPrompt,
                 OfflineIndicator, FollowUpForm, FollowUpList)
   pages/        top-level views (Login, Home, Account, Search, Dashboard,
-                LeadQuickCapture, LeadDetail, EmployeeProfile, ActivityLog,
-                Settings, ...)
+                LeadQuickCapture, LeadDetail, EmployeeProfile, MyTeam,
+                ActivityLog, Settings, ...)
   contexts/     AuthContext — session + employee (id/name/mobile/role) lookup;
                 HeaderContext — lets Lead Detail/Sales Exec Profile/Dashboard
                 push a dynamic sub into AppNav's header (see Design system
@@ -142,7 +149,8 @@ Routing is set up in `App.jsx` (`react-router-dom`): `/` (Home, landing
 page after login), `/account`, `/search`, `/dashboard`, `/leads/new`,
 `/leads/:id`, `/employees/:id` — all allow both `sales_executive` and
 `owner` at the route level — plus `/activity` (**sales_executive-only**,
-see the ActivityLog section below) and `/settings` (**owner-only**).
+see the ActivityLog section below), `/team` (**owner-only**, see the My
+Team section below), and `/settings` (**owner-only**).
 `/employees/:id` is further gated *inside* `EmployeeProfile.jsx` itself,
 not by `ProtectedRoute`'s `allowedRoles` (see the Sales Exec Profile
 section below for why — a sales exec may view their own page but not a
@@ -159,11 +167,13 @@ system below) containing `AppNav` (`vip-header`, top), `{children}`
 **`BottomNav` is the one place for primary navigation in this app — don't
 add nav links back to `AppNav`.** At ≥1024px `BottomNav` becomes the
 sidebar and also carries `.vip-nav-extra` links a phone doesn't show,
-including **All Leads** and **Parties** (see the Desktop layout bullet
-below) — those two currently have **no mobile entry point at all** (dropped
-along with Dashboard's old in-page tab row, see the Dashboard section);
-that's a known, deliberately deferred gap, not an oversight. `AppNav` is a
-per-route header (title/sub/back button/avatar),
+including **All Leads**, **Parties**, and (owner-only) **My Team** (see the
+Desktop layout bullet below) — All Leads/Parties currently have **no
+mobile entry point at all** (dropped along with Dashboard's old in-page tab
+row, see the Dashboard section); that's a known, deliberately deferred gap,
+not an oversight. My Team doesn't share that gap — it also has a
+`HOME_TILES` entry for the owner, so it's reachable on a phone too, same as
+New Lead/Dashboard. `AppNav` is a per-route header (title/sub/back button/avatar),
 not a nav bar — see Design system. Sized off `vipsar-theme.css`'s
 `--vip-header-h`/`--vip-bottom-nav-h` and `env(safe-area-inset-bottom)`
 (needs `viewport-fit=cover` on `index.html`'s viewport meta) so the bottom
@@ -299,10 +309,11 @@ approximation of it.** Concretely:
 * **Desktop layout (≥1024px)** — below 1024px this app is pixel-identical to
   before; nothing here changes mobile. At ≥1024px, `BottomNav.jsx` becomes a
   persistent left sidebar (`--vip-sidebar-w`, 232px): the same Home/Search/
-  Account/Settings links plus five `.vip-nav-extra` ones (New Lead, Activity
-  Log, Dashboard, All Leads, Parties) — New Lead/Activity Log/Dashboard are
-  reachable on a phone via Home's tiles instead, but **All Leads/Parties
-  currently have no mobile path at all** (see the Structure section's
+  Account/Settings links plus six `.vip-nav-extra` ones (New Lead, Activity
+  Log, Dashboard, All Leads, Parties, and — owner-only — My Team) — New
+  Lead/Activity Log/Dashboard/My Team are reachable on a phone via Home's
+  tiles instead, but **All Leads/Parties currently have no mobile path at
+  all** (see the Structure section's
   `BottomNav` paragraph above), a brand block
   (`.vip-sidebar-brand`) up top, and the employee's name/role pinned at the
   bottom (`.vip-sidebar-foot`) — all hidden on mobile via CSS, not conditional
@@ -391,8 +402,9 @@ padding-top allowance for a small safe-area-aware one instead). Every other
 route keeps its normal `AppNav` header. Tiles come from a
 role-keyed config, `HOME_TILES` in `src/lib/homeTiles.js` (currently New
 Lead/Dashboard/All Leads for both roles, plus Activity Log for
-`sales_executive` only — owners don't log field activity, see the
-ActivityLog section below), rather than inline `isOwner`-style JSX branching
+`sales_executive` only and My Team for `owner` only — owners don't log
+field activity, sales execs have no team to browse, see the ActivityLog and
+My Team sections below), rather than inline `isOwner`-style JSX branching
 like every other role-aware page
 in this app uses — deliberate groundwork: more roles are planned later,
 each potentially with a home screen that looks substantially different,
@@ -647,6 +659,59 @@ Bookings tile — both read the same won-count query), **Pipeline owned**
 activity feed across all types, reusing `fetchActivityLogForEmployee` —
 distinct from the per-activity-type `fetchActivityLogForExec` the
 Dashboard heatmap's cell drill-down already uses).
+
+### My Team (`src/pages/MyTeam.jsx`)
+
+`/team`, **owner-only** (`ProtectedRoute allowedRoles={['owner']}` in
+`App.jsx` — a sales exec hitting this URL directly gets redirected to `/`,
+same as any other role mismatch; there's also no nav link or `HOME_TILES`
+entry pointing here for that role, so it's never surfaced to them). A card-
+grid directory of the owner's team, reachable from `BottomNav`'s desktop
+sidebar (a `.vip-nav-extra` link right after Parties, with its own icon —
+`IconTeam` in `NavIcons.jsx`, deliberately a 3-person glyph, distinct from
+`IconUsers`'s 2-person one already used for Parties) and, unlike All
+Leads/Parties, from a real `HOME_TILES` entry too, so the owner can reach it
+on a phone.
+
+* **Data** — `fetchTeamMembers()` (`src/lib/employeeQueries.js`) selects
+  every employee row with `role != 'owner'` — "my team" is defined as the
+  owner's non-owner employees, not a raw dump of the whole `employees`
+  table (which would include the owner's own row, and any co-owner
+  accounts). Today that's only ever `sales_executive` rows, since those are
+  the only two roles this app has. `is_active` employees still show
+  (deactivate, never hide, same as everywhere else in this app) — an
+  inactive row gets a muted "Inactive" pill next to their name instead of
+  being filtered out.
+* **Search + role filter** — a plain client-side name search (`vip-input`,
+  same pattern as `PartiesCard`'s), plus a `vip-seg-outline` segmented
+  control for role, built from `[...new Set(employees.map(e => e.role))]`
+  rather than a hardcoded list — so if a role beyond `sales_executive` ever
+  gets added to the team, the filter grows on its own with no code change
+  here, same reasoning `PartiesCard`'s dynamic `party_type` filter already
+  uses. `ROLE_LABELS` in `MyTeam.jsx` is the one place a role gets a
+  human-readable label; extend it, don't hardcode a new label inline.
+* **Per-card stats** — "Open leads" count and "Open pipeline" value, computed
+  client-side from `fetchLeadsForBreakdown()` (`src/lib/dashboardQueries.js`)
+  — the same unbounded, RLS-open-to-owner query Dashboard/EmployeeProfile
+  already fetch, grouped by `owner_employee_id` here. No dedicated
+  per-employee query; this is the same "reuse the shared breakdown fetch"
+  pattern `LeadsByCategoryCard` and friends use.
+* **Layout** — `.vip-team-grid`: a single column on mobile (`.vip-wide`'s
+  normal stacked-flex behavior), switching to
+  `grid-template-columns: repeat(auto-fit, minmax(270px, 1fr))` at ≥1024px
+  (see `vipsar-theme.css` section 19). Deliberately `auto-fit`, not a fixed
+  column count — team headcount is open-ended, unlike Needs Attention's
+  always-5 buckets (section 17's `.vip-dd-attn-grid`, which uses a fixed
+  `repeat(5, 1fr)` for exactly that reason). `auto-fit` collapses unused
+  tracks and stretches whatever cards exist to fill the row, so filtering
+  down to one result (via search or the role filter) still fills the row
+  edge to edge instead of leaving a bare gutter — confirmed live in the
+  browser preview, not just reasoned through.
+* Each card is a `<Link to="/employees/:id">` (no `EmployeeLink` needed —
+  the whole card is already the one clickable target, nothing nested inside
+  it) straight to that employee's Sales Exec Profile — this screen is
+  deliberately just a directory/entry point, it doesn't duplicate anything
+  `EmployeeProfile.jsx` already shows (rank, attainment, activity mix, etc.).
 
 ### Follow-ups (personal + owner-assigned reminders, with real push notifications)
 

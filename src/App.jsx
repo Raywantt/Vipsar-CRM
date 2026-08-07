@@ -13,6 +13,7 @@ import Dashboard from './pages/Dashboard'
 import LeadQuickCapture from './pages/LeadQuickCapture'
 import LeadDetail from './pages/LeadDetail'
 import EmployeeProfile from './pages/EmployeeProfile'
+import MyTeam from './pages/MyTeam'
 import ActivityLog from './pages/ActivityLog'
 import Settings from './pages/Settings'
 import './App.css'
@@ -62,6 +63,14 @@ function App() {
               // only, else redirect to /dashboard) — see FLOW.md §4.
               <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
                 <EmployeeProfile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/team"
+            element={
+              <ProtectedRoute allowedRoles={['owner']}>
+                <MyTeam />
               </ProtectedRoute>
             }
           />

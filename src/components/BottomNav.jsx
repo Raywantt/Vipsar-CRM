@@ -9,6 +9,7 @@ import {
   IconPlus,
   IconSearch,
   IconSettings,
+  IconTeam,
   IconUser,
   IconUsers,
 } from './NavIcons'
@@ -65,6 +66,12 @@ function BottomNav() {
         <IconUsers />
         <span className="vip-nav-label">Parties</span>
       </NavLink>
+      {employee?.role === 'owner' && (
+        <NavLink to="/team" className={extraTabClass} title="My Team">
+          <IconTeam />
+          <span className="vip-nav-label">My Team</span>
+        </NavLink>
+      )}
       <NavLink to="/search" className={tabClass} title="Search">
         <IconSearch />
         <span className="vip-nav-label">Search</span>

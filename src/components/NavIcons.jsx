@@ -93,6 +93,22 @@ export function IconUsers({ className = 'vip-nav-icon', ...rest }) {
   )
 }
 
+// Three-person roster glyph for My Team — deliberately distinct from
+// IconUsers (two people, already used for Parties) so the two destinations
+// don't read as the same icon in the sidebar.
+export function IconTeam({ className = 'vip-nav-icon', ...rest }) {
+  return (
+    <svg {...baseProps(className)} {...rest}>
+      <circle cx="10" cy="6.2" r="2.6" />
+      <path d="M5.3 15.5c.7-2.7 2.4-4.2 4.7-4.2s4 1.5 4.7 4.2" />
+      <circle cx="3.6" cy="8.3" r="1.7" />
+      <path d="M1.3 14.8c.5-1.7 1.5-2.7 2.5-2.9" />
+      <circle cx="16.4" cy="8.3" r="1.7" />
+      <path d="M18.7 14.8c-.5-1.7-1.5-2.7-2.5-2.9" />
+    </svg>
+  )
+}
+
 export function IconSettings({ className = 'vip-nav-icon', ...rest }) {
   return (
     <svg {...baseProps(className)} {...rest}>

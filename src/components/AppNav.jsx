@@ -14,6 +14,7 @@ const ROUTE_HEADERS = {
   '/dashboard': { title: 'Dashboard' },
   '/leads/new': { title: 'New lead', sub: 'Fill any one field' },
   '/activity': { title: 'Log activity' },
+  '/team': { title: 'My Team', sub: 'Your sales team' },
 }
 
 // BottomNav's own destinations — the only routes that don't get a back

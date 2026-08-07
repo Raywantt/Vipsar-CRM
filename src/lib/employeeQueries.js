@@ -16,6 +16,19 @@ export function fetchEmployeeProfile(id) {
     .single()
 }
 
+// Every non-owner employee — "my team" from the owner's perspective — for
+// the My Team screen. Excludes owner rows entirely (an owner isn't part of
+// their own team roster); office_location/created_at included for the same
+// territory/tenure display EmployeeProfile already uses, is_active so a
+// deactivated rep still shows (deactivate, never hide, matches Settings).
+export function fetchTeamMembers() {
+  return supabase
+    .from('employees')
+    .select('id, name, mobile, role, office_location, is_active, created_at')
+    .neq('role', 'owner')
+    .order('name')
+}
+
 // Every active sales exec, for the profile page's ranking (blended
 // attainment among peers) and for the "Reassign owner" action's option list.
 export function fetchActiveSalesExecs() {

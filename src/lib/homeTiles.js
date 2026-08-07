@@ -11,5 +11,6 @@ export const HOME_TILES = {
     { to: '/leads/new', label: 'New Lead', desc: 'Capture a new prospect' },
     { to: '/dashboard', label: 'Dashboard', desc: 'Reports, leads, and parties' },
     { to: '/dashboard?tab=leads', label: 'All Leads', desc: 'Browse, search, filter' },
+    { to: '/team', label: 'My Team', desc: 'Browse your sales team' },
   ],
 }
