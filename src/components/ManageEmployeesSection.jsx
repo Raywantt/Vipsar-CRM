@@ -101,14 +101,30 @@ function EmployeeRow({ emp, isSelf, onUpdated }) {
 }
 
 function ManageEmployeesSection({ employees, currentEmployeeId, onUpdated }) {
+  const [search, setSearch] = useState('')
+
+  const term = search.trim().toLowerCase()
+  const matches = term ? employees.filter((emp) => emp.name?.toLowerCase().includes(term)) : []
+
   return (
     <div className="vip-card">
       <div className="vip-card-title">Manage employees</div>
 
+      <input
+        className="vip-input"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by name…"
+      />
+
       {employees.length === 0 ? (
         <p className="vip-empty">No employees yet.</p>
+      ) : !term ? (
+        <p className="vip-empty">Type a name to search.</p>
+      ) : matches.length === 0 ? (
+        <p className="vip-empty">No employees found.</p>
       ) : (
-        employees.map((emp) => (
+        matches.map((emp) => (
           <EmployeeRow key={emp.id} emp={emp} isSelf={emp.id === currentEmployeeId} onUpdated={onUpdated} />
         ))
       )}

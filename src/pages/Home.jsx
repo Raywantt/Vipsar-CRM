@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { getInitials } from '../lib/initials'
 import { HOME_TILES } from '../lib/homeTiles'
 import { rangeForPreset } from '../lib/dateRanges'
 import { fetchActivityCounts, fetchLeadsForBreakdown, fetchClosureForecast } from '../lib/dashboardQueries'
@@ -108,18 +109,25 @@ function Home() {
             {greeting}, {firstName}
           </div>
         )}
-        <div className="vip-seg-mini" role="group" aria-label="KPI time frame">
-          {PERIOD_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              title={opt.label}
-              className={period === opt.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-              onClick={() => setPeriod(opt.value)}
-            >
-              {opt.short}
-            </button>
-          ))}
+        <div className="vip-home-head-actions">
+          <div className="vip-seg-mini" role="group" aria-label="KPI time frame">
+            {PERIOD_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                title={opt.label}
+                className={period === opt.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setPeriod(opt.value)}
+              >
+                {opt.short}
+              </button>
+            ))}
+          </div>
+          {employee && (
+            <Link to="/profile" className="vip-avatar vip-only-mobile" aria-label="Profile">
+              {getInitials(employee.name)}
+            </Link>
+          )}
         </div>
       </div>
 

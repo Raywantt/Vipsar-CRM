@@ -6,7 +6,7 @@ const ROLE_OPTIONS = [
   { value: 'owner', label: 'Owner' },
 ]
 
-function AddEmployeeForm({ onCreated }) {
+function AddEmployeeForm({ onCreated, onCancel }) {
   const [name, setName] = useState('')
   const [mobile, setMobile] = useState('')
   const [role, setRole] = useState('sales_executive')
@@ -46,8 +46,7 @@ function AddEmployeeForm({ onCreated }) {
   }
 
   return (
-    <div className="vip-card">
-      <div className="vip-card-title">Add employee</div>
+    <>
       <p className="vip-form-note">
         This creates the CRM-side employee record only. The login itself still has to be created manually in the
         Supabase dashboard first (Authentication → Users → Add user — turn on "Auto Confirm User" so the login
@@ -93,11 +92,18 @@ function AddEmployeeForm({ onCreated }) {
         {error && <p className="vip-error">{error}</p>}
         {savedAt && !error && <p className="vip-success">Employee added.</p>}
 
-        <button className="vip-btn vip-btn-secondary vip-btn-sm" type="submit" disabled={!canSubmit}>
-          {saving ? 'Saving…' : 'Add employee'}
-        </button>
+        <div className="vip-btn-row">
+          <button className="vip-btn vip-btn-secondary vip-btn-sm" type="submit" disabled={!canSubmit}>
+            {saving ? 'Saving…' : 'Add employee'}
+          </button>
+          {onCancel && (
+            <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={onCancel} disabled={saving}>
+              Cancel
+            </button>
+          )}
+        </div>
       </form>
-    </div>
+    </>
   )
 }
 

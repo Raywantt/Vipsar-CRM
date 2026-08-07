@@ -1,18 +1,7 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getInitials } from '../lib/initials'
-import {
-  IconActivity,
-  IconGrid,
-  IconHome,
-  IconList,
-  IconPlus,
-  IconSearch,
-  IconSettings,
-  IconTeam,
-  IconUser,
-  IconUsers,
-} from './NavIcons'
+import { IconActivity, IconGrid, IconHome, IconList, IconPlus, IconSearch, IconTeam, IconUsers } from './NavIcons'
 
 function tabClass({ isActive }) {
   return isActive ? 'vip-active' : undefined
@@ -76,24 +65,14 @@ function BottomNav() {
         <IconSearch />
         <span className="vip-nav-label">Search</span>
       </NavLink>
-      <NavLink to="/account" className={tabClass} title="Account">
-        <IconUser />
-        <span className="vip-nav-label">Account</span>
-      </NavLink>
-      {employee?.role === 'owner' && (
-        <NavLink to="/settings" className={tabClass} title="Settings">
-          <IconSettings />
-          <span className="vip-nav-label">Settings</span>
-        </NavLink>
-      )}
 
-      <div className="vip-sidebar-foot">
+      <Link to="/profile" className="vip-sidebar-foot" aria-label="Profile">
         <div className="vip-avatar">{getInitials(employee?.name)}</div>
         <div className="vip-sidebar-foot-text">
           <div className="vip-sidebar-foot-name">{employee?.name}</div>
           <div className="vip-sidebar-foot-role">{employee?.role?.replace('_', ' ')}</div>
         </div>
-      </div>
+      </Link>
     </nav>
   )
 }

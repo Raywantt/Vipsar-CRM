@@ -7,7 +7,7 @@ import InstallPrompt from './components/InstallPrompt'
 import NotificationPrompt from './components/NotificationPrompt'
 import Login from './pages/Login'
 import Home from './pages/Home'
-import Account from './pages/Account'
+import Profile from './pages/Profile'
 import Search from './pages/Search'
 import Dashboard from './pages/Dashboard'
 import LeadQuickCapture from './pages/LeadQuickCapture'
@@ -15,7 +15,6 @@ import LeadDetail from './pages/LeadDetail'
 import EmployeeProfile from './pages/EmployeeProfile'
 import MyTeam from './pages/MyTeam'
 import ActivityLog from './pages/ActivityLog'
-import Settings from './pages/Settings'
 import './App.css'
 
 function App() {
@@ -85,18 +84,10 @@ function App() {
             }
           />
           <Route
-            path="/settings"
-            element={
-              <ProtectedRoute allowedRoles={['owner']}>
-                <Settings />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/account"
+            path="/profile"
             element={
               <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
-                <Account />
+                <Profile />
               </ProtectedRoute>
             }
           />

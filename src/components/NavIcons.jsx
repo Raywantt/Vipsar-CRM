@@ -62,15 +62,6 @@ export function IconSearch({ className = 'vip-nav-icon', ...rest }) {
   )
 }
 
-export function IconUser({ className = 'vip-nav-icon', ...rest }) {
-  return (
-    <svg {...baseProps(className)} {...rest}>
-      <circle cx="10" cy="6.5" r="3.2" />
-      <path d="M3.5 17c1-3.6 4-5.5 6.5-5.5s5.5 1.9 6.5 5.5" />
-    </svg>
-  )
-}
-
 export function IconList({ className = 'vip-nav-icon', ...rest }) {
   return (
     <svg {...baseProps(className)} {...rest}>
@@ -105,17 +96,6 @@ export function IconTeam({ className = 'vip-nav-icon', ...rest }) {
       <path d="M1.3 14.8c.5-1.7 1.5-2.7 2.5-2.9" />
       <circle cx="16.4" cy="8.3" r="1.7" />
       <path d="M18.7 14.8c-.5-1.7-1.5-2.7-2.5-2.9" />
-    </svg>
-  )
-}
-
-export function IconSettings({ className = 'vip-nav-icon', ...rest }) {
-  return (
-    <svg {...baseProps(className)} {...rest}>
-      <path d="M4 6h16M4 10h16M4 14h16" />
-      <circle cx="13" cy="6" r="1.5" fill="currentColor" stroke="none" />
-      <circle cx="7" cy="10" r="1.5" fill="currentColor" stroke="none" />
-      <circle cx="11" cy="14" r="1.5" fill="currentColor" stroke="none" />
     </svg>
   )
 }

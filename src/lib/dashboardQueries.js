@@ -66,12 +66,6 @@ export function fetchClosureForecast() {
     .order('estimated_close_date', { ascending: true, nullsFirst: false })
 }
 
-// Owner-only in the UI (Settings) — RLS's owner_only_delete policy on leads
-// is the actual enforcement; this just fires the DELETE.
-export function deleteLead(id) {
-  return supabase.from('leads').delete().eq('id', id)
-}
-
 // Unbounded (all leads, not date-scoped) — feeds the Stage/Area/Site Stage
 // breakdown tabs, which are pipeline snapshots ("how many leads are in each
 // category right now"), not "how many arrived in a period" like the Reports

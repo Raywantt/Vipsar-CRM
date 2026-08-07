@@ -9,8 +9,7 @@ import { getInitials } from '../lib/initials'
 // HeaderContext's override instead (see useHeaderOverride).
 const ROUTE_HEADERS = {
   '/search': { title: 'Search', sub: 'Leads, parties, sites' },
-  '/account': { title: 'Account' },
-  '/settings': { title: 'Settings' },
+  '/profile': { title: 'Profile' },
   '/dashboard': { title: 'Dashboard' },
   '/leads/new': { title: 'New lead', sub: 'Fill any one field' },
   '/activity': { title: 'Log activity' },
@@ -19,7 +18,9 @@ const ROUTE_HEADERS = {
 
 // BottomNav's own destinations — the only routes that don't get a back
 // button, since they're reached by tapping a tab, not by drilling in.
-const TAB_ROUTES = new Set(['/', '/search', '/account', '/settings'])
+// /profile is deliberately not here — it's reached by tapping the avatar
+// (nametag), not a tab, so it keeps its back button like any drilled-into page.
+const TAB_ROUTES = new Set(['/', '/search'])
 
 function routeHeader(pathname) {
   if (ROUTE_HEADERS[pathname]) return ROUTE_HEADERS[pathname]
@@ -60,7 +61,11 @@ function AppNav() {
         <Link to="/leads/new" className="vip-header-add">
           + New Lead
         </Link>
-        {employee && <div className="vip-avatar">{getInitials(employee.name)}</div>}
+        {employee && (
+          <Link to="/profile" className="vip-avatar" aria-label="Profile">
+            {getInitials(employee.name)}
+          </Link>
+        )}
       </div>
     </header>
   )

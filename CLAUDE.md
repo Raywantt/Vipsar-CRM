@@ -84,6 +84,17 @@ needs before touching anything:
   above, it has a real mobile entry point (a `HOME_TILES` tile), not just a
   desktop `.vip-nav-extra` sidebar link — see the Structure section's
   `BottomNav` paragraph.
+- **Account and Settings were merged into one page, `Profile`** (`/profile`,
+  see its own section below) — reached by tapping the avatar/nametag
+  (header, desktop sidebar, or Home's own mobile-only one) rather than a
+  `BottomNav` tab; there's no `/account` or `/settings` route anymore.
+  Settings' old **Delete a lead** tool is gone — replaced with **Delete a
+  party**, for cleaning up a wrongly-added architect/PMC/other contact, not
+  for leads. A **Change password** option was added (new capability, didn't
+  exist before), requiring the current password before allowing a change.
+  Add employee is now collapsible and Manage employees is search-only
+  (nothing shown until a name matches) — the same treatment Delete a party
+  got, both fixing the same "long list, just for scrolling past it" problem.
 - `LeadsByAreaCard.jsx` was tried as its own component/tab twice and
   removed both times — permanently merged into the generic
   `LeadsByCategoryCard` instead (see Dashboard section). Don't recreate it.
@@ -117,11 +128,11 @@ src/
                 PartiesCard, NeedsAttentionCard, KpiSparkRow,
                 DashboardHeatmap, DonutChart, DrilldownPanel,
                 AddEmployeeForm, ManageEmployeesSection,
-                DeleteLeadSection, InstallPrompt, NotificationPrompt,
-                OfflineIndicator, FollowUpForm, FollowUpList)
-  pages/        top-level views (Login, Home, Account, Search, Dashboard,
+                DeletePartySection, ChangePasswordForm, InstallPrompt,
+                NotificationPrompt, OfflineIndicator, FollowUpForm, FollowUpList)
+  pages/        top-level views (Login, Home, Profile, Search, Dashboard,
                 LeadQuickCapture, LeadDetail, EmployeeProfile, MyTeam,
-                ActivityLog, Settings, ...)
+                ActivityLog, ...)
   contexts/     AuthContext — session + employee (id/name/mobile/role) lookup;
                 HeaderContext — lets Lead Detail/Sales Exec Profile/Dashboard
                 push a dynamic sub into AppNav's header (see Design system
@@ -146,11 +157,14 @@ Vite build, deployed independently (see the Follow-ups section and
 Conventions).
 
 Routing is set up in `App.jsx` (`react-router-dom`): `/` (Home, landing
-page after login), `/account`, `/search`, `/dashboard`, `/leads/new`,
+page after login), `/profile`, `/search`, `/dashboard`, `/leads/new`,
 `/leads/:id`, `/employees/:id` — all allow both `sales_executive` and
 `owner` at the route level — plus `/activity` (**sales_executive-only**,
-see the ActivityLog section below), `/team` (**owner-only**, see the My
-Team section below), and `/settings` (**owner-only**).
+see the ActivityLog section below) and `/team` (**owner-only**, see the My
+Team section below). There is no more standalone `/settings` route —
+`Profile.jsx` shows its owner-only section inline instead (see the Profile
+section below); `Profile` itself is reachable by both roles the same way
+`/account` used to be.
 `/employees/:id` is further gated *inside* `EmployeeProfile.jsx` itself,
 not by `ProtectedRoute`'s `allowedRoles` (see the Sales Exec Profile
 section below for why — a sales exec may view their own page but not a
@@ -162,8 +176,15 @@ their role" — look up an employee's role via `useAuth()`, don't re-query
 `employees` directly in a component. `ProtectedRoute` renders
 `<div className="vip-app">` (the centered app-column shell — see Design
 system below) containing `AppNav` (`vip-header`, top), `{children}`
-(`vip-body`), and `BottomNav` (`vip-bottom-nav`, fixed bottom — **Home** /
-**Search** / **Account** / **Settings**-if-owner on the mobile tab bar).
+(`vip-body`), and `BottomNav` (`vip-bottom-nav`, fixed bottom — just
+**Home** / **Search** on the mobile tab bar). Account and Settings no
+longer have their own tabs or routes — both were merged into one `Profile`
+page (`/profile`, see its own section below), reached by tapping the
+avatar/nametag rather than a tab: `AppNav`'s header avatar (every route
+except Home, top right) and `BottomNav`'s sidebar-foot avatar (desktop
+sidebar, bottom left) are both `Link`s to `/profile`; Home — the one route
+with no `AppNav` header — gets its own mobile-only avatar instead (see the
+Home section below).
 **`BottomNav` is the one place for primary navigation in this app — don't
 add nav links back to `AppNav`.** At ≥1024px `BottomNav` becomes the
 sidebar and also carries `.vip-nav-extra` links a phone doesn't show,
@@ -231,9 +252,13 @@ approximation of it.** Concretely:
   `workbox.globPatterns` includes `woff2` for this.
 * **Header** (`AppNav.jsx`) — a per-route title + sub (a small
   `ROUTE_HEADERS` lookup, same spirit as `HOME_TILES`), a back button
-  (`vip-iconbtn`) on every route except `BottomNav`'s four tabs, and an
-  avatar (initials from `employee.name`). No longer carries a Log out
-  button — `Account` already had its own. Two routes need a sub `AppNav`
+  (`vip-iconbtn`) on every route except `BottomNav`'s two tabs (Home,
+  Search — `/profile` deliberately isn't a tab route either, so it keeps
+  its back button, see the Structure section above), and an avatar
+  (initials from `employee.name`, via `getInitials` — see the Profile
+  section for the exact first+surname rule) that's now a `Link` to
+  `/profile` rather than a static badge. No Log out button here — that
+  lives at the bottom of `Profile`. Two routes need a sub `AppNav`
   can't compute itself: Lead Detail (the party/site name) and Dashboard
   (the selected date range). Those push it in via
   `src/contexts/HeaderContext.jsx`'s `useHeaderOverride()` instead of
@@ -308,23 +333,28 @@ approximation of it.** Concretely:
   page — an initializer would only ever see the very first value.
 * **Desktop layout (≥1024px)** — below 1024px this app is pixel-identical to
   before; nothing here changes mobile. At ≥1024px, `BottomNav.jsx` becomes a
-  persistent left sidebar (`--vip-sidebar-w`, 232px): the same Home/Search/
-  Account/Settings links plus six `.vip-nav-extra` ones (New Lead, Activity
+  persistent left sidebar (`--vip-sidebar-w`, 232px): the same Home/Search
+  links plus six `.vip-nav-extra` ones (New Lead, Activity
   Log, Dashboard, All Leads, Parties, and — owner-only — My Team) — New
   Lead/Activity Log/Dashboard/My Team are reachable on a phone via Home's
   tiles instead, but **All Leads/Parties currently have no mobile path at
   all** (see the Structure section's
   `BottomNav` paragraph above), a brand block
   (`.vip-sidebar-brand`) up top, and the employee's name/role pinned at the
-  bottom (`.vip-sidebar-foot`) — all hidden on mobile via CSS, not conditional
-  JSX. `AppNav`'s header stretches to span the content area right of the
+  bottom (`.vip-sidebar-foot`, now a `Link` to `/profile` — see the Structure
+  section above) — all hidden on mobile via CSS, not conditional
+  JSX. Making `.vip-sidebar-foot` a `Link` means it also matches the plain
+  `.vip-bottom-nav a` rule (higher specificity than the lone `.vip-sidebar-foot`
+  class), so both places that style/hide it use the
+  `.vip-bottom-nav a.vip-sidebar-foot` selector form instead, to reliably win
+  — see `vipsar-theme.css`. `AppNav`'s header stretches to span the content area right of the
   sidebar instead of staying phone-width-centered. This is a deliberate,
   discussed loosening of section 2's "never full-bleed" rule, not a reversal
   of it — that rule was about not stretching the phone-frame column, and
   there's no phone frame at this breakpoint. Every page wraps its own
   returned content in one of two width utilities (a plain wrapper div, not a
   layout rewrite): `.vip-narrow` (700px, centered — forms, detail pages,
-  single lists: LeadDetail, LeadQuickCapture, ActivityLog, Settings, Account,
+  single lists: LeadDetail, LeadQuickCapture, ActivityLog, Profile,
   Search, and Dashboard's Leads/Parties tabs) or `.vip-wide` (1180px —
   Home, and Dashboard's Reports tab). Inside `.vip-wide`, Dashboard's report
   cards sit in `.vip-report-grid` (2 columns); a card wrapped in
@@ -386,7 +416,7 @@ approximation of it.** Concretely:
   `buildAgeingPanel(staleBucket)`, and "Leads by stage (detail)" opens the
   identical panel Pipeline-by-stage's own "Details" link does.
 
-### Home (`src/pages/Home.jsx`) and Account (`src/pages/Account.jsx`)
+### Home (`src/pages/Home.jsx`)
 
 `/` is the landing page after login for both roles — a time-of-day greeting
 ("Good morning/afternoon/evening, {first name}", falling back to "Hello"
@@ -411,9 +441,17 @@ each potentially with a home screen that looks substantially different,
 and a role-keyed data map means adding one is a new entry in `HOME_TILES`,
 not a rewrite of `Home.jsx`.
 
-`Account` (`/account`, both roles) is a minimal read-only Name/Role/Mobile/
-Email display plus a Log out button (calls the same `signOut()` `AppNav`'s
-button uses) — no self-service editing, wasn't asked for.
+Home is also the one route with no `AppNav` header, so it's the one place
+in the app that needs its own avatar/nametag markup rather than inheriting
+it — a mobile-only (`vip-only-mobile`) `Link` to `/profile` sits top-right
+of the greeting row (`.vip-home-head-actions`, grouped with the KPI period
+selector so both stay right-aligned together). `.vip-home-head` wraps
+(`flex-wrap: wrap`) and `.vip-greeting` carries a `min-width: 200px` so a
+longer greeting forces the period-selector+avatar group onto its own
+right-aligned line below, instead of squeezing the greeting text down to
+an ugly 3-line wrap on a narrow phone — confirmed live at 375px width. At
+≥1024px this avatar hides (the sidebar's own avatar, bottom-left, already
+covers Home there — see the Profile section below).
 
 ### Search-before-create components
 
@@ -760,19 +798,20 @@ activity-type tag once a party's linked, and an always-optional notes field.
   from their own profile. `FollowUpList` shows "Assigned by {name}" whenever
   `created_by !== assigned_to`, so an owner reviewing this page can see
   whether their own assigned reminders were followed up on and marked done.
-* **Account** (`src/pages/Account.jsx`) — a "Notifications" card between the
-  identity facts and Log out, showing this device's actual
-  `Notification.permission` state (unsupported/blocked/available) and, when
-  available, a plain `.vip-check` checkbox toggling this device's push
-  subscription on/off — no dedicated toggle-switch component exists in this
-  app, so this matches the checkbox style already used elsewhere.
+* **Profile** (`src/pages/Profile.jsx` — see its own section below) — a
+  "Notifications" card between the identity facts and the owner-only
+  settings block, showing this device's actual `Notification.permission`
+  state (unsupported/blocked/available) and, when available, a plain
+  `.vip-check` checkbox toggling this device's push subscription on/off —
+  no dedicated toggle-switch component exists in this app, so this matches
+  the checkbox style already used elsewhere.
 * **`NotificationPrompt.jsx`** (`src/components/`, mounted globally in
   `App.jsx` next to `InstallPrompt`/`OfflineIndicator`) — a one-time
   dismissible banner (same `sessionStorage`-flag/`.vip-install`-class shape
   as `InstallPrompt.jsx`) prompting to enable notifications, shown only when
   permission has never been asked and this device isn't already subscribed.
   Necessary for discoverability, not polish — without it, push never fires
-  for anyone who doesn't independently find the toggle buried in Account.
+  for anyone who doesn't independently find the toggle buried in Profile.
 
 **Push delivery** — real OS-level notifications, not just an in-app badge,
 which needed new infrastructure this app didn't have before:
@@ -1172,9 +1211,9 @@ effects below, since neither is part of the date-range-scoped report data.
   "Clear all", so the resting screen stays as clean as before any
   filtering existed. Owner/Stage/Source/Status/Quote value are all applied
   server-side via the now filters-object `fetchLeadsList({ employeeId,
-  stage, source, status, minValue, maxValue })` (`dashboardQueries.js`,
-  DeleteLeadSection's own call site updated to match) — correct even under
-  the 100-row cap, unlike filtering client-side after the fact would be.
+  stage, source, status, minValue, maxValue })` (`dashboardQueries.js`) —
+  correct even under the 100-row cap, unlike filtering client-side after the
+  fact would be.
   Status is a binary Active/Inactive (`current_stage` not-in vs. in
   `(won,lost)`, mirroring `fetchClosureForecast`'s own not-won-not-lost
   filter) rather than stage-level granularity, since picking one exact
@@ -1191,10 +1230,11 @@ effects below, since neither is part of the date-range-scoped report data.
   the owner it's now one more facet inside the same filter panel
   (`employeeFilter` state, default "— All employees —") instead of its own
   always-visible row above the card; for a sales exec, RLS already scopes
-  the query, so it doesn't render at all. Also reused by Settings' Delete
-  a lead section, which calls the same function unfiltered
-  (`fetchLeadsList()`) — its own client-side search over party/site/owner
-  is untouched.
+  the query, so it doesn't render at all. There is no more Delete-a-lead
+  tool anywhere in the app — Profile's owner-only settings delete parties
+  instead, not leads (see the Profile section below); `dashboardQueries.js`
+  no longer exports a `deleteLead` (removed as dead code once its one
+  caller, `DeleteLeadSection.jsx`, was deleted).
 * `ACTIVITY_TYPES`/`ACTIVITY_LABELS` live in `src/lib/activityTypes.js`
   (canonical, kept in sync with the `activities.activity_type` CHECK) —
   `ActivityLog.jsx` imports from there instead of defining its own copy.
@@ -1212,10 +1252,17 @@ right period, a real target set through `SetTargetForm` shows a live
 actual-vs-target row without a reload and correctly reads `no target set`
 under a different period (proving period-scoping), and — separately, with a
 genuine second `sales_executive` login — that all owner-only elements
-(Settings, the Sales exec filters, Why we lose) are correctly absent for
-that role, not just gated by an untested `isOwner` flag. Owner-only DELETE
-exists on `leads`/`activities`/`targets` (see Conventions) if test data
-ever needs cleaning up.
+(the Settings section that has since moved into Profile, the Sales exec
+filters, Why we lose) are correctly absent for that role, not just gated
+by an untested `isOwner` flag. Profile's own `isOwner` gate (see its
+section below) is the same pattern, unchanged, but wasn't independently
+re-verified with a second login in the pass that built Profile — only
+reasoned through by inspection. Owner-only DELETE
+exists on `leads`/`parties`/`activities`/`targets` (see Conventions) if test
+data ever needs cleaning up — the only in-app delete tool left is Profile's
+Delete-a-party section (`leads` lost its in-app delete UI in the Profile
+merge, see the LeadsListCard bullet above; cleaning up a stray lead now
+needs direct Supabase access).
 
 **Dashboard v2 verified against real data too**: every card above and every
 `build*Panel` drill-down was driven live in the browser against the real dev
@@ -1244,56 +1291,108 @@ confirmed unchanged (still the paired featured-row layout); and the mobile
 width was confirmed to keep the plain vertical list rather than attempting
 the tile grid at phone width.
 
-### Settings (`src/pages/Settings.jsx`)
+### Profile (`src/pages/Profile.jsx`)
 
-Owner-only page at `/settings`. Three independent sections, `employees`
-state lifted to the page and shared between the first two (`upsertEmployee`
-updates-in-place-or-appends, keeping both sections in sync without a
-re-fetch):
+`/profile`, both roles — the merged replacement for what used to be two
+separate screens, `Account` (`/account`) and owner-only `Settings`
+(`/settings`). There's no tab or sidebar link for it (unlike the old
+Account/Settings entries in `BottomNav`) — it's reached only by tapping the
+avatar/nametag: `AppNav`'s header avatar (every route except Home), the
+desktop sidebar's `.vip-sidebar-foot` avatar (bottom-left), or Home's own
+mobile-only top-right avatar (see the Structure and Home sections above for
+all three). The nametag's initials were already first-letter-of-first-name
++ first-letter-of-surname (`getInitials` in `src/lib/initials.js`, splits
+on whitespace, falls back to the first two letters of a single-word name) —
+unchanged by this merge, just now the thing every entry point links to.
 
-* **Add employee** (`AddEmployeeForm.jsx`) — name/mobile/role/Auth User ID
-  (UUID) → inserts an `employees` row (`insertEmployee` in
-  `src/lib/employeeQueries.js`). **Only creates the CRM-side record.**
-  Creating the actual Supabase Auth login (the part that lets someone log
-  in) can't be done from here, or from the browser at all, without exposing
-  a secret that must never reach client code: Supabase's admin API
-  (`auth.admin.createUser()`) needs the `service_role` key, and that key
-  bypasses RLS entirely — putting it in frontend code would let anyone open
-  devtools and read/write the whole database as any user. The only correct
-  way to add that automation later is a small server-side function (a
-  Supabase Edge Function, using `service_role` only in server-side code that
-  never ships to the browser) that this project doesn't have yet. Until
-  then, the owner still creates the Auth user manually in the Supabase
-  dashboard (Authentication → Users → Add user, with "Auto Confirm User" on)
-  and pastes the resulting UUID into this form. Leaving the UUID blank is
-  allowed (creates an unlinked record, linkable later by editing
-  `auth_user_id` directly in Supabase).
-* **Manage employees** (`ManageEmployeesSection.jsx`) — lists every
-  employee with an editable mobile field (own per-row Save when changed —
-  no self-edit restriction, unlike role/status below), an editable role
-  dropdown (+ per-row Save, only enabled when changed), and an
-  Active/Inactive toggle (`is_active` — "deactivate, never delete a person
-  with history"). **Role and Active/Inactive are both disabled for the
-  currently logged-in owner's own row** (`isSelf = emp.id === currentEmployeeId`)
-  — RLS's `owner_only_update` policy checks that the *caller* is an owner,
-  not that a row being edited stays an owner, so without this an owner could
-  demote or deactivate themselves and lock themselves out. This guardrail is
-  UI-only, same category as `SetTargetForm`'s owner-only gating.
-* **Delete a lead** (`DeleteLeadSection.jsx`) — reuses `fetchLeadsList(null)`
-  (same query `LeadsListCard` uses, all leads, capped at 100) with a
-  client-side search box, and a two-step confirm (click Delete → inline
-  "Delete #N?" with Confirm/Cancel) before the actual `deleteLead` DELETE
-  fires — a deliberate extra step given this is genuinely irreversible.
-  RLS's `owner_only_delete` policy on `leads` is the real enforcement.
+Top to bottom:
 
-Verified end to end against the live database: employee Active/Deactivate
-toggle persists and reverts correctly (checked via direct REST calls), the
-owner's own row's controls are confirmed disabled, and the Delete a lead
-flow was proven for real (created a throwaway lead, deleted it through the
-actual UI flow, confirmed gone via a direct database check). Not
-independently verified: the Add employee form's submit path (same insert
-pattern already proven elsewhere, just never exercised here to avoid
-cluttering the live employee list).
+* **Identity facts** — Name/Role/Mobile/Email, read-only, unchanged from
+  the old `Account` page's own facts card.
+* **Notifications** — unchanged from `Account`, see the Follow-ups section
+  above.
+* **Owner-only settings** (`{isOwner && ...}`, same `employees` state /
+  `upsertEmployee` lifted-and-shared pattern the old `Settings.jsx` used) —
+  * **Add employee** (`AddEmployeeForm.jsx`) — now collapsed behind a
+    "+ Add" toggle in the card header instead of always being on-screen
+    (same reveal/Cancel shape as `SetTargetForm`'s "+ Set a target" —
+    `AddEmployeeForm` itself no longer renders its own `.vip-card`/title,
+    since the parent card + toggle now owns that chrome; wrapping it in a
+    second nested card produced a visibly duplicated "Add employee" title
+    the first time this was built, caught and fixed in the browser
+    preview). Otherwise unchanged: name/mobile/role/Auth User ID (UUID) →
+    `insertEmployee` in `src/lib/employeeQueries.js`, **CRM-side record
+    only** — creating the actual Supabase Auth login still needs the owner
+    to do it manually in the Supabase dashboard first (Authentication →
+    Users → Add user, "Auto Confirm User" on) and paste the UUID in, for
+    the same `service_role`-must-never-reach-the-browser reason as before.
+  * **Manage employees** (`ManageEmployeesSection.jsx`) — was an
+    always-rendered list of every employee; now a search box with **nothing
+    shown until it matches** ("Type a name to search." / "No employees
+    found." otherwise) — the list was long enough that scrolling past it
+    to reach Delete a party below was the actual complaint this fixed. Once
+    filtered, each matching row is unchanged: editable mobile (own Save),
+    editable role dropdown (own Save), Active/Inactive toggle — with
+    role/Active still disabled for the owner's own row
+    (`isSelf = emp.id === currentEmployeeId`) so an owner can't demote or
+    deactivate themselves via RLS's caller-is-owner (not
+    row-stays-owner) `owner_only_update` policy.
+  * **Delete a party** (`DeletePartySection.jsx`) — replaces the old
+    **Delete a lead** tool entirely; deleting leads is no longer possible
+    from the UI at all (RLS still permits it, see Conventions, but cleaning
+    up a stray lead now needs direct Supabase access). The actual ask was
+    for cleaning up a wrongly-added architect/PMC/other contact, not a real
+    client — same search-only-then-act treatment as Manage employees above
+    (nothing shown until the search matches a name or mobile number), then
+    a two-step confirm (Delete → inline "Delete {name}?" with
+    Confirm/Cancel) before `deleteParty` (`src/lib/partyQueries.js`) fires.
+    **Real constraint surfaced while building this**: `leads.party_id`,
+    `activities.party_id`, and `site_contacts.party_id` have no `ON DELETE`
+    clause in the schema (plain `RESTRICT`) — only `referred_by_party_id`/
+    `other_party_id` are `SET NULL`. So a party that's anyone's actual
+    lead/activity-anchor/site-contact fails to delete with a Postgres
+    FK-violation error, surfaced verbatim (same "just show `error.message`"
+    precedent every delete flow in this app already follows) rather than
+    pre-checked client-side — exactly why this tool exists for the
+    "wrongly added referrer" case (only `referred_by_party_id`/
+    `other_party_id` links, which null out cleanly) and not for a party
+    that's already someone's client record.
+* **Change password** (`ChangePasswordForm.jsx`, `changePassword` in
+  `src/lib/authQueries.js`) — new capability, didn't exist before this
+  merge. Collapsed behind a "Change" toggle, same pattern as Add employee
+  above. Current password / new password / confirm new password.
+  **Re-authenticates with the current password first**
+  (`supabase.auth.signInWithPassword`) before calling
+  `supabase.auth.updateUser({ password })` — a deliberate choice over the
+  simpler "just call `updateUser`" (which Supabase allows on any valid
+  session with no old-password check at all): the point is to stop a
+  password change from a device that's merely left unlocked, at the cost of
+  one extra field and one extra failure mode. Client-side validation first
+  (new password ≥ 6 characters — Supabase's own default minimum,
+  new === confirm) before the network round-trip; a wrong current password
+  surfaces Supabase's own "Invalid login credentials" error and never
+  reaches `updateUser` — confirmed live (submitted with a deliberately
+  wrong current password and watched the error appear without the password
+  actually changing).
+* **Log out** — moved to the very bottom, below Change password, instead of
+  living inside the owner-only settings block; unchanged `signOut()` call,
+  same one `AppNav`'s old logout button used to use.
+
+**Verified live in the browser** (dev preview, owner login): Manage
+employees' and Delete a party's search-then-show behavior (typed a letter,
+watched matching rows/parties appear, empty state before typing), the
+Delete-a-party confirm/cancel step rendering correctly (cancelled rather
+than completing a real delete against live data), Add employee's and
+Change password's collapse/expand toggles, Change password's mismatch
+validation and its wrong-current-password error path end to end, and the
+desktop sidebar's hover-expand still working with `.vip-sidebar-foot` now a
+`Link` (see the CSS specificity note in the Structure section above). **Not
+exercised this pass**: an actual successful employee creation, a real
+party deletion, or a real password change (all three would have mutated
+the live dev database's test data or credentials for no verification
+benefit beyond what the error-path testing above already proved) — same
+category of "reasoned through, not independently re-run" as the second
+`sales_executive` login check noted earlier in this doc.
 
 ### PWA installability (`src/components/InstallPrompt.jsx`, `OfflineIndicator.jsx`)
 
@@ -1398,7 +1497,8 @@ renders) rather than assuming a fresh tab means a fresh session.
 2. ✅ Employee login (Supabase Auth): login screen, AuthContext, protected/role-based routing
 3. ✅ Party/site/lead intake screens (search-before-create pattern)
 4. ✅ DPR / activity logging (`ActivityLog` at `/activity`)
-5. ✅ Dashboards, Settings (employee management + lead deletion), Home hub,
+5. ✅ Dashboards, Settings (employee management + lead deletion — since
+   merged into Profile, see its own section above), Home hub,
    global search, Kanban board, and reporting cards — see the dedicated
    sections above for how each works today.
 6. ✅ PWA polish (installable, offline-tolerant for field use) — see the PWA

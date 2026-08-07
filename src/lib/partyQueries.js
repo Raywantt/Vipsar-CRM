@@ -38,3 +38,15 @@ export function mostRecentLeadByParty(leadsByPartyRows) {
   })
   return map
 }
+
+// Owner-only in the UI (Profile's Settings section) — RLS's owner_only_delete
+// policy on parties is the actual enforcement. leads.party_id/activities.party_id/
+// site_contacts.party_id have no ON DELETE clause (RESTRICT), so deleting a
+// party that's still linked as someone's lead/activity/site-contact fails with
+// a Postgres FK-violation error — surfaced as-is, same as every other delete
+// flow in this app (see DeletePartySection.jsx). Only referred_by_party_id/
+// other_party_id are ON DELETE SET NULL, so a party that was only ever a
+// referrer or "other" contact deletes cleanly.
+export function deleteParty(id) {
+  return supabase.from('parties').delete().eq('id', id)
+}

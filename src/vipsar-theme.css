@@ -187,11 +187,16 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
   background: var(--vip-shell-2); color: var(--vip-on-shell);
   display: grid; place-items: center; font-size: 17px; cursor: pointer;
 }
+/* Also used as a Link (AppNav's header avatar, Home's mobile-only one) to
+   /profile — text-decoration: none beats the global "a:hover" underline
+   (higher specificity than plain .vip-avatar, needed on hover specifically). */
 .vip-avatar {
   width: 34px; height: 34px; flex: 0 0 34px; border-radius: 50%;
   background: var(--vip-shell-2); color: var(--vip-on-shell);
   display: grid; place-items: center; font-size: 12px; font-weight: 600;
+  text-decoration: none;
 }
+a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 
 /* right side of the header: avatar always, search/add shortcuts desktop-only
    (see the ≥1024px block below) */
@@ -247,11 +252,20 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 .vip-empty { font-size: 13px; color: var(--vip-faint); padding: 2px 0 4px; }
 
 .vip-home-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
 }
+
+/* groups the period selector with the mobile-only nametag (Home has no
+   AppNav header, so this is its only avatar entry point on a phone — see
+   BottomNav's sidebar-foot avatar for the desktop equivalent). min-width on
+   the greeting above forces this group onto its own wrapped line, right-
+   aligned via margin-left: auto, rather than squeezing the greeting to a
+   cramped 3-line wrap on a narrow phone. */
+.vip-home-head-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; margin-left: auto; }
 
 .vip-greeting {
   font-family: var(--vip-display); font-weight: 600; font-size: 20px; color: var(--vip-ink);
+  flex: 1 1 auto; min-width: 200px;
 }
 
 /* KPI tiles — always 2-up on phone */
@@ -597,7 +611,12 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
    desktop) — stacked single column below 1024px, same as .vip-narrow/.vip-wide */
 .vip-cols, .vip-cols-3 { display: flex; flex-direction: column; gap: 14px; width: 100%; margin: 0 auto; }
 
-.vip-bottom-nav a.vip-nav-extra, .vip-sidebar-brand, .vip-sidebar-foot { display: none; }
+/* .vip-sidebar-foot is now a Link (see BottomNav.jsx), which also matches
+   the plain ".vip-bottom-nav a" rule below — that selector has higher
+   specificity (class+type vs. this rule's single class), so the "hide on
+   mobile"/layout rules here and at the ≥1024px block both use the
+   ".vip-bottom-nav a.vip-sidebar-foot" form to reliably win. */
+.vip-bottom-nav a.vip-nav-extra, .vip-sidebar-brand, .vip-bottom-nav a.vip-sidebar-foot { display: none; }
 
 @media (min-width: 1024px) {
   :root {
@@ -718,7 +737,7 @@ a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
     letter-spacing: .12em; color: #fff;
   }
   .vip-bottom-nav:hover .vip-sidebar-word { max-width: 120px; }
-  .vip-sidebar-foot {
+  .vip-bottom-nav a.vip-sidebar-foot {
     display: flex;
     align-items: center;
     gap: 10px;
