@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
+import { errorMessage } from '../lib/errorMessage'
 
 function SiteDetailsSection({ site, areas, onSaved }) {
   const [areaId, setAreaId] = useState(site.area_id ?? '')
@@ -40,7 +41,7 @@ function SiteDetailsSection({ site, areas, onSaved }) {
     setSaving(false)
 
     if (error) {
-      setError(error.message)
+      setError(errorMessage(error))
       return
     }
 

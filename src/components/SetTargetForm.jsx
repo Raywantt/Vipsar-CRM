@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { METRIC_OPTIONS } from '../lib/targetMetrics'
 import { periodForPreset } from '../lib/targetPeriods'
 import { insertTarget } from '../lib/targetQueries'
+import { errorMessage } from '../lib/errorMessage'
 
 const PERIOD_TYPES = [
   { value: 'week', label: 'Week' },
@@ -48,7 +49,7 @@ function SetTargetForm({ employees, onCreated, onCancel }) {
     setSaving(false)
 
     if (error) {
-      setError(error.message)
+      setError(errorMessage(error))
       return
     }
 

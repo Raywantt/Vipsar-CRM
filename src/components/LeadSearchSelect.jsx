@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import { errorMessage } from '../lib/errorMessage'
 
 function leadLabel(lead) {
   const who = lead.parties?.name ?? 'No client'
@@ -31,7 +32,7 @@ function LeadSearchSelect({ onSelect }) {
         if (!active) return
         setLoading(false)
         if (error) {
-          setError(error.message)
+          setError(errorMessage(error))
         } else {
           setLeads(data)
         }

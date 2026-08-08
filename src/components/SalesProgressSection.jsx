@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { errorMessage } from '../lib/errorMessage'
 
 function SalesProgressSection({ lead, products, onSaved }) {
   const [productId, setProductId] = useState(lead.product_id ?? '')
@@ -27,7 +28,7 @@ function SalesProgressSection({ lead, products, onSaved }) {
         rfq_raised_at: rfqRaised ? rfqRaisedAt || null : null,
         quote_sent: quoteSent,
         quote_sent_at: quoteSent ? quoteSentAt || null : null,
-        quote_value: quoteSent && quoteValue !== '' ? Number(quoteValue) : null,
+        quote_value: quoteValue !== '' ? Number(quoteValue) : null,
         closure_probability: closureProbability !== '' ? Number(closureProbability) : null,
         estimated_close_date: estimatedCloseDate || null,
       })
@@ -38,7 +39,7 @@ function SalesProgressSection({ lead, products, onSaved }) {
     setSaving(false)
 
     if (error) {
-      setError(error.message)
+      setError(errorMessage(error))
       return
     }
 

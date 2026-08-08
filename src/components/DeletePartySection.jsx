@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchAllParties, deleteParty } from '../lib/partyQueries'
+import { errorMessage } from '../lib/errorMessage'
 
 const PARTY_TYPE_LABELS = {
   client: 'Client',
@@ -23,7 +24,7 @@ const BLOCKING_TABLE_BY_CONSTRAINT = {
 }
 
 function friendlyDeleteError(error, partyName) {
-  if (error.code !== '23503') return error.message
+  if (error.code !== '23503') return errorMessage(error)
   const constraint = Object.keys(BLOCKING_TABLE_BY_CONSTRAINT).find((c) => error.message?.includes(c))
   const linkedTo = constraint ? BLOCKING_TABLE_BY_CONSTRAINT[constraint] : 'a lead, activity, or site contact'
   return `${partyName} can't be deleted — still linked to ${linkedTo}. This tool is for a mistaken entry (a wrongly added architect, PMC, or other contact), not a party who already has real history.`
@@ -43,7 +44,7 @@ function DeletePartySection() {
       if (!active) return
       setLoading(false)
       if (error) {
-        setError(error.message)
+        setError(errorMessage(error))
       } else {
         setParties(data ?? [])
       }

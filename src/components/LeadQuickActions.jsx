@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { insertLeadOwnerHistory } from '../lib/leadOwnerHistory'
 import { FOLLOWUP_OPTIONS, followupDateFor } from '../lib/followupDates'
 import LeadStageSection from './LeadStageSection'
+import { errorMessage } from '../lib/errorMessage'
 
 // The three quick actions from the Lead Profile handoff (README.md §6.1 /
 // DATA_CONTRACT.md §5). Change stage reuses LeadStageSection unmodified
@@ -55,7 +56,7 @@ function LeadQuickActions({
 
     setSavingFollowup(false)
     if (error) {
-      setFollowupError(error.message)
+      setFollowupError(errorMessage(error))
       return
     }
     setFollowupSaved(true)
@@ -80,7 +81,7 @@ function LeadQuickActions({
 
     if (leadError) {
       setSavingOwner(false)
-      setOwnerError(leadError.message)
+      setOwnerError(errorMessage(leadError))
       setOwnerChoice(oldOwnerId ?? '')
       return
     }
@@ -99,7 +100,7 @@ function LeadQuickActions({
     // as a warning rather than rolling back the actual reassignment, same
     // pattern ActivityLog uses for its own lead-side-effect writes.
     if (historyError) {
-      setOwnerHistoryWarning(`Owner reassigned, but logging the change failed: ${historyError.message}`)
+      setOwnerHistoryWarning(`Owner reassigned, but logging the change failed: ${errorMessage(historyError)}`)
     } else {
       setOwnerSaved(true)
     }

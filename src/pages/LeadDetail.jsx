@@ -11,6 +11,7 @@ import LeadQuickActions from '../components/LeadQuickActions'
 import LeadActivityTimeline from '../components/LeadActivityTimeline'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchLeadOwnerHistory } from '../lib/leadOwnerHistory'
+import { errorMessage } from '../lib/errorMessage'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { getInitials } from '../lib/initials'
 import { formatCurrency, formatCurrencyCompact } from '../lib/format'
@@ -85,7 +86,7 @@ function LeadDetail() {
       if (!active) return
 
       if (leadError) {
-        setLoadError(leadError.message)
+        setLoadError(errorMessage(leadError))
         setLoading(false)
         return
       }

@@ -5,6 +5,7 @@ import { fetchLeadsByParty, mostRecentLeadByParty } from '../lib/partyQueries'
 import { createFollowUp } from '../lib/followUpQueries'
 import { ACTIVITY_TYPES } from '../lib/activityTypes'
 import PartySearchOrCreate from './PartySearchOrCreate'
+import { errorMessage } from '../lib/errorMessage'
 
 // assignedTo is locked, not a picker — the caller (Home for a self reminder,
 // EmployeeProfile for an owner assigning one) decides who this is for.
@@ -74,7 +75,7 @@ function FollowUpForm({ assignedTo, createdBy, onSaved, onCancel }) {
 
     if (saveError) {
       setSaving(false)
-      setError(saveError.message)
+      setError(errorMessage(saveError))
       return
     }
 

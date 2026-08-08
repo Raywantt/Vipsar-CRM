@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { updateEmployeeRole, updateEmployeeActive, updateEmployeeMobile } from '../lib/employeeQueries'
+import { errorMessage } from '../lib/errorMessage'
 
 const ROLE_OPTIONS = ['sales_executive', 'owner']
 
@@ -18,7 +19,7 @@ function EmployeeRow({ emp, isSelf, onUpdated }) {
     const { data, error } = await updateEmployeeRole(emp.id, role)
     setSaving(false)
     if (error) {
-      setError(error.message)
+      setError(errorMessage(error))
       return
     }
     onUpdated(data)
@@ -30,7 +31,7 @@ function EmployeeRow({ emp, isSelf, onUpdated }) {
     const { data, error } = await updateEmployeeMobile(emp.id, mobile.trim())
     setSaving(false)
     if (error) {
-      setError(error.message)
+      setError(errorMessage(error))
       return
     }
     setMobile(data.mobile ?? '')
@@ -43,7 +44,7 @@ function EmployeeRow({ emp, isSelf, onUpdated }) {
     const { data, error } = await updateEmployeeActive(emp.id, !emp.is_active)
     setSaving(false)
     if (error) {
-      setError(error.message)
+      setError(errorMessage(error))
       return
     }
     onUpdated(data)

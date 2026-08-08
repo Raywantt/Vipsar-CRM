@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import DonutChart from './DonutChart'
 import FollowUpList from './FollowUpList'
+import { errorMessage } from '../lib/errorMessage'
 
 // Slide-over drill-down reused by every clickable Dashboard metric — the KPI
 // row, heatmap cells, Funnel/Pipeline, Leads by source, Why we lose, and each
@@ -221,7 +222,7 @@ function AgeingBody({ panel }) {
       .from('activities')
       .insert({ employee_id: panel.viewerEmployeeId, lead_id: r.leadId, activity_type: 'call' })
     setBusyLeadId(null)
-    setMessages((m) => ({ ...m, [r.leadId]: error ? `Couldn't log call: ${error.message}` : 'Call logged.' }))
+    setMessages((m) => ({ ...m, [r.leadId]: error ? `Couldn't log call: ${errorMessage(error)}` : 'Call logged.' }))
   }
 
   async function handleSaveDate() {

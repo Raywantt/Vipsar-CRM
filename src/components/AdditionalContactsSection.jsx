@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import PartySearchOrCreate from './PartySearchOrCreate'
+import { errorMessage } from '../lib/errorMessage'
 
 const ROLE_OPTIONS = ['owner', 'architect', 'builder', 'project_manager', 'site_staff', 'other']
 
@@ -46,7 +47,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
     setSavingSuggestion(false)
 
     if (error) {
-      setSuggestionError(error.message)
+      setSuggestionError(errorMessage(error))
       return
     }
 
@@ -66,7 +67,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
     setSavingNew(false)
 
     if (error) {
-      setNewError(error.message)
+      setNewError(errorMessage(error))
       return
     }
 

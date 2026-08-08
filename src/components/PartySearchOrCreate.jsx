@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
+import { errorMessage } from '../lib/errorMessage'
 
 const DEFAULT_PARTY_TYPES = ['client', 'architect', 'builder', 'firm', 'other', 'pmc']
 const MIN_QUERY_LENGTH = 2
@@ -64,7 +65,7 @@ function PartySearchOrCreate({
       if (!active) return
       setSearching(false)
       if (error) {
-        setSearchError(error.message)
+        setSearchError(errorMessage(error))
         setResults([])
       } else {
         setSearchError(null)
@@ -112,7 +113,7 @@ function PartySearchOrCreate({
     setSaving(false)
 
     if (error) {
-      setCreateError(error.message)
+      setCreateError(errorMessage(error))
       return
     }
 

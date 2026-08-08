@@ -32,8 +32,6 @@ function FabSheet({ isOwner, onClose }) {
             </span>
           </Link>
         )}
-
-        <div className="vip-sheet-foot">Works offline — saved on this phone, synced when you're back on signal.</div>
       </div>
     </>
   )

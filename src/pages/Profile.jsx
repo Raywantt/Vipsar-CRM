@@ -6,6 +6,7 @@ import AddEmployeeForm from '../components/AddEmployeeForm'
 import ManageEmployeesSection from '../components/ManageEmployeesSection'
 import DeletePartySection from '../components/DeletePartySection'
 import ChangePasswordForm from '../components/ChangePasswordForm'
+import { errorMessage } from '../lib/errorMessage'
 
 const ROLE_LABELS = {
   owner: 'Owner',
@@ -60,7 +61,7 @@ function Profile() {
       const { error } = await unsubscribeFromPush(employee.id)
       setNotifBusy(false)
       if (error) {
-        setNotifError(error.message)
+        setNotifError(errorMessage(error))
         return
       }
       setSubscribed(false)
@@ -70,7 +71,7 @@ function Profile() {
     const { error } = await subscribeToPush(employee.id)
     setNotifBusy(false)
     if (error) {
-      setNotifError(error.message)
+      setNotifError(errorMessage(error))
       return
     }
     setSubscribed(true)

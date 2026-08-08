@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { changePassword } from '../lib/authQueries'
+import { errorMessage } from '../lib/errorMessage'
 
 function ChangePasswordForm({ email, onCancel }) {
   const [currentPassword, setCurrentPassword] = useState('')
@@ -30,7 +31,7 @@ function ChangePasswordForm({ email, onCancel }) {
     setSaving(false)
 
     if (error) {
-      setError(error.message)
+      setError(errorMessage(error))
       return
     }
 

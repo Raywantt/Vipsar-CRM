@@ -5,7 +5,7 @@ import AppNav from './AppNav'
 import BottomNav from './BottomNav'
 
 function ProtectedRoute({ allowedRoles, children }) {
-  const { session, employee, employeeError, loading } = useAuth()
+  const { session, employee, employeeError, loading, signOut } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -25,6 +25,25 @@ function ProtectedRoute({ allowedRoles, children }) {
           admin to get your account connected.
         </p>
         {employeeError && <p style={{ color: 'crimson' }}>{employeeError}</p>}
+        <button type="button" className="vip-btn vip-btn-secondary" style={{ marginTop: 16, width: 'auto' }} onClick={signOut}>
+          Log out
+        </button>
+      </main>
+    )
+  }
+
+  // RLS (Schema/rls_policies.sql) already refuses every query for a
+  // deactivated employee at the database layer — this is the UI-level
+  // mirror, so a rep whose access was pulled sees a clear reason instead
+  // of every screen just silently coming back empty.
+  if (!employee.is_active) {
+    return (
+      <main style={{ padding: 24 }}>
+        <h1>Account deactivated</h1>
+        <p>Your account has been deactivated. Contact your admin if you think this is a mistake.</p>
+        <button type="button" className="vip-btn vip-btn-secondary" style={{ marginTop: 16, width: 'auto' }} onClick={signOut}>
+          Log out
+        </button>
       </main>
     )
   }

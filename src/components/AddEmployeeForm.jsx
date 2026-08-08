@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { insertEmployee } from '../lib/employeeQueries'
+import { errorMessage } from '../lib/errorMessage'
 
 const ROLE_OPTIONS = [
   { value: 'sales_executive', label: 'Sales Executive' },
@@ -33,7 +34,7 @@ function AddEmployeeForm({ onCreated, onCancel }) {
     setSaving(false)
 
     if (error) {
-      setError(error.message)
+      setError(errorMessage(error))
       return
     }
 

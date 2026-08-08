@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { getPushPermissionState, hasActiveSubscription, subscribeToPush } from '../lib/pushSubscription'
+import { errorMessage } from '../lib/errorMessage'
 
 const DISMISS_KEY = 'notificationPromptDismissed'
 
@@ -39,7 +40,7 @@ function NotificationPrompt() {
     const { error: subError } = await subscribeToPush(employee.id)
     setSubscribing(false)
     if (subError) {
-      setError(subError.message)
+      setError(errorMessage(subError))
       return
     }
     setShow(false)

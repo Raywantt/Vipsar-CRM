@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
+import { errorMessage } from '../lib/errorMessage'
 
 const MIN_QUERY_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 350
@@ -36,7 +37,7 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
       .then(({ data, error }) => {
         if (!active) return
         if (error) {
-          setAreasError(error.message)
+          setAreasError(errorMessage(error))
         } else {
           setAreas(data)
         }
@@ -80,7 +81,7 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
       if (!active) return
       setSearching(false)
       if (error) {
-        setSearchError(error.message)
+        setSearchError(errorMessage(error))
         setResults([])
       } else {
         setSearchError(null)
@@ -132,7 +133,7 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
     setSaving(false)
 
     if (error) {
-      setCreateError(error.message)
+      setCreateError(errorMessage(error))
       return
     }
 

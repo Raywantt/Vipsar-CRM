@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { errorMessage } from '../lib/errorMessage'
 
 const AuthContext = createContext(undefined)
 
@@ -15,14 +16,14 @@ export function AuthProvider({ children }) {
     async function loadEmployee(userId) {
       const { data, error } = await supabase
         .from('employees')
-        .select('id, name, mobile, role')
+        .select('id, name, mobile, role, is_active')
         .eq('auth_user_id', userId)
         .single()
 
       if (!active) return
       if (error) {
         setEmployee(null)
-        setEmployeeError(error.message)
+        setEmployeeError(errorMessage(error))
       } else {
         setEmployee(data)
         setEmployeeError(null)

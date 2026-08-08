@@ -7,10 +7,8 @@ import LeadSearchSelect from '../components/LeadSearchSelect'
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import { fetchLeadsList, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { stageChipClass } from '../lib/statusColors'
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10)
-}
+import { todayISO } from '../lib/followupDates'
+import { errorMessage } from '../lib/errorMessage'
 
 function touchLabel(lastAt) {
   if (!lastAt) return 'no activity yet'
@@ -166,7 +164,7 @@ function ActivityLog() {
       .single()
 
     if (activityError) {
-      setSubmitError(`Couldn't log the activity: ${activityError.message}`)
+      setSubmitError(`Couldn't log the activity: ${errorMessage(activityError)}`)
       setSubmitting(false)
       return
     }
@@ -194,7 +192,7 @@ function ActivityLog() {
           .eq('id', selectedLead.id)
 
         if (leadUpdateError) {
-          warnings.push(`Activity logged, but updating the lead failed: ${leadUpdateError.message}`)
+          warnings.push(`Activity logged, but updating the lead failed: ${errorMessage(leadUpdateError)}`)
         }
       }
     }

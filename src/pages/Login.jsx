@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import { errorMessage } from '../lib/errorMessage'
 
 function Login() {
   const { session, employee, loading } = useAuth()
@@ -21,7 +22,7 @@ function Login() {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     setSubmitting(false)
     if (error) {
-      setError(error.message)
+      setError(errorMessage(error))
     }
   }
 

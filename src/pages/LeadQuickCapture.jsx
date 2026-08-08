@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
+import { errorMessage } from '../lib/errorMessage'
 
 const SOURCE_OPTIONS = [
   { value: 'scanning', label: 'Scanning' },
@@ -15,7 +15,6 @@ const SOURCE_LABELS = Object.fromEntries(SOURCE_OPTIONS.map((o) => [o.value, o.l
 
 function LeadQuickCapture() {
   const { employee } = useAuth()
-  const isOnline = useOnlineStatus()
 
   const [sourceType, setSourceType] = useState(null)
   const [clientParty, setClientParty] = useState(null)
@@ -58,7 +57,7 @@ function LeadQuickCapture() {
         .single()
 
       if (error) {
-        setSubmitError(`Couldn't save the site: ${error.message}`)
+        setSubmitError(`Couldn't save the site: ${errorMessage(error)}`)
         setSubmitting(false)
         return
       }
@@ -87,8 +86,8 @@ function LeadQuickCapture() {
     if (leadError) {
       setSubmitError(
         siteId
-          ? `Site was saved (id ${siteId}), but the lead failed: ${leadError.message}`
-          : `Couldn't save the lead: ${leadError.message}`
+          ? `Site was saved (id ${siteId}), but the lead failed: ${errorMessage(leadError)}`
+          : `Couldn't save the lead: ${errorMessage(leadError)}`
       )
       return
     }
@@ -203,12 +202,6 @@ function LeadQuickCapture() {
         <button className="vip-btn" type="submit" disabled={!canSubmit}>
           {submitting ? 'Saving…' : 'Save lead'}
         </button>
-        {!isOnline && (
-          <div className="vip-offline-note">
-            <span className="vip-offline-note-dot" />
-            Offline — saves on this phone, syncs later
-          </div>
-        )}
       </div>
     </form>
   )

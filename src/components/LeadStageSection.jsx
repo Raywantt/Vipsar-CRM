@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { LOSS_REASON_OPTIONS } from '../lib/lossReasonOptions'
 import { stageFg } from '../lib/statusColors'
+import { errorMessage } from '../lib/errorMessage'
 
 function LeadStageSection({ lead, onStageChanged }) {
   const { employee } = useAuth()
@@ -16,19 +17,26 @@ function LeadStageSection({ lead, onStageChanged }) {
   const [savedAt, setSavedAt] = useState(null)
 
   const [lossPromptOpen, setLossPromptOpen] = useState(false)
+  // The stage a 'lost' selection is waiting on — held here instead of
+  // applied immediately, so a lead can't end up 'lost' with no reason on
+  // file (see requestStage/handleConfirmLost below; DECISIONS.md's "no
+  // skip-for-now escape hatch" rule).
+  const [pendingStage, setPendingStage] = useState(null)
   const [lossReason, setLossReason] = useState('')
   const [lossCompetitor, setLossCompetitor] = useState('')
   const [savingLoss, setSavingLoss] = useState(false)
   const [lossError, setLossError] = useState(null)
   const [lossSaved, setLossSaved] = useState(false)
 
+  // Writes current_stage + stage_history together. Called directly for any
+  // non-'lost' stage; for 'lost' it's only ever called from
+  // handleConfirmLost, after the reason has already been saved.
   async function applyStage(resolvedStage) {
     if (!resolvedStage || resolvedStage === lead.current_stage || saving) return
 
     setSaving(true)
     setError(null)
     setSavedAt(null)
-    setLossSaved(false)
 
     const { data: updatedLead, error: leadError } = await supabase
       .from('leads')
@@ -39,7 +47,7 @@ function LeadStageSection({ lead, onStageChanged }) {
 
     if (leadError) {
       setSaving(false)
-      setError(leadError.message)
+      setError(errorMessage(leadError))
       return
     }
 
@@ -52,25 +60,43 @@ function LeadStageSection({ lead, onStageChanged }) {
     setSaving(false)
 
     if (historyError) {
-      setError(`Stage updated, but logging history failed: ${historyError.message}`)
+      setError(`Stage updated, but logging history failed: ${errorMessage(historyError)}`)
     } else {
       setSavedAt(Date.now())
     }
 
     onStageChanged(updatedLead, historyError ? null : historyRow)
+  }
 
+  // Entry point for every stage chip and the custom "Set" button. 'lost' is
+  // withheld from applyStage until a reason is captured and saved — every
+  // other stage still applies immediately, unchanged.
+  function requestStage(resolvedStage) {
+    if (!resolvedStage || resolvedStage === lead.current_stage || saving || savingLoss) return
     if (resolvedStage === 'lost') {
+      setPendingStage(resolvedStage)
       setLossReason('')
       setLossCompetitor('')
       setLossError(null)
       setLossSaved(false)
       setLossPromptOpen(true)
-    } else {
-      setLossPromptOpen(false)
+      return
     }
+    applyStage(resolvedStage)
   }
 
-  async function handleSaveLossReason() {
+  function cancelLossPrompt() {
+    setLossPromptOpen(false)
+    setPendingStage(null)
+    setLossReason('')
+    setLossCompetitor('')
+    setLossError(null)
+  }
+
+  // The reason is written first — if it fails, the lead's stage is never
+  // touched, so nothing can end up 'lost' without a reason on file.
+  async function handleConfirmLost() {
+    if (!lossReason || savingLoss) return
     setSavingLoss(true)
     setLossError(null)
 
@@ -80,14 +106,17 @@ function LeadStageSection({ lead, onStageChanged }) {
       competitor_name: lossCompetitor.trim() || null,
     })
 
-    setSavingLoss(false)
-
     if (error) {
-      setLossError(error.message)
+      setSavingLoss(false)
+      setLossError(errorMessage(error))
       return
     }
 
+    await applyStage(pendingStage)
+
+    setSavingLoss(false)
     setLossPromptOpen(false)
+    setPendingStage(null)
     setLossSaved(true)
   }
 
@@ -103,10 +132,10 @@ function LeadStageSection({ lead, onStageChanged }) {
             className="vip-chip-select"
             style={{ color: stageFg(stage) }}
             aria-pressed={stage === lead.current_stage}
-            disabled={saving}
+            disabled={saving || savingLoss}
             onClick={() => {
               setCustomOpen(false)
-              applyStage(stage)
+              requestStage(stage)
             }}
           >
             {stage}
@@ -135,8 +164,8 @@ function LeadStageSection({ lead, onStageChanged }) {
             type="button"
             className="vip-btn vip-btn-secondary vip-btn-sm"
             style={{ width: 'auto', flex: '0 0 auto' }}
-            disabled={!customStage.trim() || saving}
-            onClick={() => applyStage(customStage.trim())}
+            disabled={!customStage.trim() || saving || savingLoss}
+            onClick={() => requestStage(customStage.trim())}
           >
             Set
           </button>
@@ -149,7 +178,7 @@ function LeadStageSection({ lead, onStageChanged }) {
       {lossPromptOpen && (
         <div className="vip-section-split vip-stack-s">
           <p style={{ margin: 0, fontSize: 13, color: 'var(--vip-body)' }}>
-            This lead is marked <strong>lost</strong> — why?
+            Marking this lead <strong>lost</strong> — why? A reason is required before the stage is saved.
           </p>
           <select className="vip-select" value={lossReason} onChange={(e) => setLossReason(e.target.value)}>
             <option value="">— Select reason —</option>
@@ -166,17 +195,29 @@ function LeadStageSection({ lead, onStageChanged }) {
             placeholder="Competitor name (optional)"
           />
           {lossError && <p className="vip-error">{lossError}</p>}
-          <button
-            type="button"
-            className="vip-btn vip-btn-sm"
-            onClick={handleSaveLossReason}
-            disabled={!lossReason || savingLoss}
-          >
-            {savingLoss ? 'Saving…' : 'Save reason'}
-          </button>
+          <div className="vip-btn-row">
+            <button
+              type="button"
+              className="vip-btn vip-btn-sm"
+              style={{ width: 'auto', flex: '0 0 auto' }}
+              onClick={handleConfirmLost}
+              disabled={!lossReason || savingLoss}
+            >
+              {savingLoss ? 'Saving…' : 'Save & mark lost'}
+            </button>
+            <button
+              type="button"
+              className="vip-btn vip-btn-secondary vip-btn-sm"
+              style={{ width: 'auto', flex: '0 0 auto' }}
+              onClick={cancelLossPrompt}
+              disabled={savingLoss}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
-      {lossSaved && <p className="vip-success">Loss reason saved.</p>}
+      {lossSaved && !lossPromptOpen && <p className="vip-success">Loss reason saved.</p>}
     </div>
   )
 }

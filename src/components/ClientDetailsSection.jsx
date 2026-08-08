@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { errorMessage } from '../lib/errorMessage'
 
 function ClientDetailsSection({ party, onSaved }) {
   const [mobile, setMobile] = useState(party.mobile ?? '')
@@ -28,7 +29,7 @@ function ClientDetailsSection({ party, onSaved }) {
     setSaving(false)
 
     if (error) {
-      setError(error.message)
+      setError(errorMessage(error))
       return
     }
 
