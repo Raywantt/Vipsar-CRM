@@ -7,6 +7,7 @@ import LeadSearchSelect from '../components/LeadSearchSelect'
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import { fetchLeadsList, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { stageChipClass } from '../lib/statusColors'
+import { stageLabel } from '../lib/leadStageOptions'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
 
@@ -75,7 +76,7 @@ function RecentLeadsPicker({ employeeId, selected, onSelect }) {
                 {touchLabel(lead.lastTouchedAt)}
               </span>
             </span>
-            <span className={stageChipClass(lead.current_stage ?? 'new')}>{lead.current_stage ?? 'new'}</span>
+            <span className={stageChipClass(lead.current_stage ?? 'calling')}>{stageLabel(lead.current_stage ?? 'calling')}</span>
           </button>
         )
       })}

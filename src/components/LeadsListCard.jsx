@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { fetchLeadsList, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { stageChipClass, stageFg } from '../lib/statusColors'
 import { STALE_DAYS } from '../lib/attention'
-import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
+import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
 import { formatCurrencyCompact } from '../lib/format'
 import { dealValueFor } from '../lib/pipelineValue'
@@ -133,7 +133,7 @@ function LeadsListCard({ isOwner, employees }) {
   const groups = useMemo(() => {
     const byStage = new Map()
     filtered.forEach((lead) => {
-      const stage = lead.current_stage ?? 'new'
+      const stage = lead.current_stage ?? 'calling'
       if (!byStage.has(stage)) byStage.set(stage, [])
       byStage.get(stage).push(lead)
     })
@@ -286,7 +286,7 @@ function LeadsListCard({ isOwner, employees }) {
                   aria-pressed={stageFilter === stage}
                   onClick={() => setStageFilter(stage)}
                 >
-                  {stage}
+                  {stageLabel(stage)}
                 </button>
               ))}
             </div>
@@ -386,7 +386,7 @@ function LeadsListCard({ isOwner, employees }) {
                   </div>
                 </div>
                 <div className="vip-row-side" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span className={stageChipClass(lead.current_stage ?? 'new')}>{lead.current_stage ?? 'new'}</span>
+                  <span className={stageChipClass(lead.current_stage ?? 'calling')}>{stageLabel(lead.current_stage ?? 'calling')}</span>
                   <div className="vip-row-value">{formatCurrencyCompact(dealValueFor(lead))}</div>
                 </div>
               </Link>
@@ -399,7 +399,7 @@ function LeadsListCard({ isOwner, employees }) {
               <div key={group.stage}>
                 <div className="vip-lead-group-head">
                   <span className="vip-lead-group-swatch" style={{ background: stageFg(group.stage) }} />
-                  <span className="vip-lead-group-name">{group.stage}</span>
+                  <span className="vip-lead-group-name">{stageLabel(group.stage)}</span>
                   <span className="vip-lead-group-count">{group.rows.length}</span>
                   <span className="vip-lead-group-value">{formatCurrencyCompact(group.value)}</span>
                 </div>

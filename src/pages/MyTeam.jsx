@@ -59,7 +59,7 @@ function MyTeam() {
     const map = new Map()
     leads.forEach((l) => {
       if (!l.owner_employee_id) return
-      if (['won', 'lost'].includes(l.current_stage ?? 'new')) return
+      if (['won', 'lost'].includes(l.current_stage ?? 'calling')) return
       const entry = map.get(l.owner_employee_id) ?? { count: 0, value: 0 }
       entry.count += 1
       entry.value += dealValueFor(l)

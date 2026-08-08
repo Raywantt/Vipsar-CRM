@@ -13,6 +13,7 @@ import { computeAttentionBuckets } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageChipClass } from '../lib/statusColors'
+import { stageLabel } from '../lib/leadStageOptions'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
 import FollowUpForm from '../components/FollowUpForm'
@@ -43,11 +44,15 @@ const CHART_SERIES = [
 ]
 
 const STAGE_NEXT_ACTION = {
-  new: 'First call due',
-  hot: 'Send quote',
+  calling: 'First call due',
+  presentation: 'Book presentation',
+  joinery_follow_up: 'Joinery follow up',
+  measurements: 'Take measurements',
+  design_discussion: 'Discuss design',
   rfq: 'Raise RFQ',
-  quote: 'Follow up on quote',
+  quote_submission: 'Submit quote',
   negotiation: 'Close negotiation',
+  on_hold: 'Follow up when due',
 }
 
 function pctColor(p) {
@@ -279,7 +284,7 @@ function EmployeeProfile() {
       : actuals[key].get(execIdArg) ?? 0
 
   const myLeads = breakdownLeads.filter((l) => l.owner_employee_id === execId)
-  const myOpenLeads = myLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
+  const myOpenLeads = myLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
   const myAttention = computeAttentionBuckets(myLeads, lastActivityByLead)
   const staleBucket = myAttention.find((b) => b.key === 'stale')
 
@@ -375,7 +380,7 @@ function EmployeeProfile() {
         ? `Follow-up ${new Date(l.next_followup_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`
         : overdueFollowup
         ? 'Follow-up overdue'
-        : STAGE_NEXT_ACTION[l.current_stage ?? 'new'] ?? 'No next step'
+        : STAGE_NEXT_ACTION[l.current_stage ?? 'calling'] ?? 'No next step'
       return { lead: l, days, nextStep }
     })
     .sort((a, b) => b.days - a.days)
@@ -406,7 +411,7 @@ function EmployeeProfile() {
   // Pipeline owned
   const pipelineByStage = new Map()
   myOpenLeads.forEach((l) => {
-    const stage = l.current_stage ?? 'new'
+    const stage = l.current_stage ?? 'calling'
     if (!pipelineByStage.has(stage)) pipelineByStage.set(stage, { count: 0, value: 0 })
     const entry = pipelineByStage.get(stage)
     entry.count += 1
@@ -575,7 +580,7 @@ function EmployeeProfile() {
                       <span className="vip-dd-age-bar" style={{ background: touchColor(days) }} />
                       <span className="vip-dd-age-main">
                         <span className="vip-dd-age-party">{leadTitle(lead)}</span>
-                        <span className="vip-dd-age-last">{[lead.sites?.nickname || lead.sites?.locality, lead.current_stage ?? 'new'].filter(Boolean).join(' · ')} · {nextStep}</span>
+                        <span className="vip-dd-age-last">{[lead.sites?.nickname || lead.sites?.locality, stageLabel(lead.current_stage ?? 'calling')].filter(Boolean).join(' · ')} · {nextStep}</span>
                       </span>
                       <span className="vip-dd-age-side">
                         <span className="vip-dd-age-days" style={{ color: touchColor(days) }}>{days}d ago</span>
@@ -617,7 +622,7 @@ function EmployeeProfile() {
                   pipelineRows.map((r) => (
                     <div key={r.stage} className="vip-bar-row">
                       <div style={{ flex: '0 0 84px' }}>
-                        <span className={stageChipClass(r.stage)}>{r.stage}</span>
+                        <span className={stageChipClass(r.stage)}>{stageLabel(r.stage)}</span>
                       </div>
                       <div className="vip-bar-track vip-thick">
                         <div className="vip-bar-fill" style={{ width: `${(r.count / maxPipelineCount) * 100}%` }} />

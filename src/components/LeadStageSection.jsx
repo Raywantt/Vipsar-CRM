@@ -1,17 +1,15 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
+import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { LOSS_REASON_OPTIONS } from '../lib/lossReasonOptions'
+import { createFollowUp } from '../lib/followUpQueries'
 import { stageFg } from '../lib/statusColors'
 import { errorMessage } from '../lib/errorMessage'
 
-function LeadStageSection({ lead, onStageChanged }) {
+function LeadStageSection({ lead, leadTitle, onStageChanged }) {
   const { employee } = useAuth()
 
-  const currentIsCustom = Boolean(lead.current_stage) && !LEAD_STAGE_OPTIONS.includes(lead.current_stage)
-  const [customOpen, setCustomOpen] = useState(currentIsCustom)
-  const [customStage, setCustomStage] = useState(currentIsCustom ? lead.current_stage : '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [savedAt, setSavedAt] = useState(null)
@@ -28,10 +26,21 @@ function LeadStageSection({ lead, onStageChanged }) {
   const [lossError, setLossError] = useState(null)
   const [lossSaved, setLossSaved] = useState(false)
 
-  // Writes current_stage + stage_history together. Called directly for any
-  // non-'lost' stage; for 'lost' it's only ever called from
-  // handleConfirmLost, after the reason has already been saved.
-  async function applyStage(resolvedStage) {
+  // 'on_hold' is gated the same way 'lost' is — a reason and a follow-up
+  // date must be captured and saved as a real reminder (reusing the
+  // Follow-ups table/push pipeline) before the stage itself is touched.
+  const [onHoldPromptOpen, setOnHoldPromptOpen] = useState(false)
+  const [onHoldReason, setOnHoldReason] = useState('')
+  const [onHoldDueDate, setOnHoldDueDate] = useState('')
+  const [savingOnHold, setSavingOnHold] = useState(false)
+  const [onHoldError, setOnHoldError] = useState(null)
+  const [onHoldSaved, setOnHoldSaved] = useState(false)
+
+  // Writes current_stage (+ any extraFields, e.g. next_followup_date) and
+  // stage_history together. Called directly for any stage that needs no
+  // extra gating; for 'lost'/'on_hold' it's only called once their own
+  // reason/date has already been saved.
+  async function applyStage(resolvedStage, extraFields = {}) {
     if (!resolvedStage || resolvedStage === lead.current_stage || saving) return
 
     setSaving(true)
@@ -40,7 +49,7 @@ function LeadStageSection({ lead, onStageChanged }) {
 
     const { data: updatedLead, error: leadError } = await supabase
       .from('leads')
-      .update({ current_stage: resolvedStage })
+      .update({ current_stage: resolvedStage, ...extraFields })
       .eq('id', lead.id)
       .select()
       .single()
@@ -68,11 +77,11 @@ function LeadStageSection({ lead, onStageChanged }) {
     onStageChanged(updatedLead, historyError ? null : historyRow)
   }
 
-  // Entry point for every stage chip and the custom "Set" button. 'lost' is
-  // withheld from applyStage until a reason is captured and saved — every
-  // other stage still applies immediately, unchanged.
+  // Entry point for every stage chip and the custom "Set" button. 'lost'
+  // and 'on_hold' are withheld from applyStage until their own prompt is
+  // confirmed — every other stage still applies immediately, unchanged.
   function requestStage(resolvedStage) {
-    if (!resolvedStage || resolvedStage === lead.current_stage || saving || savingLoss) return
+    if (!resolvedStage || resolvedStage === lead.current_stage || saving || savingLoss || savingOnHold) return
     if (resolvedStage === 'lost') {
       setPendingStage(resolvedStage)
       setLossReason('')
@@ -80,6 +89,14 @@ function LeadStageSection({ lead, onStageChanged }) {
       setLossError(null)
       setLossSaved(false)
       setLossPromptOpen(true)
+      return
+    }
+    if (resolvedStage === 'on_hold') {
+      setOnHoldReason('')
+      setOnHoldDueDate('')
+      setOnHoldError(null)
+      setOnHoldSaved(false)
+      setOnHoldPromptOpen(true)
       return
     }
     applyStage(resolvedStage)
@@ -91,6 +108,13 @@ function LeadStageSection({ lead, onStageChanged }) {
     setLossReason('')
     setLossCompetitor('')
     setLossError(null)
+  }
+
+  function cancelOnHoldPrompt() {
+    setOnHoldPromptOpen(false)
+    setOnHoldReason('')
+    setOnHoldDueDate('')
+    setOnHoldError(null)
   }
 
   // The reason is written first — if it fails, the lead's stage is never
@@ -120,6 +144,42 @@ function LeadStageSection({ lead, onStageChanged }) {
     setLossSaved(true)
   }
 
+  // Same ordering guarantee as handleConfirmLost above: the follow-up
+  // (reason + compulsory due date) is written first, and the stage only
+  // changes once that succeeds — so a lead can't end up 'on_hold' with no
+  // reason or reminder on file. assignedTo falls back to the acting
+  // employee for the rare unassigned-lead case (follow_ups.assigned_to is
+  // NOT NULL).
+  async function handleConfirmOnHold() {
+    if (!onHoldReason.trim() || !onHoldDueDate || savingOnHold) return
+    setSavingOnHold(true)
+    setOnHoldError(null)
+
+    const { error } = await createFollowUp({
+      assignedTo: lead.owner_employee_id ?? employee?.id,
+      createdBy: employee?.id ?? null,
+      partyId: lead.party_id ?? null,
+      leadId: lead.id,
+      activityType: 'other',
+      title: `On hold — ${leadTitle ?? 'lead'}`,
+      notes: onHoldReason.trim(),
+      dueDate: onHoldDueDate,
+      dueTime: null,
+    })
+
+    if (error) {
+      setSavingOnHold(false)
+      setOnHoldError(errorMessage(error))
+      return
+    }
+
+    await applyStage('on_hold', { next_followup_date: onHoldDueDate })
+
+    setSavingOnHold(false)
+    setOnHoldPromptOpen(false)
+    setOnHoldSaved(true)
+  }
+
   return (
     <div className="vip-card">
       <div className="vip-card-title">Stage</div>
@@ -132,45 +192,13 @@ function LeadStageSection({ lead, onStageChanged }) {
             className="vip-chip-select"
             style={{ color: stageFg(stage) }}
             aria-pressed={stage === lead.current_stage}
-            disabled={saving || savingLoss}
-            onClick={() => {
-              setCustomOpen(false)
-              requestStage(stage)
-            }}
+            disabled={saving || savingLoss || savingOnHold}
+            onClick={() => requestStage(stage)}
           >
-            {stage}
+            {stageLabel(stage)}
           </button>
         ))}
-        <button
-          type="button"
-          className="vip-chip-select"
-          style={{ color: 'var(--vip-muted)' }}
-          aria-pressed={currentIsCustom}
-          onClick={() => setCustomOpen((v) => !v)}
-        >
-          Other…
-        </button>
       </div>
-
-      {customOpen && (
-        <div className="vip-section-split" style={{ display: 'flex', gap: 8 }}>
-          <input
-            className="vip-input"
-            value={customStage}
-            onChange={(e) => setCustomStage(e.target.value)}
-            placeholder="Describe stage"
-          />
-          <button
-            type="button"
-            className="vip-btn vip-btn-secondary vip-btn-sm"
-            style={{ width: 'auto', flex: '0 0 auto' }}
-            disabled={!customStage.trim() || saving || savingLoss}
-            onClick={() => requestStage(customStage.trim())}
-          >
-            Set
-          </button>
-        </div>
-      )}
 
       {error && <p className="vip-error">{error}</p>}
       {savedAt && !error && <p className="vip-success">Stage updated.</p>}
@@ -218,6 +246,49 @@ function LeadStageSection({ lead, onStageChanged }) {
         </div>
       )}
       {lossSaved && !lossPromptOpen && <p className="vip-success">Loss reason saved.</p>}
+
+      {onHoldPromptOpen && (
+        <div className="vip-section-split vip-stack-s">
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--vip-body)' }}>
+            Putting this lead <strong>on hold</strong> — why, and when should it be followed up?
+          </p>
+          <textarea
+            className="vip-textarea"
+            rows={3}
+            value={onHoldReason}
+            onChange={(e) => setOnHoldReason(e.target.value)}
+            placeholder="Reason (e.g. client wants time to think, site paused for external factors)"
+          />
+          <input
+            type="date"
+            className="vip-input"
+            value={onHoldDueDate}
+            onChange={(e) => setOnHoldDueDate(e.target.value)}
+          />
+          {onHoldError && <p className="vip-error">{onHoldError}</p>}
+          <div className="vip-btn-row">
+            <button
+              type="button"
+              className="vip-btn vip-btn-sm"
+              style={{ width: 'auto', flex: '0 0 auto' }}
+              onClick={handleConfirmOnHold}
+              disabled={!onHoldReason.trim() || !onHoldDueDate || savingOnHold}
+            >
+              {savingOnHold ? 'Saving…' : 'Save & put on hold'}
+            </button>
+            <button
+              type="button"
+              className="vip-btn vip-btn-secondary vip-btn-sm"
+              style={{ width: 'auto', flex: '0 0 auto' }}
+              onClick={cancelOnHoldPrompt}
+              disabled={savingOnHold}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {onHoldSaved && !onHoldPromptOpen && <p className="vip-success">On hold — reminder saved.</p>}
     </div>
   )
 }

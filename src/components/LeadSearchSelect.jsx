@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { errorMessage } from '../lib/errorMessage'
+import { stageLabel } from '../lib/leadStageOptions'
 
 function leadLabel(lead) {
   const who = lead.parties?.name ?? 'No client'
   const where = lead.sites?.nickname || lead.sites?.locality || 'No site'
-  return `${who} — ${where} (${lead.current_stage ?? 'new'})`
+  return `${who} — ${where} (${stageLabel(lead.current_stage ?? 'calling')})`
 }
 
 function LeadSearchSelect({ onSelect }) {

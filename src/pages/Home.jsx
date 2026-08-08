@@ -200,7 +200,7 @@ function Home() {
     ]).then(([breakdownRes, activitiesRes, wonRes, forecastRes, targetsRes]) => {
       if (!active) return
 
-      const openLeads = (breakdownRes.data ?? []).filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
+      const openLeads = (breakdownRes.data ?? []).filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
       const pipeline = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
       const visits = (activitiesRes.data ?? []).filter((a) => a.activity_type === 'site_visit').length
       const won = computeOrderValueActuals(wonRes.data ?? [], range, false)

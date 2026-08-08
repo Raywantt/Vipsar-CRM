@@ -11,8 +11,10 @@ import LeadQuickActions from '../components/LeadQuickActions'
 import LeadActivityTimeline from '../components/LeadActivityTimeline'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchLeadOwnerHistory } from '../lib/leadOwnerHistory'
+import { fetchLatestFollowUpForLead } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
-import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
+import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
+import { stageFg } from '../lib/statusColors'
 import { getInitials } from '../lib/initials'
 import { formatCurrency, formatCurrencyCompact } from '../lib/format'
 
@@ -30,8 +32,32 @@ const BAD = '#b4232a'
 
 // Stage-default probability when closure_probability hasn't been set
 // explicitly on the lead (DATA_CONTRACT.md §4) — adapted to this app's own
-// 7-value LEAD_STAGE_OPTIONS rather than the handoff's generic 6-stage set.
-const STAGE_PROBABILITY_DEFAULTS = { new: 10, hot: 25, rfq: 40, quote: 55, negotiation: 70, won: 100, lost: 0 }
+// 11-value LEAD_STAGE_OPTIONS rather than the handoff's generic 6-stage set.
+// on_hold gets a low default (paused, not progressing) rather than
+// inheriting whatever stage preceded it.
+const STAGE_PROBABILITY_DEFAULTS = {
+  calling: 10,
+  presentation: 15,
+  joinery_follow_up: 20,
+  measurements: 25,
+  design_discussion: 35,
+  rfq: 45,
+  quote_submission: 55,
+  negotiation: 70,
+  on_hold: 15,
+  won: 100,
+  lost: 0,
+}
+
+// The stepper's fixed backbone — the 8 real funnel stages, always shown in
+// this order. 'won'/'lost' are deliberately not part of this fixed list:
+// the stepper only ever shows *one* trailing outcome cell (whichever one
+// actually happened), not two permanent slots — see the stageSteps build
+// below. 'on_hold' isn't part of it either — it's an independent pause
+// reachable from any stage (same reasoning drilldownBuilders.js's pipeline
+// "progression" chain already applies to 'lost'), so it's spliced in at
+// whatever position the lead actually paused at, not a fixed slot.
+const FUNNEL_STAGES = LEAD_STAGE_OPTIONS.filter((s) => s !== 'on_hold' && s !== 'won' && s !== 'lost')
 
 const EMPTY = { data: null, error: null }
 
@@ -57,6 +83,7 @@ function LeadDetail() {
   const [stageHistory, setStageHistory] = useState([])
   const [activities, setActivities] = useState([])
   const [ownerHistory, setOwnerHistory] = useState([])
+  const [onHoldFollowUp, setOnHoldFollowUp] = useState(null)
   const [activeSalesExecs, setActiveSalesExecs] = useState([])
   const [areas, setAreas] = useState([])
   const [products, setProducts] = useState([])
@@ -102,6 +129,7 @@ function LeadDetail() {
         activeExecsResult,
         areasResult,
         productsResult,
+        onHoldFollowUpResult,
       ] = await Promise.all([
         leadRow.party_id
           ? supabase.from('parties').select('*').eq('id', leadRow.party_id).single()
@@ -134,6 +162,7 @@ function LeadDetail() {
         fetchActiveSalesExecs(),
         supabase.from('areas').select('id, area_name, city').order('area_name'),
         supabase.from('products').select('id, name, category').order('name'),
+        leadRow.current_stage === 'on_hold' ? fetchLatestFollowUpForLead(leadRow.id) : Promise.resolve(EMPTY),
       ])
 
       if (!active) return
@@ -149,6 +178,7 @@ function LeadDetail() {
       setActiveSalesExecs(activeExecsResult.data ?? [])
       setAreas(areasResult.data ?? [])
       setProducts(productsResult.data ?? [])
+      setOnHoldFollowUp(onHoldFollowUpResult.data ?? null)
       const mostRecent = [...(stageHistoryResult.data ?? []).map((h) => h.changed_at), ...(activitiesResult.data ?? []).map((a) => a.created_at)].sort().pop()
       setLastActivityAt(mostRecent ?? leadRow.created_at)
       setLoading(false)
@@ -179,15 +209,22 @@ function LeadDetail() {
   const canEdit = employee?.role === 'owner' || lead.owner_employee_id === employee?.id
   const isOwner = employee?.role === 'owner'
 
-  const stage = lead.current_stage ?? 'new'
+  const stage = lead.current_stage ?? 'calling'
   const isWon = stage === 'won'
+  const isOnHold = stage === 'on_hold'
   const isOpen = !['won', 'lost'].includes(stage)
   const touchDays = daysBetween(lastActivityAt, Date.now())
   const touchColor = touchDays >= 14 ? BAD : touchDays >= 7 ? OK : GOOD
-  const isAtRisk = isOpen && touchDays >= 14
+  const isAtRisk = isOpen && !isOnHold && touchDays >= 14
 
-  const statusLabel = isWon ? 'Customer' : isAtRisk ? 'At risk' : 'Open lead'
-  const statusStyle = isWon ? { bg: '#dbeceb', fg: GOOD } : isAtRisk ? { bg: '#f7dcdd', fg: BAD } : { bg: 'var(--vip-canvas-2)', fg: 'var(--vip-body)' }
+  const statusLabel = isWon ? 'Customer' : isOnHold ? 'On hold' : isAtRisk ? 'At risk' : 'Open lead'
+  const statusStyle = isWon
+    ? { bg: '#dbeceb', fg: GOOD }
+    : isOnHold
+      ? { bg: '#eef0f0', fg: '#5f6a6c' }
+      : isAtRisk
+        ? { bg: '#f7dcdd', fg: BAD }
+        : { bg: 'var(--vip-canvas-2)', fg: 'var(--vip-body)' }
   const healthLabel = touchDays >= 14 ? `Stale · ${touchDays}d no touch` : touchDays >= 7 ? `Cooling · ${touchDays}d` : `Active · ${touchDays}d ago`
   const healthStyle = touchDays >= 14 ? { bg: '#f7dcdd', fg: BAD } : touchDays >= 7 ? { bg: '#f6ecdb', fg: OK } : { bg: '#dbeceb', fg: GOOD }
 
@@ -200,21 +237,44 @@ function LeadDetail() {
     .filter(Boolean)
     .join(' · ')
 
-  // Stage stepper — one column per LEAD_STAGE_OPTIONS value (this app's real
-  // 7-value stage list, not the handoff's generic 6). 'new' has no explicit
-  // stage_history row when a lead has never been touched (DB default, not a
-  // logged "change" — same gap SalesFunnelCard already works around), so it
-  // falls back to created_at.
-  const currentIdx = LEAD_STAGE_OPTIONS.indexOf(stage)
+  // Stage stepper — built off FUNNEL_STAGES (the 8 fixed funnel stages),
+  // then adjusted for the two cases that aren't a plain walk through it:
+  // - on_hold: not a fixed slot — spliced in right after whichever funnel
+  //   stage the lead actually paused at (e.g. paused after Quote
+  //   submission inserts On hold between Quote submission and
+  //   Negotiation), found via the most recent non-on-hold stage_history
+  //   row. 'calling' has no explicit stage_history row when a lead has
+  //   never been touched (DB default, not a logged "change" — same gap
+  //   SalesFunnelCard already works around), so that lookup falls back to
+  //   created_at/'calling'.
+  // - won/lost: only ever one trailing cell, not two permanent slots —
+  //   whichever actually happened is appended after Negotiation; while a
+  //   lead is still open neither shows at all.
+  const effectiveStage = isOnHold
+    ? [...stageHistory].reverse().find((h) => h.stage !== 'on_hold')?.stage ?? 'calling'
+    : stage
+  const displayStages = isOnHold
+    ? (() => {
+        const idx = FUNNEL_STAGES.indexOf(effectiveStage)
+        const insertAt = idx === -1 ? FUNNEL_STAGES.length : idx + 1
+        return [...FUNNEL_STAGES.slice(0, insertAt), 'on_hold', ...FUNNEL_STAGES.slice(insertAt)]
+      })()
+    : stage === 'won' || stage === 'lost'
+      ? [...FUNNEL_STAGES, stage]
+      : FUNNEL_STAGES
+  const currentIdx = displayStages.indexOf(isOnHold ? 'on_hold' : stage)
   const stageEnteredAt = (s) => {
     const row = stageHistory.find((h) => h.stage === s)
     if (row) return row.changed_at
-    return s === 'new' ? lead.created_at : null
+    return s === 'calling' ? lead.created_at : null
   }
-  const stageSteps = LEAD_STAGE_OPTIONS.map((s, i) => ({
+  const stageSteps = displayStages.map((s, i) => ({
     stage: s,
-    bar: i < currentIdx ? '#9fb3b3' : i === currentIdx ? (isWon ? GOOD : '#101617') : 'var(--vip-line-soft)',
-    weight: i === currentIdx ? 600 : 400,
+    // Reached (and current) stages show their real stage color; a stage
+    // still to come stays neutral grey rather than previewing a hue it
+    // hasn't earned yet.
+    bar: i <= currentIdx ? stageFg(s) : 'var(--vip-line-soft)',
+    isCurrent: i === currentIdx,
     meta: i <= currentIdx ? shortDate(stageEnteredAt(s)) ?? 'not yet' : 'not yet',
   }))
   const daysInPipeline = daysBetween(lead.created_at, Date.now())
@@ -348,6 +408,20 @@ function LeadDetail() {
     </div>
   )
 
+  // Shared by both LeadQuickActions mounts (desktop inline + mobile sheet's
+  // quickActionsProps below) so they can't drift apart. Refreshes the
+  // on-hold reason line immediately after a stage change lands on or off
+  // 'on_hold', instead of waiting for a reload.
+  function handleStageChanged(updatedLead, historyRow) {
+    setLead((prev) => ({ ...prev, ...updatedLead }))
+    if (historyRow) setStageHistory((prev) => [...prev, historyRow])
+    if (updatedLead.current_stage === 'on_hold') {
+      fetchLatestFollowUpForLead(updatedLead.id).then(({ data }) => setOnHoldFollowUp(data ?? null))
+    } else {
+      setOnHoldFollowUp(null)
+    }
+  }
+
   const mainContent = (
     <div className="vip-stack">
       <div className="vip-profile-band">
@@ -389,12 +463,10 @@ function LeadDetail() {
         {canEdit && (
           <LeadQuickActions
             lead={lead}
+            leadTitle={leadTitle}
             isOwner={isOwner}
             activeSalesExecs={activeSalesExecs}
-            onStageChanged={(updatedLead, historyRow) => {
-              setLead((prev) => ({ ...prev, ...updatedLead }))
-              if (historyRow) setStageHistory((prev) => [...prev, historyRow])
-            }}
+            onStageChanged={handleStageChanged}
             onFollowUpSaved={(updatedLead) => setLead((prev) => ({ ...prev, ...updatedLead }))}
             onOwnerReassigned={(updatedLead, historyRow) => {
               setLead((prev) => ({ ...prev, ...updatedLead }))
@@ -407,14 +479,33 @@ function LeadDetail() {
       <div className="vip-card">
         <div className="vip-card-head">
           <div className="vip-card-title">Deal progress</div>
-          <span className="vip-card-note">{isWon ? `closed won · ${shortDate(wonAt) ?? ''}` : `stage ${currentIdx + 1} of ${LEAD_STAGE_OPTIONS.length} · ${daysInPipeline}d in pipeline`}</span>
+          <span className="vip-card-note">
+            {isWon
+              ? `closed won · ${shortDate(wonAt) ?? ''}`
+              : isOnHold
+                ? `on hold · resumes ${shortDate(lead.next_followup_date) ?? 'no date set'}`
+                : `stage ${currentIdx + 1} of ${displayStages.length} · ${daysInPipeline}d in pipeline`}
+          </span>
         </div>
+        {isOnHold && onHoldFollowUp?.notes && (
+          <p className="vip-empty" style={{ margin: 0 }}>
+            On hold — {onHoldFollowUp.notes}
+          </p>
+        )}
         <div className="vip-stepper">
           {stageSteps.map((s) => (
-            <div key={s.stage} className="vip-stepper-col">
+            <div
+              key={s.stage}
+              className={s.isCurrent ? 'vip-stepper-col vip-stepper-col-current' : 'vip-stepper-col'}
+              title={`${stageLabel(s.stage)} — ${s.meta}`}
+            >
               <div className="vip-stepper-bar" style={{ background: s.bar }} />
-              <span className="vip-stepper-label" style={{ fontWeight: s.weight, color: 'var(--vip-ink)' }}>{s.stage}</span>
-              <span className="vip-stepper-meta">{s.meta}</span>
+              {s.isCurrent && (
+                <>
+                  <span className="vip-stepper-label" style={{ fontWeight: 600, color: 'var(--vip-ink)' }}>{stageLabel(s.stage)}</span>
+                  <span className="vip-stepper-meta">{s.meta}</span>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -551,12 +642,10 @@ function LeadDetail() {
   )
   const quickActionsProps = {
     lead,
+    leadTitle,
     isOwner,
     activeSalesExecs,
-    onStageChanged: (updatedLead, historyRow) => {
-      setLead((prev) => ({ ...prev, ...updatedLead }))
-      if (historyRow) setStageHistory((prev) => [...prev, historyRow])
-    },
+    onStageChanged: handleStageChanged,
     onFollowUpSaved: (updatedLead) => setLead((prev) => ({ ...prev, ...updatedLead })),
     onOwnerReassigned: (updatedLead, historyRow) => {
       setLead((prev) => ({ ...prev, ...updatedLead }))

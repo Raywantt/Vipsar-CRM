@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
+import { stageLabel } from '../lib/leadStageOptions'
 
 function formatWhen(value) {
   return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
@@ -11,7 +12,7 @@ function LeadActivityTimeline({ activities, stageHistory, ownerHistory = [] }) {
       key: `stage-${h.id}`,
       at: h.changed_at,
       kind: 'Stage',
-      title: `Stage changed to ${h.stage}`,
+      title: `Stage changed to ${stageLabel(h.stage)}`,
       by: h.employees?.name ?? 'Unknown',
       byId: h.changed_by,
     })),

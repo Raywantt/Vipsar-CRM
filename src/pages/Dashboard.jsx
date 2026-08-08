@@ -17,7 +17,7 @@ import KpiSparkRow from '../components/KpiSparkRow'
 import DrilldownPanel from '../components/DrilldownPanel'
 import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
-import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
+import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS } from '../lib/sourceTypeOptions'
 import { stageChipClass } from '../lib/statusColors'
@@ -123,7 +123,7 @@ function Dashboard() {
   // cards below) rather than a second query.
   useEffect(() => {
     if (activeTab === 'leads') {
-      const openLeads = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
+      const openLeads = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
       const value = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
       setOverride({ title: isOwner ? 'All leads' : 'My leads', sub: `${openLeads.length} open · ${formatCurrencyCompact(value)}` })
     } else {
@@ -296,7 +296,7 @@ function Dashboard() {
   const wonThisRange = range ? computeOrderValueActuals(wonStageHistory, range, false) : 0
 
   const stageRows = LEAD_STAGE_OPTIONS.map((stage) => {
-    const stageLeads = breakdownLeads.filter((l) => (l.current_stage ?? 'new') === stage)
+    const stageLeads = breakdownLeads.filter((l) => (l.current_stage ?? 'calling') === stage)
     return {
       stage,
       count: stageLeads.length,
@@ -481,7 +481,7 @@ function Dashboard() {
                   stageRows.map(({ stage, count, value }) => (
                     <div key={stage} className="vip-bar-row">
                       <div style={{ flex: '0 0 92px' }}>
-                        <span className={stageChipClass(stage)}>{stage}</span>
+                        <span className={stageChipClass(stage)}>{stageLabel(stage)}</span>
                       </div>
                       <div className="vip-bar-count" style={{ flex: '0 0 20px' }}>
                         {count}

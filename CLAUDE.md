@@ -321,11 +321,20 @@ approximation of it.** Concretely:
 * **Stage colors** (`src/lib/statusColors.js`) — canonical stage → color
   table, keyed to `LEAD_STAGE_OPTIONS` so it can't drift. `stageChipClass`
   resolves to the theme's ready-made `vip-chip-<stage>` pill class (falling
-  back to the neutral `vip-chip-new` for a stage saved via the "Other…"
-  escape hatch, since `current_stage` is still free text); `stageFg`
-  exposes the raw foreground color for places that only tint text/borders
-  rather than fill a chip (the stage board's column border, the sales
-  funnel's bar fill, `LeadStageSection`'s selectable chips below).
+  back to a dedicated neutral fallback grey — not aliased to any real
+  stage's color — for a `current_stage` value that isn't a recognized
+  stage at all; `LeadStageSection`'s chip picker no longer offers a way to
+  create one of these, see the Lead stage taxonomy section below, but
+  `current_stage` staying free text at the DB layer means one could still
+  exist from older/imported data); `stageFg` exposes the raw foreground
+  color for places that only tint text/borders rather than fill a chip
+  (the stage board's column border, the sales funnel's bar fill,
+  `LeadStageSection`'s selectable chips below, the Deal progress
+  stepper's per-segment color). Display text never reads the raw stage
+  value directly — `stageLabel()` (`src/lib/leadStageOptions.js`) maps it
+  to a human label everywhere a stage is shown, falling back to the raw
+  value unchanged for that same legacy-unrecognized case. See the Lead
+  stage taxonomy section further down for the current stage list itself.
 * **Lists are rows, not tables** — every list/breakdown screen (Closure
   forecast, Leads list, Search's party directory, the category breakdowns,
   activity-by-exec) renders `.vip-row`/`.vip-bar-row`/`.vip-matrix-row`
@@ -347,20 +356,27 @@ approximation of it.** Concretely:
   Dashboard-v2 bullet below): the original 4-tile grid below 1024px, a
   6-tile `KpiSparkRow.jsx` above it.
 * **Lead Detail's Stage section** (`LeadStageSection.jsx`) — `current_stage`
-  is now a row of tappable `vip-chip-select` pills (one per
-  `LEAD_STAGE_OPTIONS` value, tinted via `stageFg`); tapping one applies
-  that stage immediately via the same `stage_history`-logging path as
-  before — **except `lost`**, which withholds the write until a reason is
-  saved (see the Lead Profile section's Change stage bullet below; a real
-  bug found and fixed after the initial redesign — `applyStage` used to
-  commit `current_stage`/`stage_history` for `lost` *before* the reason
-  prompt even opened, so closing the sheet or navigating away left a lost
-  lead with no reason on file, silently violating DECISIONS.md's "no
-  skip-for-now escape hatch" rule). An "Other…" chip still exists for the
-  free-text escape hatch — reveals a text input + Set button, routed
-  through the same `lost`-gating check when the typed text is literally
-  `lost` — since `current_stage` staying non-enum is a locked-in decision
-  (see DECISIONS.md), not something the redesign was meant to remove.
+  is a row of tappable `vip-chip-select` pills, one per `LEAD_STAGE_OPTIONS`
+  value (see the Lead stage taxonomy section below for the current list),
+  tinted via `stageFg`; tapping one applies that stage immediately via the
+  same `stage_history`-logging path as before — **except `lost` and
+  `on_hold`**, both of which withhold the write until their own prompt is
+  confirmed (see the Lead Profile section's Change stage bullet and the
+  Lead stage taxonomy section's On Hold write flow below; a real bug found
+  and fixed after the initial redesign — `applyStage` used to commit
+  `current_stage`/`stage_history` for `lost` *before* the reason prompt
+  even opened, so closing the sheet or navigating away left a lost lead
+  with no reason on file, silently violating DECISIONS.md's "no
+  skip-for-now escape hatch" rule). The picker's free-text "Other…"
+  escape hatch (a text input + Set button for typing a custom stage) was
+  removed entirely in a later pass, at the user's request — every stage a
+  rep can pick is now one of the 11 real `LEAD_STAGE_OPTIONS` chips, no
+  custom-typed stage is reachable from the UI anymore. `current_stage`
+  staying non-enum at the DB layer is still a locked-in decision (see
+  DECISIONS.md) — this only removed one UI entry point for creating a
+  custom value, not the free-text column itself, so the app-wide fallback
+  rendering for an unrecognized stage (see the Stage colors bullet above)
+  stays in place for any value that predates this change.
 * **Universal linking** — the rule of thumb from `design_handoff_detail_pages/
   FLOW.md`, applied globally: a person's name is always a link to
   `/employees/:id`; a lead or client's name is always a link to
@@ -699,13 +715,43 @@ toggle button so at most one is open at a time:
   mirroring how `ActivityLog`'s own lead-side-effect writes already handle
   a partial failure.
 
-Below the quick actions, a **Deal progress** hero card: a 7-column stage
-stepper (one per `LEAD_STAGE_OPTIONS` value — this app's real stage list,
-not the handoff's generic 6, since `current_stage` staying non-enum is
-locked in per DECISIONS.md) dated from `stage_history` ("not yet" for
-unreached stages, `new` falls back to `created_at` the same way
-`SalesFunnelCard` already works around `stage_history` never logging an
-implicit default), plus 4 deal stats (Deal value = `max(order_value,
+Below the quick actions, a **Deal progress** hero card: a stage stepper
+built off `FUNNEL_STAGES` (`LEAD_STAGE_OPTIONS` minus `on_hold`/`won`/
+`lost` — the 8 fixed funnel stages, `calling` through `negotiation`; not
+the handoff's generic 6, since `current_stage` staying non-enum is locked
+in per DECISIONS.md), redesigned in a later pass so 11 stages' worth of
+columns don't crowd into illegible truncated labels:
+
+* Every segment is colored by its own stage (`stageFg`) once reached —
+  the New/Warm/Hot ramp is visible directly in the bar, not just in the
+  chip picker — but a stage still to come stays a neutral grey
+  (`var(--vip-line-soft)`) rather than previewing a hue it hasn't earned
+  yet.
+* Only the *current* stage's column widens (`vip-stepper-col-current`)
+  and shows its label + date; every other column is a narrow color-only
+  strip with no visible text, its stage name and date available via a
+  native `title` tooltip on hover instead — otherwise 10-11 columns'
+  worth of labels crowd into illegible truncated text at this card's
+  fixed width.
+* **`on_hold` is not a fixed column** — it's spliced into the sequence at
+  whatever position the lead actually paused at (found via the most
+  recent non-on-hold `stage_history` row, or `calling`/`created_at` if
+  the lead was never explicitly touched — same gap `SalesFunnelCard`
+  already works around `stage_history` never logging an implicit
+  default), e.g. a lead paused right after Quote submission gets an
+  `On hold` column inserted between Quote submission and Negotiation,
+  shown as the current (widened, grey) column while paused.
+* **`won`/`lost` are never both shown** — the stepper has no permanent
+  slot for either. A single trailing outcome column is appended after
+  Negotiation only once a lead actually reaches one of them (green `Won`
+  or red `Lost`, whichever really happened); a lead still open in the
+  funnel shows no trailing column at all.
+* The card's header note reads `stage X of Y` (`Y` = however many columns
+  are actually showing, since that count now varies with on_hold/outcome),
+  `closed won · {date}` once won, or `on hold · resumes {date}` while
+  paused.
+
+Plus 4 deal stats (Deal value = `max(order_value,
 quote_value)`, Probability = `closure_probability` or a stage-keyed
 default table, Expected close = `estimated_close_date` rendering
 `slipped` when past and open, Last touch).
@@ -753,6 +799,107 @@ even though the stage history isn't.
 `sites`/`parties` UPDATE is "own data or owner role", not owner-only —
 needed for Site/Client details to work for a regular sales exec, a real
 blocker found while building this screen originally.
+
+### Lead stage taxonomy (`src/lib/leadStageOptions.js`, `src/lib/statusColors.js`)
+
+`current_stage`'s app-layer suggested list (still free text at the DB
+layer — locked in per DECISIONS.md), rebuilt from a dealership-specific
+Claude Design mockup into a grouped, sales-team-language taxonomy —
+replacing the previous flat `new/hot/rfq/quote/negotiation/won/lost` list
+everywhere in the codebase and UI, not just relabeling it:
+
+* **New** (blue, light→dark): `calling` → `presentation` →
+  `joinery_follow_up` → `measurements`.
+* **Warm** (amber, light→dark): `design_discussion` → `rfq` →
+  `quote_submission`.
+* **Hot** (green): `negotiation`.
+* **Won** (deeper green than Hot) / **Lost** (red — the one color
+  reserved for a genuinely lost deal, unchanged from before this pass).
+* **On hold** (grey) — independent of the funnel above, not a sequential
+  step. Reachable from *any* other stage (a client wants time to think, a
+  site is paused for external reasons) via the same stage-chip picker
+  every other stage uses.
+
+`LEAD_STAGE_OPTIONS` (the 11 values, in the order above) and
+`LEAD_STAGE_LABELS`/`stageLabel()` are exported from
+`leadStageOptions.js` — values are the literal `current_stage` strings
+(and double as CSS chip class suffixes, so they stay single-token slugs
+like `joinery_follow_up`), labels are what's actually shown. Every
+display site across the app (`LeadStageSection`'s chip picker,
+`LeadStageBoard`'s columns, `SalesFunnelCard`, `LeadsListCard`,
+`LeadActivityTimeline`, `Search`, `ActivityLog`, `EmployeeProfile`,
+`drilldownBuilders.js`'s panels, `LeadsByCategoryCard`'s Stage instance)
+renders through `stageLabel()` rather than the raw value — a `current_stage`
+value that isn't a recognized `LEAD_STAGE_OPTIONS` entry (only reachable
+today via older data or a direct DB edit, since `LeadStageSection`'s
+picker no longer has a free-text "Other…" option — removed in a later
+pass, see the Lead Detail's Stage section bullet above) still falls back
+to displaying exactly what's stored. `rfq` and `negotiation` kept their pre-existing
+literal values (only the label changed); `quote` → `quote_submission` and
+`new` → `calling` were real value renames, and `hot` was retired
+entirely (see the migration below). Every `lead.current_stage ?? 'new'`
+fallback across the codebase became `?? 'calling'` to match — including
+`src/lib/pipelineValue.js`'s `isOpenLead`, the one most load-bearing
+instance, since it drives `dealValueFor`/`sumOpenPipelineValue` almost
+everywhere a deal value is shown.
+
+**On Hold's write flow** (`LeadStageSection.jsx`) is gated the same way
+`lost` already was — DECISIONS.md's "no skip-for-now escape hatch" rule —
+except it requires a reason *and* a compulsory follow-up date instead of
+just a reason. Picking the `On hold` chip opens an inline panel with
+exactly two inputs, kept deliberately minimal at the user's request: a
+reason textarea, and a plain `<input type="date">` for the follow-up date
+— no preset quick-pick chips (`FOLLOWUP_OPTIONS`/`followupDateFor` from
+`followupDates.js`, the picker `LeadQuickActions`' "Set follow-up" action
+uses) and no separate "Custom date" toggle step, just a direct calendar
+picker, since a hold can reasonably resume in days, months, or years and
+a preset list of near-term options didn't fit that range well. The
+panel's intro copy was likewise trimmed to a single question (no
+"both are required" explainer sentence) — the Save button's own disabled
+state until both fields are filled already communicates that. On confirm,
+in order: (1) `createFollowUp` (`src/lib/followUpQueries.js`) inserts a
+real row into `follow_ups` — reusing the Follow-ups feature (see its own
+section) rather than inventing a second reminder mechanism — with the
+typed reason as `notes`, `activityType: 'other'`, `assignedTo:
+lead.owner_employee_id` (falling back to the acting employee for the
+rare unassigned-lead case), and an auto-generated title (no separate
+title field in the dialog, to keep it to just the two inputs asked for);
+(2) only once that succeeds, `applyStage('on_hold', {
+next_followup_date: dueDate })` — a small generalization of the existing
+`applyStage(resolvedStage)` to merge extra columns into the same `leads`
+UPDATE call — writes the stage change and the follow-up date together.
+This guarantees a lead can never end up `on_hold` with no reason or
+reminder on file, the same guarantee `lost` already had for its reason.
+Because the real Follow-ups + push pipeline is doing the reminding, the
+reason resurfaces on the exec's device via the push notification when it
+fires (see the Follow-ups section) — `LeadDetail.jsx` additionally shows
+it inline (`fetchLatestFollowUpForLead`) as soon as a lead is on hold, so
+opening the lead doesn't require waiting for the notification either.
+
+`on_hold` is deliberately excluded from `drilldownBuilders.js`'s
+`buildPipelinePanel` stage-to-stage `progression` chain — same reasoning
+already applied to `lost` there: a parallel exit/pause isn't "the next
+step after" whatever came before it, so including it would produce a
+nonsensical conversion-rate row. `LeadDetail`'s own Deal progress stepper
+takes a different approach (see the Lead Profile section's Deal progress
+bullet above) — rather than excluding `on_hold` outright, it splices a
+real `On hold` column into the sequence at the exact position the lead
+paused, since a later pass decided that was more informative than a
+same-position note about it. Neither treatment excludes `on_hold` from
+stage breakdowns that just count leads per bucket (Dashboard's Pipeline
+by stage table/board, `LeadsByCategoryCard`'s Stage instance) — an
+on-hold lead is still open pipeline, just paused, so it should still show
+up there.
+
+**Migration (run once, live data):** existing leads/`stage_history` rows
+at the old `new`/`hot`/`quote` values were remapped to `calling`/
+`negotiation`/`quote_submission` respectively via a one-time SQL script
+(handed to the user to run in the Supabase SQL Editor, per Conventions —
+anon key can't run DDL/bulk UPDATEs), and `leads.current_stage`'s column
+`DEFAULT` was changed from `'new'` to `'calling'` to match. No CHECK
+constraint exists on `current_stage`/`stage_history.stage` (both free
+text) or needed changing for `on_hold` itself, and `follow_ups
+.activity_type`'s existing CHECK already allowed `'other'`.
 
 ### EmployeeProfile (`src/pages/EmployeeProfile.jsx`) — the Sales Exec Profile
 
@@ -1821,7 +1968,7 @@ renders) rather than assuming a fresh tab means a fresh session.
 ## Conventions
 
 - Secrets (Supabase URL/keys, etc.) go in a git-ignored `.env` file — never commit them. `.env.example` documents the required variable names with placeholders.
-- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Currently outstanding: `tostem_crm_schema.sql`'s `parties.party_type` CHECK includes `'pmc'` but this has not been run live — the constraint is named `parties_party_type_check` (confirmed via the exact error it throws today), so `ALTER TABLE parties DROP CONSTRAINT parties_party_type_check, ADD CONSTRAINT parties_party_type_check CHECK (party_type IN ('client','architect','builder','firm','other','pmc'));` is the migration once someone's ready to run it. Also outstanding: `tostem_crm_schema.sql`'s `targets.period_type` CHECK now includes `'quarter'` (added for the Set-a-target Quarter option — see the Dashboard section's Targets vs. actuals bullet) but this hasn't been run live either — Postgres's default name for an unnamed inline CHECK is `<table>_<column>_check`, so (unconfirmed against the live error, unlike the `pmc` case above — verify the constraint name first if it errors) the expected migration is `ALTER TABLE targets DROP CONSTRAINT targets_period_type_check, ADD CONSTRAINT targets_period_type_check CHECK (period_type IN ('week','month','quarter','year'));`. Until this runs, saving a Quarter target through the UI will fail with a CHECK-violation error from Supabase. Also outstanding: `tostem_crm_schema.sql`'s new `lead_owner_history` table (added for the Lead Profile's "Reassign owner" action and its ownership-history list — same append-only shape as `stage_history`) hasn't been created live yet — run the `CREATE TABLE lead_owner_history (...)` statement from the schema file plus its matching `authenticated_select`/`authenticated_insert` policies from `rls_policies.sql` before that action will work; until then, reassigning an owner will fail with a "relation does not exist" error from Supabase.
+- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Currently outstanding: `tostem_crm_schema.sql`'s `parties.party_type` CHECK includes `'pmc'` but this has not been run live — the constraint is named `parties_party_type_check` (confirmed via the exact error it throws today), so `ALTER TABLE parties DROP CONSTRAINT parties_party_type_check, ADD CONSTRAINT parties_party_type_check CHECK (party_type IN ('client','architect','builder','firm','other','pmc'));` is the migration once someone's ready to run it. Also outstanding: `tostem_crm_schema.sql`'s `targets.period_type` CHECK now includes `'quarter'` (added for the Set-a-target Quarter option — see the Dashboard section's Targets vs. actuals bullet) but this hasn't been run live either — Postgres's default name for an unnamed inline CHECK is `<table>_<column>_check`, so (unconfirmed against the live error, unlike the `pmc` case above — verify the constraint name first if it errors) the expected migration is `ALTER TABLE targets DROP CONSTRAINT targets_period_type_check, ADD CONSTRAINT targets_period_type_check CHECK (period_type IN ('week','month','quarter','year'));`. Until this runs, saving a Quarter target through the UI will fail with a CHECK-violation error from Supabase. Also outstanding: `tostem_crm_schema.sql`'s new `lead_owner_history` table (added for the Lead Profile's "Reassign owner" action and its ownership-history list — same append-only shape as `stage_history`) hasn't been created live yet — run the `CREATE TABLE lead_owner_history (...)` statement from the schema file plus its matching `authenticated_select`/`authenticated_insert` policies from `rls_policies.sql` before that action will work; until then, reassigning an owner will fail with a "relation does not exist" error from Supabase. Also outstanding: the Lead stage taxonomy rename (see its own section above) needs a one-time data migration run live — `ALTER TABLE leads ALTER COLUMN current_stage SET DEFAULT 'calling';`, then `UPDATE leads SET current_stage = 'calling' WHERE current_stage = 'new';`, `UPDATE leads SET current_stage = 'negotiation' WHERE current_stage = 'hot';`, `UPDATE leads SET current_stage = 'quote_submission' WHERE current_stage = 'quote';`, and the matching `UPDATE stage_history SET stage = 'negotiation' WHERE stage = 'hot';` / `UPDATE stage_history SET stage = 'quote_submission' WHERE stage = 'quote';` to keep the historical trail consistent. No CHECK constraint needs altering for this one (`current_stage`/`stage_history.stage` are both free text, and `follow_ups.activity_type`'s CHECK already allows the `'other'` value the On Hold flow uses) — until the `UPDATE`s run, live leads still sitting at the old `new`/`hot`/`quote` values will render as a plain grey "Other…" chip with their raw old value as the label, rather than a colored stage chip.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`; **confirmed live** — `current_employee_id()`/`current_employee_role()` and every policy below have been run against the real project and verified: deactivating an employee (`employees.is_active = false` in Manage Employees) now actually revokes their database access, not just the client-side `ProtectedRoute` block): every policy that used to inline `(SELECT id/role FROM employees WHERE auth_user_id = auth.uid())`, or leave a table wide open with `USING (true)`/`WITH CHECK (true)`, now goes through one of two `SECURITY DEFINER` helper functions instead — `current_employee_id()`/`current_employee_role()`, both filtered to `is_active = true` and both resolving to `NULL` for a deactivated employee's row. That single change is what makes deactivating someone in Manage Employees actually revoke their access, not just hide the UI. `activities`/`leads`/`plans`/`targets` use "own data or owner role" (`employee_id`/`owner_employee_id` `= current_employee_id()`, or `current_employee_role() = 'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT requires `current_employee_role() IS NOT NULL` (i.e. "you resolve to some active employee" — this doesn't filter which employee rows come back, so an active owner still sees every row including inactive ones; it only gates whether a deactivated caller can query the table at all), INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`/`areas`/`site_contacts`/`products`/`stage_history`/`lead_owner_history` SELECT/INSERT now require `current_employee_role() IS NOT NULL` too — these used to be unconditionally `true` (open to any authenticated session regardless of `is_active`), which is exactly how a deactivated rep kept full access to the whole party directory even after being switched off. `sites`/`parties` UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts` UPDATE/DELETE stay owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products` UPDATE/DELETE owner-only. `stage_history`/`lead_owner_history` have no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design (`lead_owner_history` also still needs its outstanding `CREATE TABLE` run, see above). `loss_reasons`: SELECT requires `current_employee_role() = 'owner'`, INSERT requires `current_employee_role() IS NOT NULL`, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it (`employee_id = current_employee_id()`, no `OR` branch); real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely and never calls these functions (`service_role` has no `auth.uid()`). A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
 - Deploying/configuring anything on Supabase's or Vercel's side still needs the user to do the parts that require *their own* credentials — the initial `supabase login` (interactive browser OAuth) and anything on Vercel's dashboard (env vars, redeploys) — and Edge Function secrets (`supabase secrets set ...`) are values only the user should be typing in, since a raw `service_role`/VAPID-private-key never belongs in this transcript's tool output. Once `supabase login`+`link` have been run locally, though, subsequent `supabase functions deploy`/`delete` calls work fine from a normal shell session on the same machine — this isn't a hard sandbox limitation the way the initial OAuth is. `supabase init` (to generate `supabase/config.toml`) may be needed before `link`/`deploy` will resolve the project correctly, even if `supabase/.temp/linked-project.json` already exists from an earlier `link` — the CLI keys its local cache off `config.toml`'s `project_id`, not just that temp file.

@@ -15,6 +15,7 @@ import { errorMessage } from '../lib/errorMessage'
 // (FLOW.md §4 — an owning sales exec gets the other two, never this one).
 function LeadQuickActions({
   lead,
+  leadTitle,
   isOwner,
   activeSalesExecs,
   onStageChanged,
@@ -139,7 +140,7 @@ function LeadQuickActions({
         )}
       </div>
 
-      {open === 'stage' && <LeadStageSection lead={lead} onStageChanged={onStageChanged} />}
+      {open === 'stage' && <LeadStageSection lead={lead} leadTitle={leadTitle} onStageChanged={onStageChanged} />}
 
       {open === 'followup' && (
         <div className="vip-action-panel">

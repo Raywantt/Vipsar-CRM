@@ -5,7 +5,7 @@
 // nothing in DrilldownPanel renders one, and none of these functions build
 // one.
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from './activityTypes'
-import { LEAD_STAGE_OPTIONS } from './leadStageOptions'
+import { LEAD_STAGE_OPTIONS, stageLabel } from './leadStageOptions'
 import { LOSS_REASON_OPTIONS } from './lossReasonOptions'
 import { stageChipClass, stageFg } from './statusColors'
 import { formatCurrencyCompact } from './format'
@@ -275,7 +275,7 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
         date: new Date(r.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
         time: new Date(r.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
         party,
-        stage,
+        stage: stage ? stageLabel(stage) : null,
         chipClass: stage ? stageChipClass(stage) : null,
         notes: r.notes || '—',
         meta,
@@ -286,13 +286,13 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
 
 // ---------- pipeline / funnel ----------
 export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory }) {
-  const openLeads = breakdownLeads.filter((l) => !CLOSED_STAGES.includes(l.current_stage ?? 'new'))
+  const openLeads = breakdownLeads.filter((l) => !CLOSED_STAGES.includes(l.current_stage ?? 'calling'))
   const openTotal = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
 
   const stageRows = LEAD_STAGE_OPTIONS.filter((s) => !CLOSED_STAGES.includes(s)).map((stage) => {
-    const stageLeads = openLeads.filter((l) => (l.current_stage ?? 'new') === stage)
+    const stageLeads = openLeads.filter((l) => (l.current_stage ?? 'calling') === stage)
     return {
-      label: stage,
+      label: stageLabel(stage),
       count: stageLeads.length,
       value: formatCurrencyCompact(stageLeads.reduce((s, l) => s + dealValueFor(l), 0)),
       color: stageFg(stage),
@@ -304,8 +304,10 @@ export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory })
   const maxReached = Math.max(1, ...funnel.map((f) => f.reached))
   // 'lost' is a parallel exit a lead can hit from any stage, not the next
   // step after 'won' — excluded here so the chain doesn't produce a
-  // nonsensical "won → lost" conversion card.
-  const progression = funnel.filter((f) => f.stage !== 'lost')
+  // nonsensical "won → lost" conversion card. 'on_hold' is excluded for the
+  // same reason — it's an independent pause reachable from any stage, not a
+  // sequential funnel step.
+  const progression = funnel.filter((f) => f.stage !== 'lost' && f.stage !== 'on_hold')
   const convRows = []
   for (let i = 1; i < progression.length; i++) {
     const prev = progression[i - 1]
@@ -313,7 +315,7 @@ export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory })
     if (!prev.reached) continue
     const rate = Math.round((cur.reached / prev.reached) * 100)
     convRows.push({
-      label: `${prev.stage} → ${cur.stage}`,
+      label: `${stageLabel(prev.stage)} → ${stageLabel(cur.stage)}`,
       pct: `${rate}%`,
       sub: `${prev.reached} → ${cur.reached}`,
       color: rate >= 60 ? '#1f6f4a' : rate >= 40 ? '#7a6413' : '#b4232a',
@@ -326,8 +328,8 @@ export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory })
     .map((l) => ({
       leadId: l.id,
       party: l.parties?.name ?? l.sites?.nickname ?? '(no party)',
-      stage: l.current_stage ?? 'new',
-      chipClass: stageChipClass(l.current_stage ?? 'new'),
+      stage: stageLabel(l.current_stage ?? 'calling'),
+      chipClass: stageChipClass(l.current_stage ?? 'calling'),
       owner: l.employees?.name ?? 'Unassigned',
       value: formatCurrencyCompact(dealValueFor(l)),
     }))
@@ -340,14 +342,14 @@ export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory })
     note: `${openLeads.length} open leads, across every stage that isn't won or lost.`,
     stats: [
       { label: 'Open value', value: formatCurrencyCompact(openTotal), sub: `${openLeads.length} leads`, color: '#101617' },
-      { label: 'Reached New', value: String(funnel[0]?.reached ?? 0), sub: 'all-time', color: '#101617' },
+      { label: 'Reached Calling', value: String(funnel[0]?.reached ?? 0), sub: 'all-time', color: '#101617' },
       { label: 'Reached Won', value: String(funnel.find((f) => f.stage === 'won')?.reached ?? 0), sub: 'all-time', color: '#1f6f4a' },
       { label: 'Reached Lost', value: String(funnel.find((f) => f.stage === 'lost')?.reached ?? 0), sub: 'all-time', color: '#b4232a' },
     ],
     stageRows: stageRows.map((r) => ({ ...r, pct: `${Math.round((r.count / maxStage) * 100)}%` })),
     convRows,
     funnelRows: funnel.map((f) => ({
-      label: f.stage,
+      label: stageLabel(f.stage),
       count: f.reached,
       avgDays: f.avgDays == null ? '—' : `${f.avgDays.toFixed(1)}d`,
       pct: `${Math.round((f.reached / maxReached) * 100)}%`,
@@ -435,7 +437,7 @@ export function buildForecastPanel({ forecast }) {
     fcRows: forecast.map((l) => ({
       leadId: l.id,
       party: l.parties?.name ?? '(no party)',
-      sub: l.current_stage ?? 'new',
+      sub: stageLabel(l.current_stage ?? 'calling'),
       owner: l.employees?.name ?? 'Unassigned',
       prob: l.closure_probability != null ? `${l.closure_probability}%` : '—',
       probColor: (l.closure_probability ?? 0) >= 70 ? '#1f6f4a' : (l.closure_probability ?? 0) >= 45 ? '#7a6413' : '#b4232a',
@@ -497,7 +499,7 @@ export function buildCategoryMixPanel({ breakdownLeads, getCategory, eyebrow, ti
     const entry = counts.get(cat)
     entry.count += 1
     entry.value += Number(lead.order_value ?? 0)
-    if ((lead.current_stage ?? 'new') === 'won') entry.won += 1
+    if ((lead.current_stage ?? 'calling') === 'won') entry.won += 1
   })
   const total = breakdownLeads.length
   const sorted = [...counts.entries()].sort((a, b) => b[1].count - a[1].count)

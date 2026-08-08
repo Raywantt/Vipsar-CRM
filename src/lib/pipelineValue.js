@@ -9,7 +9,7 @@
 const CLOSED_STAGES = ['won', 'lost']
 
 export function isOpenLead(lead) {
-  return !CLOSED_STAGES.includes(lead.current_stage ?? 'new')
+  return !CLOSED_STAGES.includes(lead.current_stage ?? 'calling')
 }
 
 export function dealValueFor(lead) {

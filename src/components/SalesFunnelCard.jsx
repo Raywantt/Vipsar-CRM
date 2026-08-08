@@ -1,16 +1,16 @@
-import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
+import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { stageFg } from '../lib/statusColors'
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24
 
 // stage_history logs only the *destination* of each explicit stage change
 // — never the stage a lead started in, since `leads.current_stage DEFAULT
-// 'new'` is never itself an "update". So a lead that went straight
-// new -> lost has exactly one history row ('lost') and would silently
-// undercount 'new' otherwise. Every lead's reached-set is seeded with both
-// 'new' (true for all of them, by schema default) and its own current
-// stage (from `leads`, already RLS-scoped the normal way), then widened
-// with whatever's actually in stage_history. Avg-days-in-stage is
+// 'calling'` is never itself an "update". So a lead that went straight
+// calling -> lost has exactly one history row ('lost') and would silently
+// undercount 'calling' otherwise. Every lead's reached-set is seeded with
+// both 'calling' (true for all of them, by schema default) and its own
+// current stage (from `leads`, already RLS-scoped the normal way), then
+// widened with whatever's actually in stage_history. Avg-days-in-stage is
 // unaffected by any of this — it only reflects actual logged transitions,
 // which is the correct thing to measure there.
 // Exported so the pipeline/funnel drill-down (src/lib/drilldownBuilders.js)
@@ -26,7 +26,7 @@ export function computeFunnel(stageHistory, leads) {
 
   const reachedByLead = new Map()
   leads.forEach((lead) => {
-    reachedByLead.set(lead.id, new Set(['new', lead.current_stage ?? 'new']))
+    reachedByLead.set(lead.id, new Set(['calling', lead.current_stage ?? 'calling']))
   })
   visibleHistory.forEach((row) => {
     if (!reachedByLead.has(row.lead_id)) reachedByLead.set(row.lead_id, new Set())
@@ -92,7 +92,7 @@ function SalesFunnelCard({ stageHistory, leads, onOpenPanel }) {
         rows.map(({ stage, reached, avgDays }) => (
           <div key={stage} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <div style={{ fontSize: 12, color: 'var(--vip-ink)', textTransform: 'capitalize' }}>{stage}</div>
+              <div style={{ fontSize: 12, color: 'var(--vip-ink)' }}>{stageLabel(stage)}</div>
               <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
                 {reached} · {avgDays == null ? '—' : `${avgDays.toFixed(1)}d`}
               </div>

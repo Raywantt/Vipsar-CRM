@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { searchAll, MIN_QUERY_LENGTH } from '../lib/searchQueries'
 import { stageChipClass } from '../lib/statusColors'
+import { stageLabel } from '../lib/leadStageOptions'
 import { fetchAllParties, fetchLeadsByParty, fetchPartyEmployeeLinks, mostRecentLeadByParty } from '../lib/partyQueries'
 import EmployeeLink from '../components/EmployeeLink'
 
@@ -169,7 +170,7 @@ function Search() {
               <div className="vip-row-main">
                 <div className="vip-row-title">{leadTitle(lead)}</div>
               </div>
-              <span className={stageChipClass(lead.current_stage ?? 'new')}>{lead.current_stage ?? 'new'}</span>
+              <span className={stageChipClass(lead.current_stage ?? 'calling')}>{stageLabel(lead.current_stage ?? 'calling')}</span>
             </Link>
           ))}
         </div>

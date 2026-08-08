@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
+import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { stageFg } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
 import { dealValueFor } from '../lib/pipelineValue'
@@ -14,7 +14,7 @@ function leadTitle(lead) {
 // reimplementing it as drag-and-drop.
 function LeadStageBoard({ leads, isOwner }) {
   const columns = LEAD_STAGE_OPTIONS.map((stage) => {
-    const stageLeads = leads.filter((lead) => (lead.current_stage ?? 'new') === stage)
+    const stageLeads = leads.filter((lead) => (lead.current_stage ?? 'calling') === stage)
     const dealValue = stageLeads.reduce((s, l) => s + dealValueFor(l), 0)
     return { stage, leads: stageLeads, dealValue }
   })
@@ -25,7 +25,7 @@ function LeadStageBoard({ leads, isOwner }) {
         <div key={stage} className="vip-board-col">
           <div className="vip-board-head" style={{ borderTopColor: stageFg(stage) }}>
             <div className="vip-board-head-top">
-              <div className="vip-board-title">{stage}</div>
+              <div className="vip-board-title">{stageLabel(stage)}</div>
               <div className="vip-board-meta">{stageLeads.length}</div>
             </div>
             <div className="vip-board-meta">{formatCurrencyCompact(dealValue)}</div>

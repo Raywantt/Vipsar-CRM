@@ -381,13 +381,17 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
   padding: 4px 10px; border-radius: var(--vip-r-pill);
   font-size: 11px; font-weight: 600; white-space: nowrap;
 }
-.vip-chip-new         { background: #eef0f3; color: #485456; }
-.vip-chip-hot         { background: #dff0ef; color: #0f6b6b; }
-.vip-chip-rfq         { background: #f2efdf; color: #7a6413; }
-.vip-chip-quote       { background: #eaf0f6; color: #2f5878; }
-.vip-chip-negotiation { background: #f1ecf7; color: #5a4287; }
-.vip-chip-won         { background: #e4f1e8; color: #1f6f4a; }
-.vip-chip-lost        { background: #fbeaea; color: #b4232a; }
+.vip-chip-calling            { background: #eaf2fc; color: #2e6da4; }
+.vip-chip-presentation       { background: #d6e7fa; color: #235a8c; }
+.vip-chip-joinery_follow_up  { background: #bfd9f6; color: #1b4870; }
+.vip-chip-measurements       { background: #a3c7f0; color: #123457; }
+.vip-chip-design_discussion  { background: #fdf1d6; color: #92650b; }
+.vip-chip-rfq                { background: #fbe6b3; color: #7a5209; }
+.vip-chip-quote_submission   { background: #f7d688; color: #634006; }
+.vip-chip-negotiation        { background: #d9f0de; color: #1f7a3d; }
+.vip-chip-on_hold            { background: #eef0f0; color: #5f6a6c; }
+.vip-chip-won                { background: #bfe5c9; color: #0f5c2a; }
+.vip-chip-lost               { background: #fbeaea; color: #b4232a; }
 
 /* tiny uppercase tag (activity timeline) */
 .vip-tag {
@@ -1186,9 +1190,14 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-chart-swatch { width: 10px; height: 10px; border-radius: 3px; display: block; }
 .vip-chart-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--vip-faint); text-align: center; padding: 0 20px; }
 
-/* deal-progress stage stepper (Lead Profile hero card) */
-.vip-stepper { display: flex; gap: 4px; }
-.vip-stepper-col { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* deal-progress stage stepper (Lead Profile hero card) — every segment is
+   colored by its own stage (see stageFg); only the current stage's column
+   widens to fit a label, the rest stay narrow color-only strips (full
+   stage name + date available via the column's title tooltip) so 10+
+   stages don't crowd into illegible truncated labels. */
+.vip-stepper { display: flex; gap: 4px; align-items: flex-start; }
+.vip-stepper-col { flex: 1 1 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vip-stepper-col-current { flex: 6 1 0; }
 .vip-stepper-bar { height: 6px; border-radius: 3px; }
 .vip-stepper-label { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vip-stepper-meta { font-size: 10px; color: var(--vip-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

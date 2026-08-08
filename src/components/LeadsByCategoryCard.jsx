@@ -1,5 +1,6 @@
 import { formatCurrency } from '../lib/format'
 import { stageChipClass } from '../lib/statusColors'
+import { stageLabel } from '../lib/leadStageOptions'
 import { dealValueFor } from '../lib/pipelineValue'
 
 // colorStages (optional): render the category label as a colored chip using
@@ -50,7 +51,7 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
           {visibleRows.map(([cat, { count, dealValue }]) => (
             <div key={cat} className="vip-row">
               <div className="vip-row-main">
-                {colorStages ? <span className={stageChipClass(cat)}>{cat}</span> : <div className="vip-row-title">{cat}</div>}
+                {colorStages ? <span className={stageChipClass(cat)}>{stageLabel(cat)}</span> : <div className="vip-row-title">{cat}</div>}
               </div>
               <div className="vip-row-side" style={{ display: 'flex', gap: 14 }}>
                 <div className="vip-row-value">{count}</div>

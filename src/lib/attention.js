@@ -1,4 +1,5 @@
 import { stageChipClass } from './statusColors'
+import { stageLabel } from './leadStageOptions'
 import { formatCurrencyCompact } from './format'
 import { getInitials } from './initials'
 import { dealValueFor } from './pipelineValue'
@@ -19,7 +20,7 @@ function daysSince(dateLike) {
 }
 
 function isOpen(lead) {
-  return !CLOSED_STAGES.includes(lead.current_stage ?? 'new')
+  return !CLOSED_STAGES.includes(lead.current_stage ?? 'calling')
 }
 
 function leadValue(lead) {
@@ -38,8 +39,8 @@ function toRow(lead, age, lastDescription) {
   return {
     leadId: lead.id,
     party: partyLabel(lead),
-    stage: lead.current_stage ?? 'new',
-    chipClass: stageChipClass(lead.current_stage ?? 'new'),
+    stage: stageLabel(lead.current_stage ?? 'calling'),
+    chipClass: stageChipClass(lead.current_stage ?? 'calling'),
     last: lastDescription,
     age,
     value: leadValue(lead),

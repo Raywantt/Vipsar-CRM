@@ -29,6 +29,20 @@ export function fetchDueFollowUpsForEmployee(employeeId) {
     .order('due_date', { ascending: true })
 }
 
+// Most recent not-done follow-up tied to this lead — used by LeadDetail to
+// surface an On Hold action's reason (stored as this row's notes) without
+// waiting for the push reminder to fire.
+export function fetchLatestFollowUpForLead(leadId) {
+  return supabase
+    .from('follow_ups')
+    .select(FOLLOW_UP_SELECT)
+    .eq('lead_id', leadId)
+    .eq('is_done', false)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+}
+
 export function createFollowUp({ assignedTo, createdBy, partyId, leadId, activityType, title, notes, dueDate, dueTime }) {
   return supabase
     .from('follow_ups')
