@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { stageFg } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
+import { dealValueFor } from '../lib/pipelineValue'
 import EmployeeLink from './EmployeeLink'
 
 function leadTitle(lead) {
@@ -14,20 +15,20 @@ function leadTitle(lead) {
 function LeadStageBoard({ leads, isOwner }) {
   const columns = LEAD_STAGE_OPTIONS.map((stage) => {
     const stageLeads = leads.filter((lead) => (lead.current_stage ?? 'new') === stage)
-    const orderValue = stageLeads.reduce((s, l) => s + Number(l.order_value ?? 0), 0)
-    return { stage, leads: stageLeads, orderValue }
+    const dealValue = stageLeads.reduce((s, l) => s + dealValueFor(l), 0)
+    return { stage, leads: stageLeads, dealValue }
   })
 
   return (
     <div className="vip-board">
-      {columns.map(({ stage, leads: stageLeads, orderValue }) => (
+      {columns.map(({ stage, leads: stageLeads, dealValue }) => (
         <div key={stage} className="vip-board-col">
           <div className="vip-board-head" style={{ borderTopColor: stageFg(stage) }}>
             <div className="vip-board-head-top">
               <div className="vip-board-title">{stage}</div>
               <div className="vip-board-meta">{stageLeads.length}</div>
             </div>
-            <div className="vip-board-meta">{formatCurrencyCompact(orderValue)}</div>
+            <div className="vip-board-meta">{formatCurrencyCompact(dealValue)}</div>
           </div>
 
           {stageLeads.length === 0 ? (
@@ -40,7 +41,7 @@ function LeadStageBoard({ leads, isOwner }) {
                   <div className="vip-board-card-site">{lead.sites.nickname || lead.sites.locality}</div>
                 ) : null}
                 <div className="vip-board-card-foot">
-                  <div className="vip-board-card-value">{formatCurrencyCompact(lead.order_value)}</div>
+                  <div className="vip-board-card-value">{formatCurrencyCompact(dealValueFor(lead))}</div>
                   {isOwner && (
                     <div className="vip-board-card-owner">
                       <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />

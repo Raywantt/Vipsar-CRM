@@ -6,7 +6,9 @@ import { STALE_DAYS } from '../lib/attention'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
 import { formatCurrencyCompact } from '../lib/format'
+import { dealValueFor } from '../lib/pipelineValue'
 import EmployeeLink from './EmployeeLink'
+import { errorMessage } from '../lib/errorMessage'
 
 // "touched today" / "Nd ago", turning "Nd silent" + red past STALE_DAYS —
 // same threshold attention.js already uses elsewhere, not a second
@@ -83,7 +85,7 @@ function LeadsListCard({ isOwner, employees }) {
       if (!active) return
       setLoading(false)
       if (error) {
-        setError(error.message)
+        setError(errorMessage(error))
       } else {
         setError(null)
         setLeads(data ?? [])
@@ -140,7 +142,7 @@ function LeadsListCard({ isOwner, employees }) {
       .filter((stage) => byStage.has(stage))
       .map((stage) => {
         const rows = byStage.get(stage)
-        return { stage, rows, value: rows.reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0) }
+        return { stage, rows, value: rows.reduce((s, l) => s + dealValueFor(l), 0) }
       })
   }, [filtered])
 
@@ -385,7 +387,7 @@ function LeadsListCard({ isOwner, employees }) {
                 </div>
                 <div className="vip-row-side" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span className={stageChipClass(lead.current_stage ?? 'new')}>{lead.current_stage ?? 'new'}</span>
-                  <div className="vip-row-value">{formatCurrencyCompact(lead.order_value ?? lead.quote_value)}</div>
+                  <div className="vip-row-value">{formatCurrencyCompact(dealValueFor(lead))}</div>
                 </div>
               </Link>
             ))}
@@ -414,7 +416,7 @@ function LeadsListCard({ isOwner, employees }) {
                         </div>
                       </div>
                       <div className="vip-lead-row-side">
-                        <div className="vip-lead-row-value">{formatCurrencyCompact(lead.order_value ?? lead.quote_value)}</div>
+                        <div className="vip-lead-row-value">{formatCurrencyCompact(dealValueFor(lead))}</div>
                         <div className={recency.isStale ? 'vip-lead-row-recency vip-stale' : 'vip-lead-row-recency'}>{recency.label}</div>
                       </div>
                     </Link>

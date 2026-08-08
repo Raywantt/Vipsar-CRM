@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom'
 import { fetchTeamMembers } from '../lib/employeeQueries'
 import { fetchLeadsForBreakdown, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { computeAttentionBuckets } from '../lib/attention'
+import { dealValueFor } from '../lib/pipelineValue'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
+import { errorMessage } from '../lib/errorMessage'
 
 const BAD = '#b4232a'
 const OK = '#7a6413'
@@ -32,7 +34,7 @@ function MyTeam() {
         if (!active) return
         setLoading(false)
         if (teamRes.error) {
-          setError(teamRes.error.message)
+          setError(errorMessage(teamRes.error))
           return
         }
         setEmployees(teamRes.data ?? [])
@@ -60,7 +62,7 @@ function MyTeam() {
       if (['won', 'lost'].includes(l.current_stage ?? 'new')) return
       const entry = map.get(l.owner_employee_id) ?? { count: 0, value: 0 }
       entry.count += 1
-      entry.value += Number(l.order_value ?? l.quote_value ?? 0)
+      entry.value += dealValueFor(l)
       map.set(l.owner_employee_id, entry)
     })
     return map

@@ -8,8 +8,10 @@ import { periodForPreset } from '../lib/targetPeriods'
 import { fetchActivityCounts, fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { fetchWonStageHistory, fetchTargetsForPeriod } from '../lib/targetQueries'
 import { fetchDueFollowUpsForEmployee, markFollowUpDone } from '../lib/followUpQueries'
+import { todayISO } from '../lib/followupDates'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
+import { dealValueFor } from '../lib/pipelineValue'
 import { formatCurrencyCompact, formatCurrency } from '../lib/format'
 import FollowUpForm from '../components/FollowUpForm'
 import DrilldownPanel from '../components/DrilldownPanel'
@@ -65,10 +67,6 @@ function daysLeftLabel(period) {
   if (!end) return null
   const days = Math.max(0, Math.ceil((end.getTime() - Date.now()) / 86400000))
   return `${days} day${days === 1 ? '' : 's'} left`
-}
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10)
 }
 
 // Names + "oldest Nd late" for the Overdue follow-ups row's sub-line.
@@ -203,7 +201,7 @@ function Home() {
       if (!active) return
 
       const openLeads = (breakdownRes.data ?? []).filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
-      const pipeline = openLeads.reduce((s, l) => s + Number(l.order_value ?? 0), 0)
+      const pipeline = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
       const visits = (activitiesRes.data ?? []).filter((a) => a.activity_type === 'site_visit').length
       const won = computeOrderValueActuals(wonRes.data ?? [], range, false)
 

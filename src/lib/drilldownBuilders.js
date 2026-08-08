@@ -11,6 +11,7 @@ import { stageChipClass, stageFg } from './statusColors'
 import { formatCurrencyCompact } from './format'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeFunnel } from '../components/SalesFunnelCard'
+import { dealValueFor } from './pipelineValue'
 
 const CLOSED_STAGES = ['won', 'lost']
 
@@ -286,14 +287,14 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
 // ---------- pipeline / funnel ----------
 export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory }) {
   const openLeads = breakdownLeads.filter((l) => !CLOSED_STAGES.includes(l.current_stage ?? 'new'))
-  const openTotal = openLeads.reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0)
+  const openTotal = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
 
   const stageRows = LEAD_STAGE_OPTIONS.filter((s) => !CLOSED_STAGES.includes(s)).map((stage) => {
     const stageLeads = openLeads.filter((l) => (l.current_stage ?? 'new') === stage)
     return {
       label: stage,
       count: stageLeads.length,
-      value: formatCurrencyCompact(stageLeads.reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0)),
+      value: formatCurrencyCompact(stageLeads.reduce((s, l) => s + dealValueFor(l), 0)),
       color: stageFg(stage),
     }
   })
@@ -320,7 +321,7 @@ export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory })
   }
 
   const topLeads = [...openLeads]
-    .sort((a, b) => Number(b.order_value ?? b.quote_value ?? 0) - Number(a.order_value ?? a.quote_value ?? 0))
+    .sort((a, b) => dealValueFor(b) - dealValueFor(a))
     .slice(0, 5)
     .map((l) => ({
       leadId: l.id,
@@ -328,7 +329,7 @@ export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory })
       stage: l.current_stage ?? 'new',
       chipClass: stageChipClass(l.current_stage ?? 'new'),
       owner: l.employees?.name ?? 'Unassigned',
-      value: formatCurrencyCompact(l.order_value ?? l.quote_value ?? 0),
+      value: formatCurrencyCompact(dealValueFor(l)),
     }))
 
   return {

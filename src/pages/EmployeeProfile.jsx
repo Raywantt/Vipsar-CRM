@@ -10,12 +10,14 @@ import { fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfil
 import { fetchFollowUpsForEmployee, markFollowUpDone } from '../lib/followUpQueries'
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeAttentionBuckets } from '../lib/attention'
+import { dealValueFor } from '../lib/pipelineValue'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageChipClass } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
+import { errorMessage } from '../lib/errorMessage'
 
 const GOOD = '#0f6b6b'
 const OK = '#b8791f'
@@ -180,7 +182,7 @@ function EmployeeProfile() {
     let active = true
     fetchEmployeeProfile(execId).then(({ data, error }) => {
       if (!active) return
-      if (error) setProfileError(error.message)
+      if (error) setProfileError(errorMessage(error))
       else setProfileEmployee(data)
     })
     return () => {
@@ -408,7 +410,7 @@ function EmployeeProfile() {
     if (!pipelineByStage.has(stage)) pipelineByStage.set(stage, { count: 0, value: 0 })
     const entry = pipelineByStage.get(stage)
     entry.count += 1
-    entry.value += Number(l.order_value ?? l.quote_value ?? 0)
+    entry.value += dealValueFor(l)
   })
   const pipelineRows = [...pipelineByStage.entries()].map(([stage, v]) => ({ stage, ...v }))
   const maxPipelineCount = Math.max(1, ...pipelineRows.map((r) => r.count))
@@ -463,7 +465,7 @@ function EmployeeProfile() {
         </div>
         <div className="vip-profile-strip-cell">
           <span className="vip-profile-strip-label">Open pipeline</span>
-          <span className="vip-profile-strip-value">{formatCurrencyCompact(myOpenLeads.reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0))}</span>
+          <span className="vip-profile-strip-value">{formatCurrencyCompact(myOpenLeads.reduce((s, l) => s + dealValueFor(l), 0))}</span>
           <span className="vip-profile-strip-sub">{myOpenLeads.length} live leads</span>
         </div>
         <div className="vip-profile-strip-cell">
@@ -577,7 +579,7 @@ function EmployeeProfile() {
                       </span>
                       <span className="vip-dd-age-side">
                         <span className="vip-dd-age-days" style={{ color: touchColor(days) }}>{days}d ago</span>
-                        <span className="vip-dd-age-value">{formatCurrencyCompact(lead.order_value ?? lead.quote_value)}</span>
+                        <span className="vip-dd-age-value">{formatCurrencyCompact(dealValueFor(lead))}</span>
                       </span>
                     </Link>
                   ))

@@ -1,5 +1,6 @@
 import { formatCurrency } from '../lib/format'
 import { stageChipClass } from '../lib/statusColors'
+import { dealValueFor } from '../lib/pipelineValue'
 
 // colorStages (optional): render the category label as a colored chip using
 // src/lib/statusColors.js — only meaningful for the Stage instance of this
@@ -16,20 +17,20 @@ import { stageChipClass } from '../lib/statusColors'
 function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorStages, maxRows, onOpenPanel }) {
   const map = new Map()
   if (categoryOrder) {
-    categoryOrder.forEach((c) => map.set(c, { count: 0, orderValue: 0 }))
+    categoryOrder.forEach((c) => map.set(c, { count: 0, dealValue: 0 }))
   }
   leads.forEach((lead) => {
     const cat = getCategory(lead)
-    if (!map.has(cat)) map.set(cat, { count: 0, orderValue: 0 })
+    if (!map.has(cat)) map.set(cat, { count: 0, dealValue: 0 })
     const entry = map.get(cat)
     entry.count += 1
-    entry.orderValue += Number(lead.order_value ?? 0)
+    entry.dealValue += dealValueFor(lead)
   })
 
   const rows = categoryOrder ? [...map.entries()] : [...map.entries()].sort((a, b) => b[1].count - a[1].count)
   const visibleRows = maxRows ? rows.slice(0, maxRows) : rows
   const remaining = rows.length - visibleRows.length
-  const totalOrderValue = leads.reduce((s, l) => s + Number(l.order_value ?? 0), 0)
+  const totalDealValue = leads.reduce((s, l) => s + dealValueFor(l), 0)
 
   return (
     <div className="vip-card">
@@ -46,7 +47,7 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
         <p className="vip-empty">No leads found.</p>
       ) : (
         <>
-          {visibleRows.map(([cat, { count, orderValue }]) => (
+          {visibleRows.map(([cat, { count, dealValue }]) => (
             <div key={cat} className="vip-row">
               <div className="vip-row-main">
                 {colorStages ? <span className={stageChipClass(cat)}>{cat}</span> : <div className="vip-row-title">{cat}</div>}
@@ -54,7 +55,7 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
               <div className="vip-row-side" style={{ display: 'flex', gap: 14 }}>
                 <div className="vip-row-value">{count}</div>
                 <div className="vip-row-meta vip-num" style={{ width: 48, textAlign: 'right' }}>
-                  {formatCurrency(orderValue)}
+                  {formatCurrency(dealValue)}
                 </div>
               </div>
             </div>
@@ -68,7 +69,7 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
             <div>Total</div>
             <div style={{ display: 'flex', gap: 14 }}>
               <div>{leads.length}</div>
-              <div style={{ width: 48, textAlign: 'right' }}>{formatCurrency(totalOrderValue)}</div>
+              <div style={{ width: 48, textAlign: 'right' }}>{formatCurrency(totalDealValue)}</div>
             </div>
           </div>
         </>

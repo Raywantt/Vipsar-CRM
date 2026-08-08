@@ -113,6 +113,23 @@ needs before touching anything:
 - `LeadsByAreaCard.jsx` was tried as its own component/tab twice and
   removed both times — permanently merged into the generic
   `LeadsByCategoryCard` instead (see Dashboard section). Don't recreate it.
+- **Pipeline/deal value now has one canonical definition**, via the new
+  `src/lib/pipelineValue.js` — previously Home's "Pipeline" tile,
+  Dashboard's "Open pipeline" KPI, the All Leads header, Pipeline by stage
+  (table + board), the four category-breakdown cards, EmployeeProfile/
+  MyTeam's "Open pipeline" stats, and Needs Attention's row values each
+  hand-rolled their own slightly different formula for "how much is this
+  lead worth" — caught via a live audit that showed three different
+  numbers on screen at once for what looked like one concept. See the
+  Dashboard section's **Pipeline/deal value** bullet for the exact rule and
+  full list of call sites. **Flagged, not yet resolved**: that same audit's
+  SQL check found leads in the live DB with `order_value` set while still
+  open (not `won`/`lost`) — contradicting the "a booked order is
+  automatically won" assumption the new rule leans on. Doesn't change any
+  figure today (see that bullet for why), but the underlying process gap —
+  a Booking Update logged without the lead's stage being flipped to `won`
+  — is still open; the owner is taking it up later, don't "fix" it as a
+  side effect of unrelated work.
 - Domain model, lead-sourcing logic, and locked-in design decisions ("don't
   reverse without discussion") live in `DECISIONS.md`, not here.
 
@@ -190,7 +207,16 @@ not by `ProtectedRoute`'s `allowedRoles` (see the Sales Exec Profile
 section below for why — a sales exec may view their own page but not a
 colleague's, which isn't a role-level distinction `ProtectedRoute` can
 express). `ProtectedRoute` handles the
-redirect-to-login and role gating (redirecting to `/` on a role mismatch);
+redirect-to-login and role gating (redirecting to `/` on a role mismatch),
+plus a hard block — a full-page "Account deactivated" message with a Log
+out button, no `AppNav`/`BottomNav` — for `employee.is_active === false`,
+checked before the role gate. `AuthContext` now selects `is_active`
+alongside `id`/`name`/`mobile`/`role` for exactly this. This is the UI
+mirror of what `Schema/rls_policies.sql`'s `current_employee_id()`/
+`current_employee_role()` enforce server-side (see Conventions) — a
+deactivated employee's already-open session gets blocked at the database
+layer immediately, the `ProtectedRoute` screen just makes the reason
+visible instead of every query silently coming back empty.
 `AuthContext` is the single source of truth for "who's logged in and what's
 their role" — look up an employee's role via `useAuth()`, don't re-query
 `employees` directly in a component. `ProtectedRoute` renders
@@ -323,11 +349,18 @@ approximation of it.** Concretely:
 * **Lead Detail's Stage section** (`LeadStageSection.jsx`) — `current_stage`
   is now a row of tappable `vip-chip-select` pills (one per
   `LEAD_STAGE_OPTIONS` value, tinted via `stageFg`); tapping one applies
-  that stage immediately (no separate confirm step) via the same
-  `stage_history`-logging path as before. An "Other…" chip still exists for
-  the free-text escape hatch — reveals a text input + Set button, since
-  `current_stage` staying non-enum is a locked-in decision (see
-  DECISIONS.md), not something the redesign was meant to remove.
+  that stage immediately via the same `stage_history`-logging path as
+  before — **except `lost`**, which withholds the write until a reason is
+  saved (see the Lead Profile section's Change stage bullet below; a real
+  bug found and fixed after the initial redesign — `applyStage` used to
+  commit `current_stage`/`stage_history` for `lost` *before* the reason
+  prompt even opened, so closing the sheet or navigating away left a lost
+  lead with no reason on file, silently violating DECISIONS.md's "no
+  skip-for-now escape hatch" rule). An "Other…" chip still exists for the
+  free-text escape hatch — reveals a text input + Set button, routed
+  through the same `lost`-gating check when the typed text is literally
+  `lost` — since `current_stage` staying non-enum is a locked-in decision
+  (see DECISIONS.md), not something the redesign was meant to remove.
 * **Universal linking** — the rule of thumb from `design_handoff_detail_pages/
   FLOW.md`, applied globally: a person's name is always a link to
   `/employees/:id`; a lead or client's name is always a link to
@@ -637,9 +670,18 @@ toggle button so at most one is open at a time:
 
 * **Change stage** — does **not** reimplement `LeadStageSection.jsx`, just
   relocates *when* it's visible: toggling this button mounts the exact
-  same component (chip-select + mandatory loss-reason-on-lost prompt,
-  unchanged) instead of it always being on-screen. Everything documented
-  about it before is still true.
+  same component (chip-select + mandatory loss-reason-on-lost prompt)
+  instead of it always being on-screen. Everything documented about it
+  before is still true, including a since-fixed bug in the prompt's own
+  ordering: picking `lost` now opens the reason prompt *without* writing
+  anything yet (`current_stage`/`stage_history` stay untouched — verified
+  live against a real lead), and only commits `loss_reasons` +
+  `current_stage` + `stage_history` together once a reason is picked and
+  confirmed; a **Cancel** button on the prompt (new — safe now that nothing
+  is written until confirm) discards the pending selection with no writes
+  at all. Previously the stage/history write fired the instant `lost` was
+  tapped, before the prompt even opened, so closing the sheet left a lost
+  lead permanently missing a reason.
 * **Set follow-up** — writes the existing `leads.next_followup_date` field
   directly (Tomorrow / In 3 days / Next Monday / In 2 weeks / a custom date
   input) — one more entry point onto the same field `ActivityLog` already
@@ -687,7 +729,17 @@ card (site contacts + a facts list), then — **unchanged from before** —
 `site_id`), same `canEdit` gate, same merge-not-replace `setLead` pattern
 as always (each section's save query has no `employees` embed, so
 `LeadDetail` merges the returned row rather than replacing state wholesale
-— a plain replace would drop `lead.employees`).
+— a plain replace would drop `lead.employees`). **Real bug found and
+fixed**: `SalesProgressSection.jsx`'s Save used to null out `quote_value`
+on every save where the "Quote sent" checkbox wasn't ticked, even though
+the Quote value field sits above that checkbox and is always visible/
+editable regardless of it — a rep could type a value, not tick the box,
+hit Save, and silently lose what they typed. Fixed by saving `quote_value`
+whenever it's non-empty, independent of `quoteSent` (the field was never
+actually gated by that checkbox in the UI, so the save shouldn't have
+gated it either). `rfq_raised_at`/`quote_sent_at` don't have this problem
+— those date inputs are only rendered once their own checkbox is ticked,
+so the field's visibility already matches the save condition.
 
 A sales exec viewing a lead that isn't theirs still sees the identity
 band + Deal progress + Quotes/Products/Activity (all read-only, no
@@ -859,6 +911,24 @@ activity-type tag once a party's linked, and an always-optional notes field.
   UI, are **out of scope for this pass** — only create and mark-done exist
   in the UI (owner-only DELETE still exists at the RLS layer, same as every
   other table, for manual cleanup).
+* **`followupDates.js`'s `todayISO()`/`toISODate()`** are the one place in
+  this app that should ever compute "today" as a plain date string — every
+  caller that needs one (`fetchDueFollowUpsForEmployee` in
+  `followUpQueries.js`, Home/Dashboard/ActivityLog's own "is this overdue /
+  due today" checks, RFQ-raised/quote-sent date stamps) imports `todayISO`
+  from here rather than rolling its own. **Real bug found and fixed**: both
+  used to build the date via `new Date().toISOString().slice(0, 10)` —
+  `toISOString()` converts to UTC first, so between midnight and 05:30 IST
+  (IST is UTC+5:30) that expression returns *yesterday's* date. Three other
+  files (`Home.jsx`, `Dashboard.jsx`, `ActivityLog.jsx`) had each hand-rolled
+  their own identically-broken local `todayISO()` copy instead of importing
+  one. All four were fixed to build the string from local
+  `getFullYear`/`getMonth`/`getDate` (so they follow the browser's local
+  timezone — IST for this app's real users — instead of shifting to UTC),
+  and the three duplicate local copies were deleted in favor of importing
+  the one in `followupDates.js`. Any future "what's today's date" need
+  should import `todayISO` from there, not write `new Date().toISOString()`
+  again.
 * **Home** (`src/pages/Home.jsx`) — a "Your reminders" card, identical for
   both roles, showing this employee's own not-done follow-ups due today or
   earlier (`fetchDueFollowUpsForEmployee`), with a "+ Add reminder" toggle
@@ -1024,6 +1094,44 @@ desktop-sidebar-only until that gap gets addressed (see Structure).
 `LeadsListCard` still fetches independently of the Reports effects below,
 since it isn't part of the date-range-scoped report data.
 
+* **Pipeline/deal value** (`src/lib/pipelineValue.js`) — the canonical
+  "how much is this lead worth" figure, shared by every card in this app
+  that sums or displays one. Before this existed, at least nine call sites
+  (this page's `openPipelineValue`/`stageRows`/the All Leads header
+  override, Home's KPI grid, `LeadStageBoard.jsx`, `LeadsByCategoryCard.jsx`,
+  `EmployeeProfile.jsx`'s Open pipeline stat + Pipeline owned + Leads
+  assigned, `MyTeam.jsx`'s per-card stat, `attention.js`'s Needs Attention
+  row values, `LeadsListCard.jsx`'s row/stage-group values, and
+  `drilldownBuilders.js`'s `pipeline` drill-down) each hand-rolled their own
+  version — some `order_value ?? 0`, others `order_value ?? quote_value ??
+  0` — which silently drifted into different numbers shown on screen at the
+  same moment for what looked like one concept (caught via a live audit:
+  Home read one figure, Dashboard/All Leads read another, and Pipeline by
+  stage's own new/hot/rfq rows read "—" even on leads that carried a real
+  quote). The rule, confirmed with the owner against real data: `order_value`
+  is only ever written once a deal is actually booked (`ActivityLog.jsx`'s
+  Booking Update activity — see the ActivityLog section) — so for a lead
+  that's still open (not `won`/`lost`), `order_value` is deliberately
+  ignored even if present, and the lead's value is its latest `quote_value`
+  alone (never a fabricated `0` — a lead with neither value renders `—`,
+  not `₹0`). A `won`/`lost` lead keeps `order_value ?? quote_value ?? 0`,
+  unchanged from before. `dealValueFor(lead)` is the per-lead function every
+  call site above now imports; `sumOpenPipelineValue(leads)` is the
+  open-leads-only total, used by this page's KPI tile/All Leads header and
+  by Home. **Flagged for the owner to take up later, not fixed here**: a
+  live SQL check (`select id, current_stage, quote_value, order_value from
+  leads where current_stage not in ('won','lost') and order_value is not
+  null`) turned up leads with `order_value` already set while still
+  `quote`/`negotiation` stage — i.e. a Booking Update was logged without the
+  lead's stage ever being flipped to `won`, contradicting the "a booked
+  order is automatically won" assumption the rule above rests on. Doesn't
+  change any figure today — in every one of those rows `quote_value` was
+  already the larger number, so the quote-only rule never under-counts them
+  versus the old fallback — but the process gap itself (reps logging a
+  booking without changing the stage) is unresolved. `LeadDetail.jsx`'s own
+  "Deal value" stat (`Math.max(order_value, quote_value)`) was deliberately
+  left as a separate, fourth formula — a single lead's lifetime headline
+  number, not a pipeline aggregate — not folded into this pass.
 * **Date range** (`DateRangeSelector.jsx`) — **Week** (Monday–today) /
   **15D** (rolling 15 days ending today, not calendar-aligned) / **Month** /
   **Quarter** / **Custom** (two date inputs), in that left-to-right order.
@@ -1555,8 +1663,16 @@ function.
 * **New Lead** (`LeadQuickCapture.jsx`) — reordered: **Where from** (the
   only required field) now comes first, Client name, Site nickname, then
   "other party" collapsed behind a `.vip-disclosure-row` ("+ Architect /
-  PMC / someone else") until tapped or already filled. Sticky footer Save
-  button shows a `.vip-offline-note` when `useOnlineStatus()` is false.
+  PMC / someone else") until tapped or already filled. The sticky footer's
+  Save button used to show a `.vip-offline-note` ("Offline — saves on this
+  phone, syncs later") when `useOnlineStatus()` was false — removed, along
+  with the matching "Works offline…" line in `FabSheet.jsx`'s footer,
+  because neither claim was true: there's no write queue anywhere in this
+  app, so a save attempted with no signal just fails like any other network
+  error. `OfflineIndicator.jsx` (mounted globally, see PWA installability
+  below) is the one honest source of connectivity status; don't reintroduce
+  a second, conflicting one on a specific form without actually building
+  the offline write queue to back it.
 * **Log Activity** (`ActivityLog.jsx`) — "Against which lead?" now defaults
   to a `RecentLeadsPicker` (radio rows, `.vip-radio-row`/`.vip-radio-dot`,
   `fetchLeadsList({employeeId})` + `fetchLastActivityPerLead()` sorted by
@@ -1707,7 +1823,7 @@ renders) rather than assuming a fresh tab means a fresh session.
 - Secrets (Supabase URL/keys, etc.) go in a git-ignored `.env` file — never commit them. `.env.example` documents the required variable names with placeholders.
 - The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Currently outstanding: `tostem_crm_schema.sql`'s `parties.party_type` CHECK includes `'pmc'` but this has not been run live — the constraint is named `parties_party_type_check` (confirmed via the exact error it throws today), so `ALTER TABLE parties DROP CONSTRAINT parties_party_type_check, ADD CONSTRAINT parties_party_type_check CHECK (party_type IN ('client','architect','builder','firm','other','pmc'));` is the migration once someone's ready to run it. Also outstanding: `tostem_crm_schema.sql`'s `targets.period_type` CHECK now includes `'quarter'` (added for the Set-a-target Quarter option — see the Dashboard section's Targets vs. actuals bullet) but this hasn't been run live either — Postgres's default name for an unnamed inline CHECK is `<table>_<column>_check`, so (unconfirmed against the live error, unlike the `pmc` case above — verify the constraint name first if it errors) the expected migration is `ALTER TABLE targets DROP CONSTRAINT targets_period_type_check, ADD CONSTRAINT targets_period_type_check CHECK (period_type IN ('week','month','quarter','year'));`. Until this runs, saving a Quarter target through the UI will fail with a CHECK-violation error from Supabase. Also outstanding: `tostem_crm_schema.sql`'s new `lead_owner_history` table (added for the Lead Profile's "Reassign owner" action and its ownership-history list — same append-only shape as `stage_history`) hasn't been created live yet — run the `CREATE TABLE lead_owner_history (...)` statement from the schema file plus its matching `authenticated_select`/`authenticated_insert` policies from `rls_policies.sql` before that action will work; until then, reassigning an owner will fail with a "relation does not exist" error from Supabase.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
-- Row Level Security (full policies in `Schema/rls_policies.sql`): `activities`/`leads`/`plans`/`targets` use "own data or owner role" (by `employee_id`/`owner_employee_id`, or role=`'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT open, INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`: SELECT/INSERT open to all (needed for search-before-create across reps), UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts`: SELECT/INSERT open, UPDATE/DELETE owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products`: SELECT open, else owner-only. `stage_history`: SELECT/INSERT open, no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `lead_owner_history` is the same shape/policy as `stage_history` (SELECT/INSERT open, no UPDATE/DELETE ever) — see the outstanding-migration note above, it isn't live yet. `loss_reasons`: SELECT owner-only, INSERT open, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it; real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely. A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
+- Row Level Security (full policies in `Schema/rls_policies.sql`; **confirmed live** — `current_employee_id()`/`current_employee_role()` and every policy below have been run against the real project and verified: deactivating an employee (`employees.is_active = false` in Manage Employees) now actually revokes their database access, not just the client-side `ProtectedRoute` block): every policy that used to inline `(SELECT id/role FROM employees WHERE auth_user_id = auth.uid())`, or leave a table wide open with `USING (true)`/`WITH CHECK (true)`, now goes through one of two `SECURITY DEFINER` helper functions instead — `current_employee_id()`/`current_employee_role()`, both filtered to `is_active = true` and both resolving to `NULL` for a deactivated employee's row. That single change is what makes deactivating someone in Manage Employees actually revoke their access, not just hide the UI. `activities`/`leads`/`plans`/`targets` use "own data or owner role" (`employee_id`/`owner_employee_id` `= current_employee_id()`, or `current_employee_role() = 'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT requires `current_employee_role() IS NOT NULL` (i.e. "you resolve to some active employee" — this doesn't filter which employee rows come back, so an active owner still sees every row including inactive ones; it only gates whether a deactivated caller can query the table at all), INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`/`areas`/`site_contacts`/`products`/`stage_history`/`lead_owner_history` SELECT/INSERT now require `current_employee_role() IS NOT NULL` too — these used to be unconditionally `true` (open to any authenticated session regardless of `is_active`), which is exactly how a deactivated rep kept full access to the whole party directory even after being switched off. `sites`/`parties` UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts` UPDATE/DELETE stay owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products` UPDATE/DELETE owner-only. `stage_history`/`lead_owner_history` have no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design (`lead_owner_history` also still needs its outstanding `CREATE TABLE` run, see above). `loss_reasons`: SELECT requires `current_employee_role() = 'owner'`, INSERT requires `current_employee_role() IS NOT NULL`, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it (`employee_id = current_employee_id()`, no `OR` branch); real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely and never calls these functions (`service_role` has no `auth.uid()`). A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
 - Deploying/configuring anything on Supabase's or Vercel's side still needs the user to do the parts that require *their own* credentials — the initial `supabase login` (interactive browser OAuth) and anything on Vercel's dashboard (env vars, redeploys) — and Edge Function secrets (`supabase secrets set ...`) are values only the user should be typing in, since a raw `service_role`/VAPID-private-key never belongs in this transcript's tool output. Once `supabase login`+`link` have been run locally, though, subsequent `supabase functions deploy`/`delete` calls work fine from a normal shell session on the same machine — this isn't a hard sandbox limitation the way the initial OAuth is. `supabase init` (to generate `supabase/config.toml`) may be needed before `link`/`deploy` will resolve the project correctly, even if `supabase/.temp/linked-project.json` already exists from an earlier `link` — the CLI keys its local cache off `config.toml`'s `project_id`, not just that temp file.
 - **`service_role` does not automatically get access to a new table** on this project — this is a newer Supabase platform default (see `supabase/config.toml`'s `auto_expose_new_tables` comment: "new entities are NOT auto-exposed, matching the new cloud default"), which broke the assumption that an Edge Function's `service_role` key bypasses everything automatically. Real failure mode hit while building the Follow-ups push pipeline: the Edge Function's own `createClient(url, serviceRoleKey)` query came back `permission denied for table follow_ups` / `42501` even though the service_role key was valid and present — PostgREST's own error hint spelled out the fix (`GRANT SELECT ON public.follow_ups TO service_role;`). Any future table a `service_role`-using Edge Function needs to touch needs this same explicit `GRANT ... TO service_role` in `rls_policies.sql` (see the `follow_ups`/`push_subscriptions` grant there for the pattern) — don't assume service_role "just works" on a new table the way it might on an older Supabase project.
 - No GPS, geocoding, or drag-and-drop libraries in this project — deliberate (see DECISIONS.md and the Kanban board note above). No icon library either (no `lucide-react`/icon-font dependency) — `src/components/NavIcons.jsx` hand-authors BottomNav's icons as plain inline SVG instead; reuse/extend that file for any new icon rather than adding a package. Everything else icon-shaped stays plain text/CSS.

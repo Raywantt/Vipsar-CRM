@@ -23,6 +23,7 @@ import { SOURCE_TYPE_OPTIONS } from '../lib/sourceTypeOptions'
 import { stageChipClass } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
 import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
+import { dealValueFor, sumOpenPipelineValue } from '../lib/pipelineValue'
 import {
   buildOrderValueAttainPanel,
   buildActivitiesAttainPanel,
@@ -47,10 +48,8 @@ import {
   fetchActivitiesTrendWindow,
 } from '../lib/dashboardQueries'
 import { fetchEmployees, fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10)
-}
+import { todayISO } from '../lib/followupDates'
+import { errorMessage } from '../lib/errorMessage'
 
 function stageCategory(lead) {
   return lead.current_stage
@@ -125,7 +124,7 @@ function Dashboard() {
   useEffect(() => {
     if (activeTab === 'leads') {
       const openLeads = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
-      const value = openLeads.reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0)
+      const value = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
       setOverride({ title: isOwner ? 'All leads' : 'My leads', sub: `${openLeads.length} open · ${formatCurrencyCompact(value)}` })
     } else {
       setOverride({ sub: `${isOwner ? 'Team performance' : 'Your performance'} · ${RANGE_LABELS[preset]}` })
@@ -144,7 +143,7 @@ function Dashboard() {
       ([activitiesRes, leadsRes]) => {
         if (!active) return
         if (activitiesRes.error || leadsRes.error) {
-          setError(activitiesRes.error?.message ?? leadsRes.error?.message)
+          setError(errorMessage(activitiesRes.error ?? leadsRes.error))
         } else {
           setActivities(activitiesRes.data ?? [])
           setLeads(leadsRes.data ?? [])
@@ -293,9 +292,7 @@ function Dashboard() {
     }
   }, [isOwner])
 
-  const openPipelineValue = breakdownLeads
-    .filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'new'))
-    .reduce((s, l) => s + Number(l.order_value ?? l.quote_value ?? 0), 0)
+  const openPipelineValue = sumOpenPipelineValue(breakdownLeads)
   const wonThisRange = range ? computeOrderValueActuals(wonStageHistory, range, false) : 0
 
   const stageRows = LEAD_STAGE_OPTIONS.map((stage) => {
@@ -303,7 +300,7 @@ function Dashboard() {
     return {
       stage,
       count: stageLeads.length,
-      value: stageLeads.reduce((s, l) => s + Number(l.order_value ?? 0), 0),
+      value: stageLeads.reduce((s, l) => s + dealValueFor(l), 0),
     }
   })
   const maxStageCount = Math.max(1, ...stageRows.map((r) => r.count))
