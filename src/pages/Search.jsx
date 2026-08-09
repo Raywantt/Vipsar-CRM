@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { searchAll, MIN_QUERY_LENGTH } from '../lib/searchQueries'
 import { stageChipClass } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
-import { fetchAllParties, fetchLeadsByParty, fetchPartyEmployeeLinks, mostRecentLeadByParty } from '../lib/partyQueries'
+import { fetchAllParties, fetchLeadsForPartyDirectory, mostRecentLeadByParty } from '../lib/partyQueries'
 import EmployeeLink from '../components/EmployeeLink'
 
 const SEARCH_DEBOUNCE_MS = 350
@@ -50,8 +50,11 @@ function Search() {
   // a debounced DB round-trip via searchAll, unlike Parties there's no
   // existing directory page for either of those to fold in.
   const [parties, setParties] = useState([])
-  const [employeeLinks, setEmployeeLinks] = useState([])
-  const [leadsByParty, setLeadsByParty] = useState([])
+  // One leads scan powers both "who has this party worked with" and "which
+  // lead is this party's most recent" — these used to be two separate
+  // full-table fetches (fetchPartyEmployeeLinks/fetchLeadsByParty) that only
+  // differed in selected columns.
+  const [leadsDirectory, setLeadsDirectory] = useState([])
   const [typeFilter, setTypeFilter] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
   // Mobile-only — desktop always stacks all three sections (see
@@ -71,20 +74,9 @@ function Search() {
 
   useEffect(() => {
     let active = true
-    fetchPartyEmployeeLinks().then(({ data, error }) => {
+    fetchLeadsForPartyDirectory().then(({ data, error }) => {
       if (!active) return
-      if (!error) setEmployeeLinks(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    fetchLeadsByParty().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setLeadsByParty(data ?? [])
+      if (!error) setLeadsDirectory(data ?? [])
     })
     return () => {
       active = false
@@ -115,8 +107,8 @@ function Search() {
     }
   }, [term])
 
-  const employeeMap = useMemo(() => buildEmployeeMap(employeeLinks), [employeeLinks])
-  const partyLeadMap = useMemo(() => mostRecentLeadByParty(leadsByParty), [leadsByParty])
+  const employeeMap = useMemo(() => buildEmployeeMap(leadsDirectory), [leadsDirectory])
+  const partyLeadMap = useMemo(() => mostRecentLeadByParty(leadsDirectory), [leadsDirectory])
   const partyTypes = useMemo(() => [...new Set(parties.map((p) => p.party_type))].sort(), [parties])
 
   const termLower = term.trim().toLowerCase()
@@ -134,7 +126,7 @@ function Search() {
     : []
 
   return (
-    <div className="vip-narrow">
+    <div className="vip-narrow vip-pad-fab-overhang">
       <input
         className="vip-input"
         value={term}

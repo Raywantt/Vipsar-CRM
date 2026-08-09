@@ -355,15 +355,18 @@ approximation of it.** Concretely:
   is a row of tappable `vip-chip-select` pills, one per `LEAD_STAGE_OPTIONS`
   value (see the Lead stage taxonomy section below for the current list),
   tinted via `stageFg`; tapping one applies that stage immediately via the
-  same `stage_history`-logging path as before — **except `lost` and
-  `on_hold`**, both of which withhold the write until their own prompt is
-  confirmed (see the Lead Profile section's Change stage bullet and the
+  same `stage_history`-logging path as before — **except `lost`, `on_hold`,
+  and `won`**, all three of which withhold the write until their own prompt
+  is confirmed (see the Lead Profile section's Change stage bullet and the
   Lead stage taxonomy section's On Hold write flow below; a real bug found
   and fixed after the initial redesign — `applyStage` used to commit
   `current_stage`/`stage_history` for `lost` *before* the reason prompt
   even opened, so closing the sheet or navigating away left a lost lead
   with no reason on file, silently violating DECISIONS.md's "no
-  skip-for-now escape hatch" rule). The picker's free-text "Other…"
+  skip-for-now escape hatch" rule). `won`'s prompt requires an order value
+  (pre-filled from the lead's existing `order_value`/`quote_value` if any)
+  before the stage change is written — see the Lead Profile section's
+  Change stage bullet for why. The picker's free-text "Other…"
   escape hatch (a text input + Set button for typing a custom stage) was
   removed entirely in a later pass, at the user's request — every stage a
   rep can pick is now one of the 11 real `LEAD_STAGE_OPTIONS` chips, no
@@ -430,9 +433,14 @@ approximation of it.** Concretely:
   there's no phone frame at this breakpoint. Every page wraps its own
   returned content in one of two width utilities (a plain wrapper div, not a
   layout rewrite): `.vip-narrow` (700px, centered — forms, detail pages,
-  single lists: LeadDetail, LeadQuickCapture, ActivityLog, Profile,
-  Search, and Dashboard's Leads tab) or `.vip-wide` (1180px —
-  Home, and Dashboard's Reports tab). Inside `.vip-wide`, Dashboard's report
+  single lists: LeadDetail, LeadQuickCapture, ActivityLog, Profile, Search)
+  or `.vip-wide` (1180px — Home, and both of Dashboard's tabs, Reports and
+  Leads). Dashboard's Leads tab used to be `.vip-narrow` despite showing six
+  columns' worth of data per row and a five-facet filter panel — caught by a
+  code review as the precise failure mode this paragraph warns about (huge
+  empty gutters at desktop width) and moved to `.vip-wide` — see the
+  Dashboard section's own LeadsListCard bullet for the persistent-rail +
+  real-columns redesign that came with it. Inside `.vip-wide`, Dashboard's report
   cards sit in `.vip-report-grid` (2 columns); a card wrapped in
   `.vip-span-2` breaks out to the full row instead — used for cards whose
   content needs the width (Closure forecast, the Targets-vs.-actuals-plus-
@@ -693,7 +701,23 @@ toggle button so at most one is open at a time:
   is written until confirm) discards the pending selection with no writes
   at all. Previously the stage/history write fired the instant `lost` was
   tapped, before the prompt even opened, so closing the sheet left a lost
-  lead permanently missing a reason.
+  lead permanently missing a reason. **`won` is gated the same way** (added
+  later, from a code-review finding — `order_value` used to be writable
+  from exactly one place, the sales_executive-only Booking Update activity
+  in `/activity`, so an owner could create a lead, work it, mark it won,
+  and never give it a value, contributing ₹0 to every booked-value metric):
+  picking `won` opens a prompt requiring an order value before
+  `current_stage`/`stage_history` are written, pre-filled from the lead's
+  existing `order_value` or `quote_value` if either is already set so
+  re-confirming an already-quoted deal is a one-click accept, not a
+  re-type. Cancel discards the pending selection the same way the
+  lost/on_hold prompts do. `SalesProgressSection.jsx` also gained a direct
+  **Order value** field (next to Quote value, save-independent of any
+  activity or checkbox) so a value can be recorded at any stage, not just
+  at the moment of marking won — see that section's own bullet below.
+  **Not yet verified live** (no test login was available in the session
+  that made this change) — reasoned through and lint-clean, same as any
+  other change in this doc awaiting its first live check.
 * **Set follow-up** — writes the existing `leads.next_followup_date` field
   directly (Tomorrow / In 3 days / Next Monday / In 2 weeks / a custom date
   input) — one more entry point onto the same field `ActivityLog` already
@@ -765,7 +789,22 @@ set), **Products in scope** (a single real row from `product_id` →
 `products.name`, since this app tracks one product per lead, not
 per-SKU line items), then the existing `LeadActivityTimeline.jsx`
 (unchanged merge of `stage_history` + `activities`, now also splicing in
-`lead_owner_history` entries when that table has rows).
+`lead_owner_history` entries when that table has rows). **Real overlap bug
+found and fixed** (a code-review finding, measured at 390px): Quotes &
+orders' fixed `64px minmax(0,1.4fr) 84px 64px 84px` grid (`.vip-linegrid-
+head`/`.vip-linegrid-row`) wasn't gated to desktop the way the four
+collapsible edit sections are — 296px of fixed columns plus gaps doesn't
+fit a ~325px phone track, so the Scope column computed to 0 width and
+rendered "Sliding Window"/etc. on top of the Value column (the header row
+did the same, printing "Scope" over "Value"). Fixed by wrapping the
+existing grid in `.vip-only-desktop` (unchanged) and adding a
+`.vip-only-mobile` two-line stacked alternative (`.vip-linegrid-mrow`,
+new) instead of trying to salvage the grid at phone width — Ref + Scope on
+line 1, Value · Date · Status on line 2, no header row (at most two rows
+ever exist here, so the column labels aren't needed to read them).
+Verified live in the browser preview against a real won lead with both a
+quote and an order row: desktop's 5-column grid unchanged, mobile renders
+two clean stacked rows at 325px with no overlap and no console errors.
 
 Right rail: a new **Deal owner** card (links to `/employees/:id`, plus the
 ownership-history list from `lead_owner_history`) and a new **Contact**
@@ -786,6 +825,16 @@ actually gated by that checkbox in the UI, so the save shouldn't have
 gated it either). `rfq_raised_at`/`quote_sent_at` don't have this problem
 — those date inputs are only rendered once their own checkbox is ticked,
 so the field's visibility already matches the save condition.
+
+`SalesProgressSection.jsx` also gained an **Order value** field (next to
+Quote value, same plain-number-input treatment, saved whenever non-empty
+independent of any checkbox — same reasoning as the `quote_value` fix just
+above) — closing a gap a code review found: `order_value` used to be
+writable from exactly one place, the sales_executive-only Booking Update
+activity in `/activity`, so an owner had no way to record a deal's value
+directly on the lead itself. Paired with the `won`-stage gating described
+in the Change stage bullet above (same fix, two entry points) — see that
+bullet for the mandatory-order-value-on-won prompt. Not yet verified live.
 
 A sales exec viewing a lead that isn't theirs still sees the identity
 band + Deal progress + Quotes/Products/Activity (all read-only, no
@@ -1385,16 +1434,36 @@ since it isn't part of the date-range-scoped report data.
   heatmap and the drill-down builders to share, so a lookup/total can't
   drift into a second definition), attainment-tinted per the mockup's
   literal 5-step scale. A sales exec (nothing to compare against) keeps the
-  plain bar-list at every width; the owner keeps that same list below
-  1024px too. Every cell opens a drill-down: the 5 activity-type cells
-  fetch that one exec's real log entries on demand
+  plain bar-list at every width — every metric shown even with zero
+  activity and no target row, `no target set` rendered explicitly rather
+  than the row being silently omitted. Every cell opens a drill-down: the 5
+  activity-type cells fetch that one exec's real log entries on demand
   (`fetchActivityLogForExec`, only queried on click — not preloaded for
   everyone) and show a real "last 20 working days" logging-rhythm bar chart
   (`log` kind); Order value and the blended Overall column build
-  synchronously from state already on the page (`attain` kind). Below
-  1024px (or for a sales exec), every (employee × metric) combination is
-  still shown even with zero activity and no target row — `no target set`
-  is rendered explicitly rather than the row being silently omitted. For
+  synchronously from state already on the page (`attain` kind).
+  **The owner's below-1024px fallback used to be the same flat
+  employee-×-metric bar-list**, uncapped — a real team of 9 execs ×
+  `METRIC_OPTIONS`'s 8 metrics measured 3,388px on this one card alone
+  (a code-review finding: 7,798px total for the mobile Dashboard, with this
+  card responsible for nearly half of it). Replaced with one collapsed row
+  per exec (`ExecAttainmentRow` in `TargetsVsActualsCard.jsx`) — name ·
+  **blended attainment** % (same "mean of the metric ratios, each capped at
+  1.25" definition `EmployeeProfile.jsx`'s rank pill uses, see the Sales
+  Exec Profile section, but scoped to all 8 `METRIC_OPTIONS` here rather
+  than that page's own 6 tiles, and skipping any metric with no target
+  rather than counting a missing target as a zero) · a single bar — reusing
+  `.vip-detail-row`, the same tap-to-expand summary row Lead Detail's mobile
+  collapsed sections already use, rather than a new component. Tapping a
+  row expands it to that exec's full `METRIC_OPTIONS` breakdown (the exact
+  same per-metric rows as before, just no longer all open at once) — same
+  data, ~employee-count rows instead of employee-count × 8. Verified live
+  in the browser preview: 6 real execs collapsed to 6 rows, tapping one
+  (Priya, 34% attainment) expanded her 8 real metric rows with correct
+  actual/target bars, collapsing back cleanly; desktop's heatmap is
+  untouched by this (this table only ever mounts on mobile for the owner in
+  practice, since `Dashboard.jsx` always supplies the `onOpenLog`/
+  `onOpenPanel` props that gate `showHeatmap`). For
   the owner, a "Sales exec" filter (local `useState` inside the card,
   defaulting to "— All employees —") sits above the table — picking one
   narrows the same `employees` array the table already iterates over down
@@ -1537,19 +1606,45 @@ since it isn't part of the date-range-scoped report data.
   copied when Parties merged into it — see the Search section and "Current
   state" above; there is no more standalone Parties card/tab in Dashboard
   at all. A search box (party/site/owner, client-side over the fetched
-  page — same precedent as Search/My Team) sits above a single **Filters**
-  toggle that reveals one panel holding
-  all five facets together — Owner, Stage (the same tinted
-  `vip-chip-select` pills `LeadStageSection` uses to *set* a stage),
-  Source, Status, Quote value — rather than a category-then-value picker;
-  closing the panel collapses whatever's active into small removable
-  chips (`vip-filter-chip`, the one new theme class this needed) plus a
-  "Clear all", so the resting screen stays as clean as before any
-  filtering existed. Owner/Stage/Source/Status/Quote value are all applied
-  server-side via the now filters-object `fetchLeadsList({ employeeId,
-  stage, source, status, minValue, maxValue })` (`dashboardQueries.js`) —
-  correct even under the 100-row cap, unlike filtering client-side after the
-  fact would be.
+  page — same precedent as Search/My Team) sits above the filter controls.
+  **Desktop was redesigned again**, from a code-review finding: this whole
+  screen sat in `.vip-narrow` (700px) despite showing six columns' worth of
+  data per row and a five-facet filter panel, leaving ~340px of empty
+  gutter on each side at desktop width — the exact "picked the wrong width
+  class" failure the Design system section calls non-negotiable
+  (`Dashboard.jsx`'s wrapper was a `activeTab === 'reports' ? 'vip-wide' :
+  'vip-narrow'` ternary; it's unconditionally `vip-wide` now, for both
+  tabs). Desktop (`.vip-only-desktop`) now renders a persistent **filter
+  rail** (`vip-leads-rail`, sticky, all five facets always visible — no
+  toggle, there's room to just show them) beside real
+  party/site/owner/stage/source/value/last-touch **columns**
+  (`vip-leadrow-head`/`vip-leadrow`, a CSS grid, not a literal `<table>` —
+  same "shape of a table, not the markup" spirit the Design system section
+  already uses elsewhere) instead of the old three-line `.vip-row` per
+  lead. Owner/Stage/Source/Status/Quote value are all applied server-side
+  via the filters-object `fetchLeadsList({ employeeId, stage, source,
+  status, minValue, maxValue })` (`dashboardQueries.js`) — correct even
+  under the 100-row cap, unlike filtering client-side after the fact would
+  be. Mobile is untouched by this pass — still the Filters-toggle/
+  active-chip disclosure panel (`vip-filter-chip`) collapsing into small
+  removable chips plus "Clear all" when closed, feeding the same grouped-
+  by-stage rows described in the Mobile redesign section's own Leads list
+  bullet below. The filter *fields* themselves (`filterFields` in
+  `LeadsListCard.jsx`) are one shared block of JSX rendered in both the
+  mobile disclosure panel and the desktop rail, so the two can't drift
+  apart. **A real bug caught and fixed while building the rail**: giving
+  `.vip-leads-layout` an unguarded base `display: flex` (outside the
+  `≥1024px` media query) collided with `.vip-only-desktop`'s own
+  unconditional `display: none` at equal specificity — since
+  `.vip-leads-layout` is applied on the *same element* as
+  `.vip-only-desktop` and its rule sits later in the stylesheet, it silently
+  won the cascade and leaked the desktop rail+columns through at mobile
+  widths. Fixed the same way `.vip-dd-attn-grid` already avoids this
+  (Dashboard-v2 Design-system bullet) — no `display` in the unguarded base
+  rule, only inside the `≥1024px` block. Caught via a standalone static CSS
+  test harness (this session had no live login to verify through the real
+  app) rather than in the browser preview directly — worth a real
+  `npm run build && npm run preview` + login re-check before this ships.
   Status is a binary Active/Inactive (`current_stage` not-in vs. in
   `(won,lost)`, mirroring `fetchClosureForecast`'s own not-won-not-lost
   filter) rather than stage-level granularity, since picking one exact
@@ -1845,8 +1940,12 @@ function.
   `.vip-body`'s 16px gutter via `.vip-lead-groups`'s negative margin,
   mobile-only) each showing a recency line ("touched today" / "Nd silent"
   in `--vip-lost` past `STALE_DAYS`, from a new `fetchLastActivityPerLead()`
-  call this card didn't previously make). Desktop keeps the exact old flat
-  `.vip-row` list, now just wrapped in `.vip-only-desktop`. Search/filter
+  call this card didn't previously make), inside `.vip-only-mobile`. Desktop
+  originally kept the old flat `.vip-row` list wrapped in `.vip-only-desktop`
+  unchanged by this redesign — since replaced by its own persistent-rail +
+  real-columns layout from a later code-review pass, see the Dashboard
+  section's own LeadsListCard bullet above; this bullet's mobile-side
+  description is otherwise still current. Search/filter
   state and queries are unchanged. Dashboard's own header pushes a
   `{title, sub}` override when `?tab=leads` ("My leads"/"All leads" + a live
   open-count/value from `breakdownLeads`) — `AppNav.jsx`'s override now

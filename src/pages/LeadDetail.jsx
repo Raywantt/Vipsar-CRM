@@ -462,9 +462,9 @@ function LeadDetail() {
       <div className="vip-only-desktop">
         <div className="vip-btn-row">
           {employee?.role !== 'owner' && (
-            <a className="vip-btn vip-btn-sm" href="/activity">
+            <Link className="vip-btn vip-btn-sm" to={`/activity?lead=${id}`}>
               Log activity
-            </a>
+            </Link>
           )}
           {party?.mobile ? (
             <a className="vip-btn vip-btn-secondary vip-btn-sm" href={`tel:${party.mobile}`}>
@@ -546,22 +546,52 @@ function LeadDetail() {
           <p className="vip-empty">No quotes or orders yet.</p>
         ) : (
           <>
-            <div className="vip-linegrid-head" style={{ gridTemplateColumns: '64px minmax(0,1.4fr) 84px 64px 84px' }}>
-              <span>Ref</span>
-              <span>Scope</span>
-              <span>Value</span>
-              <span>Date</span>
-              <span style={{ textAlign: 'right' }}>Status</span>
-            </div>
-            {quoteRows.map((q) => (
-              <div key={q.id} className="vip-linegrid-row" style={{ gridTemplateColumns: '64px minmax(0,1.4fr) 84px 64px 84px' }}>
-                <span className="vip-mono">{q.id}</span>
-                <span style={{ fontSize: 12, color: 'var(--vip-ink)' }}>{q.what}</span>
-                <span className="vip-num" style={{ fontSize: 11, color: 'var(--vip-body)' }}>{q.value}</span>
-                <span style={{ fontSize: 11, color: 'var(--vip-faint)' }}>{q.date}</span>
-                <span style={{ fontSize: 10, fontWeight: 600, textAlign: 'right', color: q.color }}>{q.status}</span>
+            {/* Desktop: the fixed 5-column grid. Below 1024px this doesn't
+                fit — 296px of fixed columns plus gaps in a ~325px phone
+                track collapses the Scope column to 0 width and overlaps it
+                with Value (a real bug found in the browser preview at
+                390px). There are at most two rows here, so a table was
+                never needed on a phone — see the stacked two-line rows
+                below instead. */}
+            <div className="vip-only-desktop">
+              <div className="vip-linegrid-head" style={{ gridTemplateColumns: '64px minmax(0,1.4fr) 84px 64px 84px' }}>
+                <span>Ref</span>
+                <span>Scope</span>
+                <span>Value</span>
+                <span>Date</span>
+                <span style={{ textAlign: 'right' }}>Status</span>
               </div>
-            ))}
+              {quoteRows.map((q) => (
+                <div key={q.id} className="vip-linegrid-row" style={{ gridTemplateColumns: '64px minmax(0,1.4fr) 84px 64px 84px' }}>
+                  <span className="vip-mono">{q.id}</span>
+                  <span style={{ fontSize: 12, color: 'var(--vip-ink)' }}>{q.what}</span>
+                  <span className="vip-num" style={{ fontSize: 11, color: 'var(--vip-body)' }}>{q.value}</span>
+                  <span style={{ fontSize: 11, color: 'var(--vip-faint)' }}>{q.date}</span>
+                  <span style={{ fontSize: 10, fontWeight: 600, textAlign: 'right', color: q.color }}>{q.status}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Mobile: two-line stacked row — Ref + Scope on line 1,
+                Value · Date · Status on line 2. No header row; with at most
+                two rows on screen the labels aren't needed to read them. */}
+            <div className="vip-only-mobile">
+              {quoteRows.map((q) => (
+                <div key={q.id} className="vip-linegrid-mrow">
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <span className="vip-mono" style={{ fontSize: 11, color: 'var(--vip-faint)' }}>{q.id}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--vip-ink)' }}>{q.what}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                    <span className="vip-num" style={{ fontWeight: 600, color: 'var(--vip-body)' }}>{q.value}</span>
+                    <span style={{ color: 'var(--vip-faint)' }}>·</span>
+                    <span style={{ color: 'var(--vip-faint)' }}>{q.date}</span>
+                    <span style={{ color: 'var(--vip-faint)' }}>·</span>
+                    <span style={{ fontWeight: 600, color: q.color }}>{q.status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -597,9 +627,9 @@ function LeadDetail() {
       <div className="vip-sticky-footer">
         <div className="vip-lead-actionbar">
           {employee?.role !== 'owner' && (
-            <a className="vip-btn" href="/activity">
+            <Link className="vip-btn" to={`/activity?lead=${id}`}>
               Log activity
-            </a>
+            </Link>
           )}
           {party?.mobile ? (
             <a className="vip-btn vip-btn-secondary" href={`tel:${party.mobile}`}>

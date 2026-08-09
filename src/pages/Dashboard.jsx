@@ -334,27 +334,29 @@ function Dashboard() {
   }
 
   return (
-    <div className={activeTab === 'reports' ? 'vip-wide' : 'vip-narrow'}>
+    <div className="vip-wide vip-pad-fab-overhang">
       <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
-
-      {/* My Team has no mobile tab of its own (only 4 fit the FAB layout,
-          see BottomNav.jsx) and Home's old tile grid — its only other mobile
-          entry point — is gone (see Home.jsx's Today redesign), so this is
-          now the one mobile path to it, matching the mobile handoff's "My
-          Team › row in this screen's header area" note. Desktop keeps the
-          sidebar link it already had, unaffected. */}
-      {isOwner && (
-        <Link to="/team" className="vip-tile vip-only-mobile" style={{ textDecoration: 'none' }}>
-          <div>
-            <div className="vip-tile-label">My Team</div>
-            <div className="vip-tile-desc">Browse your sales team</div>
-          </div>
-          <div className="vip-tile-chevron">›</div>
-        </Link>
-      )}
 
       {activeTab === 'reports' && (
         <>
+          {/* My Team has no mobile tab of its own (only 4 fit the FAB layout,
+              see BottomNav.jsx) and Home's old tile grid — its only other
+              mobile entry point — is gone (see Home.jsx's Today redesign),
+              so this is now the one mobile path to it, matching the mobile
+              handoff's "My Team › row in this screen's header area" note.
+              Desktop keeps the sidebar link it already had, unaffected.
+              Reports-only — it used to render outside this branch entirely,
+              so it also showed on ?tab=leads above the lead list. */}
+          {isOwner && (
+            <Link to="/team" className="vip-tile vip-only-mobile" style={{ textDecoration: 'none' }}>
+              <div>
+                <div className="vip-tile-label">My Team</div>
+                <div className="vip-tile-desc">Browse your sales team</div>
+              </div>
+              <div className="vip-tile-chevron">›</div>
+            </Link>
+          )}
+
           <DateRangeSelector
             preset={preset}
             onPresetChange={setPreset}

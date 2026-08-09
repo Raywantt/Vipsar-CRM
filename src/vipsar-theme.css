@@ -1224,6 +1224,15 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-linegrid-row { display: grid; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--vip-line-soft); }
 .vip-linegrid-row:last-child { border-bottom: 0; }
 
+/* Mobile stand-in for the fixed-column grid above (LeadDetail's Quotes &
+   orders) — below 1024px, 64px minmax(0,1.4fr) 84px 64px 84px doesn't fit a
+   phone track: the Scope column computed to 0 width and overlapped Value (a
+   real bug found in the browser preview at 390px). At most two rows ever
+   exist here, so a two-line stacked row replaces the table on mobile
+   instead of trying to salvage the grid — see .vip-only-mobile there. */
+.vip-linegrid-mrow { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--vip-line-soft); }
+.vip-linegrid-mrow:last-child { border-bottom: 0; }
+
 @media (min-width: 1024px) {
   .vip-profile-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start; }
   .vip-profile-cols-lead { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start; }
@@ -1327,6 +1336,15 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
     z-index: 21;
   }
   .vip-fab-icon { width: 26px; height: 26px; }
+
+  /* The FAB pokes 14px above the bar's own top edge (60px tall, bottom:36px
+     inside an 82px slot) — .vip-body's base bottom-nav-h + 20px buffer only
+     clears the bar itself, not the FAB rising further above it, so a tab
+     route's last row can sit behind the button. Same fix shape as
+     .vip-pad-sticky-footer's clearance for a drilled route's sticky footer,
+     just applied to the scroll container on the three tab routes (Home,
+     Search, Dashboard) that actually show the FAB. */
+  .vip-pad-fab-overhang { padding-bottom: 24px; }
 }
 
 /* --- FAB sheet (New lead / Log activity) --- */
@@ -1456,8 +1474,10 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 
 /* --- Leads grouped by stage (mobile default, LeadsListCard.jsx) — full-
    bleed rows breaking out of .vip-body's 16px gutter via negative margin,
-   unlike every other card on this screen. Desktop keeps the existing flat
-   .vip-row list inside .vip-card, unchanged (see .vip-only-desktop there). */
+   unlike every other card on this screen. Desktop gets its own persistent-
+   rail + real-columns layout instead of this grouped view — see the
+   vip-leads-layout/vip-leadrow rules further below, not a flat .vip-row
+   list. */
 @media (max-width: 1023.98px) {
   .vip-lead-groups { margin: 0 -16px; }
 }
@@ -1492,6 +1512,69 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-lead-row-value { font-size: 13px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
 .vip-lead-row-recency { font-size: 11px; color: var(--vip-faint); }
 .vip-lead-row-recency.vip-stale { color: var(--vip-lost); }
+
+/* --- All Leads / My Leads — desktop persistent filter rail + real columns
+   (LeadsListCard.jsx). Was wrapped in .vip-narrow (700px) despite showing
+   six columns' worth of data per row plus a five-facet filter panel — the
+   exact "picked the wrong width class, huge empty gutters" failure mode the
+   Design system section calls non-negotiable. Now .vip-wide, with a
+   persistent rail (no disclosure toggle — there's room to just show every
+   facet) beside real party/site/owner/stage/source/value/last-touch
+   columns instead of the old three-line-per-row layout. .vip-leads-layout
+   is applied on the same element as .vip-only-desktop (see the JSX), so —
+   same reasoning as .vip-dd-attn-grid above — it must NOT set `display` in
+   an unguarded base rule: .vip-only-desktop's own `display: none` and this
+   class's rule have equal specificity, and this one comes later in the
+   file, so an unguarded `display` here would silently win the cascade and
+   leak the desktop layout through below 1024px (caught in a static CSS
+   test harness before this shipped — the exact failure mode this class
+   exists to fix, reintroduced by the class meant to fix it). Only
+   `gap`/`flex-direction` are safe to set outside the media query below. */
+.vip-leads-layout { flex-direction: column; gap: 18px; }
+.vip-leads-rail { display: flex; flex-direction: column; gap: 14px; }
+.vip-leads-rail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vip-leads-main { min-width: 0; }
+
+.vip-leadrow-head, .vip-leadrow {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.6fr) minmax(110px, 1.2fr) minmax(100px, 1fr) 120px 108px 96px 92px;
+  gap: 12px;
+  align-items: center;
+}
+.vip-leadrow-head {
+  padding-bottom: 8px; border-bottom: 1px solid var(--vip-line);
+}
+.vip-leadrow-head > span {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--vip-muted);
+}
+.vip-leadrow-head > span.vip-leadrow-num { text-align: right; }
+.vip-leadrow {
+  padding: 11px 0; border-bottom: 1px solid var(--vip-line-soft);
+  text-decoration: none;
+}
+.vip-leadrow:last-child { border-bottom: 0; }
+.vip-leadrow:hover { text-decoration: none; }
+.vip-leadrow-cell {
+  font-size: 13px; color: var(--vip-body);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-leadrow-party { font-size: 14px; font-weight: 600; color: var(--vip-ink); }
+.vip-leadrow-num {
+  text-align: right; font-variant-numeric: tabular-nums; font-size: 13px;
+  font-weight: 600; color: var(--vip-ink);
+}
+.vip-leadrow-recency { text-align: right; font-size: 12px; color: var(--vip-faint); }
+.vip-leadrow-recency.vip-stale { color: var(--vip-lost); }
+
+@media (min-width: 1024px) {
+  .vip-leads-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; align-items: start; }
+  .vip-leads-rail {
+    position: sticky; top: calc(var(--vip-header-h) + 28px);
+    padding: 14px; border: 1px solid var(--vip-line-soft); border-radius: var(--vip-r-card);
+    background: var(--vip-surface);
+  }
+  .vip-leads-main { overflow-x: auto; }
+}
 
 /* Search's Parties/Leads/Sites switch is mobile-only — desktop stacks all
    three sections (unchanged); this class just hides a non-active section

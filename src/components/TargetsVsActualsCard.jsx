@@ -241,6 +241,98 @@ function actualFor(m, { activityActuals, orderValueActuals, quoteSentActuals, wo
   return employeeId == null ? activityActuals[m.value] : activityActuals.get(employeeId)?.[m.value] ?? 0
 }
 
+// Same "mean of the metric ratios, each capped at 1.25" definition
+// EmployeeProfile.jsx's rank pill uses (blendedAttainment there) — scoped
+// here to all 8 METRIC_OPTIONS rather than that page's own 6 tiles, and
+// skipping any metric with no target set for this employee (same as each
+// metric row's own "no target set" fallback below) rather than treating a
+// missing target as a zero, which would unfairly drag the average down.
+const ATTAINMENT_CAP = 1.25
+
+function blendedAttainmentFor(employeeId, actuals, targets) {
+  const ratios = []
+  METRIC_OPTIONS.forEach((m) => {
+    const target = targetFor(targets, employeeId, m.value)
+    if (!target) return
+    ratios.push(Math.min(actualFor(m, actuals, employeeId) / target, ATTAINMENT_CAP))
+  })
+  if (ratios.length === 0) return null
+  return ratios.reduce((sum, r) => sum + r, 0) / ratios.length
+}
+
+function TargetRow({ row }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--vip-ink)' }}>{row.label}</div>
+        {row.target != null && (
+          <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
+            {formatValue(row.metric, row.actual)} / {formatValue(row.metric, row.target)}
+          </div>
+        )}
+      </div>
+      {row.target == null ? (
+        <p className="vip-empty" style={{ margin: 0, padding: 0 }}>
+          no target set
+        </p>
+      ) : (
+        <div className="vip-bar-track vip-thick">
+          <div
+            className={row.actual >= row.target ? 'vip-bar-fill vip-won' : 'vip-bar-fill'}
+            style={{ width: `${Math.min(100, (row.actual / row.target) * 100)}%` }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// One collapsed row per exec (name · blended attainment · a single bar),
+// expanding to that person's 8 METRIC_OPTIONS rows on tap — replaces what
+// used to be employees.length × 8 flat rows shown unconditionally (see
+// TargetsTable below: this only ever mounts on mobile now, paired with
+// DashboardHeatmap on desktop). Reuses .vip-detail-row, the same tap-to-
+// expand summary row Lead Detail's mobile collapsed sections already use,
+// rather than inventing a second collapsible-row style.
+function ExecAttainmentRow({ employee, actuals, targets }) {
+  const [open, setOpen] = useState(false)
+  const blended = blendedAttainmentFor(employee.id, actuals, targets)
+
+  return (
+    <div>
+      <button type="button" className="vip-detail-row" onClick={() => setOpen((o) => !o)}>
+        <span className="vip-detail-row-title">{employee.name.split(' ')[0]}</span>
+        <span className="vip-detail-row-summary">
+          {blended == null ? 'no targets set' : `${Math.round(blended * 100)}% attainment`} {open ? '▾' : '›'}
+        </span>
+      </button>
+      {blended != null && (
+        <div className="vip-bar-track vip-thick" style={{ marginBottom: open ? 10 : 0 }}>
+          <div
+            className={blended >= 1 ? 'vip-bar-fill vip-won' : 'vip-bar-fill'}
+            style={{ width: `${Math.min(100, blended * 100)}%` }}
+          />
+        </div>
+      )}
+      {open && (
+        <div className="vip-stack-s" style={{ paddingBottom: 10 }}>
+          {METRIC_OPTIONS.map((m) => (
+            <TargetRow
+              key={m.value}
+              row={{
+                label: m.label,
+                actual: actualFor(m, actuals, employee.id),
+                target: targetFor(targets, employee.id, m.value),
+                metric: m.value,
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TargetsTable({ activities, wonStageHistory, breakdownLeads, targets, range, employees, showByEmployee }) {
   const actuals = {
     activityActuals: computeActivityActuals(activities, showByEmployee),
@@ -249,48 +341,26 @@ function TargetsTable({ activities, wonStageHistory, breakdownLeads, targets, ra
     wonCountActuals: computeWonCountActuals(wonStageHistory, range, showByEmployee),
   }
 
-  const rows = !showByEmployee
-    ? METRIC_OPTIONS.map((m) => ({
-        label: m.label,
-        actual: actualFor(m, actuals, null),
-        target: targetFor(targets, null, m.value),
-        metric: m.value,
-      }))
-    : employees.flatMap((emp) =>
-        METRIC_OPTIONS.map((m) => ({
-          label: `${emp.name.split(' ')[0]} · ${m.label}`,
-          actual: actualFor(m, actuals, emp.id),
-          target: targetFor(targets, emp.id, m.value),
-          metric: m.value,
-          key: `${emp.id}-${m.value}`,
-        }))
-      )
+  if (!showByEmployee) {
+    const rows = METRIC_OPTIONS.map((m) => ({
+      label: m.label,
+      actual: actualFor(m, actuals, null),
+      target: targetFor(targets, null, m.value),
+      metric: m.value,
+    }))
+    return (
+      <div className="vip-stack-s">
+        {rows.map((row) => (
+          <TargetRow key={row.metric} row={row} />
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="vip-stack-s">
-      {rows.map((row) => (
-        <div key={row.key ?? row.metric} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--vip-ink)' }}>{row.label}</div>
-            {row.target != null && (
-              <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
-                {formatValue(row.metric, row.actual)} / {formatValue(row.metric, row.target)}
-              </div>
-            )}
-          </div>
-          {row.target == null ? (
-            <p className="vip-empty" style={{ margin: 0, padding: 0 }}>
-              no target set
-            </p>
-          ) : (
-            <div className="vip-bar-track vip-thick">
-              <div
-                className={row.actual >= row.target ? 'vip-bar-fill vip-won' : 'vip-bar-fill'}
-                style={{ width: `${Math.min(100, (row.actual / row.target) * 100)}%` }}
-              />
-            </div>
-          )}
-        </div>
+      {employees.map((emp) => (
+        <ExecAttainmentRow key={emp.id} employee={emp} actuals={actuals} targets={targets} />
       ))}
     </div>
   )

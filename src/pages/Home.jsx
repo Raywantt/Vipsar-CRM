@@ -133,8 +133,16 @@ function Home() {
   const [closing, setClosing] = useState([])
   const [followUps, setFollowUps] = useState([])
   const [addingFollowUp, setAddingFollowUp] = useState(false)
-  const [attentionBuckets, setAttentionBuckets] = useState(null)
   const [panel, setPanel] = useState(null)
+
+  // breakdownLeads/lastActivityByLead are period-agnostic pipeline snapshots
+  // (see pipelineValue.js) — fetched once here instead of once per consumer,
+  // since the KPI/target effect below and the attention-bucket derivation
+  // used to each call fetchLeadsForBreakdown() independently (a full,
+  // unbounded leads scan, twice on every load and again on every period
+  // toggle even though neither actually depends on period).
+  const [breakdownLeads, setBreakdownLeads] = useState(null)
+  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
 
   useEffect(() => {
     if (!employee?.id) return
@@ -148,29 +156,37 @@ function Home() {
     }
   }, [employee?.id])
 
-  // The 3 stale/silent-quotes/slipped attention buckets, scoped to this
-  // employee's own leads (breakdownLeads/fetchLastActivityPerLead return
-  // company-wide rows for an owner under RLS, so the owner_employee_id
-  // filter below is the "make it personal" step, same as EmployeeProfile's
-  // myLeads/myAttention) — computed independent of the period switch below
-  // (the work queue is always "right now", not scoped to a date range).
   useEffect(() => {
     if (!employee?.id) return
     let active = true
     Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead()]).then(([leadsRes, activityRes]) => {
       if (!active) return
-      const myLeads = (leadsRes.data ?? []).filter((l) => l.owner_employee_id === employee.id)
+      setBreakdownLeads(leadsRes.data ?? [])
       const map = new Map()
       ;(activityRes.data ?? []).forEach((row) => {
         const existing = map.get(row.lead_id)
         if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
       })
-      setAttentionBuckets(computeAttentionBuckets(myLeads, map))
+      setLastActivityByLead(map)
     })
     return () => {
       active = false
     }
   }, [employee?.id])
+
+  // The 3 stale/silent-quotes/slipped attention buckets, scoped to this
+  // employee's own leads (breakdownLeads/lastActivityByLead return
+  // company-wide rows for an owner under RLS, so the owner_employee_id
+  // filter below is the "make it personal" step, same as EmployeeProfile's
+  // myLeads/myAttention) — independent of the period switch below (the work
+  // queue is always "right now", not scoped to a date range), so this is a
+  // plain derived value rather than its own fetch.
+  const attentionBuckets = breakdownLeads
+    ? computeAttentionBuckets(
+        breakdownLeads.filter((l) => l.owner_employee_id === employee?.id),
+        lastActivityByLead,
+      )
+    : null
 
   async function handleMarkDone(id) {
     const { data, error } = await markFollowUpDone(id)
@@ -186,21 +202,22 @@ function Home() {
   }
 
   useEffect(() => {
-    if (!employee?.id) return
+    // breakdownLeads is fetched once above, independent of period — wait for
+    // it rather than re-fetching leads here on every period toggle.
+    if (!employee?.id || !breakdownLeads) return
     let active = true
     const range = rangeForPreset(period)
     const targetPeriod = periodForPreset(period)
 
     Promise.all([
-      fetchLeadsForBreakdown(),
       fetchActivityCounts(range),
       fetchWonStageHistory(),
       fetchClosureForecast(),
       targetPeriod ? fetchTargetsForPeriod(targetPeriod) : Promise.resolve({ data: [], error: null }),
-    ]).then(([breakdownRes, activitiesRes, wonRes, forecastRes, targetsRes]) => {
+    ]).then(([activitiesRes, wonRes, forecastRes, targetsRes]) => {
       if (!active) return
 
-      const openLeads = (breakdownRes.data ?? []).filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
+      const openLeads = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
       const pipeline = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
       const visits = (activitiesRes.data ?? []).filter((a) => a.activity_type === 'site_visit').length
       const won = computeOrderValueActuals(wonRes.data ?? [], range, false)
@@ -220,7 +237,7 @@ function Home() {
     return () => {
       active = false
     }
-  }, [period, employee?.id])
+  }, [period, employee?.id, breakdownLeads])
 
   const overdueFollowUps = followUps.filter((f) => f.due_date < todayISO())
   const dueTodayFollowUps = followUps.filter((f) => f.due_date === todayISO())
@@ -259,7 +276,7 @@ function Home() {
   const queueTotal = queueRows.reduce((s, r) => s + r.count, 0)
 
   return (
-    <div className="vip-wide">
+    <div className="vip-wide vip-pad-fab-overhang">
       <div className="vip-today-head">
         <div>
           <div className="vip-greeting">

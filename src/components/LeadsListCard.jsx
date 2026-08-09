@@ -29,9 +29,11 @@ function partyLabel(lead) {
   return lead.parties?.name ?? (lead.sites?.nickname || lead.sites?.locality) ?? '(no party)'
 }
 
-function formatShortDate(value) {
-  if (!value) return '—'
-  return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+// Desktop's dedicated Site column, now that Party/Site render separately
+// there instead of falling back into one combined line the way the mobile
+// grouped view's single-line row still does.
+function siteLabel(lead) {
+  return lead.sites?.nickname || lead.sites?.locality || '—'
 }
 
 function formatValueChip(min, max) {
@@ -190,6 +192,147 @@ function LeadsListCard({ isOwner, employees }) {
     return chips
   }, [isOwner, employeeFilter, employees, stageFilter, sourceFilter, statusFilter, minValueInput, maxValueInput])
 
+  // The five facets, shared verbatim between mobile's disclosure panel and
+  // desktop's persistent rail (see the two render blocks below) — one set
+  // of controls, two places it can appear, so they can't drift apart.
+  const filterFields = (
+    <>
+      {isOwner && employees.length > 0 && (
+        <div className="vip-stack-s" style={{ gap: 6 }}>
+          <div className="vip-fact-label">Owner</div>
+          {employees.length <= 4 ? (
+            <div className="vip-seg vip-seg-outline">
+              <button
+                type="button"
+                className={employeeFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setEmployeeFilter('')}
+              >
+                All
+              </button>
+              {employees.map((e) => (
+                <button
+                  key={e.id}
+                  type="button"
+                  className={employeeFilter === String(e.id) ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                  onClick={() => setEmployeeFilter(String(e.id))}
+                >
+                  {e.name.split(' ')[0]}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <select className="vip-select" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
+              <option value="">— All employees —</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+
+      <div className="vip-stack-s" style={{ gap: 6 }}>
+        <div className="vip-fact-label">Stage</div>
+        <div className="vip-chip-wrap">
+          <button
+            type="button"
+            className="vip-chip-select"
+            aria-pressed={stageFilter === ''}
+            onClick={() => setStageFilter('')}
+          >
+            All
+          </button>
+          {LEAD_STAGE_OPTIONS.map((stage) => (
+            <button
+              key={stage}
+              type="button"
+              className="vip-chip-select"
+              style={{ color: stageFg(stage) }}
+              aria-pressed={stageFilter === stage}
+              onClick={() => setStageFilter(stage)}
+            >
+              {stageLabel(stage)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="vip-stack-s" style={{ gap: 6 }}>
+        <div className="vip-fact-label">Source</div>
+        <select className="vip-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+          <option value="">All sources</option>
+          {SOURCE_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="vip-stack-s" style={{ gap: 6 }}>
+        <div className="vip-fact-label">Status</div>
+        <div className="vip-seg vip-seg-outline">
+          <button
+            type="button"
+            className={statusFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+            onClick={() => setStatusFilter('')}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            className={statusFilter === 'active' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+            onClick={() => setStatusFilter('active')}
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            className={statusFilter === 'inactive' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+            onClick={() => setStatusFilter('inactive')}
+          >
+            Inactive
+          </button>
+        </div>
+      </div>
+
+      <div className="vip-stack-s" style={{ gap: 6 }}>
+        <div className="vip-fact-label">Quote value (₹)</div>
+        <div className="vip-grid-2">
+          <input
+            className="vip-input"
+            type="number"
+            min="0"
+            placeholder="Min"
+            value={minValueInput}
+            onChange={(e) => setMinValueInput(e.target.value)}
+          />
+          <input
+            className="vip-input"
+            type="number"
+            min="0"
+            placeholder="Max"
+            value={maxValueInput}
+            onChange={(e) => setMaxValueInput(e.target.value)}
+          />
+        </div>
+      </div>
+    </>
+  )
+
+  const listStatus = (
+    <>
+      {!loading && !error && leads.length > 0 && (
+        <p className="vip-card-note">
+          {filtered.length} of {leads.length} lead{leads.length === 1 ? '' : 's'}
+        </p>
+      )}
+      {error && <p className="vip-error">{error}</p>}
+    </>
+  )
+
   return (
     <div className="vip-card">
       <div className="vip-card-title">{isOwner ? 'All leads' : 'My leads'}</div>
@@ -201,200 +344,50 @@ function LeadsListCard({ isOwner, employees }) {
         placeholder="Search by party, site, or owner…"
       />
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          className="vip-btn vip-btn-secondary vip-btn-sm"
-          style={{ width: 'auto' }}
-          onClick={() => setFiltersOpen((o) => !o)}
-        >
-          {filtersOpen ? 'Hide filters' : activeChips.length > 0 ? `Filters (${activeChips.length})` : 'Filters'}
-        </button>
-        {activeChips.length > 0 && (
-          <button type="button" className="vip-action-close" onClick={clearAllFilters}>
-            Clear all
+      {/* Mobile: filters stay a disclosure panel behind a toggle — screen
+          real estate is too tight for a persistent rail at phone width. */}
+      <div className="vip-only-mobile vip-stack-s">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="vip-btn vip-btn-secondary vip-btn-sm"
+            style={{ width: 'auto' }}
+            onClick={() => setFiltersOpen((o) => !o)}
+          >
+            {filtersOpen ? 'Hide filters' : activeChips.length > 0 ? `Filters (${activeChips.length})` : 'Filters'}
           </button>
-        )}
-      </div>
-
-      {!filtersOpen && activeChips.length > 0 && (
-        <div className="vip-chip-wrap">
-          {activeChips.map((chip) => (
-            <button key={chip.key} type="button" className="vip-filter-chip" onClick={chip.onRemove}>
-              {chip.label}
-              <span className="vip-filter-chip-x" aria-hidden="true">×</span>
+          {activeChips.length > 0 && (
+            <button type="button" className="vip-action-close" onClick={clearAllFilters}>
+              Clear all
             </button>
-          ))}
-        </div>
-      )}
-
-      {filtersOpen && (
-        <div className="vip-stack-s" style={{ paddingTop: 10, borderTop: '1px solid var(--vip-line-soft)' }}>
-          {isOwner && employees.length > 0 && (
-            <div className="vip-stack-s" style={{ gap: 6 }}>
-              <div className="vip-fact-label">Owner</div>
-              {employees.length <= 4 ? (
-                <div className="vip-seg vip-seg-outline">
-                  <button
-                    type="button"
-                    className={employeeFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                    onClick={() => setEmployeeFilter('')}
-                  >
-                    All
-                  </button>
-                  {employees.map((e) => (
-                    <button
-                      key={e.id}
-                      type="button"
-                      className={employeeFilter === String(e.id) ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                      onClick={() => setEmployeeFilter(String(e.id))}
-                    >
-                      {e.name.split(' ')[0]}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <select className="vip-select" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
-                  <option value="">— All employees —</option>
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
           )}
-
-          <div className="vip-stack-s" style={{ gap: 6 }}>
-            <div className="vip-fact-label">Stage</div>
-            <div className="vip-chip-wrap">
-              <button
-                type="button"
-                className="vip-chip-select"
-                aria-pressed={stageFilter === ''}
-                onClick={() => setStageFilter('')}
-              >
-                All
-              </button>
-              {LEAD_STAGE_OPTIONS.map((stage) => (
-                <button
-                  key={stage}
-                  type="button"
-                  className="vip-chip-select"
-                  style={{ color: stageFg(stage) }}
-                  aria-pressed={stageFilter === stage}
-                  onClick={() => setStageFilter(stage)}
-                >
-                  {stageLabel(stage)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="vip-stack-s" style={{ gap: 6 }}>
-            <div className="vip-fact-label">Source</div>
-            <select className="vip-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
-              <option value="">All sources</option>
-              {SOURCE_TYPE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="vip-stack-s" style={{ gap: 6 }}>
-            <div className="vip-fact-label">Status</div>
-            <div className="vip-seg vip-seg-outline">
-              <button
-                type="button"
-                className={statusFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                onClick={() => setStatusFilter('')}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={statusFilter === 'active' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                onClick={() => setStatusFilter('active')}
-              >
-                Active
-              </button>
-              <button
-                type="button"
-                className={statusFilter === 'inactive' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                onClick={() => setStatusFilter('inactive')}
-              >
-                Inactive
-              </button>
-            </div>
-          </div>
-
-          <div className="vip-stack-s" style={{ gap: 6 }}>
-            <div className="vip-fact-label">Quote value (₹)</div>
-            <div className="vip-grid-2">
-              <input
-                className="vip-input"
-                type="number"
-                min="0"
-                placeholder="Min"
-                value={minValueInput}
-                onChange={(e) => setMinValueInput(e.target.value)}
-              />
-              <input
-                className="vip-input"
-                type="number"
-                min="0"
-                placeholder="Max"
-                value={maxValueInput}
-                onChange={(e) => setMaxValueInput(e.target.value)}
-              />
-            </div>
-          </div>
         </div>
-      )}
 
-      {!loading && !error && leads.length > 0 && (
-        <p className="vip-card-note">
-          {filtered.length} of {leads.length} lead{leads.length === 1 ? '' : 's'}
-        </p>
-      )}
-
-      {error && <p className="vip-error">{error}</p>}
-
-      {loading ? (
-        <p className="vip-empty">Loading…</p>
-      ) : filtered.length === 0 ? (
-        <p className="vip-empty">{leads.length === 0 ? 'No leads match these filters.' : 'No leads match your search.'}</p>
-      ) : (
-        <>
-          {/* Desktop: unchanged flat list inside this card. */}
-          <div className="vip-only-desktop">
-            {filtered.map((lead) => (
-              <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
-                <div className="vip-row-main">
-                  <div className="vip-row-title">{partyLabel(lead)}</div>
-                  <div className="vip-row-sub">
-                    {lead.parties?.name && (lead.sites?.nickname || lead.sites?.locality) && (
-                      <>{lead.sites?.nickname || lead.sites?.locality} · </>
-                    )}
-                    <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />
-                  </div>
-                  <div className="vip-row-meta">
-                    {SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type ?? 'Unknown source'} · {formatShortDate(lead.created_at)}
-                  </div>
-                </div>
-                <div className="vip-row-side" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span className={stageChipClass(lead.current_stage ?? 'calling')}>{stageLabel(lead.current_stage ?? 'calling')}</span>
-                  <div className="vip-row-value">{formatCurrencyCompact(dealValueFor(lead))}</div>
-                </div>
-              </Link>
+        {!filtersOpen && activeChips.length > 0 && (
+          <div className="vip-chip-wrap">
+            {activeChips.map((chip) => (
+              <button key={chip.key} type="button" className="vip-filter-chip" onClick={chip.onRemove}>
+                {chip.label}
+                <span className="vip-filter-chip-x" aria-hidden="true">×</span>
+              </button>
             ))}
           </div>
+        )}
 
-          {/* Mobile default: grouped by stage, full-bleed rows. */}
-          <div className="vip-only-mobile vip-lead-groups">
+        {filtersOpen && (
+          <div className="vip-stack-s" style={{ paddingTop: 10, borderTop: '1px solid var(--vip-line-soft)' }}>
+            {filterFields}
+          </div>
+        )}
+
+        {listStatus}
+
+        {loading ? (
+          <p className="vip-empty">Loading…</p>
+        ) : filtered.length === 0 ? (
+          <p className="vip-empty">{leads.length === 0 ? 'No leads match these filters.' : 'No leads match your search.'}</p>
+        ) : (
+          <div className="vip-lead-groups">
             {groups.map((group) => (
               <div key={group.stage}>
                 <div className="vip-lead-group-head">
@@ -425,8 +418,73 @@ function LeadsListCard({ isOwner, employees }) {
               </div>
             ))}
           </div>
-        </>
-      )}
+        )}
+      </div>
+
+      {/* Desktop: a persistent filter rail (not a disclosure — there's room
+          to just show every facet) beside a real-columned list (party · site
+          · owner · stage · source · value · last touch), replacing the old
+          three-line-per-row layout that used to sit in a 700px .vip-narrow
+          column with ~340px of empty gutter on each side at desktop width. */}
+      <div className="vip-only-desktop vip-leads-layout">
+        <aside className="vip-leads-rail">
+          <div className="vip-leads-rail-head">
+            <span className="vip-fact-label">Filters</span>
+            {activeChips.length > 0 && (
+              <button type="button" className="vip-action-close" onClick={clearAllFilters}>
+                Clear all
+              </button>
+            )}
+          </div>
+          {filterFields}
+        </aside>
+
+        <div className="vip-leads-main">
+          {listStatus}
+
+          {loading ? (
+            <p className="vip-empty">Loading…</p>
+          ) : filtered.length === 0 ? (
+            <p className="vip-empty">{leads.length === 0 ? 'No leads match these filters.' : 'No leads match your search.'}</p>
+          ) : (
+            <>
+              <div className="vip-leadrow-head">
+                <span>Party</span>
+                <span>Site</span>
+                <span>Owner</span>
+                <span>Stage</span>
+                <span>Source</span>
+                <span className="vip-leadrow-num">Value</span>
+                <span className="vip-leadrow-num">Last touch</span>
+              </div>
+              {filtered.map((lead) => {
+                const recency = recencyInfo(lead, lastActivityByLead)
+                return (
+                  <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-leadrow vip-clickable">
+                    <span className="vip-leadrow-cell vip-leadrow-party">{lead.parties?.name ?? '(no party)'}</span>
+                    <span className="vip-leadrow-cell">{siteLabel(lead)}</span>
+                    <span className="vip-leadrow-cell">
+                      <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />
+                    </span>
+                    <span>
+                      <span className={stageChipClass(lead.current_stage ?? 'calling')}>
+                        {stageLabel(lead.current_stage ?? 'calling')}
+                      </span>
+                    </span>
+                    <span className="vip-leadrow-cell">
+                      {SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type ?? '—'}
+                    </span>
+                    <span className="vip-leadrow-num">{formatCurrencyCompact(dealValueFor(lead))}</span>
+                    <span className={recency.isStale ? 'vip-leadrow-recency vip-stale' : 'vip-leadrow-recency'}>
+                      {recency.label}
+                    </span>
+                  </Link>
+                )
+              })}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

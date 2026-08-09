@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
@@ -16,6 +16,11 @@ function touchLabel(lastAt) {
   const days = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000)
   if (days <= 0) return 'touched today'
   return `${days}d ago`
+}
+
+function leadLabel(lead) {
+  const place = lead.sites?.nickname || lead.sites?.locality
+  return lead.parties?.name ?? place ?? `Lead #${lead.id}`
 }
 
 // Default anchor picker for Site Visit/RFQ Raised/Call/Booking Update —
@@ -60,7 +65,7 @@ function RecentLeadsPicker({ employeeId, selected, onSelect }) {
     <div className="vip-card">
       {leads.map((lead) => {
         const place = lead.sites?.nickname || lead.sites?.locality
-        const label = lead.parties?.name ?? place ?? `Lead #${lead.id}`
+        const label = leadLabel(lead)
         return (
           <button
             key={lead.id}
@@ -86,11 +91,21 @@ function RecentLeadsPicker({ employeeId, selected, onSelect }) {
 
 function ActivityLog() {
   const { employee } = useAuth()
+  const [searchParams] = useSearchParams()
+  const preselectedLeadId = searchParams.get('lead')
 
   const [activityType, setActivityType] = useState(null)
   const [selectedLead, setSelectedLead] = useState(null)
   const [selectedParty, setSelectedParty] = useState(null)
   const [searchAll, setSearchAll] = useState(false)
+  // "Log activity" links from Lead Detail carry ?lead=<id> so the rep lands
+  // with their lead already picked instead of having to find it again in
+  // RecentLeadsPicker/LeadSearchSelect — changingLead lets them back out of
+  // that preselection into the normal picker if they need a different lead.
+  // preselectedLead is kept separately (immutable once fetched) so "Log
+  // another activity" can restore it rather than clearing back to nothing.
+  const [changingLead, setChangingLead] = useState(false)
+  const [preselectedLead, setPreselectedLead] = useState(null)
   const [notes, setNotes] = useState('')
   const [accompaniedBy, setAccompaniedBy] = useState('')
   const [leadsGenerated, setLeadsGenerated] = useState('')
@@ -111,6 +126,26 @@ function ActivityLog() {
       .then(({ data }) => setEmployees(data ?? []))
   }, [])
 
+  useEffect(() => {
+    if (!preselectedLeadId) return
+    let active = true
+    supabase
+      .from('leads')
+      .select('id, current_stage, source_type, parties!party_id(name), sites(nickname, locality)')
+      .eq('id', preselectedLeadId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!active) return
+        if (data) {
+          setPreselectedLead(data)
+          setSelectedLead(data)
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [preselectedLeadId])
+
   const isOfficeDay = activityType === 'office_day'
   const isSiteVisit = activityType === 'site_visit'
   // Party is only offered as an anchor alongside Site Visit/Booking Update —
@@ -120,6 +155,8 @@ function ActivityLog() {
   const needsAnchor = activityType && !isOfficeDay
   const anchorSatisfied = isOfficeDay || (showPartyPicker ? Boolean(selectedLead || selectedParty) : Boolean(selectedLead))
   const canSubmit = Boolean(activityType) && anchorSatisfied && !submitting
+  const leadPreselectedAndLocked =
+    Boolean(preselectedLeadId) && selectedLead && String(selectedLead.id) === preselectedLeadId && !changingLead
 
   function selectActivityType(value) {
     setActivityType(value)
@@ -133,9 +170,10 @@ function ActivityLog() {
 
   function resetForm() {
     setActivityType(null)
-    setSelectedLead(null)
+    setSelectedLead(preselectedLead)
     setSelectedParty(null)
     setSearchAll(false)
+    setChangingLead(false)
     setNotes('')
     setAccompaniedBy('')
     setLeadsGenerated('')
@@ -262,11 +300,22 @@ function ActivityLog() {
         <>
           <div className="vip-card-head">
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>Against which lead?</div>
-            <button type="button" className="vip-btn-link" onClick={() => setSearchAll((v) => !v)}>
-              {searchAll ? 'Recent leads' : 'Search all'}
-            </button>
+            {!leadPreselectedAndLocked && (
+              <button type="button" className="vip-btn-link" onClick={() => setSearchAll((v) => !v)}>
+                {searchAll ? 'Recent leads' : 'Search all'}
+              </button>
+            )}
           </div>
-          {searchAll ? (
+          {leadPreselectedAndLocked ? (
+            <div className="vip-row">
+              <div className="vip-row-main">
+                <div className="vip-row-title">{leadLabel(selectedLead)}</div>
+              </div>
+              <button type="button" className="vip-btn-link" onClick={() => setChangingLead(true)}>
+                Change
+              </button>
+            </div>
+          ) : searchAll ? (
             <LeadSearchSelect onSelect={setSelectedLead} />
           ) : (
             <RecentLeadsPicker employeeId={employee?.id} selected={selectedLead} onSelect={setSelectedLead} />

@@ -9,6 +9,7 @@ function SalesProgressSection({ lead, products, onSaved }) {
   const [quoteSent, setQuoteSent] = useState(lead.quote_sent ?? false)
   const [quoteSentAt, setQuoteSentAt] = useState(lead.quote_sent_at ?? '')
   const [quoteValue, setQuoteValue] = useState(lead.quote_value ?? '')
+  const [orderValue, setOrderValue] = useState(lead.order_value ?? '')
   const [closureProbability, setClosureProbability] = useState(lead.closure_probability ?? '')
   const [estimatedCloseDate, setEstimatedCloseDate] = useState(lead.estimated_close_date ?? '')
   const [saving, setSaving] = useState(false)
@@ -29,6 +30,7 @@ function SalesProgressSection({ lead, products, onSaved }) {
         quote_sent: quoteSent,
         quote_sent_at: quoteSent ? quoteSentAt || null : null,
         quote_value: quoteValue !== '' ? Number(quoteValue) : null,
+        order_value: orderValue !== '' ? Number(orderValue) : null,
         closure_probability: closureProbability !== '' ? Number(closureProbability) : null,
         estimated_close_date: estimatedCloseDate || null,
       })
@@ -88,6 +90,17 @@ function SalesProgressSection({ lead, products, onSaved }) {
           />
         </label>
       </div>
+
+      <label className="vip-field">
+        Order value
+        <input
+          className="vip-input"
+          type="number"
+          step="0.01"
+          value={orderValue}
+          onChange={(e) => setOrderValue(e.target.value)}
+        />
+      </label>
 
       <label className="vip-field">
         Estimated close
