@@ -1067,6 +1067,7 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-dd-kpi-spark-bar { flex: 1; border-radius: 1px; }
 .vip-dd-kpi-spark-up { background: #bcd6d4; }
 .vip-dd-kpi-spark-down { background: #f2d6d6; }
+.vip-dd-kpi-spark-gap { height: 2px; background: var(--vip-line-soft); opacity: .7; }
 
 /* exec x metric attainment heatmap (desktop-only, see .vip-only-desktop above) */
 .vip-dd-heatmap { display: flex; flex-direction: column; gap: 7px; }

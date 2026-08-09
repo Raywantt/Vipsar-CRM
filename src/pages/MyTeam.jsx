@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchTeamMembers } from '../lib/employeeQueries'
 import { fetchLeadsForBreakdown, fetchLastActivityPerLead } from '../lib/dashboardQueries'
-import { computeAttentionBuckets } from '../lib/attention'
+import { computeAttentionBuckets, countDistinctLeads } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
@@ -68,16 +68,18 @@ function MyTeam() {
     return map
   }, [leads])
 
-  // Needs-attention count per employee — sum of all 5 attention.js buckets
-  // (stale/silent quotes/overdue follow-ups/slipped close/pending RFQ) for
-  // that employee's own leads, the same holistic total the Dashboard's own
-  // Needs Attention card badge shows, just scoped to one exec at a time.
+  // Needs-attention count per employee — distinct leads across all 5
+  // attention.js buckets (stale/silent quotes/overdue follow-ups/slipped
+  // close/pending RFQ) for that employee's own leads, the same holistic
+  // total the Dashboard's own Needs Attention card badge shows, just scoped
+  // to one exec at a time. Deduped by lead, not a sum of bucket counts — a
+  // lead can land in more than one bucket at once.
   const attentionByEmployee = useMemo(() => {
     const map = new Map()
     employees.forEach((emp) => {
       const empLeads = leads.filter((l) => l.owner_employee_id === emp.id)
       const buckets = computeAttentionBuckets(empLeads, lastActivityByLead)
-      map.set(emp.id, buckets.reduce((s, b) => s + b.count, 0))
+      map.set(emp.id, countDistinctLeads(buckets))
     })
     return map
   }, [employees, leads, lastActivityByLead])

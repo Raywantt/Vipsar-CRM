@@ -64,7 +64,10 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, ran
             } else {
               actual = activities.filter((a) => a.employee_id === emp.id && a.activity_type === c.value).length
               target = targetFor(targets, emp.id, c.value)
-              sub = target != null ? `${actual}/${target}` : String(actual)
+              // actual is already a whole count (array length); target_value
+              // can be a decimal (SetTargetForm's input allows it) — round it
+              // for display, a count target shouldn't show a fractional part.
+              sub = target != null ? `${actual}/${Math.round(target)}` : String(actual)
               onClick = () => onOpenLog(emp.id, c.value)
             }
 

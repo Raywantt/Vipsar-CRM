@@ -166,6 +166,15 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
   ]
 }
 
+// A lead can land in more than one bucket at once (stale AND overdue AND
+// slipped, say) — summing bucket.count for a total therefore over-counts.
+// This dedupes by leadId for any badge that claims to show "how many leads
+// need attention", while each bucket's own `count` (rows genuinely specific
+// to that reason) stays correct as-is.
+export function countDistinctLeads(buckets) {
+  return new Set(buckets.flatMap((b) => b.rows.map((r) => r.leadId))).size
+}
+
 // Shared "ageing" drill-down shape — used for each Needs Attention bucket
 // above and reused as-is by the KPI row's "Stale leads" tile (same bucket,
 // same builder, matching how the two surfaces show the same underlying

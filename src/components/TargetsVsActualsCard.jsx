@@ -131,8 +131,12 @@ export function targetFor(targets, employeeId, metric) {
   return row ? Number(row.target_value) : null
 }
 
+// order_value is real money — never show paise. Every other metric here is
+// a count (site visits, calls, ...) — a target_value can be entered/stored
+// as a decimal (SetTargetForm's number input allows it), but a count should
+// never render with a fractional part.
 function formatValue(metric, value) {
-  return metric === 'order_value' ? formatCurrency(value) : value
+  return metric === 'order_value' ? formatCurrency(value, { maximumFractionDigits: 0 }) : Math.round(value)
 }
 
 // Only ever mounted by Dashboard.jsx for a week/month/quarter preset —

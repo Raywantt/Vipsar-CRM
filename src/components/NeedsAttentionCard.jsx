@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { buildAgeingPanel } from '../lib/attention'
+import { buildAgeingPanel, countDistinctLeads } from '../lib/attention'
 
 function AttnRow({ bucket, onOpenPanel }) {
   return (
@@ -25,7 +25,7 @@ function AttnRow({ bucket, onOpenPanel }) {
 // phone-width tile grid was never an option here in the first place.
 function NeedsAttentionCard({ buckets, onOpenPanel, wide = false }) {
   const [expanded, setExpanded] = useState(false)
-  const total = buckets.reduce((s, b) => s + b.count, 0)
+  const total = countDistinctLeads(buckets)
   const hiddenCount = Math.max(0, buckets.length - 3)
   const mobileVisible = expanded ? buckets : buckets.slice(0, 3)
 

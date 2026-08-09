@@ -146,14 +146,19 @@ export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory
 // ---------- attain: activity volume (company-wide) ----------
 export function buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel }) {
   const actual = activities.length
-  const target = ACTIVITY_TYPES.reduce((s, t) => s + (companyTargetFor(targets, employees, t.value) ?? 0), 0) || null
+  // Activity counts are whole numbers; target_value can be stored as a
+  // decimal (SetTargetForm's number input allows it, and a company total is
+  // a sum of several employees' targets) — round every target here so it
+  // reads as a count, not raw arithmetic.
+  const rawTarget = ACTIVITY_TYPES.reduce((s, t) => s + (companyTargetFor(targets, employees, t.value) ?? 0), 0) || null
+  const target = rawTarget != null ? Math.round(rawTarget) : null
   const daily = dailyTotals(activities, range, (a) => a.created_at)
   const pace = buildPaceChart(daily, target)
 
   const contrib = ACTIVITY_TYPES.map((t) => {
     const typeActual = activities.filter((a) => a.activity_type === t.value).length
-    const typeTarget = companyTargetFor(targets, employees, t.value)
-    return { label: t.label, actual: typeActual, target: typeTarget }
+    const rawTypeTarget = companyTargetFor(targets, employees, t.value)
+    return { label: t.label, actual: typeActual, target: rawTypeTarget != null ? Math.round(rawTypeTarget) : null }
   })
   const maxContrib = Math.max(1, ...contrib.map((c) => c.actual))
 
@@ -209,9 +214,16 @@ export function buildOverallAttainPanel({ employee, targets, activities, wonStag
       { label: 'Order value', value: formatCurrencyCompact(orderActual), sub: rows.find((r) => r.label === 'Order value')?.target != null ? `of ${formatCurrencyCompact(rows.find((r) => r.label === 'Order value').target)}` : 'no target set', color: '#101617' },
     ],
     contribTitle: 'Line by line',
+    // pct above is computed from the raw (possibly fractional) target for
+    // accuracy — only the displayed count here needs rounding.
     contrib: rows.map((r) => ({
       label: r.label,
-      value: r.target != null ? (r.label === 'Order value' ? `${formatCurrencyCompact(r.actual)} / ${formatCurrencyCompact(r.target)}` : `${r.actual} / ${r.target}`) : `${r.actual}`,
+      value:
+        r.target != null
+          ? r.label === 'Order value'
+            ? `${formatCurrencyCompact(r.actual)} / ${formatCurrencyCompact(r.target)}`
+            : `${r.actual} / ${Math.round(r.target)}`
+          : `${r.actual}`,
       pct: r.pct != null ? `${Math.min(100, r.pct)}%` : '0%',
     })),
   }
@@ -232,7 +244,10 @@ function lastNWeekdays(n) {
 
 export function buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows }) {
   const label = ACTIVITY_LABELS[activityType]
-  const target = targetFor(targets, employee.id, activityType)
+  // target_value can be a stored decimal — this is a log count, round it for
+  // display (delta % below still divides by the raw value for accuracy).
+  const rawTarget = targetFor(targets, employee.id, activityType)
+  const target = rawTarget != null ? Math.round(rawTarget) : null
   const inRange = logRows.filter((r) => {
     const at = new Date(r.created_at)
     return at >= range.start && at <= range.end
@@ -253,7 +268,7 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
     eyebrow: `${employee.name} · ${label}`,
     title: `${label} — logged entries`,
     value: target != null ? `${inRange.length} / ${target}` : String(inRange.length),
-    delta: target != null ? `${Math.round((inRange.length / target) * 100)}%` : null,
+    delta: rawTarget != null ? `${Math.round((inRange.length / rawTarget) * 100)}%` : null,
     note: `${rangeLabel}. Every row below is a real entry ${employee.name.split(' ')[0]} logged in the Activity log.`,
     stats: [
       { label: 'Logged', value: String(inRange.length), sub: rangeLabel, color: '#101617' },

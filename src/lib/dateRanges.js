@@ -10,7 +10,7 @@ function atEndOfDay(date) {
   return d
 }
 
-function startOfWeek(date) {
+export function startOfWeek(date) {
   const d = atStartOfDay(date)
   const day = d.getDay()
   const diffToMonday = day === 0 ? -6 : 1 - day
