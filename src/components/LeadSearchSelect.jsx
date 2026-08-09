@@ -25,7 +25,7 @@ function LeadSearchSelect({ onSelect }) {
 
     supabase
       .from('leads')
-      .select('id, current_stage, source_type, parties!party_id(name, party_type), sites(nickname, locality)')
+      .select('id, current_stage, source_type, parties!party_id(name, party_type), sites(id, nickname, locality, site_stage)')
       .eq('owner_employee_id', employee.id)
       .order('created_at', { ascending: false })
       .limit(100)
@@ -45,13 +45,16 @@ function LeadSearchSelect({ onSelect }) {
   }, [employee?.id])
 
   const term = query.trim().toLowerCase()
+  // Nothing renders below the box until you actually type — with a large
+  // lead count, dumping the full fetched list here just recreates the
+  // "scroll through everything" problem this component exists to avoid.
   const filtered = term
     ? leads.filter((lead) => {
         const who = lead.parties?.name?.toLowerCase() ?? ''
         const where = `${lead.sites?.nickname ?? ''} ${lead.sites?.locality ?? ''}`.toLowerCase()
         return who.includes(term) || where.includes(term)
       })
-    : leads
+    : []
 
   function selectExisting(lead) {
     setSelected(lead)
@@ -92,6 +95,10 @@ function LeadSearchSelect({ onSelect }) {
       {loading && <p className="vip-form-note">Loading your leads…</p>}
       {error && <p className="vip-error" role="alert">{error}</p>}
       {!loading && !error && leads.length === 0 && <p className="vip-form-note">You don't have any leads yet.</p>}
+      {!loading && !error && leads.length > 0 && !term && (
+        <p className="vip-form-note">Type a client or site name to find a lead.</p>
+      )}
+      {!loading && term && filtered.length === 0 && <p className="vip-form-note">No matching leads.</p>}
 
       {filtered.length > 0 && (
         <div className="vip-card">

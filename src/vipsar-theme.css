@@ -1524,16 +1524,6 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-queue-count-num { font-family: var(--vip-display); font-size: 20px; font-weight: 600; color: var(--vip-ink); flex: 0 0 auto; }
 .vip-queue-chevron { font-size: 17px; color: var(--vip-faint); flex: 0 0 auto; }
 
-/* --- Disclosure row (New Lead's collapsed "other party" field) --- */
-.vip-disclosure-row {
-  min-height: 52px; width: 100%; padding: 0 14px;
-  border: 1px dashed var(--vip-line); border-radius: var(--vip-r-card);
-  background: var(--vip-surface); cursor: pointer;
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  font: 600 14px var(--vip-sans); color: var(--vip-ink);
-}
-.vip-disclosure-hint { font-size: 12px; font-weight: 400; color: var(--vip-faint); }
-
 /* --- Radio-style row (Log Activity's "recent leads" picker) --- */
 .vip-radio-row {
   display: flex; align-items: center; gap: 12px; width: 100%;

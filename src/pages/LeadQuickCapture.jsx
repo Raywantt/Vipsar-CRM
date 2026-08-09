@@ -20,7 +20,6 @@ function LeadQuickCapture() {
   const [clientParty, setClientParty] = useState(null)
   const [siteNickname, setSiteNickname] = useState('')
   const [otherParty, setOtherParty] = useState(null)
-  const [otherOpen, setOtherOpen] = useState(false)
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
@@ -34,7 +33,6 @@ function LeadQuickCapture() {
     setClientParty(null)
     setSiteNickname('')
     setOtherParty(null)
-    setOtherOpen(false)
     setSubmitError(null)
     setCreatedLead(null)
   }
@@ -175,22 +173,12 @@ function LeadQuickCapture() {
         />
       </label>
 
-      {/* Collapsed behind a disclosure — the optional "other party" field,
-          expands to the same PartySearchOrCreate as before. Once a value is
-          picked it stays open so "Change"/"Create another" remain reachable. */}
-      {otherOpen || otherParty ? (
-        <PartySearchOrCreate
-          label="Other's name (architect / PMC / anyone else)"
-          defaultPartyType="architect"
-          typeOptions={['architect', 'builder', 'pmc', 'other']}
-          onSelect={setOtherParty}
-        />
-      ) : (
-        <button type="button" className="vip-disclosure-row" onClick={() => setOtherOpen(true)}>
-          + Architect / PMC / someone else
-          <span className="vip-disclosure-hint">optional</span>
-        </button>
-      )}
+      <PartySearchOrCreate
+        label="Other's name (architect / PMC / anyone else)"
+        defaultPartyType="architect"
+        typeOptions={['architect', 'builder', 'pmc', 'other']}
+        onSelect={setOtherParty}
+      />
 
       {submitError && <p className="vip-error" role="alert">{submitError}</p>}
 

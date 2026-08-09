@@ -2,91 +2,17 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import LeadSearchSelect from '../components/LeadSearchSelect'
+import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
-import { fetchLeadsList, fetchLastActivityPerLead } from '../lib/dashboardQueries'
-import { stageChipClass } from '../lib/statusColors'
-import { stageLabel } from '../lib/leadStageOptions'
+import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { todayISO } from '../lib/followupDates'
+import { createFollowUp } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
-
-function touchLabel(lastAt) {
-  if (!lastAt) return 'no activity yet'
-  const days = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000)
-  if (days <= 0) return 'touched today'
-  return `${days}d ago`
-}
 
 function leadLabel(lead) {
   const place = lead.sites?.nickname || lead.sites?.locality
   return lead.parties?.name ?? place ?? `Lead #${lead.id}`
-}
-
-// Default anchor picker for Site Visit/RFQ Raised/Call/Booking Update —
-// this employee's own leads (fetchLeadsList, already scoped by RLS/the
-// employeeId filter), newest-touched first via fetchLastActivityPerLead,
-// falling back to created_at for a lead with no activity logged yet. Both
-// queries are reused as-is (no new query function), per the mobile handoff's
-// "no new query needed" note. "Search all" (ActivityLog.jsx) falls back to
-// the full LeadSearchSelect for anything not in this recent list.
-function RecentLeadsPicker({ employeeId, selected, onSelect }) {
-  const [leads, setLeads] = useState([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!employeeId) return
-    let active = true
-    Promise.all([fetchLeadsList({ employeeId }), fetchLastActivityPerLead()]).then(([leadsRes, activityRes]) => {
-      if (!active) return
-      setLoading(false)
-      if (leadsRes.error) return
-      const lastByLead = new Map()
-      ;(activityRes.data ?? []).forEach((row) => {
-        const existing = lastByLead.get(row.lead_id)
-        if (!existing || new Date(row.created_at) > new Date(existing)) lastByLead.set(row.lead_id, row.created_at)
-      })
-      const sorted = [...(leadsRes.data ?? [])].sort((a, b) => {
-        const aAt = lastByLead.get(a.id) ?? a.created_at
-        const bAt = lastByLead.get(b.id) ?? b.created_at
-        return new Date(bAt) - new Date(aAt)
-      })
-      setLeads(sorted.slice(0, 8).map((l) => ({ ...l, lastTouchedAt: lastByLead.get(l.id) ?? null })))
-    })
-    return () => {
-      active = false
-    }
-  }, [employeeId])
-
-  if (loading) return <p className="vip-empty">Loading your leads…</p>
-  if (leads.length === 0) return <p className="vip-empty">You don't have any leads yet — use Search all.</p>
-
-  return (
-    <div className="vip-card">
-      {leads.map((lead) => {
-        const place = lead.sites?.nickname || lead.sites?.locality
-        const label = leadLabel(lead)
-        return (
-          <button
-            key={lead.id}
-            type="button"
-            className="vip-radio-row"
-            onClick={() => onSelect({ id: lead.id, current_stage: lead.current_stage, source_type: lead.source_type, parties: lead.parties, sites: lead.sites })}
-          >
-            <span className={selected?.id === lead.id ? 'vip-radio-dot vip-active' : 'vip-radio-dot'} />
-            <span className="vip-row-main" style={{ flex: 1 }}>
-              <span className="vip-row-title">{label}</span>
-              <span className="vip-row-sub">
-                {place && lead.parties?.name ? `${place} · ` : ''}
-                {touchLabel(lead.lastTouchedAt)}
-              </span>
-            </span>
-            <span className={stageChipClass(lead.current_stage ?? 'calling')}>{stageLabel(lead.current_stage ?? 'calling')}</span>
-          </button>
-        )
-      })}
-    </div>
-  )
 }
 
 function ActivityLog() {
@@ -96,21 +22,27 @@ function ActivityLog() {
 
   const [activityType, setActivityType] = useState(null)
   const [selectedLead, setSelectedLead] = useState(null)
-  const [selectedParty, setSelectedParty] = useState(null)
-  const [searchAll, setSearchAll] = useState(false)
   // "Log activity" links from Lead Detail carry ?lead=<id> so the rep lands
   // with their lead already picked instead of having to find it again in
-  // RecentLeadsPicker/LeadSearchSelect — changingLead lets them back out of
-  // that preselection into the normal picker if they need a different lead.
+  // LeadSearchSelect — changingLead lets them back out of that preselection
+  // into the normal search picker if they need a different lead.
   // preselectedLead is kept separately (immutable once fetched) so "Log
   // another activity" can restore it rather than clearing back to nothing.
   const [changingLead, setChangingLead] = useState(false)
   const [preselectedLead, setPreselectedLead] = useState(null)
+  // Architect Meeting's own anchor — an architect party rather than a lead,
+  // since the meeting itself is the point, not a specific deal.
+  const [selectedArchitect, setSelectedArchitect] = useState(null)
   const [notes, setNotes] = useState('')
   const [accompaniedBy, setAccompaniedBy] = useState('')
   const [leadsGenerated, setLeadsGenerated] = useState('')
   const [orderValue, setOrderValue] = useState('')
   const [nextFollowupDate, setNextFollowupDate] = useState('')
+  // Site Visit's "change site stage" field — same preset+other shape
+  // SiteDetailsSection already uses, synced to whichever lead/site is
+  // currently selected by the effect below.
+  const [siteStage, setSiteStage] = useState('')
+  const [customStage, setCustomStage] = useState('')
 
   const [employees, setEmployees] = useState([])
 
@@ -131,7 +63,7 @@ function ActivityLog() {
     let active = true
     supabase
       .from('leads')
-      .select('id, current_stage, source_type, parties!party_id(name), sites(nickname, locality)')
+      .select('id, current_stage, source_type, parties!party_id(name), sites(id, nickname, locality, site_stage)')
       .eq('id', preselectedLeadId)
       .maybeSingle()
       .then(({ data }) => {
@@ -146,23 +78,40 @@ function ActivityLog() {
     }
   }, [preselectedLeadId])
 
+  // Keeps the Site stage field in sync with whichever lead is currently
+  // selected (search pick, preselected-from-Lead-Detail, or reset back to
+  // none) — same derivation SiteDetailsSection uses for its own initial value.
+  useEffect(() => {
+    const stage = selectedLead?.sites?.site_stage
+    if (stage && SITE_STAGE_OPTIONS.includes(stage)) {
+      setSiteStage(stage)
+      setCustomStage('')
+    } else if (stage) {
+      setSiteStage('other')
+      setCustomStage(stage)
+    } else {
+      setSiteStage('')
+      setCustomStage('')
+    }
+  }, [selectedLead])
+
   const isOfficeDay = activityType === 'office_day'
   const isSiteVisit = activityType === 'site_visit'
-  // Party is only offered as an anchor alongside Site Visit/Booking Update —
-  // Call and RFQ Raised must be tied to a lead, since there's no party
-  // picker to fall back on for them.
-  const showPartyPicker = activityType === 'site_visit' || activityType === 'booking_update'
-  const needsAnchor = activityType && !isOfficeDay
-  const anchorSatisfied = isOfficeDay || (showPartyPicker ? Boolean(selectedLead || selectedParty) : Boolean(selectedLead))
+  const isArchitectMeeting = activityType === 'architect_meeting'
+  // Every lead-anchored activity requires a Lead — Party as a fallback
+  // anchor was removed (2026-08-09) so Next follow-up/Order value/Site
+  // stage, which all write onto a lead, are never silently hidden behind a
+  // party-only pick. Architect Meeting is its own separate case — it's
+  // anchored on an architect party instead of a lead entirely, so it's
+  // excluded from this lead-picker block the same way Office Day is.
+  const needsAnchor = activityType && !isOfficeDay && !isArchitectMeeting
+  const anchorSatisfied = isOfficeDay || (isArchitectMeeting ? Boolean(selectedArchitect) : Boolean(selectedLead))
   const canSubmit = Boolean(activityType) && anchorSatisfied && !submitting
   const leadPreselectedAndLocked =
     Boolean(preselectedLeadId) && selectedLead && String(selectedLead.id) === preselectedLeadId && !changingLead
 
   function selectActivityType(value) {
     setActivityType(value)
-    if (value !== 'site_visit' && value !== 'booking_update') {
-      setSelectedParty(null)
-    }
     if (value !== 'site_visit') {
       setAccompaniedBy('')
     }
@@ -171,8 +120,7 @@ function ActivityLog() {
   function resetForm() {
     setActivityType(null)
     setSelectedLead(preselectedLead)
-    setSelectedParty(null)
-    setSearchAll(false)
+    setSelectedArchitect(null)
     setChangingLead(false)
     setNotes('')
     setAccompaniedBy('')
@@ -192,8 +140,8 @@ function ActivityLog() {
       .from('activities')
       .insert({
         employee_id: employee?.id ?? null,
-        party_id: selectedParty?.id ?? null,
         lead_id: selectedLead?.id ?? null,
+        party_id: isArchitectMeeting ? selectedArchitect?.id ?? null : null,
         activity_type: activityType,
         accompanied_by: accompaniedBy || null,
         notes: notes.trim() || null,
@@ -234,6 +182,42 @@ function ActivityLog() {
           warnings.push(`Activity logged, but updating the lead failed: ${errorMessage(leadUpdateError)}`)
         }
       }
+
+      if (isSiteVisit && selectedLead.sites?.id) {
+        const resolvedSiteStage = siteStage === 'other' ? customStage.trim() || null : siteStage || null
+        if (resolvedSiteStage !== (selectedLead.sites.site_stage ?? null)) {
+          const { error: siteUpdateError } = await supabase
+            .from('sites')
+            .update({ site_stage: resolvedSiteStage })
+            .eq('id', selectedLead.sites.id)
+
+          if (siteUpdateError) {
+            warnings.push(`Activity logged, but updating the site stage failed: ${errorMessage(siteUpdateError)}`)
+          }
+        }
+      }
+    }
+
+    // Architect Meeting has no lead to write next_followup_date onto, so its
+    // "Next follow-up" instead creates a real reminder (same table/helper
+    // LeadDetail's On Hold flow already uses) assigned to the employee who
+    // logged it, linked to the architect party. activityType: 'other' — the
+    // real 'architect_meeting' value isn't in follow_ups' own activity_type
+    // CHECK list, same reasoning On Hold's own createFollowUp call uses.
+    if (isArchitectMeeting && selectedArchitect && nextFollowupDate) {
+      const { error: followUpError } = await createFollowUp({
+        assignedTo: employee?.id,
+        createdBy: employee?.id,
+        partyId: selectedArchitect.id,
+        activityType: 'other',
+        title: `Follow up with ${selectedArchitect.name}`,
+        notes: notes.trim() || null,
+        dueDate: nextFollowupDate,
+      })
+
+      if (followUpError) {
+        warnings.push(`Activity logged, but the follow-up reminder wasn't saved: ${errorMessage(followUpError)}`)
+      }
     }
 
     setSubmitting(false)
@@ -259,10 +243,10 @@ function ActivityLog() {
               </div>
             </div>
           )}
-          {selectedParty && (
+          {isArchitectMeeting && selectedArchitect && (
             <div>
-              <div className="vip-fact-label">Party</div>
-              <div className="vip-fact-value">{selectedParty.name}</div>
+              <div className="vip-fact-label">Architect</div>
+              <div className="vip-fact-value">{selectedArchitect.name}</div>
             </div>
           )}
         </div>
@@ -300,11 +284,6 @@ function ActivityLog() {
         <>
           <div className="vip-card-head">
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>Against which lead?</div>
-            {!leadPreselectedAndLocked && (
-              <button type="button" className="vip-btn-link" onClick={() => setSearchAll((v) => !v)}>
-                {searchAll ? 'Recent leads' : 'Search all'}
-              </button>
-            )}
           </div>
           {leadPreselectedAndLocked ? (
             <div className="vip-row">
@@ -315,31 +294,84 @@ function ActivityLog() {
                 Change
               </button>
             </div>
-          ) : searchAll ? (
-            <LeadSearchSelect onSelect={setSelectedLead} />
           ) : (
-            <RecentLeadsPicker employeeId={employee?.id} selected={selectedLead} onSelect={setSelectedLead} />
-          )}
-          {showPartyPicker && (
-            <PartySearchOrCreate label="Party" allowCreate={false} onSelect={setSelectedParty} />
+            <LeadSearchSelect onSelect={setSelectedLead} />
           )}
         </>
       )}
 
-      {selectedLead && (
+      {isArchitectMeeting && (
         <>
-          {activityType === 'booking_update' && (
+          <div className="vip-card-head">
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>Architect</div>
+          </div>
+          <PartySearchOrCreate
+            label="Architect name"
+            defaultPartyType="architect"
+            typeOptions={['architect']}
+            onSelect={setSelectedArchitect}
+          />
+        </>
+      )}
+
+      {isSiteVisit ? (
+        <>
+          <label className="vip-field">
+            Notes
+            <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Short note" />
+          </label>
+
+          {selectedLead?.sites?.id && (
+            <>
+              <label className="vip-field">
+                Site stage <span className="vip-field-hint">optional</span>
+                <select className="vip-select" value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
+                  <option value="">— Not specified —</option>
+                  {SITE_STAGE_OPTIONS.map((stage) => (
+                    <option key={stage} value={stage}>
+                      {stage}
+                    </option>
+                  ))}
+                  <option value="other">Other…</option>
+                </select>
+              </label>
+              {siteStage === 'other' && (
+                <label className="vip-field">
+                  Describe stage
+                  <input className="vip-input" value={customStage} onChange={(e) => setCustomStage(e.target.value)} />
+                </label>
+              )}
+            </>
+          )}
+
+          {selectedLead && (
             <label className="vip-field">
-              Order value <span className="vip-field-hint">optional</span>
+              Next follow-up <span className="vip-field-hint">optional</span>
               <input
                 className="vip-input"
-                type="number"
-                step="0.01"
-                value={orderValue}
-                onChange={(e) => setOrderValue(e.target.value)}
+                type="date"
+                value={nextFollowupDate}
+                onChange={(e) => setNextFollowupDate(e.target.value)}
               />
             </label>
           )}
+
+          <label className="vip-field">
+            Accompanied by <span className="vip-field-hint">optional</span>
+            <select className="vip-select" value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)}>
+              <option value="">— Not specified —</option>
+              {employees
+                .filter((e) => e.id !== employee?.id)
+                .map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </>
+      ) : isArchitectMeeting ? (
+        <>
           <label className="vip-field">
             Next follow-up <span className="vip-field-hint">optional</span>
             <input
@@ -349,49 +381,72 @@ function ActivityLog() {
               onChange={(e) => setNextFollowupDate(e.target.value)}
             />
           </label>
+
+          <label className="vip-field">
+            Notes
+            <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Short note" />
+          </label>
+        </>
+      ) : (
+        <>
+          {selectedLead && (
+            <>
+              {activityType === 'booking_update' && (
+                <label className="vip-field">
+                  Order value <span className="vip-field-hint">optional</span>
+                  <input
+                    className="vip-input"
+                    type="number"
+                    step="0.01"
+                    value={orderValue}
+                    onChange={(e) => setOrderValue(e.target.value)}
+                  />
+                </label>
+              )}
+              <label className="vip-field">
+                Next follow-up <span className="vip-field-hint">optional</span>
+                <input
+                  className="vip-input"
+                  type="date"
+                  value={nextFollowupDate}
+                  onChange={(e) => setNextFollowupDate(e.target.value)}
+                />
+              </label>
+            </>
+          )}
+
+          {isOfficeDay && (
+            <label className="vip-field">
+              Leads generated
+              <input
+                className="vip-input"
+                type="number"
+                value={leadsGenerated}
+                onChange={(e) => setLeadsGenerated(e.target.value)}
+              />
+            </label>
+          )}
+
+          {activityType && (
+            <label className="vip-field">
+              Notes
+              <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Short note" />
+            </label>
+          )}
         </>
       )}
 
-      {isOfficeDay && (
-        <label className="vip-field">
-          Leads generated
-          <input
-            className="vip-input"
-            type="number"
-            value={leadsGenerated}
-            onChange={(e) => setLeadsGenerated(e.target.value)}
-          />
-        </label>
+      {activityType && (
+        <>
+          {submitError && <p className="vip-error" role="alert">{submitError}</p>}
+
+          <div className="vip-sticky-footer">
+            <button className="vip-btn" type="submit" disabled={!canSubmit}>
+              {submitting ? 'Saving…' : 'Log it'}
+            </button>
+          </div>
+        </>
       )}
-
-      <label className="vip-field">
-        Notes
-        <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Short note" />
-      </label>
-
-      {isSiteVisit && (
-        <label className="vip-field">
-          Accompanied by <span className="vip-field-hint">optional</span>
-          <select className="vip-select" value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)}>
-            <option value="">— Not specified —</option>
-            {employees
-              .filter((e) => e.id !== employee?.id)
-              .map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-          </select>
-        </label>
-      )}
-
-      {submitError && <p className="vip-error" role="alert">{submitError}</p>}
-
-      <div className="vip-sticky-footer">
-        <button className="vip-btn" type="submit" disabled={!canSubmit}>
-          {submitting ? 'Saving…' : 'Log it'}
-        </button>
-      </div>
     </form>
   )
 }

@@ -734,9 +734,15 @@ an intake screen).
 ### LeadQuickCapture (`src/pages/LeadQuickCapture.jsx`)
 
 Field order below is desktop's; the Mobile redesign pass reordered it
-(source first, "other party" collapsed behind a disclosure) and added a
-sticky Save-lead footer with an offline note — see that section, not
-described again here.
+(source first) and added a sticky Save-lead footer with an offline note —
+see that section, not described again here. "Other party" used to be
+collapsed behind a `+ Architect / PMC / someone else` disclosure toggle
+(the Mobile redesign's original choice); removed later (2026-08-09, user
+feedback that a click-to-reveal step for a plain optional field was
+unnecessary friction) — it's now a fourth always-visible `PartySearchOrCreate`
+field, same treatment as Client name and Site nickname. `.vip-disclosure-row`/
+`.vip-disclosure-hint` were deleted from `vipsar-theme.css` along with it,
+having no other consumer.
 
 The sales_executive landing screen at `/leads/new` — deliberately not a
 structured form: three optional fields (Client name, Site nickname,
@@ -1336,25 +1342,27 @@ but the live end-to-end push send needs a real phone once this ships.
 
 ### ActivityLog (`src/pages/ActivityLog.jsx`)
 
-The Mobile redesign pass changed the anchor-picking step below (a
-`RecentLeadsPicker` radio list by default, "Search all" falls back to
-`LeadSearchSelect`) and added a sticky "Log it" footer — see that section.
+The Mobile redesign pass added a sticky "Log it" footer — see that section.
+Everything else below reflects a later pass (2026-08-09) that reworked the
+anchor picker, removed Party as a fallback anchor, reordered Site Visit's
+fields, and added the new Architect Meeting type — all from live user
+feedback while testing this screen, not part of the original mobile
+redesign.
 
 An optional `?lead=<id>` query param, read via `useSearchParams`, preselects
 a lead on load instead of leaving the anchor step blank — a code-review
 finding: Lead Detail's "Log activity" (see the Lead Profile section's
 Deal-progress-adjacent bullet above) used to link here with no context at
 all, so a rep who just opened this exact lead had to find it again from
-scratch in `RecentLeadsPicker`/`LeadSearchSelect`. On mount, if the param is
-present, the lead is fetched (same embed shape those two pickers already
-use) into `selectedLead`; once an activity type needing an anchor is
-picked, the "Against which lead?" section collapses straight to a single
-confirmation row (name + a "Change" link) instead of showing the picker at
-all — "Change" backs out to the normal `RecentLeadsPicker`/"Search all"
-flow for a different lead. "Log another activity" (the post-submit reset)
-restores the same preselected lead rather than clearing back to nothing,
-since a rep logging a Site Visit then a Call against the one lead they came
-from is the common case this was built for.
+scratch. On mount, if the param is present, the lead is fetched into
+`selectedLead`; once an activity type needing an anchor is picked, the
+"Against which lead?" section collapses straight to a single confirmation
+row (name + a "Change" link) instead of showing the picker at all —
+"Change" backs out to the normal `LeadSearchSelect` flow for a different
+lead. "Log another activity" (the post-submit reset) restores the same
+preselected lead rather than clearing back to nothing, since a rep logging
+a Site Visit then a Call against the one lead they came from is the common
+case this was built for.
 
 DPR replacement at `/activity`, **sales_executive-only** (`ProtectedRoute`
 in `App.jsx`, plus the FAB sheet and sidebar nav link are both omitted for
@@ -1364,45 +1372,115 @@ themselves, so logging a site visit/call/RFQ/etc. isn't something they need;
 they still see every rep's logged activity through the Dashboard and a
 lead's own timeline. `LeadDetail`'s "Log activity" button is hidden for
 `canEdit` owners for the same reason, even though they can still edit the
-lead itself. Tap one of Site Visit/Call/RFQ Raised/Office
-Day/Booking Update; every type except Office Day then shows
-`LeadSearchSelect` (select-only, scoped to the current employee's own leads
-via `owner_employee_id`). Office Day skips this step entirely (matches the
-loosened `activity_needs_an_anchor` CHECK — see `Schema/tostem_crm_schema.sql`).
+lead itself. Tap one of Site Visit/Call/RFQ Raised/Office Day/Booking
+Update/**Architect Meeting** (`ACTIVITY_TYPES`, `src/lib/activityTypes.js`
+— 6 values now); every type except Office Day and Architect Meeting then
+shows `LeadSearchSelect` (select-only, scoped to the current employee's own
+leads via `owner_employee_id`). Office Day skips the anchor step entirely
+(matches the loosened `activity_needs_an_anchor` CHECK — see
+`Schema/tostem_crm_schema.sql`); Architect Meeting is anchored on an
+architect party instead of a lead, and has its own picker (see below).
 
-* The `PartySearchOrCreate` (`allowCreate={false}`) anchor picker only shows
-  alongside Site Visit and Booking Update — Call and RFQ Raised dropped it,
-  so those two **require** a lead (no party fallback for them); Site
-  Visit/Booking Update keep the original "lead, party, or both" flexibility.
-  `selectActivityType` clears `selectedParty` when switching to a type that
-  hides the field, so a stale invisible selection can't get submitted.
+* **"Against which lead?" is search-first, not a scrollable list.**
+  `LeadSearchSelect` shows nothing below the search box until you actually
+  type, then filters this employee's own already-fetched leads client-side
+  by client/site name. Previously the default was `RecentLeadsPicker` — a
+  radio list of this employee's 8 most-recently-touched leads, with a
+  "Search all" toggle falling back to `LeadSearchSelect` — replaced because
+  a list, even capped at 8, doesn't scale to an exec with dozens of leads.
+  `RecentLeadsPicker`/`touchLabel` and the `searchAll` toggle state are
+  deleted from this file entirely, not just unused.
+* **Party is no longer a fallback anchor for Site Visit/Booking Update.**
+  Both used to accept "lead, party, or both" via a
+  `PartySearchOrCreate(allowCreate={false})` field alongside the lead
+  picker; now, like Call and RFQ Raised, they **require** a lead. Removed
+  because Next follow-up/Order value/Site stage all write onto a lead, so a
+  party-only pick used to silently hide all three fields with no way to
+  fill them in. `selectedParty`/`showPartyPicker` and that
+  `PartySearchOrCreate` usage are gone from this file — `activities.party_id`
+  is only ever set now for Architect Meeting (see below), never for the
+  other five types.
+* **Site Visit's field order**: Against which lead → Notes → **Site
+  stage** (a preset + "Other…" dropdown, same shape as
+  `SiteDetailsSection`'s own — shown only once the selected lead has a
+  linked site, i.e. `selectedLead.sites?.id`; a lead with no site, like one
+  created from just a client name, shows nothing here rather than a
+  meaningless control) → Next follow-up → Accompanied by. Site stage is
+  synced to the selected lead's *current* stage by its own `useEffect`
+  (keyed on `selectedLead`, same derivation `SiteDetailsSection` uses for
+  its initial value) and, on submit, writes `sites.site_stage` in a
+  separate UPDATE alongside the `leads` one — skipped entirely if the
+  resolved value didn't actually change, so picking a lead and submitting
+  without touching this field never fires a no-op write. Every other type
+  keeps Notes last, unchanged.
+* **Architect Meeting** — its own anchor, entirely separate from the
+  lead-picker block above: a `PartySearchOrCreate` field
+  (`typeOptions={['architect']}`, the same search-or-create dialog every
+  other party field in this app uses — Client name on New Lead, "other
+  party" on New Lead, the Party field Call/RFQ Raised/Booking Update used
+  to have) labelled "Architect name". Picking an unrecognized name genuinely
+  inserts a new `parties` row with `party_type = 'architect'`, same
+  mechanism as everywhere else in the app a party gets created — nothing
+  special-cased for this screen. Fields, in order: Architect name → Next
+  follow-up → Notes. There's no lead involved, so "Next follow-up" can't
+  write `leads.next_followup_date` the way it does for every other type —
+  instead, filling it creates a real `follow_ups` row via `createFollowUp`
+  (`src/lib/followUpQueries.js`; `assignedTo`/`createdBy` both the logging
+  employee, `partyId` the architect, an auto-generated title
+  `Follow up with {name}`, `activityType: 'other'` — the literal
+  `'architect_meeting'` value isn't in `follow_ups.activity_type`'s own
+  CHECK list, same reasoning `LeadStageSection`'s On Hold flow already uses
+  for its own `createFollowUp` call, see the Lead stage taxonomy section).
+  This is deliberate reuse of the real Follow-ups feature (see its own
+  section) rather than a second reminder mechanism — the reminder shows up
+  in Home's "Your reminders" and fires a real push notification exactly
+  like any other follow-up. `activities.party_id` is set to the architect's
+  id on the activity row itself too (the one case in this file `party_id`
+  is ever non-null). **Needs a schema migration before it works live** —
+  `activities.activity_type`'s CHECK constraint doesn't include
+  `'architect_meeting'` yet (confirmed via a real live error:
+  `new row for relation "activities" violates check constraint
+  "activities_activity_type_check"`), and `follow_ups.activity_type`'s
+  CHECK needed the same value added too, since `FollowUpForm.jsx`'s "Type
+  of follow-up" chip picker is built off the same `ACTIVITY_TYPES` list and
+  would otherwise offer a chip that fails to save on any follow-up, not just
+  ones created from this screen. See `Schema/migration_architect_meeting.sql`
+  and Conventions below — not yet run against the live DB as of this
+  writing.
 * "Accompanied by" (optional, `employees` dropdown excluding yourself) only
   shows for Site Visit — going out to scan/visit a site is the one activity
   where bringing a colleague along is a normal, trackable thing; it doesn't
-  apply to a phone Call, paperwork (RFQ Raised/Booking Update), or Office
-  Day. Same clear-on-switch behavior as Party.
+  apply to a phone Call, paperwork (RFQ Raised/Booking Update), Office Day,
+  or Architect Meeting.
 * Common fields: notes (textarea). Office Day additionally gets a numeric
   "leads generated" field.
-* If a lead is selected (any type), an optional "update next follow-up date"
-  field updates `leads.next_followup_date` when filled in.
+* If a lead is selected (Site Visit/Call/RFQ Raised/Booking Update), an
+  optional "update next follow-up date" field updates
+  `leads.next_followup_date` when filled in — Architect Meeting's own
+  "Next follow-up" is a different field entirely, see above.
 * RFQ Raised + a selected lead also sets that lead's `rfq_raised = true` and
   `rfq_raised_at` to today.
 * Booking Update + a selected lead shows an optional `order_value` field,
   applied to the lead if filled in.
-* Lead side effects run as separate UPDATE calls after the `activities`
-  insert succeeds; a failure there surfaces as a warning on the success
-  screen without blocking the activity itself from being logged.
+* Lead/site/follow-up side effects all run as separate calls after the
+  `activities` insert succeeds; a failure in any of them surfaces as a
+  warning on the success screen without blocking the activity itself from
+  being logged.
 * Not in scope for this screen: lead stage changes (`LeadDetail`'s job) or
   a screen listing past activities (still not built anywhere).
 
 `LeadSearchSelect` (`src/components/LeadSearchSelect.jsx`) is select-only
-(no create) — fetches the employee's own leads once, filters client-side by
-linked party name / site nickname / locality. Embedding `parties` from
+(no create) — fetches the employee's own leads once (now embedding
+`sites(id, nickname, locality, site_stage)`, not just nickname/locality,
+so a picked lead carries enough site data for Site Visit's Site stage field
+above), filters client-side by linked party name / site nickname / locality,
+and shows nothing below the search box until a query is typed (previously
+showed the full unfiltered list by default — same "don't dump a big list"
+reasoning as the anchor-picker change above). Embedding `parties` from
 `leads` needs an explicit FK hint (`parties!party_id(...)`) — `leads` has
 three FKs to `parties` (`party_id`, `referred_by_party_id`, `other_party_id`),
 so a bare `parties(...)` embed fails with "more than one relationship was
-found." `PartySearchOrCreate` has an `allowCreate` prop (default `true`)
-for this screen's selection-only use.
+found."
 
 ### Dashboard (`src/pages/Dashboard.jsx`)
 
@@ -1562,11 +1640,26 @@ since it isn't part of the date-range-scoped report data.
   week/month/quarter check that could drift from it) — the card component
   has no `isTargetPeriod` branch of its own anymore, since it's structurally
   never mounted any other way. `metric_name` is a **closed** list
-  (`src/lib/targetMetrics.js`: the five `ACTIVITY_TYPES` values plus
-  `order_value`), deliberately not the "suggested options + Other…"
-  free-text pattern used for `current_stage`/`site_stage` — an arbitrary
-  metric would have a target but no computable actual, which defeats the
-  section. Actuals for the five activity-type metrics are a straight count
+  (`src/lib/targetMetrics.js`: `site_visit`/`call`/`rfq_raised`/
+  `architect_meeting` — see `ACTIVITY_METRIC_OPTIONS`, the targetable subset
+  of `ACTIVITY_TYPES` — plus `order_value` and `won_count`), deliberately
+  not the "suggested options + Other…" free-text pattern used for
+  `current_stage`/`site_stage` — an arbitrary metric would have a target but
+  no computable actual, which defeats the section. **Office Day, Booking
+  Update, and Offers Sent (`quote_sent`) were dropped from this list**
+  (2026-08-09, per the owner) — Office Day/Booking Update are process-
+  tracking entries rather than something a rep gets a quota for, and Offers
+  Sent went with them; all three are still loggable in Activity Log and
+  still count in `ActivityCountsCard`'s "Activity" tally (that card walks
+  `ACTIVITY_TYPES` directly, not this list) and `EmployeeProfile.jsx`'s own
+  hardcoded 6-tile grid (a separate list, unaffected — see the Sales Exec
+  Profile section) — only *targeting* them is gone. `DashboardHeatmap.jsx`'s
+  columns and `buildOverallAttainPanel`'s blended-attainment calc
+  (`drilldownBuilders.js`) both import `ACTIVITY_METRIC_OPTIONS` from the
+  same file rather than building their own filtered list, so the heatmap's
+  inline "Overall %" and the panel its own cell opens can't drift into two
+  different numbers for the same thing (the exact class of bug the Pipeline/
+  deal value rule elsewhere in this doc was written to avoid). Actuals for the four remaining activity-type metrics are a straight count
   from the *same* `activities` array `ActivityCountsCard` already fetched
   for the period — no duplicate query. `order_value` has no timestamp of
   its own, so its actual is approximated via `stage_history`: sum
@@ -1583,7 +1676,7 @@ since it isn't part of the date-range-scoped report data.
   literal 5-step scale. A sales exec (nothing to compare against) keeps the
   plain bar-list at every width — every metric shown even with zero
   activity and no target row, `no target set` rendered explicitly rather
-  than the row being silently omitted. Every cell opens a drill-down: the 5
+  than the row being silently omitted. Every cell opens a drill-down: the 4
   activity-type cells fetch that one exec's real log entries on demand
   (`fetchActivityLogForExec`, only queried on click — not preloaded for
   everyone) and show a real "last 20 working days" logging-rhythm bar chart
@@ -1597,14 +1690,16 @@ since it isn't part of the date-range-scoped report data.
   per exec (`ExecAttainmentRow` in `TargetsVsActualsCard.jsx`) — name ·
   **blended attainment** % (same "mean of the metric ratios, each capped at
   1.25" definition `EmployeeProfile.jsx`'s rank pill uses, see the Sales
-  Exec Profile section, but scoped to all 8 `METRIC_OPTIONS` here rather
-  than that page's own 6 tiles, and skipping any metric with no target
-  rather than counting a missing target as a zero) · a single bar — reusing
+  Exec Profile section, but scoped to all 6 `METRIC_OPTIONS` here rather
+  than that page's own 6 tiles (a different 6 — see the note above on which
+  metrics changed), and skipping any metric with no target rather than
+  counting a missing target as a zero) · a single bar — reusing
   `.vip-detail-row`, the same tap-to-expand summary row Lead Detail's mobile
   collapsed sections already use, rather than a new component. Tapping a
   row expands it to that exec's full `METRIC_OPTIONS` breakdown (the exact
   same per-metric rows as before, just no longer all open at once) — same
-  data, ~employee-count rows instead of employee-count × 8. Verified live
+  data, ~employee-count rows instead of employee-count × 6 (originally × 8,
+  before Office Day/Booking Update/Offers Sent were dropped). Verified live
   in the browser preview: 6 real execs collapsed to 6 rows, tapping one
   (Priya, 34% attainment) expanded her 8 real metric rows with correct
   actual/target bars, collapsing back cleanly; desktop's heatmap is
@@ -2067,8 +2162,10 @@ function.
   unaffected — `queueActions` is false there, same plain `<Link>` as always.
 * **New Lead** (`LeadQuickCapture.jsx`) — reordered: **Where from** (the
   only required field) now comes first, Client name, Site nickname, then
-  "other party" collapsed behind a `.vip-disclosure-row` ("+ Architect /
-  PMC / someone else") until tapped or already filled. The sticky footer's
+  originally "other party" collapsed behind a `.vip-disclosure-row` ("+
+  Architect / PMC / someone else") until tapped or already filled — removed
+  in a later pass, see the LeadQuickCapture section above, so this field is
+  now always visible too. The sticky footer's
   Save button used to show a `.vip-offline-note` ("Offline — saves on this
   phone, syncs later") when `useOnlineStatus()` was false — removed, along
   with the matching "Works offline…" line in `FabSheet.jsx`'s footer,
@@ -2236,7 +2333,7 @@ renders) rather than assuming a fresh tab means a fresh session.
 ## Conventions
 
 - Secrets (Supabase URL/keys, etc.) go in a git-ignored `.env` file — never commit them. `.env.example` documents the required variable names with placeholders.
-- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Three migrations flagged as outstanding before the pilot — `parties.party_type`'s `'pmc'` value, `targets.period_type`'s `'quarter'` value, and the `lead_owner_history` table + its RLS policies — were all run live on 2026-08-09 via `Schema/migration_pilot_outstanding.sql` and re-verified end to end in the browser (created a `pmc` party from New Lead's "other party" field, saved a Quarter target, reassigned a lead's owner and confirmed a real history entry with the correct "changed by" attribution — a related bug in `insertLeadOwnerHistory`'s own `.select()` not fetching back `changed_by_employee`, caught during that verification, is fixed too). None of the three are outstanding anymore. Still outstanding: the Lead stage taxonomy rename (see its own section above) needs a one-time data migration run live — `ALTER TABLE leads ALTER COLUMN current_stage SET DEFAULT 'calling';`, then `UPDATE leads SET current_stage = 'calling' WHERE current_stage = 'new';`, `UPDATE leads SET current_stage = 'negotiation' WHERE current_stage = 'hot';`, `UPDATE leads SET current_stage = 'quote_submission' WHERE current_stage = 'quote';`, and the matching `UPDATE stage_history SET stage = 'negotiation' WHERE stage = 'hot';` / `UPDATE stage_history SET stage = 'quote_submission' WHERE stage = 'quote';` to keep the historical trail consistent. No CHECK constraint needs altering for this one (`current_stage`/`stage_history.stage` are both free text, and `follow_ups.activity_type`'s CHECK already allows the `'other'` value the On Hold flow uses) — until the `UPDATE`s run, live leads still sitting at the old `new`/`hot`/`quote` values will render as a plain grey "Other…" chip with their raw old value as the label, rather than a colored stage chip. A code-review pass also flagged the two columns every `own_data_or_owner_role_*` RLS policy filters on, `leads.owner_employee_id` and `activities.employee_id`, plus `stage_history(stage, changed_at)` (the columns `fetchWonStageHistory` filters/sorts on), as unindexed — every `leads`/`activities` query for every employee was a sequential scan on those columns. Fixed live via `idx_leads_owner`/`idx_activities_employee`/`idx_stage_history_stage_changed`, run 2026-08-09; `Schema/tostem_crm_schema.sql`'s own index list now includes all three so a fresh install gets them too.
+- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Three migrations flagged as outstanding before the pilot — `parties.party_type`'s `'pmc'` value, `targets.period_type`'s `'quarter'` value, and the `lead_owner_history` table + its RLS policies — were all run live on 2026-08-09 via `Schema/migration_pilot_outstanding.sql` and re-verified end to end in the browser (created a `pmc` party from New Lead's "other party" field, saved a Quarter target, reassigned a lead's owner and confirmed a real history entry with the correct "changed by" attribution — a related bug in `insertLeadOwnerHistory`'s own `.select()` not fetching back `changed_by_employee`, caught during that verification, is fixed too). None of the three are outstanding anymore. Still outstanding: the Lead stage taxonomy rename (see its own section above) needs a one-time data migration run live — `ALTER TABLE leads ALTER COLUMN current_stage SET DEFAULT 'calling';`, then `UPDATE leads SET current_stage = 'calling' WHERE current_stage = 'new';`, `UPDATE leads SET current_stage = 'negotiation' WHERE current_stage = 'hot';`, `UPDATE leads SET current_stage = 'quote_submission' WHERE current_stage = 'quote';`, and the matching `UPDATE stage_history SET stage = 'negotiation' WHERE stage = 'hot';` / `UPDATE stage_history SET stage = 'quote_submission' WHERE stage = 'quote';` to keep the historical trail consistent. No CHECK constraint needs altering for this one (`current_stage`/`stage_history.stage` are both free text, and `follow_ups.activity_type`'s CHECK already allows the `'other'` value the On Hold flow uses) — until the `UPDATE`s run, live leads still sitting at the old `new`/`hot`/`quote` values will render as a plain grey "Other…" chip with their raw old value as the label, rather than a colored stage chip. A code-review pass also flagged the two columns every `own_data_or_owner_role_*` RLS policy filters on, `leads.owner_employee_id` and `activities.employee_id`, plus `stage_history(stage, changed_at)` (the columns `fetchWonStageHistory` filters/sorts on), as unindexed — every `leads`/`activities` query for every employee was a sequential scan on those columns. Fixed live via `idx_leads_owner`/`idx_activities_employee`/`idx_stage_history_stage_changed`, run 2026-08-09; `Schema/tostem_crm_schema.sql`'s own index list now includes all three so a fresh install gets them too. Also outstanding: the new **Architect Meeting** activity type (see the ActivityLog section above) needs `Schema/migration_architect_meeting.sql` run live — it adds `'architect_meeting'` to both `activities.activity_type`'s and `follow_ups.activity_type`'s CHECK constraints (confirmed via a real live error that the former's constraint name is exactly `activities_activity_type_check`, as the migration assumes; the latter's name wasn't independently confirmed the same way, hence that file's own SELECT-first safety check). Until this runs, tapping Architect Meeting and submitting fails with a CHECK violation, surfaced as a normal inline error — everything up to that point (the architect search-or-create picker, the party insert if a new architect is typed) already works against the live DB today, since neither depends on this constraint.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`; **confirmed live** — `current_employee_id()`/`current_employee_role()` and every policy below have been run against the real project and verified: deactivating an employee (`employees.is_active = false` in Manage Employees) now actually revokes their database access, not just the client-side `ProtectedRoute` block): every policy that used to inline `(SELECT id/role FROM employees WHERE auth_user_id = auth.uid())`, or leave a table wide open with `USING (true)`/`WITH CHECK (true)`, now goes through one of two `SECURITY DEFINER` helper functions instead — `current_employee_id()`/`current_employee_role()`, both filtered to `is_active = true` and both resolving to `NULL` for a deactivated employee's row. That single change is what makes deactivating someone in Manage Employees actually revoke their access, not just hide the UI. `activities`/`leads`/`plans`/`targets` use "own data or owner role" (`employee_id`/`owner_employee_id` `= current_employee_id()`, or `current_employee_role() = 'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT requires `current_employee_role() IS NOT NULL` (i.e. "you resolve to some active employee" — this doesn't filter which employee rows come back, so an active owner still sees every row including inactive ones; it only gates whether a deactivated caller can query the table at all), INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`/`areas`/`site_contacts`/`products`/`stage_history`/`lead_owner_history` SELECT/INSERT now require `current_employee_role() IS NOT NULL` too — these used to be unconditionally `true` (open to any authenticated session regardless of `is_active`), which is exactly how a deactivated rep kept full access to the whole party directory even after being switched off. `sites`/`parties` UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts` UPDATE/DELETE stay owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products` UPDATE/DELETE owner-only. `stage_history`/`lead_owner_history` have no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT requires `current_employee_role() = 'owner'`, INSERT requires `current_employee_role() IS NOT NULL`, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it (`employee_id = current_employee_id()`, no `OR` branch); real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely and never calls these functions (`service_role` has no `auth.uid()`). A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
 - Deploying/configuring anything on Supabase's or Vercel's side still needs the user to do the parts that require *their own* credentials — the initial `supabase login` (interactive browser OAuth) and anything on Vercel's dashboard (env vars, redeploys) — and Edge Function secrets (`supabase secrets set ...`) are values only the user should be typing in, since a raw `service_role`/VAPID-private-key never belongs in this transcript's tool output. Once `supabase login`+`link` have been run locally, though, subsequent `supabase functions deploy`/`delete` calls work fine from a normal shell session on the same machine — this isn't a hard sandbox limitation the way the initial OAuth is. `supabase init` (to generate `supabase/config.toml`) may be needed before `link`/`deploy` will resolve the project correctly, even if `supabase/.temp/linked-project.json` already exists from an earlier `link` — the CLI keys its local cache off `config.toml`'s `project_id`, not just that temp file.

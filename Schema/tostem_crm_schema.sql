@@ -175,7 +175,7 @@ CREATE TABLE activities (
   party_id        INTEGER REFERENCES parties(id),
   lead_id         INTEGER REFERENCES leads(id),
   activity_type   TEXT NOT NULL CHECK (activity_type IN
-                    ('site_visit','call','rfq_raised','office_day','booking_update')),
+                    ('site_visit','call','rfq_raised','office_day','booking_update','architect_meeting')),
   accompanied_by  INTEGER REFERENCES employees(id) ON DELETE SET NULL,
   notes           TEXT,
   leads_generated INTEGER,   -- only used for 'office_day' entries
@@ -268,7 +268,7 @@ CREATE TABLE follow_ups (
   party_id       INTEGER REFERENCES parties(id),
   lead_id        INTEGER REFERENCES leads(id),
   activity_type  TEXT CHECK (activity_type IS NULL OR activity_type IN
-                    ('site_visit','call','rfq_raised','office_day','booking_update','other')),
+                    ('site_visit','call','rfq_raised','office_day','booking_update','architect_meeting','other')),
   title          TEXT NOT NULL,
   notes          TEXT,
   due_date       DATE NOT NULL,

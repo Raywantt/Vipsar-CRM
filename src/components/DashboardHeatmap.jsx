@@ -1,10 +1,16 @@
 import { useNavigate } from 'react-router-dom'
-import { ACTIVITY_TYPES } from '../lib/activityTypes'
+import { ACTIVITY_METRIC_OPTIONS } from '../lib/targetMetrics'
 import { getInitials } from '../lib/initials'
 import { computeOrderValueActuals, targetFor } from './TargetsVsActualsCard'
 import { buildOrderValueAttainPanel, buildOverallAttainPanel } from '../lib/drilldownBuilders'
 
-const COLS = [...ACTIVITY_TYPES, { value: 'order_value', label: 'Order value' }, { value: 'overall', label: 'Overall' }]
+// Driven off ACTIVITY_METRIC_OPTIONS (the targetable subset — see
+// targetMetrics.js) rather than raw ACTIVITY_TYPES, so a metric dropped from
+// targeting (Office Day, Booking Update) drops out of this heatmap too
+// instead of showing a column nothing can ever be targeted against.
+// won_count (Bookings) isn't a heatmap column either — it never was,
+// unaffected by this.
+const COLS = [...ACTIVITY_METRIC_OPTIONS, { value: 'order_value', label: 'Order value' }, { value: 'overall', label: 'Overall' }]
 
 // Literal 5-step attainment scale from the Claude Design mockup's own
 // `heatStyle()` — kept local since nothing else in the app needs this exact
@@ -73,7 +79,7 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, ran
 
             let pct = null
             if (c.value === 'overall') {
-              const metrics = [...ACTIVITY_TYPES.map((t) => t.value), 'order_value']
+              const metrics = [...ACTIVITY_METRIC_OPTIONS.map((t) => t.value), 'order_value']
               const ratios = metrics
                 .map((m) => {
                   const t = targetFor(targets, emp.id, m)

@@ -6,6 +6,7 @@ export const ACTIVITY_TYPES = [
   { value: 'rfq_raised', label: 'RFQ Raised' },
   { value: 'office_day', label: 'Office Day' },
   { value: 'booking_update', label: 'Booking Update' },
+  { value: 'architect_meeting', label: 'Architect Meeting' },
 ]
 
 export const ACTIVITY_LABELS = Object.fromEntries(ACTIVITY_TYPES.map((o) => [o.value, o.label]))

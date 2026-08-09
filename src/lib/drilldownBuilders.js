@@ -5,6 +5,7 @@
 // nothing in DrilldownPanel renders one, and none of these functions build
 // one.
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from './activityTypes'
+import { ACTIVITY_METRIC_OPTIONS } from './targetMetrics'
 import { LEAD_STAGE_OPTIONS, stageLabel } from './leadStageOptions'
 import { LOSS_REASON_OPTIONS } from './lossReasonOptions'
 import { stageChipClass, stageFg } from './statusColors'
@@ -185,9 +186,12 @@ export function buildActivitiesAttainPanel({ activities, targets, employees, ran
   }
 }
 
-// ---------- attain: one exec's blended attainment across all 6 metrics (heatmap "overall" column) ----------
+// ---------- attain: one exec's blended attainment across all 5 metrics (heatmap "overall" column) ----------
+// Metrics here must match DashboardHeatmap's own COLS (ACTIVITY_METRIC_OPTIONS
+// + order_value) exactly — this panel is what that heatmap's "Overall" cell
+// opens, so a mismatch would show a different number than the cell itself.
 export function buildOverallAttainPanel({ employee, targets, activities, wonStageHistory, range, rangeLabel }) {
-  const metrics = [...ACTIVITY_TYPES.map((t) => t.value), 'order_value']
+  const metrics = [...ACTIVITY_METRIC_OPTIONS.map((t) => t.value), 'order_value']
   const orderActual = computeOrderValueActuals(wonStageHistory, range, true).get(employee.id) ?? 0
   const rows = metrics.map((metric) => {
     const target = targetFor(targets, employee.id, metric)
@@ -206,11 +210,11 @@ export function buildOverallAttainPanel({ employee, targets, activities, wonStag
   return {
     kind: 'attain',
     eyebrow: `${employee.name} · overall`,
-    title: 'Blended attainment across all six targets',
+    title: 'Blended attainment across all five targets',
     value: overallPct != null ? `${overallPct}%` : '—',
-    note: `${rangeLabel}. Simple average of whichever of the six metrics have a target set for ${employee.name.split(' ')[0]}.`,
+    note: `${rangeLabel}. Simple average of whichever of the five metrics have a target set for ${employee.name.split(' ')[0]}.`,
     stats: [
-      { label: 'Overall', value: overallPct != null ? `${overallPct}%` : '—', sub: `${withTarget.length} of 6 have targets`, color: '#101617' },
+      { label: 'Overall', value: overallPct != null ? `${overallPct}%` : '—', sub: `${withTarget.length} of 5 have targets`, color: '#101617' },
       { label: 'Order value', value: formatCurrencyCompact(orderActual), sub: rows.find((r) => r.label === 'Order value')?.target != null ? `of ${formatCurrencyCompact(rows.find((r) => r.label === 'Order value').target)}` : 'no target set', color: '#101617' },
     ],
     contribTitle: 'Line by line',
