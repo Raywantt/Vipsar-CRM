@@ -1,7 +1,8 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { HeaderProvider } from './contexts/HeaderContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import ErrorBoundary from './components/ErrorBoundary'
 import OfflineIndicator from './components/OfflineIndicator'
 import InstallPrompt from './components/InstallPrompt'
 import NotificationPrompt from './components/NotificationPrompt'
@@ -15,6 +16,7 @@ import LeadDetail from './pages/LeadDetail'
 import EmployeeProfile from './pages/EmployeeProfile'
 import MyTeam from './pages/MyTeam'
 import ActivityLog from './pages/ActivityLog'
+import NotFound from './pages/NotFound'
 import './App.css'
 
 function App() {
@@ -25,6 +27,7 @@ function App() {
         <OfflineIndicator />
         <InstallPrompt />
         <NotificationPrompt />
+        <ErrorBoundary>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route
@@ -107,8 +110,9 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
+        </ErrorBoundary>
         </HeaderProvider>
       </BrowserRouter>
     </AuthProvider>
