@@ -237,8 +237,14 @@ function LeadDetail() {
     .filter(Boolean)
     .join(' · ')
 
-  // Stage stepper — built off FUNNEL_STAGES (the 8 fixed funnel stages),
-  // then adjusted for the two cases that aren't a plain walk through it:
+  // Stage stepper — built off FUNNEL_STAGES (the 8 fixed funnel stages)
+  // plus one more fixed slot at the very end, 'outcome': the real next step
+  // after Negotiation is always either Won or Lost, so that slot is always
+  // shown, not conditionally added once decided. It stays a neutral grey,
+  // unlabeled column (same as any other stage still to come) until the
+  // lead actually reaches one of the two — then it (and only it) takes on
+  // the real color and label for whichever one happened. There are still
+  // never two separate Won/Lost columns, just the one that fills in.
   // - on_hold: not a fixed slot — spliced in right after whichever funnel
   //   stage the lead actually paused at (e.g. paused after Quote
   //   submission inserts On hold between Quote submission and
@@ -246,10 +252,10 @@ function LeadDetail() {
   //   row. 'calling' has no explicit stage_history row when a lead has
   //   never been touched (DB default, not a logged "change" — same gap
   //   SalesFunnelCard already works around), so that lookup falls back to
-  //   created_at/'calling'.
-  // - won/lost: only ever one trailing cell, not two permanent slots —
-  //   whichever actually happened is appended after Negotiation; while a
-  //   lead is still open neither shows at all.
+  //   created_at/'calling'. 'outcome' still comes after it — a hold is a
+  //   pause, not a replacement of the eventual won/lost step.
+  const isDecidedWon = stage === 'won'
+  const isDecidedLost = stage === 'lost'
   const effectiveStage = isOnHold
     ? [...stageHistory].reverse().find((h) => h.stage !== 'on_hold')?.stage ?? 'calling'
     : stage
@@ -257,26 +263,37 @@ function LeadDetail() {
     ? (() => {
         const idx = FUNNEL_STAGES.indexOf(effectiveStage)
         const insertAt = idx === -1 ? FUNNEL_STAGES.length : idx + 1
-        return [...FUNNEL_STAGES.slice(0, insertAt), 'on_hold', ...FUNNEL_STAGES.slice(insertAt)]
+        return [...FUNNEL_STAGES.slice(0, insertAt), 'on_hold', ...FUNNEL_STAGES.slice(insertAt), 'outcome']
       })()
-    : stage === 'won' || stage === 'lost'
-      ? [...FUNNEL_STAGES, stage]
-      : FUNNEL_STAGES
-  const currentIdx = displayStages.indexOf(isOnHold ? 'on_hold' : stage)
+    : [...FUNNEL_STAGES, 'outcome']
+  const currentIdx = displayStages.indexOf(isOnHold ? 'on_hold' : isDecidedWon || isDecidedLost ? 'outcome' : stage)
   const stageEnteredAt = (s) => {
     const row = stageHistory.find((h) => h.stage === s)
     if (row) return row.changed_at
     return s === 'calling' ? lead.created_at : null
   }
-  const stageSteps = displayStages.map((s, i) => ({
-    stage: s,
-    // Reached (and current) stages show their real stage color; a stage
-    // still to come stays neutral grey rather than previewing a hue it
-    // hasn't earned yet.
-    bar: i <= currentIdx ? stageFg(s) : 'var(--vip-line-soft)',
-    isCurrent: i === currentIdx,
-    meta: i <= currentIdx ? shortDate(stageEnteredAt(s)) ?? 'not yet' : 'not yet',
-  }))
+  const stageSteps = displayStages.map((s, i) => {
+    if (s === 'outcome') {
+      const bar = isDecidedWon ? stageFg('won') : isDecidedLost ? stageFg('lost') : 'var(--vip-line-soft)'
+      const label = isDecidedWon ? stageLabel('won') : isDecidedLost ? stageLabel('lost') : 'Won / Lost'
+      const meta = isDecidedWon
+        ? shortDate(stageEnteredAt('won')) ?? 'not yet'
+        : isDecidedLost
+          ? shortDate(stageEnteredAt('lost')) ?? 'not yet'
+          : 'not yet'
+      return { stage: s, label, bar, isCurrent: i === currentIdx, meta }
+    }
+    return {
+      stage: s,
+      label: stageLabel(s),
+      // Reached (and current) stages show their real stage color; a stage
+      // still to come stays neutral grey rather than previewing a hue it
+      // hasn't earned yet.
+      bar: i <= currentIdx ? stageFg(s) : 'var(--vip-line-soft)',
+      isCurrent: i === currentIdx,
+      meta: i <= currentIdx ? shortDate(stageEnteredAt(s)) ?? 'not yet' : 'not yet',
+    }
+  })
   const daysInPipeline = daysBetween(lead.created_at, Date.now())
 
   const dealValue = Math.max(Number(lead.order_value ?? 0), Number(lead.quote_value ?? 0))
@@ -497,12 +514,12 @@ function LeadDetail() {
             <div
               key={s.stage}
               className={s.isCurrent ? 'vip-stepper-col vip-stepper-col-current' : 'vip-stepper-col'}
-              title={`${stageLabel(s.stage)} — ${s.meta}`}
+              title={`${s.label} — ${s.meta}`}
             >
               <div className="vip-stepper-bar" style={{ background: s.bar }} />
               {s.isCurrent && (
                 <>
-                  <span className="vip-stepper-label" style={{ fontWeight: 600, color: 'var(--vip-ink)' }}>{stageLabel(s.stage)}</span>
+                  <span className="vip-stepper-label" style={{ fontWeight: 600, color: 'var(--vip-ink)' }}>{s.label}</span>
                   <span className="vip-stepper-meta">{s.meta}</span>
                 </>
               )}

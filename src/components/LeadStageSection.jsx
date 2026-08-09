@@ -82,6 +82,18 @@ function LeadStageSection({ lead, leadTitle, onStageChanged }) {
   // confirmed — every other stage still applies immediately, unchanged.
   function requestStage(resolvedStage) {
     if (!resolvedStage || resolvedStage === lead.current_stage || saving || savingLoss || savingOnHold) return
+
+    // Picking a different chip discards whichever prompt is currently open
+    // (lost/on_hold) instead of leaving it lingering on screen — nothing
+    // was written for it yet (that's the whole point of gating), so there's
+    // nothing to undo, just state to clear. Without this, choosing e.g. RFQ
+    // while the lost-reason prompt was still open applied RFQ immediately
+    // but left the lost prompt (and its pendingStage) sitting there, so a
+    // stray later "Save & mark lost" click could still flip the lead back
+    // to lost even though the board now showed RFQ.
+    if (lossPromptOpen) cancelLossPrompt()
+    if (onHoldPromptOpen) cancelOnHoldPrompt()
+
     if (resolvedStage === 'lost') {
       setPendingStage(resolvedStage)
       setLossReason('')
