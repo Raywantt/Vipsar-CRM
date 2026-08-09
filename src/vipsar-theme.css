@@ -143,6 +143,11 @@ p  { margin: 0; text-wrap: pretty; }
 a { color: var(--vip-teal); text-decoration: none; }
 a:hover { color: var(--vip-teal-dark); text-decoration: underline; }
 
+/* Global keyboard-focus indicator — :focus-visible so it only shows for
+   keyboard/programmatic focus, not mouse clicks. Individual components
+   (form fields, chips) may still declare their own tighter outline. */
+:focus-visible { outline: 2px solid var(--vip-teal); outline-offset: 2px; }
+
 /* ---------- 2. App shell ------------------------------------------------- */
 /* This is the fix for the "stretched across the desktop" problem: the app is
    a phone-width column, centred, on the darker canvas. Never full-bleed. */

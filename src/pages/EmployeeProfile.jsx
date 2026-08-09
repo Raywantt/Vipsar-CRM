@@ -265,7 +265,7 @@ function EmployeeProfile() {
   }, [execName, setOverride])
 
   if (!viewer || (!isOwner && !isSelf)) return null
-  if (profileError) return <div className="vip-wide"><p className="vip-error">{profileError}</p></div>
+  if (profileError) return <div className="vip-wide"><p className="vip-error" role="alert">{profileError}</p></div>
   if (!profileEmployee) return <div className="vip-wide"><p className="vip-empty">Loading…</p></div>
 
   const actuals = {

@@ -366,7 +366,7 @@ function Dashboard() {
             onCustomEndChange={setCustomEnd}
           />
 
-          {error && <p className="vip-error">{error}</p>}
+          {error && <p className="vip-error" role="alert">{error}</p>}
           {!range && <p className="vip-empty">Pick both a start and end date.</p>}
 
           {/* KpiSparkRow now renders at every width — its own vip-dd-kpi-grid

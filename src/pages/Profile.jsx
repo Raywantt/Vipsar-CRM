@@ -129,7 +129,7 @@ function Profile() {
             {subscribed ? 'Reminders enabled on this device' : 'Get follow-up reminders on this device'}
           </label>
         )}
-        {notifError && <p className="vip-error">{notifError}</p>}
+        {notifError && <p className="vip-error" role="alert">{notifError}</p>}
       </div>
 
       <div className="vip-card">

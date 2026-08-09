@@ -57,7 +57,7 @@ function Login() {
           autoComplete="current-password"
           required
         />
-        {error && <p className="vip-error">{error}</p>}
+        {error && <p className="vip-error" role="alert">{error}</p>}
         <button className="vip-btn" type="submit" disabled={submitting}>
           {submitting ? 'Signing in…' : 'Log in'}
         </button>

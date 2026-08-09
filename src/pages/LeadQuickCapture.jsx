@@ -98,7 +98,7 @@ function LeadQuickCapture() {
   if (createdLead) {
     return (
       <div className="vip-card vip-narrow">
-        <p className="vip-success" style={{ fontSize: 15, fontWeight: 600 }}>
+        <p className="vip-success" role="status" aria-live="polite" style={{ fontSize: 15, fontWeight: 600 }}>
           Lead captured.
         </p>
         <div className="vip-facts" style={{ borderTop: 'none', paddingTop: 0 }}>
@@ -192,7 +192,7 @@ function LeadQuickCapture() {
         </button>
       )}
 
-      {submitError && <p className="vip-error">{submitError}</p>}
+      {submitError && <p className="vip-error" role="alert">{submitError}</p>}
 
       <div className="vip-form-note">
         Duplicate check runs on the name and mobile you type. Pick the existing record if it shows up.

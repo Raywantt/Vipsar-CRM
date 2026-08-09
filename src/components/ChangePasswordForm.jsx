@@ -76,8 +76,8 @@ function ChangePasswordForm({ email, onCancel }) {
         />
       </label>
 
-      {error && <p className="vip-error">{error}</p>}
-      {savedAt && !error && <p className="vip-success">Password changed.</p>}
+      {error && <p className="vip-error" role="alert">{error}</p>}
+      {savedAt && !error && <p className="vip-success" role="status" aria-live="polite">Password changed.</p>}
 
       <div className="vip-btn-row">
         <button className="vip-btn vip-btn-dark vip-btn-sm" type="submit" disabled={!canSubmit}>

@@ -243,7 +243,7 @@ function ActivityLog() {
   if (result) {
     return (
       <div className="vip-card vip-narrow">
-        <p className="vip-success" style={{ fontSize: 15, fontWeight: 600 }}>
+        <p className="vip-success" role="status" aria-live="polite" style={{ fontSize: 15, fontWeight: 600 }}>
           Activity logged.
         </p>
         <div className="vip-facts" style={{ borderTop: 'none', paddingTop: 0 }}>
@@ -268,7 +268,7 @@ function ActivityLog() {
         </div>
         {notes && <p className="vip-form-note">Notes: {notes}</p>}
         {result.warnings.map((w) => (
-          <p key={w} className="vip-error">
+          <p key={w} className="vip-error" role="alert">
             {w}
           </p>
         ))}
@@ -385,7 +385,7 @@ function ActivityLog() {
         </label>
       )}
 
-      {submitError && <p className="vip-error">{submitError}</p>}
+      {submitError && <p className="vip-error" role="alert">{submitError}</p>}
 
       <div className="vip-sticky-footer">
         <button className="vip-btn" type="submit" disabled={!canSubmit}>

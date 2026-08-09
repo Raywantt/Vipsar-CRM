@@ -96,7 +96,7 @@ function EmployeeRow({ emp, isSelf, onUpdated }) {
         </button>
       </div>
 
-      {error && <p className="vip-error">{error}</p>}
+      {error && <p className="vip-error" role="alert">{error}</p>}
     </div>
   )
 }

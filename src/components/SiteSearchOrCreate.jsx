@@ -183,7 +183,7 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
         </select>
       </label>
 
-      {areasError && <p className="vip-error">{areasError}</p>}
+      {areasError && <p className="vip-error" role="alert">{areasError}</p>}
       {!areaId && <p className="vip-form-note">Select an area to search nearby sites.</p>}
 
       {areaId && (
@@ -205,7 +205,7 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
           </div>
 
           {searching && <p className="vip-form-note">Searching…</p>}
-          {searchError && <p className="vip-error">{searchError}</p>}
+          {searchError && <p className="vip-error" role="alert">{searchError}</p>}
 
           {!creating && results.length > 0 && (
             <div className="vip-card">
@@ -250,7 +250,7 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
                 </label>
               )}
 
-              {createError && <p className="vip-error">{createError}</p>}
+              {createError && <p className="vip-error" role="alert">{createError}</p>}
 
               <div className="vip-btn-row">
                 <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={handleCreate} disabled={saving}>

@@ -101,8 +101,8 @@ function SiteDetailsSection({ site, areas, onSaved }) {
         </label>
       )}
 
-      {error && <p className="vip-error">{error}</p>}
-      {savedAt && !error && <p className="vip-success">Saved.</p>}
+      {error && <p className="vip-error" role="alert">{error}</p>}
+      {savedAt && !error && <p className="vip-success" role="status" aria-live="polite">Saved.</p>}
 
       <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={handleSave} disabled={saving}>
         {saving ? 'Saving…' : 'Save site details'}

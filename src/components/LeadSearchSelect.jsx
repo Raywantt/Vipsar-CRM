@@ -90,7 +90,7 @@ function LeadSearchSelect({ onSelect }) {
       </label>
 
       {loading && <p className="vip-form-note">Loading your leads…</p>}
-      {error && <p className="vip-error">{error}</p>}
+      {error && <p className="vip-error" role="alert">{error}</p>}
       {!loading && !error && leads.length === 0 && <p className="vip-form-note">You don't have any leads yet.</p>}
 
       {filtered.length > 0 && (

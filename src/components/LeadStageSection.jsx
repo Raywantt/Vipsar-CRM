@@ -257,8 +257,8 @@ function LeadStageSection({ lead, leadTitle, onStageChanged }) {
         ))}
       </div>
 
-      {error && <p className="vip-error">{error}</p>}
-      {savedAt && !error && <p className="vip-success">Stage updated.</p>}
+      {error && <p className="vip-error" role="alert">{error}</p>}
+      {savedAt && !error && <p className="vip-success" role="status" aria-live="polite">Stage updated.</p>}
 
       {lossPromptOpen && (
         <div className="vip-section-split vip-stack-s">
@@ -279,7 +279,7 @@ function LeadStageSection({ lead, leadTitle, onStageChanged }) {
             onChange={(e) => setLossCompetitor(e.target.value)}
             placeholder="Competitor name (optional)"
           />
-          {lossError && <p className="vip-error">{lossError}</p>}
+          {lossError && <p className="vip-error" role="alert">{lossError}</p>}
           <div className="vip-btn-row">
             <button
               type="button"
@@ -302,7 +302,7 @@ function LeadStageSection({ lead, leadTitle, onStageChanged }) {
           </div>
         </div>
       )}
-      {lossSaved && !lossPromptOpen && <p className="vip-success">Loss reason saved.</p>}
+      {lossSaved && !lossPromptOpen && <p className="vip-success" role="status" aria-live="polite">Loss reason saved.</p>}
 
       {onHoldPromptOpen && (
         <div className="vip-section-split vip-stack-s">
@@ -322,7 +322,7 @@ function LeadStageSection({ lead, leadTitle, onStageChanged }) {
             value={onHoldDueDate}
             onChange={(e) => setOnHoldDueDate(e.target.value)}
           />
-          {onHoldError && <p className="vip-error">{onHoldError}</p>}
+          {onHoldError && <p className="vip-error" role="alert">{onHoldError}</p>}
           <div className="vip-btn-row">
             <button
               type="button"
@@ -345,7 +345,7 @@ function LeadStageSection({ lead, leadTitle, onStageChanged }) {
           </div>
         </div>
       )}
-      {onHoldSaved && !onHoldPromptOpen && <p className="vip-success">On hold — reminder saved.</p>}
+      {onHoldSaved && !onHoldPromptOpen && <p className="vip-success" role="status" aria-live="polite">On hold — reminder saved.</p>}
 
       {wonPromptOpen && (
         <div className="vip-section-split vip-stack-s">
@@ -362,7 +362,7 @@ function LeadStageSection({ lead, leadTitle, onStageChanged }) {
             onChange={(e) => setWonOrderValue(e.target.value)}
             placeholder="Order value"
           />
-          {wonError && <p className="vip-error">{wonError}</p>}
+          {wonError && <p className="vip-error" role="alert">{wonError}</p>}
           <div className="vip-btn-row">
             <button
               type="button"
@@ -385,7 +385,7 @@ function LeadStageSection({ lead, leadTitle, onStageChanged }) {
           </div>
         </div>
       )}
-      {wonSaved && !wonPromptOpen && <p className="vip-success">Order value saved.</p>}
+      {wonSaved && !wonPromptOpen && <p className="vip-success" role="status" aria-live="polite">Order value saved.</p>}
     </div>
   )
 }

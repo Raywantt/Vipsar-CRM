@@ -90,8 +90,8 @@ function AddEmployeeForm({ onCreated, onCancel }) {
           />
         </label>
 
-        {error && <p className="vip-error">{error}</p>}
-        {savedAt && !error && <p className="vip-success">Employee added.</p>}
+        {error && <p className="vip-error" role="alert">{error}</p>}
+        {savedAt && !error && <p className="vip-success" role="status" aria-live="polite">Employee added.</p>}
 
         <div className="vip-btn-row">
           <button className="vip-btn vip-btn-secondary vip-btn-sm" type="submit" disabled={!canSubmit}>

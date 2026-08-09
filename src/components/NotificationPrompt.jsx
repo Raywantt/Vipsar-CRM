@@ -70,7 +70,7 @@ function NotificationPrompt() {
         </div>
       </div>
       {error && (
-        <p className="vip-error" style={{ marginTop: 6 }}>
+        <p className="vip-error" role="alert" style={{ marginTop: 6 }}>
           {error}
         </p>
       )}

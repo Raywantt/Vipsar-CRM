@@ -167,7 +167,7 @@ function FollowUpForm({ assignedTo, createdBy, onSaved, onCancel }) {
         <textarea className="vip-textarea" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </label>
 
-      {error && <p className="vip-error">{error}</p>}
+      {error && <p className="vip-error" role="alert">{error}</p>}
 
       <div className="vip-btn-row">
         <button type="button" className="vip-btn vip-btn-sm" disabled={!dueDate || !title.trim() || saving} onClick={handleSave}>

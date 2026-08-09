@@ -115,7 +115,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
             onChange={(e) => setSuggestionFirm(e.target.value)}
             placeholder="Firm name (optional)"
           />
-          {suggestionError && <p className="vip-error">{suggestionError}</p>}
+          {suggestionError && <p className="vip-error" role="alert">{suggestionError}</p>}
           <div className="vip-btn-row">
             <button
               type="button"
@@ -154,7 +154,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
             onChange={(e) => setNewContactFirm(e.target.value)}
             placeholder="Firm name (optional)"
           />
-          {newError && <p className="vip-error">{newError}</p>}
+          {newError && <p className="vip-error" role="alert">{newError}</p>}
           <div className="vip-btn-row">
             <button
               type="button"

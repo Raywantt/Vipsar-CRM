@@ -171,7 +171,7 @@ function PartySearchOrCreate({
             </select>
           </label>
         )}
-        {createError && <p className="vip-error">{createError}</p>}
+        {createError && <p className="vip-error" role="alert">{createError}</p>}
         <div className="vip-btn-row">
           <button
             type="button"
@@ -215,7 +215,7 @@ function PartySearchOrCreate({
       )}
 
       {searching && <p className="vip-form-note">Searching…</p>}
-      {searchError && <p className="vip-error">{searchError}</p>}
+      {searchError && <p className="vip-error" role="alert">{searchError}</p>}
 
       {results.length > 0 && (
         <div className="vip-card">

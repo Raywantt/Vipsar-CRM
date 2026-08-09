@@ -104,8 +104,8 @@ function SetTargetForm({ employees, onCreated, onCancel }) {
         />
       </div>
 
-      {error && <p className="vip-error">{error}</p>}
-      {savedAt && !error && <p className="vip-success">Saved.</p>}
+      {error && <p className="vip-error" role="alert">{error}</p>}
+      {savedAt && !error && <p className="vip-success" role="status" aria-live="polite">Saved.</p>}
 
       <div className="vip-btn-row">
         <button type="button" className="vip-btn vip-btn-dark vip-btn-sm" onClick={handleSubmit} disabled={!canSubmit}>

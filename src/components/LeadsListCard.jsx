@@ -329,7 +329,7 @@ function LeadsListCard({ isOwner, employees }) {
           {filtered.length} of {leads.length} lead{leads.length === 1 ? '' : 's'}
         </p>
       )}
-      {error && <p className="vip-error">{error}</p>}
+      {error && <p className="vip-error" role="alert">{error}</p>}
     </>
   )
 

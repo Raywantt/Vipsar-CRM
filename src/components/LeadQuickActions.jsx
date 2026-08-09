@@ -202,11 +202,11 @@ function LeadQuickActions({
         </div>
       )}
 
-      {followupError && <p className="vip-error">{followupError}</p>}
-      {followupSaved && !followupError && open === 'followup' && <p className="vip-success">Follow-up set.</p>}
-      {ownerError && <p className="vip-error">{ownerError}</p>}
-      {ownerHistoryWarning && <p className="vip-error">{ownerHistoryWarning}</p>}
-      {ownerSaved && !ownerError && open === 'owner' && <p className="vip-success">Owner reassigned.</p>}
+      {followupError && <p className="vip-error" role="alert">{followupError}</p>}
+      {followupSaved && !followupError && open === 'followup' && <p className="vip-success" role="status" aria-live="polite">Follow-up set.</p>}
+      {ownerError && <p className="vip-error" role="alert">{ownerError}</p>}
+      {ownerHistoryWarning && <p className="vip-error" role="alert">{ownerHistoryWarning}</p>}
+      {ownerSaved && !ownerError && open === 'owner' && <p className="vip-success" role="status" aria-live="polite">Owner reassigned.</p>}
     </div>
   )
 }

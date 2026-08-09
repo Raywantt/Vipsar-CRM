@@ -130,7 +130,7 @@ function MyTeam() {
         </div>
       )}
 
-      {error && <p className="vip-error">{error}</p>}
+      {error && <p className="vip-error" role="alert">{error}</p>}
 
       {loading ? (
         <p className="vip-empty">Loading…</p>
