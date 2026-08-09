@@ -522,6 +522,35 @@ the two markups can't drift on values; every other block on this page
 (target bar, work queue, reminders, closing next) is unchanged between
 mobile and desktop, just narrower inside `.vip-wide`'s desktop cap.
 
+**Real duplicate-fetch bug found and fixed** (a code-review finding, part of
+a broader "every dashboard downloads the whole company and reduces it in
+the browser" audit — the same performance-review lineage as Conventions'
+note on the `leads`/`activities` indexing fix, a separate earlier pass on
+the same theme): this page used to call
+`fetchLeadsForBreakdown()` — a full, unbounded `leads` scan — from two
+separate effects, once for the work-queue attention buckets and again for
+the KPI/target-bar numbers, so it fired twice on every load and a third
+time on every period (W/M/Q/Y) toggle even though neither of those figures
+is actually period-scoped (`breakdownLeads` is the same period-agnostic
+pipeline snapshot described in the Dashboard section's Pipeline/deal value
+bullet). Fixed by fetching it once into `breakdownLeads`/
+`lastActivityByLead` state and having both consumers read that instead —
+`attentionBuckets` is now a plain derived value, not its own fetch+state.
+Verified live with a `window.fetch` counter: one call on load (was two),
+zero on a period toggle (was one redundant refetch every time). The rest of
+that audit's findings — `EmployeeProfile`'s seven queries (four unbounded)
+refiring on its own period toggle, and moving the shared aggregations
+(`fetchLeadsForBreakdown`/`fetchLastActivityPerLead`/`fetchWonStageHistory`/
+`fetchDecidedStageHistory`/`fetchStageHistoryForFunnel`) into Postgres
+views/RPCs so a phone doesn't download and reduce the whole company's data
+client-side — are **not** fixed yet, deliberately deferred: harmless at the
+pilot's current ~76-lead volume, real schema work (views/RPCs need a
+migration only the user can run, see Conventions) worth doing closer to
+full rollout rather than against today's dummy data. See also the Search
+section's `fetchLeadsForPartyDirectory` bullet for the other half of that
+same audit that *was* worth fixing immediately (a pure client-side merge,
+no schema change).
+
 ### Search-before-create components
 
 `PartySearchOrCreate` and `SiteSearchOrCreate` (`src/components/`) share one
@@ -571,17 +600,24 @@ this searches across all three entities at once and neither party nor site
 results are meant to be created inline here (this is a lookup screen, not
 an intake screen).
 
-* **Parties** — `fetchAllParties`/`fetchPartyEmployeeLinks`/
-  `fetchLeadsByParty` (`src/lib/partyQueries.js`, the same three queries
-  `PartiesCard` used to fetch) load on mount, independent of the search
+* **Parties** — `fetchAllParties`/`fetchLeadsForPartyDirectory`
+  (`src/lib/partyQueries.js`) load on mount, independent of the search
   box — `parties` SELECT is open to everyone, so this is the full directory
-  regardless of role. The search box and a Type filter (a `Filters` toggle
-  revealing `vip-chip-select` pills, dynamically discovered from the data
-  the same way `PartiesCard` used to, plus the `vip-filter-chip`/"Clear
-  all" active-chip language `LeadsListCard`'s All Leads redesign
-  established) both apply **client-side and instantly** — no 2-character
-  minimum, no debounce, since it's a plain array filter over already-loaded
-  data. A **"Worked with"** list per row shows which employee(s) own a lead
+  regardless of role. `fetchLeadsForPartyDirectory` replaced two separate
+  full `leads` scans this screen used to run (`fetchPartyEmployeeLinks`/
+  `fetchLeadsByParty`, both gone now — the latter still exists for
+  `FollowUpForm`'s narrower single-party lookup, see the Follow-ups
+  section) that only differed in selected columns — a code-review finding
+  (flagged alongside the same unbounded-full-scan pattern on every
+  dashboard, see Conventions) that this screen in particular could just
+  merge into one query and derive both `employeeMap` and `partyLeadMap`
+  from it. The search box and a Type filter (a `Filters` toggle revealing
+  `vip-chip-select` pills, dynamically discovered from the data the same
+  way `PartiesCard` used to, plus the `vip-filter-chip`/"Clear all"
+  active-chip language `LeadsListCard`'s All Leads redesign established)
+  both apply **client-side and instantly** — no 2-character minimum, no
+  debounce, since it's a plain array filter over already-loaded data. A
+  **"Worked with"** list per row shows which employee(s) own a lead
   connected to that party (as `party_id`, `other_party_id`, or
   `referred_by_party_id`), derived client-side by `buildEmployeeMap` (a
   private helper local to `Search.jsx` now, not a shared export — it only
@@ -682,8 +718,20 @@ untouched, else `Open lead` — derived, not stored) and a **health pill**
 (from days-since-last-touch: Stale ≥14d / Cooling ≥7d / Active — same
 thresholds `attention.js` already uses elsewhere, not a second definition),
 sub-line (type · site · source · created). Below that, the original
-`vip-btn-row` ("Log activity" for non-owners, "Call client") is unchanged,
-followed by `LeadQuickActions.jsx` (**only if `canEdit`** —
+`vip-btn-row` ("Log activity" for non-owners, "Call client") is otherwise
+unchanged, but **"Log activity" is now a `<Link to="/activity?lead=<id>">`**
+(desktop and the mobile action bar's own copy of this button, see below),
+not a plain `<a href="/activity">` — a code-review finding: a bare `<a>`
+inside an SPA forces a full document reload (re-downloading the whole app
+shell, costly on the poor field connections this app is built for) and, more
+importantly, always landed on `ActivityLog`'s empty anchor picker even
+though the rep had just been looking at this exact lead. `ActivityLog.jsx`
+reads that `?lead=` param, fetches the lead, and preselects it (see its own
+section below) instead of making the rep find it again in
+`RecentLeadsPicker`/`LeadSearchSelect`. `Call client` stays a real `<a
+href="tel:...">`, unaffected — a `tel:` link isn't an in-app route, so
+there's no SPA navigation to preserve there. This row is followed by
+`LeadQuickActions.jsx` (**only if `canEdit`** —
 `isOwner || lead.owner_employee_id === employee.id`, same gate as before)
 — the three new quick actions from the handoff, each behind its own
 toggle button so at most one is open at a time:
@@ -1092,8 +1140,10 @@ activity-type tag once a party's linked, and an always-optional notes field.
   **party-only** in the UI — there's no separate "pick a lead" step — but
   `FollowUpForm` silently resolves that party's most recent lead app-side via
   the *existing* `fetchLeadsByParty`/`mostRecentLeadByParty` helpers in
-  `src/lib/partyQueries.js` (the same ones `Search` already uses for its
-  party directory's "worked with" links), and if one resolves, saving the
+  `src/lib/partyQueries.js` (`mostRecentLeadByParty` is shared with
+  `Search`'s own party directory too, off its `fetchLeadsForPartyDirectory`
+  query rather than this narrower single-purpose one — see the Search
+  section), and if one resolves, saving the
   follow-up **also** sets that lead's `next_followup_date` to the same due
   date in the same save call — mirrors `LeadQuickActions`' existing "Set
   follow-up" write exactly (a plain overwrite, not a merge), so this
@@ -1208,6 +1258,22 @@ but the live end-to-end push send needs a real phone once this ships.
 The Mobile redesign pass changed the anchor-picking step below (a
 `RecentLeadsPicker` radio list by default, "Search all" falls back to
 `LeadSearchSelect`) and added a sticky "Log it" footer — see that section.
+
+An optional `?lead=<id>` query param, read via `useSearchParams`, preselects
+a lead on load instead of leaving the anchor step blank — a code-review
+finding: Lead Detail's "Log activity" (see the Lead Profile section's
+Deal-progress-adjacent bullet above) used to link here with no context at
+all, so a rep who just opened this exact lead had to find it again from
+scratch in `RecentLeadsPicker`/`LeadSearchSelect`. On mount, if the param is
+present, the lead is fetched (same embed shape those two pickers already
+use) into `selectedLead`; once an activity type needing an anchor is
+picked, the "Against which lead?" section collapses straight to a single
+confirmation row (name + a "Change" link) instead of showing the picker at
+all — "Change" backs out to the normal `RecentLeadsPicker`/"Search all"
+flow for a different lead. "Log another activity" (the post-submit reset)
+restores the same preselected lead rather than clearing back to nothing,
+since a rep logging a Site Visit then a Call against the one lead they came
+from is the common case this was built for.
 
 DPR replacement at `/activity`, **sales_executive-only** (`ProtectedRoute`
 in `App.jsx`, plus the FAB sheet and sidebar nav link are both omitted for
@@ -1850,7 +1916,19 @@ function.
   absolutely-centred circle over 4 equal tabs — that clipped through the
   Dashboard label the first time this was built) opening `FabSheet.jsx`, a
   two-choice bottom sheet (New Lead / Log Activity — Log Activity omitted
-  for an owner, `/activity` is sales_executive-only). `src/lib/tabRoutes.js`
+  for an owner, `/activity` is sales_executive-only). **Real overlap bug
+  found and fixed** (a code-review finding): the FAB (60px tall, `bottom:
+  36px` inside an 82px slot) pokes 14px above the bar's own top edge, but
+  `.vip-body`'s base bottom padding only ever cleared the bar itself, not
+  that extra rise — so the last row of a tab route's scrollable content
+  (Today, the Leads tab, Search) could sit behind the button. Fixed with a
+  `.vip-pad-fab-overhang` utility (24px, mobile-only — same shape as
+  `.vip-pad-sticky-footer`'s clearance for a drilled route's sticky
+  footer, just for the three tab routes that actually show the FAB instead
+  of the routes that show a sticky footer) applied to each of those three
+  pages' own top-level wrapper div. Verified live at 375px: the last row on
+  both All Leads and Search now clears the FAB with visible whitespace.
+  `src/lib/tabRoutes.js`
   now holds the shared `TAB_ROUTES` set (`/`, `/search`, `/dashboard`) —
   `AppNav.jsx` reads it for the back-button gate, `ProtectedRoute.jsx` reads
   the same set to add a `.vip-drilled` class to `.vip-app` for every other
@@ -1960,6 +2038,12 @@ function.
   now sits at the top of this page — Home's old tile grid was My Team's
   *only* mobile entry point before this redesign removed it, so without
   this row an owner would have no way to reach `/team` on a phone at all.
+  **Real bug found and fixed**: this tile used to render outside
+  `Dashboard.jsx`'s `activeTab === 'reports'` branch entirely, so it also
+  showed on the All Leads view (`?tab=leads`) — a "Browse your sales team"
+  card sitting above the lead list, on a screen it has nothing to do with.
+  Moved inside the `reports` branch; verified live that it's gone from All
+  Leads and still shows on Reports.
 * **Search** (`Search.jsx`) — a mobile-only `.vip-seg` Parties/Leads/Sites
   switch (`.vip-search-hide-mobile`, a class with no rule outside
   `max-width: 1023.98px`) now shows one section at a time; desktop still
