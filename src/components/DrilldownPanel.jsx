@@ -88,7 +88,7 @@ const SWIPE_OPEN_THRESHOLD = 0.4 // README: "snap-back on release under 40% trav
 function AgeRowContent({ r }) {
   return (
     <>
-      <span className="vip-dd-age-bar" style={{ background: r.color ?? '#b4232a' }} />
+      <span className="vip-dd-age-bar" style={{ background: r.color ?? 'var(--vip-lost)' }} />
       <span className="vip-dd-age-main">
         <span className="vip-dd-age-head">
           <span className="vip-dd-age-party">{r.party}</span>
@@ -294,8 +294,7 @@ function AgeingBody({ panel }) {
           <span className="vip-action-panel-title">Set follow-up date</span>
           <input
             type="date"
-            className="vip-input"
-            style={{ minHeight: 34, padding: '4px 8px', width: 'auto', flex: '1 1 140px' }}
+            className="vip-input vip-input-inline"
             value={dateValue}
             onChange={(e) => setDateValue(e.target.value)}
           />
@@ -328,7 +327,7 @@ function AttainBody({ panel }) {
             <line x1="0" y1="84" x2="560" y2="84" stroke="var(--vip-line-soft)" strokeWidth="1" />
             <line x1="0" y1="42" x2="560" y2="42" stroke="var(--vip-line-soft)" strokeWidth="1" />
             {panel.pace.targetPath && (
-              <path d={panel.pace.targetPath} fill="none" stroke="#b4232a" strokeWidth="2" strokeDasharray="5 4" />
+              <path d={panel.pace.targetPath} fill="none" stroke="var(--vip-lost)" strokeWidth="2" strokeDasharray="5 4" />
             )}
             <path d={panel.pace.areaPath} fill="var(--vip-teal)" fillOpacity="0.09" />
             <path d={panel.pace.actualPath} fill="none" stroke="var(--vip-teal)" strokeWidth="2.5" strokeLinejoin="round" />
@@ -434,7 +433,7 @@ function WinRateBody({ panel }) {
           panel.execRows.map((e) => (
             <div key={e.name} className="vip-dd-contrib-row">
               <span className="vip-dd-contrib-label">{e.name}</span>
-              <span className="vip-dd-hint" style={{ flex: '0 0 90px' }}>
+              <span className="vip-dd-hint vip-dd-contrib-hint">
                 {e.won}W · {e.lost}L
               </span>
               <span className="vip-dd-contrib-value">{e.rate != null ? `${e.rate}%` : '—'}</span>
@@ -471,11 +470,11 @@ function ForecastBody({ panel }) {
 
       <div className="vip-dd-section">
         <div className="vip-dd-fc-head-row">
-          <span style={{ flex: 1 }}>Lead</span>
-          <span style={{ flex: '0 0 72px' }}>Owner</span>
-          <span style={{ flex: '0 0 92px' }}>Confidence</span>
-          <span style={{ flex: '0 0 58px', textAlign: 'right' }}>Value</span>
-          <span style={{ flex: '0 0 62px', textAlign: 'right' }}>Est. close</span>
+          <span>Lead</span>
+          <span>Owner</span>
+          <span>Confidence</span>
+          <span>Value</span>
+          <span>Est. close</span>
         </div>
         {panel.fcRows.map((f) => (
           <Link key={f.leadId} to={`/leads/${f.leadId}`} className="vip-dd-fc-row">
@@ -513,7 +512,7 @@ function MixBody({ panel }) {
               <span className="vip-dd-mix-legend-label">{m.label}</span>
               <span className="vip-dd-mix-legend-count">{m.count}</span>
               <span className="vip-dd-hint">{m.share}</span>
-              <span style={{ color: m.convColor, fontWeight: 600, fontSize: 11 }}>{m.conv}</span>
+              <span className="vip-dd-mix-legend-conv" style={{ color: m.convColor }}>{m.conv}</span>
             </div>
           ))}
         </div>

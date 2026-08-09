@@ -43,6 +43,24 @@ export function stageFg(stage) {
   return STAGE_FG[stage] ?? FALLBACK_FG
 }
 
+// Good/warn/bad traffic-light tones — for a lead's health/status pill, deal
+// stats, and any other computed-per-row tint. These used to be three
+// hardcoded hex constants (GOOD/OK/BAD) independently redeclared in
+// LeadDetail.jsx, EmployeeProfile.jsx, and MyTeam.jsx (not always even the
+// same shade — LeadDetail/EmployeeProfile's "OK" was #b8791f, MyTeam's was
+// #7a6413). Import from here instead of re-declaring a local copy; the
+// actual values live in vipsar-theme.css's --vip-status-* tokens so a
+// future dark-mode override only ever needs to change the CSS, not JS.
+export const TONE_GOOD = 'var(--vip-teal)'
+export const TONE_WARN = 'var(--vip-status-warn)'
+export const TONE_BAD = 'var(--vip-lost)'
+export const TONE_MID = 'var(--vip-status-mid)'
+export const TONE_NEUTRAL = 'var(--vip-status-neutral)'
+export const TONE_GOOD_SOFT = 'var(--vip-status-good-soft)'
+export const TONE_WARN_SOFT = 'var(--vip-status-warn-soft)'
+export const TONE_BAD_SOFT = 'var(--vip-status-bad-soft)'
+export const TONE_NEUTRAL_SOFT = 'var(--vip-status-neutral-soft)'
+
 // Sanity check in dev: every suggested stage should have an explicit color.
 if (import.meta.env.DEV) {
   const missing = LEAD_STAGE_OPTIONS.filter((s) => !STAGE_FG[s])

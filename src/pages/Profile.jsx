@@ -7,11 +7,18 @@ import ManageEmployeesSection from '../components/ManageEmployeesSection'
 import DeletePartySection from '../components/DeletePartySection'
 import ChangePasswordForm from '../components/ChangePasswordForm'
 import { errorMessage } from '../lib/errorMessage'
+import { getStoredTheme, setTheme } from '../lib/theme'
 
 const ROLE_LABELS = {
   owner: 'Owner',
   sales_executive: 'Sales Executive',
 }
+
+const THEME_OPTIONS = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+]
 
 function Profile() {
   const { employee, user, signOut } = useAuth()
@@ -27,6 +34,13 @@ function Profile() {
   const [addingEmployee, setAddingEmployee] = useState(false)
 
   const [changingPassword, setChangingPassword] = useState(false)
+
+  const [theme, setThemeChoice] = useState(getStoredTheme)
+
+  function handleThemeChange(value) {
+    setTheme(value)
+    setThemeChoice(value)
+  }
 
   useEffect(() => {
     setPermission(getPushPermissionState())
@@ -116,6 +130,23 @@ function Profile() {
           </label>
         )}
         {notifError && <p className="vip-error">{notifError}</p>}
+      </div>
+
+      <div className="vip-card">
+        <div className="vip-card-title">Appearance</div>
+        <div className="vip-seg vip-seg-outline">
+          {THEME_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={theme === opt.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+              onClick={() => handleThemeChange(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p className="vip-form-note">System matches your phone or browser's own light/dark setting.</p>
       </div>
 
       {/* Owner-only admin tooling — desktop only (design_handoff_vipsar_mobile:

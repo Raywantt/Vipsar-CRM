@@ -81,6 +81,24 @@
   --vip-lost:         #b4232a;
   --vip-lost-soft:    #fbeaea;
 
+  /* status tone tones — good/warn/bad traffic-light tinting for a lead's
+     health/status pill, deal stats, and similar computed-per-row colors.
+     --vip-teal/--vip-lost double as the good/bad foreground (same value as
+     above, no separate token needed); --vip-status-warn is a genuinely
+     different amber shade than --vip-amber (offline banner/RFQ), not an
+     alias of it. Was three near-identical GOOD/OK/BAD hex constants
+     redeclared per file (LeadDetail.jsx/EmployeeProfile.jsx/MyTeam.jsx) —
+     see src/lib/statusColors.js's TONE_* exports, the one place these
+     should be imported from now.
+     */
+  --vip-status-warn:         #b8791f;
+  --vip-status-mid:          #5f9a9a;  /* quoted-but-not-won bar fill */
+  --vip-status-good-soft:    #dbeceb;
+  --vip-status-warn-soft:    #f6ecdb;
+  --vip-status-bad-soft:     #f7dcdd;
+  --vip-status-neutral:      #5f6a6c;
+  --vip-status-neutral-soft: #eef0f0;
+
   /* type */
   --vip-display: Archivo, system-ui, sans-serif;      /* headings, numbers */
   --vip-sans: 'IBM Plex Sans', system-ui, sans-serif; /* body, UI */
@@ -107,7 +125,7 @@
   font: 400 15px/1.45 var(--vip-sans);
   color: var(--vip-body);
   background: var(--vip-canvas-2);
-  color-scheme: light;            /* NO dark mode in this app */
+  color-scheme: light;            /* dark overrides set this to `dark` — see section 22 */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -255,6 +273,10 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-card-note { font-size: 11px; color: var(--vip-muted); }
 .vip-empty { font-size: 13px; color: var(--vip-faint); padding: 2px 0 4px; }
 
+/* a whole-page loading/error/not-found message, standing in for real content */
+.vip-state-msg { padding: 24px; }
+.vip-state-msg-error { padding: 24px; color: var(--vip-lost); }
+
 /* Today's greeting bar — see section 21 for .vip-today-head/.vip-sync-pill,
    the Mobile Shell handoff's replacement for the old tile-based Home. */
 .vip-greeting {
@@ -329,6 +351,38 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-fact-value { font-size: 14px; font-weight: 500; color: var(--vip-ink); }
 .vip-fact-value.vip-num { font-variant-numeric: tabular-nums; }
 
+/* small key/value line — Lead Detail's rail (owner history, contact facts),
+   any future card needing the same "label ... bold value" row */
+.vip-kv-row { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--vip-faint); }
+.vip-kv-row b { font-weight: 600; color: var(--vip-ink); }
+.vip-kv-row-meta b { font-weight: 500; color: var(--vip-muted); white-space: nowrap; }
+.vip-rail-list { display: flex; flex-direction: column; gap: 6px; }
+.vip-rail-list-divided {
+  display: flex; flex-direction: column; gap: 5px;
+  padding-top: 9px; border-top: 1px solid var(--vip-line-soft);
+}
+
+/* a person-link row inside a card (Lead Detail's Deal owner) — avatar +
+   name/sub-line, not the full-page vip-profile-id band */
+.vip-owner-link { display: flex; align-items: center; gap: 11px; text-decoration: none; }
+.vip-owner-link-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vip-owner-link-name { font-size: 13px; font-weight: 600; color: var(--vip-ink); }
+.vip-owner-link-loc { font-size: 11px; color: var(--vip-faint); }
+.vip-profile-avatar-sm { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 11px; font-size: 12px; }
+
+/* one contact card inside Lead Detail's rail (site_contacts row) */
+.vip-contact-row { display: flex; flex-direction: column; gap: 3px; padding-bottom: 9px; border-bottom: 1px solid var(--vip-line-soft); }
+.vip-contact-row-head { display: flex; justify-content: space-between; gap: 8px; }
+.vip-contact-row-name { font-size: 12px; font-weight: 600; color: var(--vip-ink); }
+.vip-contact-row-role { font-size: 10px; color: var(--vip-faint); }
+.vip-contact-tel { font-size: 12px; }
+
+/* compact modifier for a card wanting the same avatar/meta shape as
+   .vip-profile-id but at page-header scale (Lead Detail, Sales Exec Profile) */
+.vip-profile-id-meta { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+.vip-flush { margin: 0; }
+
 /* compact matrix (activity by exec) */
 .vip-matrix-head {
   display: flex; align-items: center; gap: 9px;
@@ -374,6 +428,12 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
   flex: 0 0 44px; text-align: right; font-size: 11px; color: var(--vip-body);
   font-variant-numeric: tabular-nums;
 }
+.vip-bar-value-wide { flex-basis: 60px; }
+
+/* Lead Detail's Products in scope row — wider label than the generic
+   .vip-bar-label default, plus a trailing pending/quoted/ordered note */
+.vip-product-label { flex: 0 0 150px; font-size: 12px; color: var(--vip-ink); }
+.vip-product-status { flex: 0 0 60px; text-align: right; font-size: 10px; color: var(--vip-faint); }
 
 /* ---------- 6. Stage chips ---------------------------------------------- */
 .vip-chip {
@@ -459,6 +519,9 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
   outline: 2px solid var(--vip-teal); outline-offset: -1px;
 }
 .vip-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* an .vip-input sized to sit inline in a .vip-action-panel row rather than
+   take the full-width form default (the ageing drill-down's date sheet) */
+.vip-input-inline { min-height: 34px; padding: 4px 8px; width: auto; flex: 1 1 140px; }
 .vip-check {
   display: flex; align-items: center; gap: 9px;
   min-height: 32px; font-size: 13px; font-weight: 400; color: var(--vip-body);
@@ -513,7 +576,7 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-board { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
 .vip-board-col {
   flex: 0 0 180px; background: var(--vip-surface-soft);
-  border: 1px solid #e2e8e8; border-radius: 10px; padding: 10px;
+  border: 1px solid var(--vip-line); border-radius: 10px; padding: 10px;
   display: flex; flex-direction: column; gap: 9px;
 }
 .vip-board-head {
@@ -974,6 +1037,8 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-dd-contrib-track { flex: 0 0 96px; height: 10px; background: var(--vip-line-soft); border-radius: 3px; overflow: hidden; }
 .vip-dd-contrib-fill { display: block; height: 100%; background: var(--vip-teal); }
 .vip-dd-contrib-value { flex: 0 0 auto; text-align: right; font-size: 12px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
+/* Win-rate drill-down's "3W · 2L" hint sitting between label and value */
+.vip-dd-contrib-hint { flex: 0 0 90px; }
 
 /* pipeline kind: stage rows + conversion cards + top leads */
 .vip-dd-stage-row { display: flex; align-items: center; gap: 10px; }
@@ -1008,6 +1073,16 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-dd-fc-bar-fill { width: 100%; background: var(--vip-teal); border-radius: 5px 5px 0 0; }
 .vip-dd-fc-label { font-size: 11px; color: var(--vip-muted); }
 .vip-dd-fc-head-row { display: flex; gap: 10px; padding-bottom: 8px; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--vip-muted); }
+/* mirrors .vip-dd-fc-row's own column widths below (party-col/owner/prob/
+   value/close, in that order) — targeted positionally rather than by
+   reusing those row classes directly, since those also carry font-size/
+   color overrides this header row doesn't want (it's already styled by the
+   parent rule above). */
+.vip-dd-fc-head-row > span:nth-child(1) { flex: 1; }
+.vip-dd-fc-head-row > span:nth-child(2) { flex: 0 0 72px; }
+.vip-dd-fc-head-row > span:nth-child(3) { flex: 0 0 92px; }
+.vip-dd-fc-head-row > span:nth-child(4) { flex: 0 0 58px; text-align: right; }
+.vip-dd-fc-head-row > span:nth-child(5) { flex: 0 0 62px; text-align: right; }
 .vip-dd-fc-row {
   display: flex; gap: 10px; align-items: center; padding: 11px 0;
   border-top: 1px solid var(--vip-line-soft); text-decoration: none; cursor: pointer;
@@ -1033,6 +1108,7 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-dd-mix-legend-row { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--vip-line-soft); }
 .vip-dd-mix-legend-label { flex: 1; min-width: 0; font-size: 12px; color: var(--vip-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vip-dd-mix-legend-count { flex: 0 0 30px; text-align: right; font-size: 12px; font-weight: 600; color: var(--vip-ink); }
+.vip-dd-mix-legend-conv { font-weight: 600; font-size: 11px; }
 
 /* loss kind: competitor cards + lost-leads list (reuses vip-dd-lead-row/stage-row above) */
 .vip-dd-comp-row { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -1133,7 +1209,7 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-profile-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .vip-profile-avatar {
   width: 52px; height: 52px; flex: 0 0 52px; border-radius: 14px;
-  background: #283236; color: var(--vip-on-shell);
+  background: var(--vip-shell-2); color: var(--vip-on-shell);
   display: grid; place-items: center;
   font-family: var(--vip-display); font-weight: 600; font-size: 16px;
 }
@@ -1201,6 +1277,7 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-stepper-col-current { flex: 6 1 0; }
 .vip-stepper-bar { height: 6px; border-radius: 3px; }
 .vip-stepper-label { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vip-stepper-col-current .vip-stepper-label { font-weight: 600; color: var(--vip-ink); }
 .vip-stepper-meta { font-size: 10px; color: var(--vip-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* inline quick-action panel (Change stage / Set follow-up / Reassign owner) */
@@ -1223,6 +1300,18 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-linegrid-head span { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--vip-faint); }
 .vip-linegrid-row { display: grid; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--vip-line-soft); }
 .vip-linegrid-row:last-child { border-bottom: 0; }
+/* the one 5-column layout this grid is used for today (Quotes & orders) —
+   was an identical inline grid-template-columns on the head row and every
+   data row; a second consumer would add its own .vip-linegrid-<name>
+   rather than reopen this one. */
+.vip-linegrid-quotes { grid-template-columns: 64px minmax(0,1.4fr) 84px 64px 84px; }
+/* desktop-only — the header label inherits its 9px uppercase treatment from
+   .vip-linegrid-head span regardless (higher-specificity descendant rule),
+   this font-size only actually applies to the data row's own status cell */
+.vip-linegrid-quotes-status { text-align: right; font-size: 10px; }
+.vip-linegrid-scope { font-size: 12px; color: var(--vip-ink); }
+.vip-linegrid-value { font-size: 11px; color: var(--vip-body); }
+.vip-linegrid-date { font-size: 11px; color: var(--vip-faint); }
 
 /* Mobile stand-in for the fixed-column grid above (LeadDetail's Quotes &
    orders) — below 1024px, 64px minmax(0,1.4fr) 84px 64px 84px doesn't fit a
@@ -1232,6 +1321,13 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
    instead of trying to salvage the grid — see .vip-only-mobile there. */
 .vip-linegrid-mrow { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--vip-line-soft); }
 .vip-linegrid-mrow:last-child { border-bottom: 0; }
+.vip-linegrid-mrow-top { display: flex; align-items: baseline; gap: 8px; }
+.vip-linegrid-mrow-bottom { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.vip-linegrid-mrow-ref { font-size: 11px; color: var(--vip-faint); }
+.vip-linegrid-mrow-title { font-size: 14px; font-weight: 600; color: var(--vip-ink); }
+.vip-linegrid-mrow-value { font-weight: 600; color: var(--vip-body); }
+.vip-linegrid-mrow-meta { color: var(--vip-faint); }
+.vip-linegrid-mrow-status { font-weight: 600; }
 
 @media (min-width: 1024px) {
   .vip-profile-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start; }
@@ -1259,7 +1355,7 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-team-card-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .vip-team-avatar {
   width: 44px; height: 44px; flex: 0 0 44px; border-radius: 12px;
-  background: #283236; color: var(--vip-on-shell);
+  background: var(--vip-shell-2); color: var(--vip-on-shell);
   display: grid; place-items: center;
   font-family: var(--vip-display); font-weight: 600; font-size: 14px;
 }
@@ -1612,5 +1708,144 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
   /* Scrollable content behind a sticky footer needs its own clearance so
      the footer doesn't permanently cover the last field/row. */
   .vip-pad-sticky-footer { padding-bottom: 88px; }
+}
+
+/* ---------- 22. Dark mode -----------------------------------------------
+   The theme was already fully tokenised (every card/text/border color in
+   this file reads a --vip-* custom property, never a literal hex) except
+   two spots fixed alongside this section — .vip-profile-avatar/.vip-team-
+   avatar's background repeated --vip-shell-2's literal value instead of
+   referencing it, and .vip-board-col's border was a bare hex never pulled
+   from --vip-line — plus the 11 .vip-chip-<stage> pairs (section 6), which
+   were never tokens at all (each stage's own bg/fg, not reused anywhere
+   else, so there was nothing to gain from a --vip-chip-* custom property
+   over overriding the class rule directly here). That's what makes this
+   section possible as "just redefine the tokens" rather than a per-page
+   rewrite: nearly everything downstream repaints correctly for free.
+
+   Two ways in: the @media block below is the *system* signal (a rep's
+   phone already in dark mode gets this with zero action from them); the
+   `data-theme` attribute is the *manual* override Profile's Appearance
+   toggle sets via src/lib/theme.js — 'light'/'dark' write the attribute,
+   'system' removes it and falls back to the media query. The
+   `:not([data-theme="light"])` guard is what lets one dark token block
+   serve both "system prefers dark, no override" and "system prefers dark,
+   user explicitly picked dark" without writing the same ~30 properties a
+   third time for an explicit-light block — forcing light against a dark
+   system only ever needs to *suppress* the media query, not redeclare
+   values that are already the file's own light-mode defaults above.
+
+   --vip-shell-*, --vip-on-shell-*, and --vip-amber are deliberately untouched here:
+   the header/bottom-nav/login screen are already a dark chrome regardless
+   of app theme (see section 13's own heading), and --vip-amber is only
+   ever used as a colored background with white text on top (the offline
+   banner, the sync-dot) — self-contained either way, nothing to invert.
+   Every accent that also doubles as on-card *text* (teal, navy, won, lost,
+   the status-tone set from src/lib/statusColors.js) is genuinely
+   re-picked, not just lightened by a fixed formula — the light-mode values
+   are dark, saturated colors chosen to read as text on white; unchanged,
+   they'd be nearly invisible as text on the dark surfaces below.
+
+   Known gap, not fixed here: a handful of decorative one-off accents never
+   went through a token in the first place and aren't touched by this
+   section either — DashboardHeatmap.jsx's attainment-tier colors and the
+   activity-mix sparkline/rhythm-bar tints (.vip-dd-kpi-spark-up/-down,
+   .vip-dd-rhythm-filled, .vip-chart-ytick) are pale accents computed/
+   hardcoded outside vipsar-theme.css's token system. They stay legible
+   against a dark card (they're colored fills, not the only source of
+   contrast for text), just not re-tuned for it — a follow-up, same as any
+   other "flagged, not yet fixed" item elsewhere in this file's comments. */
+:root[data-theme="dark"] {
+  --vip-canvas:       #191e20;
+  --vip-canvas-2:     #14181a;
+  --vip-surface:      #20262a;
+  --vip-surface-soft: #262d30;
+  --vip-track:        #2a3134;
+
+  --vip-line:         #333c3f;
+  --vip-line-soft:    #262d30;
+  --vip-field-line:   #3a4448;
+
+  --vip-ink:          #eef1f1;
+  --vip-body:         #c3cbcc;
+  --vip-muted:        #93a0a2;
+  --vip-faint:        #74807f;
+
+  --vip-teal:         #3a9d95;
+  --vip-teal-dark:    #52b6ad;
+  --vip-teal-soft:    #16302e;
+  --vip-navy:         #6fa0c2;
+  --vip-won:          #3ea968;
+  --vip-won-soft:     #16321f;
+  --vip-lost:         #e05a5a;
+  --vip-lost-soft:    #3a1c1e;
+
+  --vip-status-warn:         #d9a53f;
+  --vip-status-good-soft:    #17332f;
+  --vip-status-warn-soft:    #3a2f14;
+  --vip-status-bad-soft:     #3a1c1e;
+  --vip-status-neutral:      #9aa4a5;
+  --vip-status-neutral-soft: #2a3134;
+
+  color-scheme: dark;
+}
+:root[data-theme="dark"] .vip-chip-calling            { background: #16283a; color: #7ab2e6; }
+:root[data-theme="dark"] .vip-chip-presentation       { background: #17324a; color: #8dc2ef; }
+:root[data-theme="dark"] .vip-chip-joinery_follow_up  { background: #142a42; color: #6fa8dd; }
+:root[data-theme="dark"] .vip-chip-measurements       { background: #112238; color: #5f95cf; }
+:root[data-theme="dark"] .vip-chip-design_discussion  { background: #362c14; color: #e3b354; }
+:root[data-theme="dark"] .vip-chip-rfq                { background: #3a2c10; color: #e0ab3f; }
+:root[data-theme="dark"] .vip-chip-quote_submission   { background: #3d2c0a; color: #dba52c; }
+:root[data-theme="dark"] .vip-chip-negotiation        { background: #16321f; color: #6fce8c; }
+:root[data-theme="dark"] .vip-chip-on_hold            { background: #262d30; color: #9aa4a5; }
+:root[data-theme="dark"] .vip-chip-won                { background: #123821; color: #57d187; }
+:root[data-theme="dark"] .vip-chip-lost               { background: #3a1c1e; color: #e2696d; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --vip-canvas:       #191e20;
+    --vip-canvas-2:     #14181a;
+    --vip-surface:      #20262a;
+    --vip-surface-soft: #262d30;
+    --vip-track:        #2a3134;
+
+    --vip-line:         #333c3f;
+    --vip-line-soft:    #262d30;
+    --vip-field-line:   #3a4448;
+
+    --vip-ink:          #eef1f1;
+    --vip-body:         #c3cbcc;
+    --vip-muted:        #93a0a2;
+    --vip-faint:        #74807f;
+
+    --vip-teal:         #3a9d95;
+    --vip-teal-dark:    #52b6ad;
+    --vip-teal-soft:    #16302e;
+    --vip-navy:         #6fa0c2;
+    --vip-won:          #3ea968;
+    --vip-won-soft:     #16321f;
+    --vip-lost:         #e05a5a;
+    --vip-lost-soft:    #3a1c1e;
+
+    --vip-status-warn:         #d9a53f;
+    --vip-status-good-soft:    #17332f;
+    --vip-status-warn-soft:    #3a2f14;
+    --vip-status-bad-soft:     #3a1c1e;
+    --vip-status-neutral:      #9aa4a5;
+    --vip-status-neutral-soft: #2a3134;
+
+    color-scheme: dark;
+  }
+  :root:not([data-theme="light"]) .vip-chip-calling            { background: #16283a; color: #7ab2e6; }
+  :root:not([data-theme="light"]) .vip-chip-presentation       { background: #17324a; color: #8dc2ef; }
+  :root:not([data-theme="light"]) .vip-chip-joinery_follow_up  { background: #142a42; color: #6fa8dd; }
+  :root:not([data-theme="light"]) .vip-chip-measurements       { background: #112238; color: #5f95cf; }
+  :root:not([data-theme="light"]) .vip-chip-design_discussion  { background: #362c14; color: #e3b354; }
+  :root:not([data-theme="light"]) .vip-chip-rfq                { background: #3a2c10; color: #e0ab3f; }
+  :root:not([data-theme="light"]) .vip-chip-quote_submission   { background: #3d2c0a; color: #dba52c; }
+  :root:not([data-theme="light"]) .vip-chip-negotiation        { background: #16321f; color: #6fce8c; }
+  :root:not([data-theme="light"]) .vip-chip-on_hold            { background: #262d30; color: #9aa4a5; }
+  :root:not([data-theme="light"]) .vip-chip-won                { background: #123821; color: #57d187; }
+  :root:not([data-theme="light"]) .vip-chip-lost               { background: #3a1c1e; color: #e2696d; }
 }
 

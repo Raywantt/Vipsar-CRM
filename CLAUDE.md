@@ -177,8 +177,10 @@ src/
                 targetMetrics.js, targetPeriods.js, targetQueries.js,
                 partyQueries.js, employeeQueries.js, leadOwnerHistory.js,
                 tabRoutes.js, attention.js, drilldownBuilders.js,
-                followUpQueries.js, followupDates.js, pushSubscription.js —
-                `homeTiles.js` is deleted, see the Mobile redesign section)
+                followUpQueries.js, followupDates.js, pushSubscription.js,
+                theme.js — light/dark override, see the Design system
+                section's Dark mode bullet — `homeTiles.js` is deleted, see
+                the Mobile redesign section)
   assets/       images, icons, etc.
   vipsar-theme.css   the app's one design-system stylesheet — see Design
                 system below
@@ -499,6 +501,85 @@ approximation of it.** Concretely:
   Needs Attention card's matching row call the exact same
   `buildAgeingPanel(staleBucket)`, and "Leads by stage (detail)" opens the
   identical panel Pipeline-by-stage's own "Details" link does.
+* **Color tokens** — a code-review finding flagged 216 inline `style={{}}`
+  objects and 85 hardcoded hex colors across `src/`, worst in
+  `LeadDetail.jsx` (46 inline styles) and `DrilldownPanel.jsx` (24) — plus
+  `GOOD`/`OK`/`BAD` traffic-light constants independently redeclared (and,
+  between `LeadDetail.jsx`/`EmployeeProfile.jsx` vs `MyTeam.jsx`, not even
+  agreeing with each other — `#b8791f` vs `#7a6413` for "OK") in three
+  separate files, against this section's own "never per-component CSS, add
+  a `vip-` class instead" rule. Fixed in `LeadDetail.jsx` and
+  `DrilldownPanel.jsx` first (216→177 inline styles between the two, 0
+  hardcoded hex in either, remainder verified to be legitimately
+  per-row/per-state computed values, not reachable via a static class) —
+  `EmployeeProfile.jsx`/`MyTeam.jsx` still have the same unfixed pattern,
+  left for a follow-up pass rather than widened here. New shared tone
+  tokens (`--vip-status-warn`/`-good-soft`/`-warn-soft`/`-bad-soft`/
+  `-neutral`/`-neutral-soft`/`-mid`, `--vip-teal`/`--vip-lost` doubling as
+  the good/bad foreground) live in `vipsar-theme.css`; `src/lib/
+  statusColors.js` exports them as `TONE_GOOD`/`TONE_WARN`/`TONE_BAD`/etc.
+  — the one place a health/status pill or deal-stat color should be read
+  from now, not a locally redeclared hex constant. A handful of new
+  `vip-`-prefixed shape classes (`vip-kv-row`, `vip-owner-link`,
+  `vip-contact-row`, `vip-linegrid-quotes`/`-scope`/`-value`/`-date`, a
+  `.vip-stepper-col-current .vip-stepper-label` descendant rule, etc.)
+  replaced the recurring inline layout objects those two files had been
+  reimplementing per instance. One real duplication bug caught in the
+  process: `DrilldownPanel.jsx`'s forecast-panel header row
+  (`.vip-dd-fc-head-row`'s five `<span>`s) reimplemented via inline
+  `style={{flex: ...}}` the exact column widths its own data-row classes
+  (`.vip-dd-fc-owner`/`-prob`/`-value`/`-close`) already declared — fixed
+  with a positional `.vip-dd-fc-head-row > span:nth-child(n)` rule instead
+  of reusing those classes directly (which also carry font-size/color
+  overrides the header row doesn't want). Verified live against real leads
+  in every state this touched (on-hold, at-risk/stale, won-with-quote-and-
+  order) at desktop and mobile widths, plus the Forecast and Mix
+  drill-downs — every computed style matched the pre-refactor value exactly.
+* **Dark mode** (`src/lib/theme.js`, section 22 of `vipsar-theme.css`) —
+  the theme being fully tokenized (see the Color tokens bullet just above)
+  is what made this a `@media (prefers-color-scheme: dark)` block plus a
+  `:root[data-theme]` override, not a per-page rewrite: nearly every
+  card/text/border color downstream repaints for free. Two ways in: system
+  preference (automatic, zero action needed) and a manual override, three-
+  way **Light/Dark/System** segmented control in Profile's new
+  **Appearance** card (see the Profile section below) — `system` removes
+  the `data-theme` attribute entirely and falls back to the media query,
+  `light`/`dark` pin it regardless of the OS setting. The dark block's own
+  selector is `:root:not([data-theme="light"])` inside the media query —
+  that guard is what lets one ~30-property token list serve both "system
+  prefers dark, no override" and "system prefers dark, user picked dark"
+  without a third near-duplicate block just to force light against a dark
+  system (forcing light only ever needs to *suppress* the media query, not
+  redeclare values that are already the file's own light-mode defaults).
+  `index.html` has a tiny inline `<script>` (before any CSS/JS loads) that
+  reads the same `vip-theme` localStorage key and sets the attribute pre-
+  paint, so a stored choice never flashes the wrong theme for a frame —
+  keep it in sync with `theme.js` if that key ever changes. The 11
+  `.vip-chip-<stage>` pairs (section 6) got hand-picked dark equivalents
+  too (they were never tokens to begin with — nothing else reuses a single
+  stage's color, so there was no reuse case for promoting them to custom
+  properties, just an override per class per theme block). `--vip-shell-*`/
+  `--vip-on-shell-*`/`--vip-amber` are deliberately untouched — the header/
+  bottom-nav/login screen are already a dark chrome regardless of app
+  theme (section 13), and `--vip-amber` is only ever a colored background
+  with white text on top (offline banner, sync-dot), never on-card text, so
+  there was nothing to invert. **Known gap, not fixed here**: a few
+  decorative one-off accents never went through a token at all —
+  `DashboardHeatmap.jsx`'s attainment-tier colors and the activity-mix
+  sparkline/rhythm-bar tints (`.vip-dd-kpi-spark-up`/`-down`,
+  `.vip-dd-rhythm-filled`, `.vip-chart-ytick`) — still legible against a
+  dark card (they're colored fills, not the only source of contrast for
+  text) but not re-tuned for it. Verified live: system-dark auto-detect,
+  an explicit Light override correctly winning even with the OS in dark
+  mode, explicit Dark, persistence across a real reload with no flash, and
+  visual correctness (chips, pills, deal stats) across Lead Detail, the All
+  Leads stage list, and Home — both desktop and mobile. **Testing gotcha
+  worth knowing**: this app's own service worker precaches `index.html`
+  (see PWA installability below), so an already-installed SW from earlier
+  in a session keeps serving the old cached shell even after a fresh
+  `npm run build` — unregister it (or bump past its update cycle) before
+  trusting what a preview tab shows for an `index.html`-level change like
+  this one.
 
 ### Today (`src/pages/Home.jsx`)
 
@@ -1813,6 +1894,10 @@ Top to bottom:
   the old `Account` page's own facts card.
 * **Notifications** — unchanged from `Account`, see the Follow-ups section
   above.
+* **Appearance** (new — both roles, every width, unlike the owner-only
+  admin block below) — a Light/Dark/System `vip-seg-outline` control over
+  `src/lib/theme.js`'s `getStoredTheme`/`setTheme`; see the Design system
+  section's Dark mode bullet for how the token side of this works.
 * **Owner-only settings** (`{isOwner && ...}`, same `employees` state /
   `upsertEmployee` lifted-and-shared pattern the old `Settings.jsx` used) —
   * **Add employee** (`AddEmployeeForm.jsx`) — now collapsed behind a

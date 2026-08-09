@@ -14,7 +14,7 @@ import { fetchLeadOwnerHistory } from '../lib/leadOwnerHistory'
 import { fetchLatestFollowUpForLead } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
-import { stageFg } from '../lib/statusColors'
+import { stageFg, TONE_GOOD, TONE_WARN, TONE_BAD, TONE_MID, TONE_GOOD_SOFT, TONE_WARN_SOFT, TONE_BAD_SOFT, TONE_NEUTRAL, TONE_NEUTRAL_SOFT } from '../lib/statusColors'
 import { getInitials } from '../lib/initials'
 import { formatCurrency, formatCurrencyCompact } from '../lib/format'
 
@@ -25,10 +25,6 @@ const SOURCE_LABELS = {
   referral_other: 'Other referral',
   showroom_walkin: 'Showroom walk-in',
 }
-
-const GOOD = '#0f6b6b'
-const OK = '#b8791f'
-const BAD = '#b4232a'
 
 // Stage-default probability when closure_probability hasn't been set
 // explicitly on the lead (DATA_CONTRACT.md §4) — adapted to this app's own
@@ -199,9 +195,9 @@ function LeadDetail() {
     return () => setOverride(null)
   }, [lead, leadTitle, setOverride])
 
-  if (loading) return <p style={{ padding: 24 }}>Loading…</p>
-  if (loadError) return <p style={{ padding: 24, color: 'crimson' }}>{loadError}</p>
-  if (!lead) return <p style={{ padding: 24 }}>Lead not found.</p>
+  if (loading) return <p className="vip-state-msg">Loading…</p>
+  if (loadError) return <p className="vip-state-msg-error">{loadError}</p>
+  if (!lead) return <p className="vip-state-msg">Lead not found.</p>
 
   // RLS already refuses the actual UPDATE for a non-owning sales exec — this
   // is the UI-level mirror of that, so they see a clear read-only notice
@@ -214,19 +210,19 @@ function LeadDetail() {
   const isOnHold = stage === 'on_hold'
   const isOpen = !['won', 'lost'].includes(stage)
   const touchDays = daysBetween(lastActivityAt, Date.now())
-  const touchColor = touchDays >= 14 ? BAD : touchDays >= 7 ? OK : GOOD
+  const touchColor = touchDays >= 14 ? TONE_BAD : touchDays >= 7 ? TONE_WARN : TONE_GOOD
   const isAtRisk = isOpen && !isOnHold && touchDays >= 14
 
   const statusLabel = isWon ? 'Customer' : isOnHold ? 'On hold' : isAtRisk ? 'At risk' : 'Open lead'
   const statusStyle = isWon
-    ? { bg: '#dbeceb', fg: GOOD }
+    ? { bg: TONE_GOOD_SOFT, fg: TONE_GOOD }
     : isOnHold
-      ? { bg: '#eef0f0', fg: '#5f6a6c' }
+      ? { bg: TONE_NEUTRAL_SOFT, fg: TONE_NEUTRAL }
       : isAtRisk
-        ? { bg: '#f7dcdd', fg: BAD }
+        ? { bg: TONE_BAD_SOFT, fg: TONE_BAD }
         : { bg: 'var(--vip-canvas-2)', fg: 'var(--vip-body)' }
   const healthLabel = touchDays >= 14 ? `Stale · ${touchDays}d no touch` : touchDays >= 7 ? `Cooling · ${touchDays}d` : `Active · ${touchDays}d ago`
-  const healthStyle = touchDays >= 14 ? { bg: '#f7dcdd', fg: BAD } : touchDays >= 7 ? { bg: '#f6ecdb', fg: OK } : { bg: '#dbeceb', fg: GOOD }
+  const healthStyle = touchDays >= 14 ? { bg: TONE_BAD_SOFT, fg: TONE_BAD } : touchDays >= 7 ? { bg: TONE_WARN_SOFT, fg: TONE_WARN } : { bg: TONE_GOOD_SOFT, fg: TONE_GOOD }
 
   const leadSubtitle = [
     party?.party_type,
@@ -298,12 +294,12 @@ function LeadDetail() {
 
   const dealValue = Math.max(Number(lead.order_value ?? 0), Number(lead.quote_value ?? 0))
   const probability = lead.closure_probability ?? STAGE_PROBABILITY_DEFAULTS[stage] ?? 0
-  const probColor = probability >= 60 ? GOOD : probability >= 35 ? OK : BAD
+  const probColor = probability >= 60 ? TONE_GOOD : probability >= 35 ? TONE_WARN : TONE_BAD
   const closeSlipped = lead.estimated_close_date && isOpen && new Date(lead.estimated_close_date) < new Date()
   const dealStats = [
     { label: 'Deal value', value: formatCurrency(dealValue), sub: isWon ? 'booked' : 'quoted scope', color: 'var(--vip-ink)' },
     { label: 'Probability', value: `${probability}%`, sub: isWon ? 'closed' : 'stage-weighted', color: probColor },
-    { label: 'Expected close', value: closeSlipped ? 'slipped' : shortDate(lead.estimated_close_date) ?? '—', sub: isWon ? 'order booked' : 'target date', color: closeSlipped ? BAD : 'var(--vip-ink)' },
+    { label: 'Expected close', value: closeSlipped ? 'slipped' : shortDate(lead.estimated_close_date) ?? '—', sub: isWon ? 'order booked' : 'target date', color: closeSlipped ? TONE_BAD : 'var(--vip-ink)' },
     { label: 'Last touch', value: `${touchDays}d`, sub: `ago · by ${(lead.employees?.name ?? 'unassigned').split(' ')[0]}`, color: touchColor },
   ]
 
@@ -320,7 +316,7 @@ function LeadDetail() {
       value: formatCurrency(lead.quote_value),
       date: shortDate(lead.quote_sent_at) ?? '—',
       status: isWon ? 'Superseded' : stage === 'negotiation' ? 'In negotiation' : 'Sent',
-      color: isWon ? 'var(--vip-faint)' : stage === 'negotiation' ? OK : OK,
+      color: isWon ? 'var(--vip-faint)' : TONE_WARN,
     })
   }
   if (lead.order_value) {
@@ -330,7 +326,7 @@ function LeadDetail() {
       value: formatCurrency(lead.order_value),
       date: shortDate(wonAt) ?? '—',
       status: 'Booked',
-      color: GOOD,
+      color: TONE_GOOD,
     })
   }
 
@@ -364,24 +360,24 @@ function LeadDetail() {
       <div className="vip-card">
         <div className="vip-card-title">Deal owner</div>
         {lead.owner_employee_id ? (
-          <Link to={`/employees/${lead.owner_employee_id}`} style={{ display: 'flex', alignItems: 'center', gap: 11, textDecoration: 'none' }}>
-            <span className="vip-profile-avatar" style={{ width: 38, height: 38, flex: '0 0 38px', borderRadius: 11, fontSize: 12 }}>
+          <Link to={`/employees/${lead.owner_employee_id}`} className="vip-owner-link">
+            <span className="vip-profile-avatar vip-profile-avatar-sm">
               {getInitials(lead.employees?.name)}
             </span>
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>{lead.employees?.name ?? 'Unassigned'}</span>
-              <span style={{ fontSize: 11, color: 'var(--vip-faint)' }}>{lead.employees?.office_location ?? '—'}</span>
+            <span className="vip-owner-link-meta">
+              <span className="vip-owner-link-name">{lead.employees?.name ?? 'Unassigned'}</span>
+              <span className="vip-owner-link-loc">{lead.employees?.office_location ?? '—'}</span>
             </span>
           </Link>
         ) : (
           <p className="vip-empty">Unassigned.</p>
         )}
         {ownerHistory.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingTop: 9, borderTop: '1px solid var(--vip-line-soft)' }}>
+          <div className="vip-rail-list-divided">
             {ownerHistory.map((h) => (
-              <span key={h.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 11, color: 'var(--vip-faint)' }}>
+              <span key={h.id} className="vip-kv-row vip-kv-row-meta">
                 {h.old ? `Reassigned from ${h.old.name}` : `Assigned to ${h.new?.name}`}
-                <b style={{ fontWeight: 500, color: 'var(--vip-muted)', whiteSpace: 'nowrap' }}>{shortDate(h.changed_at)}</b>
+                <b>{shortDate(h.changed_at)}</b>
               </span>
             ))}
           </div>
@@ -394,20 +390,20 @@ function LeadDetail() {
           <p className="vip-empty">No contact captured.</p>
         ) : (
           siteContacts.map((c) => (
-            <div key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: 3, paddingBottom: 9, borderBottom: '1px solid var(--vip-line-soft)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--vip-ink)' }}>{c.parties?.name}</span>
-                <span style={{ fontSize: 10, color: 'var(--vip-faint)' }}>{c.role}</span>
+            <div key={c.id} className="vip-contact-row">
+              <div className="vip-contact-row-head">
+                <span className="vip-contact-row-name">{c.parties?.name}</span>
+                <span className="vip-contact-row-role">{c.role}</span>
               </div>
             </div>
           ))
         )}
         {party?.mobile && (
-          <a href={`tel:${party.mobile}`} className="vip-mono" style={{ fontSize: 12 }}>
+          <a href={`tel:${party.mobile}`} className="vip-mono vip-contact-tel">
             {party.mobile}
           </a>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="vip-rail-list">
           {[
             ['Type', party?.party_type ?? '—'],
             ['Site', site?.nickname || site?.locality || '—'],
@@ -415,9 +411,9 @@ function LeadDetail() {
             ['Created', shortDate(lead.created_at)],
             ['Follow-up', shortDate(lead.next_followup_date) ?? 'none set'],
           ].map(([label, value]) => (
-            <span key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 11, color: 'var(--vip-faint)' }}>
+            <span key={label} className="vip-kv-row">
               {label}
-              <b style={{ fontWeight: 600, color: 'var(--vip-ink)' }}>{value}</b>
+              <b>{value}</b>
             </span>
           ))}
         </div>
@@ -444,7 +440,7 @@ function LeadDetail() {
       <div className="vip-profile-band">
         <div className="vip-profile-id">
           <div className="vip-profile-avatar">{getInitials(leadTitle)}</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
+          <div className="vip-profile-id-meta">
             <div className="vip-profile-name-row">
               <span className="vip-profile-name">{leadTitle}</span>
               <span className="vip-pill" style={{ background: statusStyle.bg, color: statusStyle.fg }}>{statusLabel}</span>
@@ -505,7 +501,7 @@ function LeadDetail() {
           </span>
         </div>
         {isOnHold && onHoldFollowUp?.notes && (
-          <p className="vip-empty" style={{ margin: 0 }}>
+          <p className="vip-empty vip-flush">
             On hold — {onHoldFollowUp.notes}
           </p>
         )}
@@ -519,7 +515,7 @@ function LeadDetail() {
               <div className="vip-stepper-bar" style={{ background: s.bar }} />
               {s.isCurrent && (
                 <>
-                  <span className="vip-stepper-label" style={{ fontWeight: 600, color: 'var(--vip-ink)' }}>{s.label}</span>
+                  <span className="vip-stepper-label">{s.label}</span>
                   <span className="vip-stepper-meta">{s.meta}</span>
                 </>
               )}
@@ -554,20 +550,20 @@ function LeadDetail() {
                 never needed on a phone — see the stacked two-line rows
                 below instead. */}
             <div className="vip-only-desktop">
-              <div className="vip-linegrid-head" style={{ gridTemplateColumns: '64px minmax(0,1.4fr) 84px 64px 84px' }}>
+              <div className="vip-linegrid-head vip-linegrid-quotes">
                 <span>Ref</span>
                 <span>Scope</span>
                 <span>Value</span>
                 <span>Date</span>
-                <span style={{ textAlign: 'right' }}>Status</span>
+                <span className="vip-linegrid-quotes-status">Status</span>
               </div>
               {quoteRows.map((q) => (
-                <div key={q.id} className="vip-linegrid-row" style={{ gridTemplateColumns: '64px minmax(0,1.4fr) 84px 64px 84px' }}>
+                <div key={q.id} className="vip-linegrid-row vip-linegrid-quotes">
                   <span className="vip-mono">{q.id}</span>
-                  <span style={{ fontSize: 12, color: 'var(--vip-ink)' }}>{q.what}</span>
-                  <span className="vip-num" style={{ fontSize: 11, color: 'var(--vip-body)' }}>{q.value}</span>
-                  <span style={{ fontSize: 11, color: 'var(--vip-faint)' }}>{q.date}</span>
-                  <span style={{ fontSize: 10, fontWeight: 600, textAlign: 'right', color: q.color }}>{q.status}</span>
+                  <span className="vip-linegrid-scope">{q.what}</span>
+                  <span className="vip-num vip-linegrid-value">{q.value}</span>
+                  <span className="vip-linegrid-date">{q.date}</span>
+                  <span className="vip-linegrid-quotes-status" style={{ fontWeight: 600, color: q.color }}>{q.status}</span>
                 </div>
               ))}
             </div>
@@ -578,16 +574,16 @@ function LeadDetail() {
             <div className="vip-only-mobile">
               {quoteRows.map((q) => (
                 <div key={q.id} className="vip-linegrid-mrow">
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    <span className="vip-mono" style={{ fontSize: 11, color: 'var(--vip-faint)' }}>{q.id}</span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--vip-ink)' }}>{q.what}</span>
+                  <div className="vip-linegrid-mrow-top">
+                    <span className="vip-mono vip-linegrid-mrow-ref">{q.id}</span>
+                    <span className="vip-linegrid-mrow-title">{q.what}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                    <span className="vip-num" style={{ fontWeight: 600, color: 'var(--vip-body)' }}>{q.value}</span>
-                    <span style={{ color: 'var(--vip-faint)' }}>·</span>
-                    <span style={{ color: 'var(--vip-faint)' }}>{q.date}</span>
-                    <span style={{ color: 'var(--vip-faint)' }}>·</span>
-                    <span style={{ fontWeight: 600, color: q.color }}>{q.status}</span>
+                  <div className="vip-linegrid-mrow-bottom">
+                    <span className="vip-num vip-linegrid-mrow-value">{q.value}</span>
+                    <span className="vip-linegrid-mrow-meta">·</span>
+                    <span className="vip-linegrid-mrow-meta">{q.date}</span>
+                    <span className="vip-linegrid-mrow-meta">·</span>
+                    <span className="vip-linegrid-mrow-status" style={{ color: q.color }}>{q.status}</span>
                   </div>
                 </div>
               ))}
@@ -604,12 +600,12 @@ function LeadDetail() {
           <p className="vip-empty">No product specified yet.</p>
         ) : (
           <div className="vip-bar-row">
-            <div style={{ flex: '0 0 150px', fontSize: 12, color: 'var(--vip-ink)' }}>{product.name}</div>
+            <div className="vip-product-label">{product.name}</div>
             <div className="vip-bar-track vip-thick">
-              <div className="vip-bar-fill" style={{ width: '100%', background: isWon ? GOOD : lead.quote_sent ? '#5f9a9a' : 'var(--vip-line)' }} />
+              <div className="vip-bar-fill" style={{ width: '100%', background: isWon ? TONE_GOOD : lead.quote_sent ? TONE_MID : 'var(--vip-line)' }} />
             </div>
-            <div className="vip-bar-value" style={{ flex: '0 0 60px' }}>{formatCurrencyCompact(dealValue)}</div>
-            <div style={{ flex: '0 0 60px', textAlign: 'right', fontSize: 10, color: 'var(--vip-faint)' }}>{isWon ? 'ordered' : lead.quote_sent ? 'quoted' : 'pending'}</div>
+            <div className="vip-bar-value vip-bar-value-wide">{formatCurrencyCompact(dealValue)}</div>
+            <div className="vip-product-status">{isWon ? 'ordered' : lead.quote_sent ? 'quoted' : 'pending'}</div>
           </div>
         )}
       </div>
