@@ -1,9 +1,5 @@
 import { supabase } from './supabaseClient'
 
-export function fetchEmployees() {
-  return supabase.from('employees').select('id, name').order('name')
-}
-
 // RLS scopes targets to "own data or owner role", same as activities/leads —
 // a sales exec's query naturally returns only their own target rows.
 export function fetchTargetsForPeriod({ periodType, periodValue }) {

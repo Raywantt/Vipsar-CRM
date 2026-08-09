@@ -47,7 +47,8 @@ import {
   fetchDecidedStageHistory,
   fetchActivitiesTrendWindow,
 } from '../lib/dashboardQueries'
-import { fetchEmployees, fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
+import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
+import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
 
@@ -170,7 +171,7 @@ function Dashboard() {
 
   useEffect(() => {
     let active = true
-    fetchEmployees().then(({ data, error }) => {
+    fetchActiveSalesExecs().then(({ data, error }) => {
       if (!active) return
       if (!error) setEmployees(data ?? [])
     })
