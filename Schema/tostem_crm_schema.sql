@@ -305,11 +305,20 @@ CREATE INDEX idx_parties_mobile        ON parties(mobile);
 CREATE INDEX idx_parties_name          ON parties(name);
 CREATE INDEX idx_leads_site            ON leads(site_id);
 CREATE INDEX idx_leads_party           ON leads(party_id);
+-- own_data_or_owner_role RLS policies compare leads.owner_employee_id /
+-- activities.employee_id on every row of every leads/activities query —
+-- without these, each such query is a sequential scan.
+CREATE INDEX idx_leads_owner           ON leads(owner_employee_id);
 CREATE INDEX idx_activities_party      ON activities(party_id);
 CREATE INDEX idx_activities_lead       ON activities(lead_id);
+CREATE INDEX idx_activities_employee   ON activities(employee_id, created_at);
 CREATE INDEX idx_site_contacts_site    ON site_contacts(site_id);
 CREATE INDEX idx_site_contacts_party   ON site_contacts(party_id);
 CREATE INDEX idx_stage_history_lead    ON stage_history(lead_id);
+-- fetchWonStageHistory (targetQueries.js) filters on stage = 'won' and
+-- sorts by changed_at desc against the whole table (unbounded, no date
+-- filter at the query level) — this composite index covers both.
+CREATE INDEX idx_stage_history_stage_changed ON stage_history(stage, changed_at);
 CREATE INDEX idx_follow_ups_assigned_due ON follow_ups(assigned_to, due_date) WHERE is_done = false;
 CREATE INDEX idx_follow_ups_due_notify   ON follow_ups(due_date, due_time) WHERE is_done = false AND notified_at IS NULL;
 CREATE INDEX idx_push_subscriptions_employee ON push_subscriptions(employee_id);
