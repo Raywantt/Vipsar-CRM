@@ -2655,11 +2655,25 @@ here.
   return, because `Home` fires a dozen hooks and several fetches before it
   renders. `CoordinatorToday` is currently a **placeholder** (greeting bar +
   "your team view is being built"); Phase 4 replaces the card, not the bar.
-* **Not verified live**: the owner and coordinator paths (no test login was
-  available) — the Reports-to dropdown, both guard messages, and
-  `CoordinatorToday` are reasoned and compile-clean but unexercised. The
-  sales-exec path *was* checked in-browser: Profile renders with no owner
-  tools leaking, nav/FAB unchanged, role label correct.
+* **All three roles verified live 2026-08-10** (three dev servers on ports
+  5181/5182/5183 — separate origins mean separate localStorage, which is the
+  only way to hold three sessions at once; same-port tabs share one login).
+  Nav gating confirmed per role, and `CoordinatorToday` renders correctly at
+  375px. Still unexercised: the Reports-to dropdown and both role-change guard
+  messages.
+* **`isOwner ? … : …` is the recurring bug shape on Dashboard** — the same
+  "not an owner means a rep" assumption that broke the nav. Fixed: the Leads
+  header said "My leads" to someone who owns none (now "Team leads"), Reports
+  said "Your performance" (now "Team performance"), drill-down eyebrows were
+  labelled with the coordinator's own name (now "My team"), and
+  `sourceOptionsForRole` handed them `SALES_EXEC_SOURCES`, hiding their own
+  team's Lixil and referral leads. `seesOthersData` is the flag to reuse.
+  **Still wrong for a coordinator, deferred to Phase 4** because each needs a
+  design decision rather than a relabel: the Day Review's `dayEmployees` shows
+  only the coordinator instead of their team, `showByEmployee={isOwner}` on
+  Targets-vs-actuals and Leads-by-source gives them no per-exec breakdown
+  despite supervising several, and `LeadsListCard`'s owner filter facet never
+  renders for them.
 
 ### Data isolation — what a sales exec can see and change
 
@@ -2720,6 +2734,27 @@ with no pre-rounding. The mark sits well inside the maskable 80%-diameter
 safe-zone circle (measured half-diagonal ≈0.27× icon size, vs. the 0.4×
 limit). The regeneration script (Python + Pillow) was a one-off, not
 checked into the repo — regenerate by hand if the logo ever changes.
+
+**`src/sw.js` must call `skipWaiting()` and `clients.claim()` itself — do not
+remove them.** `registerType: 'autoUpdate'` only injects those for you under
+the *default* `generateSW` strategy. This project uses `injectManifest` (so
+`src/sw.js` can add push handlers at all), and under that strategy the plugin
+leaves the file alone apart from swapping in `__WB_MANIFEST` — so the config
+read as "auto update" while the built worker contained neither call. A worker
+without `skipWaiting()` installs and then sits in the **waiting** state until
+every client for the scope closes: a browser tab closes routinely, so the
+website updated, but **an installed PWA is backgrounded rather than closed, so
+it kept serving the old precached `index.html` and old hashed JS/CSS
+indefinitely.** That is the "the app and the website look different on mobile"
+bug reported 2026-08-10 — a production bug, not the testing-only annoyance the
+Dark mode bullet describes. `cleanupOutdatedCaches()` went in alongside, or
+every deploy leaves another full app-shell copy in storage forever. Auto-
+reloading open pages on activation was deliberately **not** added: it would
+discard whatever a rep had typed into a half-finished lead or activity form.
+There are no `display-mode: standalone` rules anywhere in `vipsar-theme.css`,
+so standalone and browser render identically apart from `env(safe-area-inset-*)`
+resolving to real values in standalone — if the two ever look different again,
+suspect a stale worker before suspecting CSS.
 
 `vite.config.js`'s `injectManifest.globPatterns` (moved here from
 `workbox.globPatterns` when the Follow-ups feature's push notifications

@@ -81,7 +81,13 @@ function Dashboard() {
   // sales exec's own queries are RLS-scoped to just their own leads/
   // activities, so labeling them 'Company' implied broader visibility than
   // actually exists. See CLAUDE.md's data-isolation audit.
-  const scopeLabel = isOwner ? 'Company' : employee?.name ?? 'You'
+  // A coordinator supervises several execs but owns nothing themselves, so
+  // every `isOwner ? company-wide : personal` branch on this page was wrong
+  // for them in one direction or the other — labelling their team's figures
+  // with their own name, or filtering the page down as if they were a rep.
+  const isCoordinator = employee?.role === 'sales_coordinator'
+  const seesOthersData = isOwner || isCoordinator
+  const scopeLabel = isOwner ? 'Company' : isCoordinator ? 'My team' : employee?.name ?? 'You'
   const [searchParams] = useSearchParams()
 
   // No more in-page tab buttons — Reports/All leads is chosen purely by
@@ -143,12 +149,15 @@ function Dashboard() {
     if (activeTab === 'leads') {
       const openLeads = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
       const value = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
-      setOverride({ title: isOwner ? 'All leads' : 'My leads', sub: `${openLeads.length} open · ${formatCurrencyCompact(value)}` })
+      setOverride({
+        title: isOwner ? 'All leads' : isCoordinator ? 'Team leads' : 'My leads',
+        sub: `${openLeads.length} open · ${formatCurrencyCompact(value)}`,
+      })
     } else {
-      setOverride({ sub: `${isOwner ? 'Team performance' : 'Your performance'} · ${RANGE_LABELS[preset]}` })
+      setOverride({ sub: `${seesOthersData ? 'Team performance' : 'Your performance'} · ${RANGE_LABELS[preset]}` })
     }
     return () => setOverride(null)
-  }, [activeTab, isOwner, preset, breakdownLeads, setOverride])
+  }, [activeTab, isOwner, isCoordinator, seesOthersData, preset, breakdownLeads, setOverride])
 
   useEffect(() => {
     const range = rangeForPreset(preset, customStart, customEnd)
@@ -403,7 +412,12 @@ function Dashboard() {
   const winRatePct = decidedInRange.length
     ? Math.round((decidedInRange.filter((r) => r.stage === 'won').length / decidedInRange.length) * 100)
     : null
-  const sourceOptionsForRole = isOwner
+  // SALES_EXEC_SOURCES trims this to Scanning/Walk-in for a rep, because Lixil
+  // and referral leads are distributed by the owner rather than self-sourced,
+  // so those rows are all zeros on a rep's own dashboard. That reasoning does
+  // not extend to a coordinator: their team genuinely holds Lixil and referral
+  // leads, so the trimmed list hid real data from the person supervising it.
+  const sourceOptionsForRole = seesOthersData
     ? SOURCE_TYPE_OPTIONS
     : SOURCE_TYPE_OPTIONS.filter((t) => SALES_EXEC_SOURCES.includes(t.value))
 
