@@ -1,9 +1,14 @@
 import { Link } from 'react-router-dom'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageLabel } from '../lib/leadStageOptions'
+import { parseTimestamp } from '../lib/dbTime'
 
+// parseTimestamp, not new Date(): activities.created_at and
+// stage_history.changed_at are naive TIMESTAMPs holding UTC, so a bare parse
+// reads them as local and shifts them 5.5 hours back in IST — enough to date
+// anything logged after 6:30 pm to the previous day. See src/lib/dbTime.js.
 function formatWhen(value) {
-  return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+  return parseTimestamp(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 }
 
 function LeadActivityTimeline({ activities, stageHistory, ownerHistory = [] }) {

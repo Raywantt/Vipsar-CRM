@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import DonutChart from './DonutChart'
 import FollowUpList from './FollowUpList'
 import { errorMessage } from '../lib/errorMessage'
+import { todayISO, toISODate } from '../lib/followupDates'
 
 // Slide-over drill-down reused by every clickable Dashboard metric — the KPI
 // row, heatmap cells, Funnel/Pipeline, Leads by source, Why we lose, and each
@@ -644,10 +645,285 @@ function FollowUpBody({ panel }) {
   )
 }
 
+// One exec, one day (Dashboard's Today period — see src/lib/dayReview.js's
+// buildDaySheetPanel). Grouped by kind rather than one chronological stream:
+// follow-ups → activities → lead changes, in the order a manager actually
+// asks (what got missed, what they logged, what they changed). Read-only
+// except the Reschedule buttons — no commenting, reassigning or flagging.
+const RESCHEDULE_PRESETS = [
+  { label: 'Tomorrow', days: 1 },
+  { label: '+2 days', days: 2 },
+  { label: '+1 week', days: 7 },
+]
+
+function addDaysTo(dateISO, n) {
+  const [y, m, d] = dateISO.split('-').map(Number)
+  return toISODate(new Date(y, m - 1, d + n))
+}
+
+// Caps, then a "+N more" line — the panel summarises a day, it isn't a full
+// log viewer. Each block has its own cap because they have different natural
+// lengths (§5.3–5.5).
+function MoreLine({ shown, total, noun }) {
+  if (total <= shown) return null
+  return <div className="vip-dd-more-line">+{total - shown} more {noun}</div>
+}
+
+function DaySheetBody({ panel }) {
+  const [rescheduling, setRescheduling] = useState(null) // follow-up id
+  const [dateValue, setDateValue] = useState('')
+  const [moved, setMoved] = useState({}) // id -> new date, for rows that left
+  const [error, setError] = useState(null)
+  const [expanded, setExpanded] = useState({})
+
+  useEffect(() => {
+    setRescheduling(null)
+    setMoved({})
+    setError(null)
+    setExpanded({})
+  }, [panel])
+
+  async function handleReschedule(id, dueDate) {
+    const { error: err } = await panel.onReschedule(id, dueDate)
+    if (err) {
+      setError(errorMessage(err))
+      return
+    }
+    // The row leaves the missed group immediately (§5.3) — this panel's own
+    // snapshot, not a refetch of the whole day.
+    setMoved((m) => ({ ...m, [id]: dueDate }))
+    setRescheduling(null)
+    setDateValue('')
+  }
+
+  const fu = panel.followUps
+  const missedRows = fu.missedRows.filter((r) => !moved[r.id])
+  const openRows = fu.pendingRows.filter((r) => !moved[r.id])
+  const completed = fu.completedRows.slice(0, 3)
+  const activities = panel.activities.slice(0, 4)
+  const changes = panel.changeRows.slice(0, 5)
+
+  const openLabel = fu.isPast ? 'Missed — needs a new date' : 'Still open'
+  const openList = fu.isPast ? missedRows : openRows
+
+  return (
+    <div className="vip-dd-section-stack">
+      {/* ---- block 1: follow-ups ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">Follow-ups lined up</div>
+          <div className="vip-dd-hint">
+            {fu.due} due · {fu.done} completed · {fu.isPast ? `${fu.missed} missed` : `${fu.pending} open`}
+          </div>
+        </div>
+
+        {fu.due === 0 ? (
+          <p className="vip-empty">None were due this day.</p>
+        ) : (
+          <>
+            <div className="vip-day-split">
+              <span style={{ flex: fu.done, background: 'var(--vip-won)' }} />
+              <span style={{ flex: fu.isPast ? fu.missed : fu.pending, background: fu.isPast ? 'var(--vip-lost)' : 'var(--vip-status-warn)' }} />
+            </div>
+
+            {openList.length > 0 && (
+              <div className="vip-day-missed">
+                <span className="vip-day-missed-title">{openLabel}</span>
+                {openList.map((r) => (
+                  <div key={r.id} className="vip-day-missed-row">
+                    <span className="vip-day-missed-main">
+                      {r.leadId ? (
+                        <Link to={`/leads/${r.leadId}`} className="vip-day-fu-party">
+                          {r.party}
+                        </Link>
+                      ) : (
+                        <span className="vip-day-fu-party">{r.party}</span>
+                      )}
+                      <span className="vip-day-fu-sub">{r.due}</span>
+                    </span>
+                    {r.stage && <span className={r.stage.chipClass}>{r.stage.label}</span>}
+                    <button type="button" className="vip-day-resched" onClick={() => { setRescheduling(r.id); setDateValue('') }}>
+                      Reschedule
+                    </button>
+                  </div>
+                ))}
+                {rescheduling != null && (
+                  <div className="vip-action-panel">
+                    <span className="vip-action-panel-title">New date</span>
+                    {RESCHEDULE_PRESETS.map((p) => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        className="vip-action-opt"
+                        onClick={() => handleReschedule(rescheduling, addDaysTo(todayISO(), p.days))}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    <input type="date" className="vip-input vip-input-inline" value={dateValue} onChange={(e) => setDateValue(e.target.value)} />
+                    <button type="button" className="vip-action-opt vip-active" disabled={!dateValue} onClick={() => handleReschedule(rescheduling, dateValue)}>
+                      Save
+                    </button>
+                    <button type="button" className="vip-action-close" onClick={() => setRescheduling(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                {error && <p className="vip-error" role="alert">{error}</p>}
+              </div>
+            )}
+
+            {completed.map((r) => (
+              <div key={r.id} className="vip-day-fu-row">
+                <span className="vip-day-fu-dot" />
+                {r.leadId ? (
+                  <Link to={`/leads/${r.leadId}`} className="vip-day-fu-party">
+                    {r.party}
+                  </Link>
+                ) : (
+                  <span className="vip-day-fu-party">{r.party}</span>
+                )}
+                <span className="vip-day-fu-when">{r.closed}</span>
+              </div>
+            ))}
+            <MoreLine shown={3} total={fu.completedRows.length} noun="completed" />
+          </>
+        )}
+      </div>
+
+      {/* ---- block 2: activities ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">Activities logged</div>
+          <div className="vip-dd-hint">{panel.activities.length} that day</div>
+        </div>
+        {panel.activities.length === 0 ? (
+          <p className="vip-empty">Nothing logged this day.</p>
+        ) : (
+          <>
+            {activities.map((a) => (
+              <div key={a.id} className="vip-day-log-row">
+                <span className="vip-day-log-time">{a.time}</span>
+                <span className="vip-day-log-main">
+                  <span className="vip-day-log-head">
+                    <span className={a.tag.className}>{a.tag.label}</span>
+                    {a.leadId ? (
+                      <Link to={`/leads/${a.leadId}`} className="vip-day-log-party">
+                        {a.party}
+                      </Link>
+                    ) : (
+                      <span className="vip-day-log-party">{a.party}</span>
+                    )}
+                  </span>
+                  {a.notes && (
+                    <span className="vip-day-log-notes">
+                      {expanded[a.id] && a.more ? `${a.notes} ${a.more}` : a.notes}
+                      {a.more && !expanded[a.id] && (
+                        <button type="button" className="vip-day-more" onClick={() => setExpanded((e) => ({ ...e, [a.id]: true }))}>
+                          more
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </span>
+              </div>
+            ))}
+            <MoreLine shown={4} total={panel.activities.length} noun="activities" />
+          </>
+        )}
+      </div>
+
+      {/* ---- block 3: lead changes ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">Changes made to leads</div>
+          <div className="vip-dd-hint">
+            {panel.changeCount > 0
+              ? `${panel.changeCount} edit${panel.changeCount === 1 ? '' : 's'} across ${panel.changedLeadCount} lead${panel.changedLeadCount === 1 ? '' : 's'}`
+              : panel.createdCount > 0
+                ? `${panel.createdCount} lead${panel.createdCount === 1 ? '' : 's'} created · no edits`
+                : 'no edits'}
+          </div>
+        </div>
+        {panel.changesUnavailable ? (
+          <p className="vip-empty">Change history isn&apos;t available — the audit trail migration hasn&apos;t been run yet.</p>
+        ) : panel.changeRows.length === 0 ? (
+          // "Nothing was recorded" and "this rep changed nothing" are
+          // different facts and must not look the same (§3.3).
+          <p className="vip-empty">
+            {panel.changeLogStart ? `No changes logged this day. Change history starts ${panel.changeLogStart}.` : 'No changes logged this day.'}
+          </p>
+        ) : (
+          <>
+            {changes.map((c) => (
+              <div key={c.id} className="vip-day-change-row">
+                <span className="vip-day-log-time">{c.time}</span>
+                <span className="vip-day-log-main">
+                  {c.leadId ? (
+                    <Link to={`/leads/${c.leadId}`} className="vip-day-log-party">
+                      {c.party}
+                    </Link>
+                  ) : (
+                    <span className="vip-day-log-party">{c.party}</span>
+                  )}
+                  <span className="vip-day-diff">
+                    <span className="vip-day-diff-label">{c.label}</span>
+                    {c.type === 'stage' ? (
+                      <>
+                        {c.oldStage && (
+                          <>
+                            <span className={c.oldStage.chipClass}>{c.oldStage.label}</span>
+                            <span className="vip-day-diff-arrow">→</span>
+                          </>
+                        )}
+                        <span className={c.newStage.chipClass}>{c.newStage.label}</span>
+                      </>
+                    ) : c.type === 'created' ? (
+                      <span className="vip-day-diff-new">{c.detail ?? 'New lead'}</span>
+                    ) : (
+                      <>
+                        {c.oldText && (
+                          <>
+                            <span className="vip-day-diff-old">{c.oldText}</span>
+                            <span className="vip-day-diff-arrow">→</span>
+                          </>
+                        )}
+                        <span className="vip-day-diff-new" style={{ color: c.newColor }}>
+                          {c.newText ?? '—'}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                </span>
+              </div>
+            ))}
+            <MoreLine shown={5} total={panel.changeRows.length} noun="changes" />
+          </>
+        )}
+      </div>
+
+      <div className="vip-day-foot">
+        <span>
+          <span className="vip-day-foot-label">Tomorrow</span>
+          <span className="vip-day-foot-text">
+            {' '}
+            {panel.tomorrow.followUps} follow-up{panel.tomorrow.followUps === 1 ? '' : 's'} booked · {panel.tomorrow.siteVisits} site
+            visit{panel.tomorrow.siteVisits === 1 ? '' : 's'}
+          </span>
+        </span>
+        <Link to={`/employees/${panel.employeeId}`} className="vip-dd-open-link">
+          Open full profile →
+        </Link>
+      </div>
+    </div>
+  )
+}
+
 const BODIES = {
   log: LogBody,
   ageing: AgeingBody,
   followup: FollowUpBody,
+  daySheet: DaySheetBody,
   attain: AttainBody,
   pipeline: PipelineBody,
   stageLeads: StageLeadsBody,
@@ -684,13 +960,18 @@ function DrilldownPanel({ panel, onClose }) {
           </button>
         )}
         <div className="vip-dd-head">
+          {/* The day sheet leads with the exec's own avatar instead of a
+              headline figure — it's about a person's day, not one metric. */}
+          {current.avatar && <span className="vip-dd-avatar vip-dd-head-avatar">{current.avatar}</span>}
           <div className="vip-dd-head-text">
             <div className="vip-dd-eyebrow">{current.eyebrow}</div>
             <div className="vip-dd-title">{current.title}</div>
-            <div className="vip-dd-value-row">
-              <span className="vip-dd-value">{current.value}</span>
-              {current.delta && <span className="vip-dd-delta">{current.delta}</span>}
-            </div>
+            {current.value != null && (
+              <div className="vip-dd-value-row">
+                <span className="vip-dd-value">{current.value}</span>
+                {current.delta && <span className="vip-dd-delta">{current.delta}</span>}
+              </div>
+            )}
             {current.note && <div className="vip-dd-note">{current.note}</div>}
           </div>
           <button type="button" className="vip-dd-close" onClick={onClose} aria-label="Close">

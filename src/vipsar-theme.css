@@ -66,6 +66,9 @@
   --vip-body:         #485456;  /* body copy */
   --vip-muted:        #6f7c7e;  /* labels, meta */
   --vip-faint:        #8a9698;  /* secondary meta */
+  --vip-dash:         #c3cccc;  /* a zero rendered as an em-dash, the "/" in
+                                   a done/missed pair — present but not a
+                                   number the eye should stop on */
   --vip-on-shell:     #eef1f1;
   --vip-on-shell-dim: #a8b2b4;
 
@@ -1781,6 +1784,7 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   --vip-body:         #c3cbcc;
   --vip-muted:        #93a0a2;
   --vip-faint:        #74807f;
+  --vip-dash:         #545e5e;
 
   --vip-teal:         #3a9d95;
   --vip-teal-dark:    #52b6ad;
@@ -1828,6 +1832,7 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
     --vip-body:         #c3cbcc;
     --vip-muted:        #93a0a2;
     --vip-faint:        #74807f;
+    --vip-dash:         #545e5e;
 
     --vip-teal:         #3a9d95;
     --vip-teal-dark:    #52b6ad;
@@ -1859,4 +1864,249 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   :root:not([data-theme="light"]) .vip-chip-won                { background: #123821; color: #57d187; }
   :root:not([data-theme="light"]) .vip-chip-lost               { background: #3a1c1e; color: #e2696d; }
 }
+
+/* ---------- 23. Day Review (Dashboard's Today period) -------------------
+   A daily accountability read, not a report: the date bar, four day KPIs,
+   the per-exec team table, and the day-sheet panel's own three blocks.
+   Everything here reads the existing tokens — nothing new was needed, and
+   nothing is hardcoded, so section 22's dark mode repaints all of it for
+   free. Reuses section 17's drill-down vocabulary heavily (.vip-dd-kpi-grid,
+   .vip-dd-avatar, .vip-dd-section*, .vip-dd-stats). */
+
+/* --- date bar + liveness stamp --- */
+.vip-day-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vip-day-nav { display: flex; align-items: center; gap: 8px; }
+/* Forward is disabled on today — .vip-iconbtn has no :disabled style of its
+   own, so without this the button is inert but looks entirely clickable. */
+.vip-day-nav .vip-iconbtn:disabled { opacity: .38; cursor: default; }
+/* Sized to its own content — a full-width date field would dwarf the two
+   arrows sitting either side of it. */
+.vip-day-date { width: auto; min-width: 148px; font-weight: 600; }
+.vip-day-stamp { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--vip-muted); }
+.vip-day-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--vip-teal); }
+
+/* --- KPI strip: 4 tiles, not the 6 .vip-dd-kpi-grid widens to at desktop.
+   Placed after the base rule in source order so it wins at equal
+   specificity, the same way section 17's own 6-column override does. --- */
+.vip-dd-kpi-static { cursor: default; }
+.vip-dd-kpi-static:hover { background: var(--vip-surface); }
+
+/* --- the team table (desktop) ---
+   190px name column + 9 equal numeric columns. Group headers span 3/4/2 of
+   those, so the two rows share one grid template and can't drift apart. */
+.vip-daytable { display: flex; flex-direction: column; }
+.vip-daytable-groups,
+.vip-daytable-row {
+  display: grid;
+  grid-template-columns: 190px repeat(9, minmax(0, 1fr));
+  gap: 0 8px;
+  align-items: center;
+}
+.vip-daytable-groups > :nth-child(2) { grid-column: span 3; }
+.vip-daytable-groups > :nth-child(3) { grid-column: span 4; }
+.vip-daytable-groups > :nth-child(4) { grid-column: span 2; }
+.vip-daytable-group {
+  font-size: 9px; letter-spacing: .09em; text-transform: uppercase; color: var(--vip-muted);
+  padding: 0 0 5px 8px; border-bottom: 1px solid var(--vip-line-soft);
+}
+/* The only separation between column groups — no vertical rules. */
+.vip-daytable-groupstart { margin-left: 8px; }
+
+.vip-daytable-head { padding: 9px 0; }
+.vip-daytable-collabel { font-size: 9px; letter-spacing: .09em; text-transform: uppercase; color: var(--vip-muted); }
+.vip-daytable-sort {
+  border: 0; background: none; padding: 0; margin: 0; font: inherit; cursor: pointer;
+  font-size: 9px; letter-spacing: .09em; text-transform: uppercase; color: var(--vip-muted);
+  text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 3px;
+  min-width: 0; overflow: hidden;
+}
+.vip-daytable-sort:hover { color: var(--vip-ink); }
+.vip-daytable-arrow { font-size: 10px; color: var(--vip-teal); }
+
+.vip-daytable-exec {
+  border: 0; background: none; margin: 0; font: inherit; cursor: pointer; text-align: left;
+  padding: 9px 0; border-top: 1px solid var(--vip-line-soft); border-radius: 4px;
+}
+.vip-daytable-exec:hover,
+.vip-daytable-selected { background: var(--vip-surface-soft); box-shadow: inset 2px 0 0 var(--vip-teal); }
+.vip-daytable-name { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 13px; font-weight: 600; color: var(--vip-ink); }
+.vip-daytable-name > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vip-daytable-cell { text-align: right; font-size: 13px; color: var(--vip-body); font-variant-numeric: tabular-nums; }
+.vip-daytable-total { font-family: var(--vip-display); font-size: 16px; font-weight: 600; color: var(--vip-ink); }
+/* A zero-activity exec is muted, not badged or pinned — the high→low sort
+   already puts them last, and that's the whole treatment (decision #15). */
+.vip-daytable-quiet { color: var(--vip-faint); }
+.vip-daytable-avatar-quiet { background: var(--vip-line-soft); color: var(--vip-faint); }
+
+.vip-daytable-totals { padding: 11px 0 2px; border-top: 1px solid var(--vip-line); font-weight: 600; }
+.vip-daytable-totals .vip-daytable-cell { color: var(--vip-ink); font-weight: 600; }
+
+/* Shared by the table, the mobile cards and the KPI strip so one definition
+   of "done vs missed" colours all three. */
+.vip-daycell-dash { color: var(--vip-dash); }
+.vip-daycell-done { color: var(--vip-won); font-weight: 600; }
+.vip-daycell-sep { color: var(--vip-dash); }
+.vip-daycell-missed { color: var(--vip-lost); font-weight: 600; }
+/* Still-open-but-not-yet-late: amber, not red. An open follow-up at 10 am
+   isn't a miss — see splitFollowUps in src/lib/dayReview.js. */
+.vip-daycell-pending { color: var(--vip-status-warn); font-weight: 600; }
+
+/* --- the same rows as cards (mobile) ---
+   NO `display` in this unguarded base rule. .vip-daycards is applied on the
+   same element as .vip-only-mobile, whose `display: none` lives inside
+   section 17's ≥1024px block — an unguarded `display: flex` here has equal
+   specificity and sits later in the file, so it silently wins the cascade
+   and leaks the mobile card list through at desktop width. Exactly the bug
+   .vip-leads-layout hit (see section 21); the fix is the same. */
+.vip-daycards { flex-direction: column; gap: 8px; }
+@media (max-width: 1023.98px) {
+  .vip-daycards { display: flex; }
+}
+.vip-daycard {
+  display: flex; flex-direction: column; gap: 7px; width: 100%;
+  border: 1px solid var(--vip-line); border-radius: var(--vip-r-field);
+  background: var(--vip-surface); padding: 12px 13px; font: inherit; text-align: left; cursor: pointer;
+}
+.vip-daycard-head { display: flex; align-items: center; gap: 9px; }
+.vip-daycard-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: var(--vip-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vip-daycard-total { font-family: var(--vip-display); font-size: 19px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
+.vip-daycard-chevron { color: var(--vip-faint); font-size: 16px; }
+.vip-daycard-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--vip-muted); font-variant-numeric: tabular-nums; }
+.vip-daycard-totals { display: flex; flex-direction: column; gap: 2px; padding-top: 10px; border-top: 1px solid var(--vip-line); font-size: 11.5px; color: var(--vip-muted); }
+.vip-daycard-totals > span:first-child { font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
+
+/* --- the exec's own Today: Done today / Still to do today ---
+   Two clear halves and no ceremony. There is no check-out flow, no modal, no
+   gate on logout and no "wrap up your day" anywhere — the screen just answers
+   both questions whenever they look at it (decision #12). */
+.vip-day-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-top: 2px; }
+.vip-day-head-title { font-family: var(--vip-display); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--vip-ink); }
+.vip-day-head-note { font-size: 11px; color: var(--vip-faint); }
+.vip-day-head-actions { display: flex; align-items: center; gap: 8px; }
+.vip-day-head-count { font-size: 11px; font-weight: 600; color: var(--vip-lost); }
+
+.vip-day-entry { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.vip-day-entry-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; }
+.vip-day-entry-text {
+  flex: 1; min-width: 0; font-size: 13px; color: var(--vip-ink); text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+a.vip-day-entry-text:hover { text-decoration: underline; }
+.vip-day-entry-time { font-family: var(--vip-mono); font-size: 11px; font-weight: 500; color: var(--vip-faint); }
+.vip-day-entry-link {
+  border: 0; background: none; padding: 8px 0 0; margin-top: 3px; font: inherit; text-align: left; width: 100%;
+  border-top: 1px dashed var(--vip-line); font-size: 12px; font-weight: 600; color: var(--vip-teal); cursor: pointer;
+}
+
+/* An open reminder — red left bar, one action. */
+.vip-todo-card {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--vip-surface); border: 1px solid var(--vip-status-bad-soft);
+  border-radius: var(--vip-r-card); padding: 13px 15px;
+}
+.vip-todo-bar { width: 3px; align-self: stretch; min-height: 34px; flex: 0 0 3px; border-radius: 2px; background: var(--vip-lost); }
+.vip-todo-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vip-todo-party { font-size: 14px; font-weight: 600; color: var(--vip-ink); text-decoration: none; }
+a.vip-todo-party:hover { text-decoration: underline; }
+.vip-todo-sub { font-size: 12px; color: var(--vip-muted); text-transform: capitalize; }
+.vip-todo-call, .vip-todo-move {
+  min-height: 34px; padding: 0 15px; border-radius: var(--vip-r-control);
+  font: 600 12px var(--vip-sans); display: grid; place-items: center; cursor: pointer; text-decoration: none;
+}
+.vip-todo-call { background: var(--vip-teal); color: #fff; border: 0; }
+.vip-todo-call:hover { background: var(--vip-teal-dark); text-decoration: none; }
+.vip-todo-move { background: var(--vip-surface); border: 1px solid var(--vip-field-line); color: var(--vip-ink); }
+.vip-todo-move:hover { background: var(--vip-canvas); }
+/* The action panel drops onto its own line under the row it belongs to. */
+.vip-todo-card .vip-action-panel { flex-basis: 100%; }
+
+.vip-todo-tomorrow { flex-direction: row; align-items: center; justify-content: space-between; }
+.vip-todo-tomorrow-text { font-size: 13px; color: var(--vip-ink); margin-left: 8px; }
+
+/* --- day sheet panel (a `daySheet` DrilldownPanel kind) --- */
+.vip-dd-head-avatar { width: 46px; height: 46px; flex: 0 0 46px; font-size: 15px; }
+/* .vip-dd-head is space-between (title left, ✕ right). With an avatar in
+   front, the title block has to grow or it drifts away from the avatar. */
+.vip-dd-head-avatar ~ .vip-dd-head-text { flex: 1; }
+
+/* "+N more completed / activities / changes" — each block caps its list. */
+.vip-dd-more-line {
+  padding-top: 9px; border-top: 1px dashed var(--vip-line);
+  font-size: 12px; font-weight: 600; color: var(--vip-teal);
+}
+
+/* Compact inline action — .vip-btn is a full-width 52px block, wrong for a
+   button sitting at the end of a follow-up row. */
+.vip-day-resched {
+  border: 0; border-radius: var(--vip-r-control); background: var(--vip-ink); color: #fff;
+  font: 600 12px var(--vip-sans); min-height: 34px; padding: 0 14px; cursor: pointer;
+}
+.vip-day-resched:hover { background: #000; }
+
+.vip-day-split { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--vip-line-soft); }
+.vip-day-split > span { display: block; height: 100%; }
+
+/* Missed follow-ups are the one thing in this panel you can act on
+   (decision #16), so they get their own tinted card at the top of the
+   block rather than sitting in the plain list below. */
+.vip-day-missed {
+  border: 1px solid var(--vip-status-bad-soft); background: var(--vip-status-bad-soft);
+  border-radius: var(--vip-r-field); padding: 12px 13px; display: flex; flex-direction: column; gap: 10px;
+}
+.vip-day-missed-title { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; color: var(--vip-lost); font-weight: 700; }
+.vip-day-missed-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vip-day-missed-row + .vip-day-missed-row { padding-top: 10px; border-top: 1px solid var(--vip-status-bad-soft); }
+.vip-day-missed-main { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 2px; }
+.vip-day-fu-party { font-size: 13.5px; font-weight: 600; color: var(--vip-ink); }
+.vip-day-fu-sub { font-size: 11.5px; color: var(--vip-muted); }
+
+.vip-day-fu-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--vip-line-soft); }
+.vip-day-fu-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--vip-won); }
+.vip-day-fu-when { margin-left: auto; font-size: 11.5px; color: var(--vip-muted); text-align: right; }
+
+/* Timeline row: mono timestamp, type tag, party, first line of the note. */
+.vip-day-log-row { display: flex; gap: 12px; align-items: flex-start; padding: 11px 0; border-top: 1px solid var(--vip-line-soft); }
+.vip-day-log-time { flex: 0 0 62px; font-family: var(--vip-mono); font-size: 11px; color: var(--vip-muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
+.vip-day-log-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.vip-day-log-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vip-day-log-party { font-size: 13.5px; font-weight: 600; color: var(--vip-ink); text-decoration: none; }
+a.vip-day-log-party:hover { text-decoration: underline; }
+.vip-day-log-notes { font-size: 12px; color: var(--vip-body); }
+.vip-day-more {
+  border: 0; background: none; padding: 0; margin-left: 5px; font: inherit;
+  font-size: 12px; font-weight: 600; color: var(--vip-teal); cursor: pointer;
+}
+
+.vip-dd-day-tag {
+  display: inline-flex; align-items: center; font-size: 9px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase; padding: 3px 7px;
+  border-radius: var(--vip-r-pill); background: var(--vip-line-soft); color: var(--vip-body);
+}
+.vip-dd-day-tag-site_visit { background: var(--vip-status-good-soft); color: var(--vip-teal); }
+.vip-dd-day-tag-call { background: var(--vip-line-soft); color: var(--vip-body); }
+.vip-dd-day-tag-architect_meeting { background: var(--vip-status-neutral-soft); color: var(--vip-navy); }
+.vip-dd-day-tag-booking_update { background: var(--vip-status-good-soft); color: var(--vip-won); }
+
+/* Change rows: mono timestamp, party, then a field-typed diff line. */
+.vip-day-change-row { display: flex; gap: 12px; align-items: flex-start; padding: 11px 0; border-top: 1px solid var(--vip-line-soft); }
+.vip-day-diff { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.vip-day-diff-label { font-size: 9px; letter-spacing: .07em; text-transform: uppercase; color: var(--vip-faint); }
+.vip-day-diff-old { font-size: 12px; color: var(--vip-muted); text-decoration: line-through; }
+.vip-day-diff-arrow { font-size: 12px; color: var(--vip-faint); }
+.vip-day-diff-new { font-size: 13px; font-weight: 600; color: var(--vip-ink); }
+
+.vip-day-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding-top: 14px; border-top: 1px solid var(--vip-line);
+}
+.vip-day-foot-label { font-size: 9px; letter-spacing: .09em; text-transform: uppercase; color: var(--vip-muted); }
+.vip-day-foot-text { font-size: 13px; color: var(--vip-ink); }
+
+@media (min-width: 1024px) {
+  /* Four day KPIs, not the six a Dashboard KPI row carries. */
+  .vip-dd-kpi-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* The 190px + 9-column grid can't survive a phone; the mobile card list
+   above replaces it entirely rather than being a squashed version of it. */
 

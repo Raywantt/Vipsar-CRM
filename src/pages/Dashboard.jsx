@@ -14,6 +14,11 @@ import LossReasonsCard from '../components/LossReasonsCard'
 import NeedsAttentionCard from '../components/NeedsAttentionCard'
 import KpiSparkRow from '../components/KpiSparkRow'
 import DrilldownPanel from '../components/DrilldownPanel'
+import DayReviewCard from '../components/DayReviewCard'
+import { DayDateBar, DayKpiStrip } from '../components/DayReviewHeader'
+import { fetchDayReview, fetchChangeLogStart, rescheduleFollowUp } from '../lib/dayReviewQueries'
+import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
+import { formatClockTime } from '../lib/dbTime'
 import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
@@ -65,7 +70,7 @@ function productCategory(lead) {
   return lead.products?.name ?? 'Not specified'
 }
 
-const RANGE_LABELS = { '15d': 'last 15 days', week: 'this week', month: 'this month', quarter: 'this quarter', custom: 'this range' }
+const RANGE_LABELS = { today: 'today', '15d': 'last 15 days', week: 'this week', month: 'this month', quarter: 'this quarter', custom: 'this range' }
 
 function Dashboard() {
   const { employee } = useAuth()
@@ -109,6 +114,19 @@ function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  // ---- Day Review (the `today` period) ----
+  // Its own date, independent of the report cards' date range: this pane
+  // accepts any past day, and changing it reloads every number including
+  // Tomorrow (= chosen date + 1).
+  const isDayReview = preset === 'today'
+  const [dayDate, setDayDate] = useState(todayISO())
+  const [dayData, setDayData] = useState(null)
+  const [dayLoading, setDayLoading] = useState(false)
+  const [dayError, setDayError] = useState(null)
+  const [changeLogStart, setChangeLogStart] = useState(null)
+  const [selectedExecId, setSelectedExecId] = useState(null)
+  const [updatedAt, setUpdatedAt] = useState(null)
+
   const range = rangeForPreset(preset, customStart, customEnd)
   // targets are keyed by week/month/quarter — 15D/Custom have no period to
   // look one up against, so Targets vs. actuals doesn't render at all for
@@ -134,7 +152,9 @@ function Dashboard() {
 
   useEffect(() => {
     const range = rangeForPreset(preset, customStart, customEnd)
-    if (!range) return
+    // The Day Review runs its own day-scoped queries and renders none of the
+    // report cards these two feed — skip the round trip entirely.
+    if (!range || preset === 'today') return
     let active = true
     setLoading(true)
     setError(null)
@@ -292,6 +312,68 @@ function Dashboard() {
     }
   }, [isOwner])
 
+  // Everything on the Day Review reloads when the date changes — nothing here
+  // is cached across days, since every figure is bounded to the one day.
+  useEffect(() => {
+    if (!isDayReview) return
+    let active = true
+    setDayLoading(true)
+    setDayError(null)
+    setSelectedExecId(null)
+    fetchDayReview(dayDate).then((res) => {
+      if (!active) return
+      setDayData(res)
+      setDayError(res.error ? errorMessage(res.error) : null)
+      setUpdatedAt(formatClockTime(new Date()))
+      setDayLoading(false)
+    })
+    return () => {
+      active = false
+    }
+  }, [isDayReview, dayDate])
+
+  // When the trail actually begins, for the day sheet's honest empty state on
+  // any date before the audit trail shipped. Fetched once, not per day.
+  useEffect(() => {
+    if (!isDayReview || changeLogStart !== null) return
+    let active = true
+    fetchChangeLogStart().then(({ data }) => {
+      if (!active) return
+      setChangeLogStart(
+        data?.changed_at ? new Date(data.changed_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
+      )
+    })
+    return () => {
+      active = false
+    }
+  }, [isDayReview, changeLogStart])
+
+  // A sales exec sees only their own row. Their queries are already RLS-scoped
+  // to their own data, so listing the whole team would render every colleague
+  // as an all-zero row — worse than not showing them at all.
+  const dayEmployees = isOwner ? employees : employee ? [employee] : []
+  const dayIsPast = dayDate < todayISO()
+  const dayRows = dayData ? buildDayRows(dayEmployees, dayData, dayIsPast) : []
+  const dayTotals = buildDayTotals(dayRows)
+  const dayKpis = dayData ? buildDayKpis(dayData, dayRows, dayIsPast) : []
+
+  function openDaySheet(employeeId) {
+    const target = dayEmployees.find((e) => e.id === employeeId)
+    if (!target || !dayData) return
+    setSelectedExecId(employeeId)
+    setPanel(
+      buildDaySheetPanel({
+        employee: target,
+        data: dayData,
+        dateISO: dayDate,
+        isPast: dayIsPast,
+        changesUnavailable: dayData.changesUnavailable,
+        changeLogStart: changeLogStart || null,
+        onReschedule: rescheduleFollowUp,
+      })
+    )
+  }
+
   const openPipelineValue = sumOpenPipelineValue(breakdownLeads)
   const wonThisRange = range ? computeOrderValueActuals(wonStageHistory, range, false) : 0
 
@@ -366,6 +448,31 @@ function Dashboard() {
             onCustomEndChange={setCustomEnd}
           />
 
+          {/* The Day Review replaces the report cards entirely for this
+              period — a pipeline total or a month's attainment says nothing
+              about eight hours, so re-filtering the standing cards would be
+              worse than not showing them (§4.2 of the handoff). */}
+          {isDayReview ? (
+            <>
+              <DayDateBar dateISO={dayDate} onDateChange={setDayDate} updatedAt={updatedAt} />
+              {dayError && <p className="vip-error" role="alert">{dayError}</p>}
+              {dayLoading || !dayData ? (
+                <p className="vip-empty">Loading…</p>
+              ) : (
+                <>
+                  <DayKpiStrip kpis={dayKpis} />
+                  <DayReviewCard
+                    rows={dayRows}
+                    totals={dayTotals}
+                    isPast={dayIsPast}
+                    onOpenExec={openDaySheet}
+                    selectedExecId={selectedExecId}
+                  />
+                </>
+              )}
+            </>
+          ) : (
+            <>
           {error && <p className="vip-error" role="alert">{error}</p>}
           {!range && <p className="vip-empty">Pick both a start and end date.</p>}
 
@@ -555,6 +662,8 @@ function Dashboard() {
               </div>
             )}
           </div>
+            </>
+          )}
         </>
       )}
 

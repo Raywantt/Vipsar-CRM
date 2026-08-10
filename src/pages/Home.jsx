@@ -5,13 +5,14 @@ import { getInitials } from '../lib/initials'
 import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
-import { fetchActivityCounts, fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead } from '../lib/dashboardQueries'
+import { fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { fetchWonStageHistory, fetchTargetsForPeriod } from '../lib/targetQueries'
 import { fetchDueFollowUpsForEmployee, markFollowUpDone } from '../lib/followUpQueries'
-import { todayISO } from '../lib/followupDates'
+import { fetchDayReview, rescheduleFollowUp } from '../lib/dayReviewQueries'
+import { buildDayRows, buildSignificantEntries, buildDaySheetPanel, leadName, formatTimeOfDay } from '../lib/dayReview'
+import { todayISO, addDays } from '../lib/followupDates'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
-import { dealValueFor } from '../lib/pipelineValue'
 import { formatCurrencyCompact } from '../lib/format'
 import FollowUpForm from '../components/FollowUpForm'
 import DrilldownPanel from '../components/DrilldownPanel'
@@ -36,12 +37,8 @@ const PERIOD_OPTIONS = [
   { value: 'year', short: 'Y', label: 'This year' },
 ]
 
-const PERIOD_LABEL_SUFFIX = {
-  week: 'this week',
-  month: 'this month',
-  quarter: 'this quarter',
-  year: 'this year',
-}
+// (PERIOD_LABEL_SUFFIX is gone with the "My numbers" grid — the target card's
+// own W/M/Q/Y control now says which period it's showing.)
 
 // "Days left" in the target's own period — deliberately not derived from
 // rangeForPreset(period), whose `end` is always "today" (a rolling
@@ -69,45 +66,6 @@ function daysLeftLabel(period) {
   return `${days} day${days === 1 ? '' : 's'} left`
 }
 
-// Names + "oldest Nd late" for the Overdue follow-ups row's sub-line.
-function overdueSummary(rows) {
-  if (!rows.length) return ''
-  const names = [...new Set(rows.map((r) => r.parties?.name).filter(Boolean))]
-  const nameLabel = names.length === 0 ? rows[0].title : names.length === 1 ? names[0] : `${names[0]} +${names.length - 1}`
-  const oldest = Math.max(...rows.map((r) => Math.floor((Date.now() - new Date(r.due_date).getTime()) / 86400000)))
-  return `${nameLabel} · oldest ${oldest}d late`
-}
-
-function formatTime(timeStr) {
-  if (!timeStr) return null
-  const [h, m] = timeStr.split(':')
-  const d = new Date()
-  d.setHours(Number(h), Number(m))
-  return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })
-}
-
-// "Next {time} · {place}" for the Due today row's sub-line.
-function dueTodaySummary(rows) {
-  if (!rows.length) return ''
-  const withTime = rows.find((r) => r.due_time)
-  const place = rows[0].parties?.name ?? rows[0].title
-  return withTime ? `Next ${formatTime(withTime.due_time)} · ${place}` : place
-}
-
-// Drives both the mobile hairline grid and the desktop separated-card grid
-// below, so the two markup variants can't drift out of sync on values.
-const KPI_TILES = [
-  { label: () => 'Open leads', value: (k) => k.openLeads, sub: 'in your pipeline' },
-  { label: () => 'Pipeline', value: (k) => formatCurrencyCompact(k.pipeline), sub: 'open, not won/lost' },
-  { label: (p) => `Visits ${PERIOD_LABEL_SUFFIX[p]}`, value: (k) => k.visits, sub: 'site visits logged' },
-  {
-    label: (p) => `Won ${PERIOD_LABEL_SUFFIX[p]}`,
-    value: (k) => formatCurrencyCompact(k.won),
-    sub: 'booked',
-    color: 'var(--vip-won)',
-  },
-]
-
 function followUpPanel(title, rows, onMarkDone) {
   return {
     kind: 'followup',
@@ -119,6 +77,20 @@ function followUpPanel(title, rows, onMarkDone) {
   }
 }
 
+// "was due 11:00 am" / "3 days late" — an open reminder's own urgency line.
+function overdueLine(f) {
+  const kind = f.activity_type ? f.activity_type.replace(/_/g, ' ') : 'follow-up'
+  if (f.due_date < todayISO()) {
+    const days = Math.floor((Date.now() - new Date(`${f.due_date}T00:00:00`).getTime()) / 86400000)
+    return `${kind} · ${days} day${days === 1 ? '' : 's'} late`
+  }
+  return f.due_time ? `${kind} · due ${formatTimeOfDay(f.due_time)}` : `${kind} · due today`
+}
+
+function mobileFor(f) {
+  return f.leads?.parties?.mobile ?? f.parties?.mobile ?? null
+}
+
 function Home() {
   const { employee } = useAuth()
   const isOnline = useOnlineStatus()
@@ -128,19 +100,24 @@ function Home() {
   const longDate = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const [period, setPeriod] = useState('week')
-  const [kpis, setKpis] = useState(null)
   const [target, setTarget] = useState(undefined) // undefined = loading, null = no target for this period
   const [closing, setClosing] = useState([])
   const [followUps, setFollowUps] = useState([])
   const [addingFollowUp, setAddingFollowUp] = useState(false)
   const [panel, setPanel] = useState(null)
+  const [moving, setMoving] = useState(null) // follow-up id being rescheduled
+  const [moveDate, setMoveDate] = useState('')
+
+  // One day-scoped fetch powering the whole "Done today" half — the same
+  // queries the Dashboard's Day Review runs, scoped by RLS to this employee.
+  const [dayData, setDayData] = useState(null)
 
   // breakdownLeads/lastActivityByLead are period-agnostic pipeline snapshots
   // (see pipelineValue.js) — fetched once here instead of once per consumer,
-  // since the KPI/target effect below and the attention-bucket derivation
-  // used to each call fetchLeadsForBreakdown() independently (a full,
-  // unbounded leads scan, twice on every load and again on every period
-  // toggle even though neither actually depends on period).
+  // since the target effect below and the attention-bucket derivation used to
+  // each call fetchLeadsForBreakdown() independently (a full, unbounded leads
+  // scan, twice on every load and again on every period toggle even though
+  // neither actually depends on period).
   const [breakdownLeads, setBreakdownLeads] = useState(null)
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
 
@@ -150,6 +127,18 @@ function Home() {
     fetchDueFollowUpsForEmployee(employee.id).then(({ data, error }) => {
       if (!active) return
       if (!error) setFollowUps(data ?? [])
+    })
+    return () => {
+      active = false
+    }
+  }, [employee?.id])
+
+  useEffect(() => {
+    if (!employee?.id) return
+    let active = true
+    fetchDayReview(todayISO()).then((res) => {
+      if (!active) return
+      setDayData(res)
     })
     return () => {
       active = false
@@ -201,28 +190,28 @@ function Home() {
     })
   }
 
+  async function handleMove(id, dueDate) {
+    const { error } = await rescheduleFollowUp(id, dueDate)
+    if (error) return
+    // It's no longer due today or earlier, so it leaves this list.
+    setFollowUps((prev) => prev.filter((f) => f.id !== id))
+    setMoving(null)
+    setMoveDate('')
+  }
+
   useEffect(() => {
-    // breakdownLeads is fetched once above, independent of period — wait for
-    // it rather than re-fetching leads here on every period toggle.
-    if (!employee?.id || !breakdownLeads) return
+    if (!employee?.id) return
     let active = true
     const range = rangeForPreset(period)
     const targetPeriod = periodForPreset(period)
 
     Promise.all([
-      fetchActivityCounts(range),
       fetchWonStageHistory(),
       fetchClosureForecast(),
       targetPeriod ? fetchTargetsForPeriod(targetPeriod) : Promise.resolve({ data: [], error: null }),
-    ]).then(([activitiesRes, wonRes, forecastRes, targetsRes]) => {
+    ]).then(([wonRes, forecastRes, targetsRes]) => {
       if (!active) return
 
-      const openLeads = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
-      const pipeline = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
-      const visits = (activitiesRes.data ?? []).filter((a) => a.activity_type === 'site_visit').length
-      const won = computeOrderValueActuals(wonRes.data ?? [], range, false)
-
-      setKpis({ openLeads: openLeads.length, pipeline, visits, won })
       setClosing((forecastRes.data ?? []).slice(0, 4))
 
       if (!targetPeriod) {
@@ -237,43 +226,62 @@ function Home() {
     return () => {
       active = false
     }
-  }, [period, employee?.id, breakdownLeads])
+  }, [period, employee?.id])
 
-  const overdueFollowUps = followUps.filter((f) => f.due_date < todayISO())
-  const dueTodayFollowUps = followUps.filter((f) => f.due_date === todayISO())
+  // "Done today" — one row's worth of the same aggregation the Dashboard's
+  // team table builds, for this employee alone.
+  const myDay = dayData && employee ? buildDayRows([employee], dayData, false)[0] : null
+  const entries = dayData && employee ? buildSignificantEntries(employee, dayData) : []
+
+  function openMyDaySheet() {
+    if (!dayData || !employee) return
+    setPanel(
+      buildDaySheetPanel({
+        employee,
+        data: dayData,
+        dateISO: todayISO(),
+        isPast: false,
+        changesUnavailable: dayData.changesUnavailable,
+        changeLogStart: null,
+        onReschedule: rescheduleFollowUp,
+      })
+    )
+  }
+
+  // Everything actually outstanding: due today or already late. These cards
+  // replaced the old "Your reminders" card and the work queue's own two
+  // follow-up rows — one list, not the same reminders in three places.
+  const openFollowUps = followUps
+  const shownFollowUps = openFollowUps.slice(0, 3)
 
   const queueRows = attentionBuckets
-    ? [
-        {
-          key: 'followups_overdue',
-          title: 'Overdue follow-ups',
-          sub: overdueSummary(overdueFollowUps),
-          count: overdueFollowUps.length,
-          color: '#b4232a',
-          onOpen: () => setPanel(followUpPanel('Overdue follow-ups', overdueFollowUps, handleMarkDone)),
-        },
-        {
-          key: 'followups_today',
-          title: 'Due today',
-          sub: dueTodaySummary(dueTodayFollowUps),
-          count: dueTodayFollowUps.length,
-          color: '#0f6b6b',
-          onOpen: () => setPanel(followUpPanel('Due today', dueTodayFollowUps, handleMarkDone)),
-        },
-        ...['stale', 'silent_quotes', 'slipped'].map((key) => {
-          const bucket = attentionBuckets.find((b) => b.key === key)
-          return {
-            key,
-            title: bucket.title,
-            sub: bucket.sub,
-            count: bucket.count,
-            color: bucket.color,
-            onOpen: () => setPanel(buildAgeingPanel(bucket, 'You', employee.id)),
-          }
-        }),
-      ]
+    ? ['stale', 'silent_quotes', 'slipped'].map((key) => {
+        const bucket = attentionBuckets.find((b) => b.key === key)
+        return {
+          key,
+          title: bucket.title,
+          sub: bucket.sub,
+          count: bucket.count,
+          color: bucket.color,
+          onOpen: () => setPanel(buildAgeingPanel(bucket, 'You', employee.id)),
+        }
+      })
     : []
   const queueTotal = queueRows.reduce((s, r) => s + r.count, 0)
+
+  const doneTiles = myDay
+    ? [
+        { label: 'Activities', value: myDay.total, sub: `${myDay.calls} calls · ${myDay.visits} visits` },
+        {
+          label: 'Follow-ups',
+          value: `${myDay.done} / ${myDay.done + myDay.pending}`,
+          sub: myDay.pending > 0 ? `${myDay.pending} still open` : 'all clear',
+          subColor: myDay.pending > 0 ? 'var(--vip-lost)' : undefined,
+        },
+        { label: 'Leads touched', value: myDay.touched, sub: `${myDay.newLeads} new · ${myDay.changes} changes` },
+        { label: 'Quotes sent', value: myDay.quotes, sub: myDay.quotesValue > 0 ? formatCurrencyCompact(myDay.quotesValue) : 'none today' },
+      ]
+    : []
 
   return (
     <div className="vip-wide vip-pad-fab-overhang">
@@ -296,74 +304,157 @@ function Home() {
         </div>
       </div>
 
-      <div className="vip-card-head">
-        <div className="vip-card-title">My numbers</div>
-        <div className="vip-seg-mini" role="group" aria-label="KPI time frame">
-          {PERIOD_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              title={opt.label}
-              className={period === opt.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-              onClick={() => setPeriod(opt.value)}
-            >
-              {opt.short}
-            </button>
-          ))}
-        </div>
+      {/* ---------- half 1: what's been done ---------- */}
+      <div className="vip-day-head">
+        <span className="vip-day-head-title">Done today</span>
+        {myDay?.firstActivityAt && <span className="vip-day-head-note">since {myDay.firstActivityAt}</span>}
       </div>
 
-      {kpis && (
+      {myDay && (
+        <div className="vip-dd-kpi-grid">
+          {doneTiles.map((t) => (
+            <div key={t.label} className="vip-dd-kpi-tile vip-dd-kpi-static">
+              <span className="vip-dd-kpi-label">{t.label}</span>
+              <span className="vip-dd-kpi-value">{t.value}</span>
+              <span className="vip-dd-kpi-sub" style={{ color: t.subColor }}>
+                {t.sub}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {entries.length > 0 && (
+        <div className="vip-card">
+          {entries.map((e) => (
+            <div key={e.id} className="vip-day-entry">
+              <span className="vip-day-entry-dot" style={{ background: e.color }} />
+              {e.leadId ? (
+                <Link to={`/leads/${e.leadId}`} className="vip-day-entry-text">
+                  {e.text}
+                </Link>
+              ) : (
+                <span className="vip-day-entry-text">{e.text}</span>
+              )}
+              <span className="vip-day-entry-time">{e.time}</span>
+            </div>
+          ))}
+          <button type="button" className="vip-day-entry-link" onClick={openMyDaySheet}>
+            See everything I logged today
+          </button>
+        </div>
+      )}
+
+      {/* ---------- half 2: what's still open ---------- */}
+      <div className="vip-day-head">
+        <span className="vip-day-head-title">Still to do today</span>
+        <span className="vip-day-head-actions">
+          {openFollowUps.length > 0 && <span className="vip-day-head-count">{openFollowUps.length} left</span>}
+          <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
+            {addingFollowUp ? 'Cancel' : '+ Add reminder'}
+          </button>
+        </span>
+      </div>
+
+      {addingFollowUp && (
+        <div className="vip-card">
+          <FollowUpForm
+            assignedTo={employee.id}
+            createdBy={employee.id}
+            onSaved={(row) => {
+              if (row.due_date <= todayISO()) setFollowUps((prev) => [...prev, row])
+              setAddingFollowUp(false)
+            }}
+            onCancel={() => setAddingFollowUp(false)}
+          />
+        </div>
+      )}
+
+      {openFollowUps.length === 0 ? (
+        <div className="vip-card">
+          <p className="vip-empty">Nothing outstanding. Set a reminder and it shows up here on the day it's due.</p>
+        </div>
+      ) : (
         <>
-          {/* .vip-dd-kpi-grid is shared with KpiSparkRow/EmployeeProfile's
-              6-tile grids, whose ≥1024px override widens it to 6 columns —
-              wrong for Home's 4 tiles (2 columns would sit empty), so
-              desktop keeps the original separated .vip-kpi-grid cards
-              instead, same vip-only-mobile/vip-only-desktop split Dashboard
-              already uses for its own KPI band. */}
-          <div className="vip-only-mobile">
-            <div className="vip-dd-kpi-grid">
-              {KPI_TILES.map((t) => (
-                <div key={t.label} className="vip-dd-kpi-tile" style={{ cursor: 'default' }}>
-                  <span className="vip-dd-kpi-label">{t.label(period)}</span>
-                  <span className="vip-dd-kpi-value" style={{ color: t.color }}>
-                    {t.value(kpis, period)}
-                  </span>
-                  <span className="vip-dd-kpi-sub">{t.sub}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="vip-only-desktop">
-            <div className="vip-kpi-grid">
-              {KPI_TILES.map((t) => (
-                <div key={t.label} className="vip-kpi">
-                  <div className="vip-kpi-label">{t.label(period)}</div>
-                  <div className="vip-kpi-value" style={{ color: t.color }}>
-                    {t.value(kpis, period)}
+          {shownFollowUps.map((f, i) => {
+            const mobile = mobileFor(f)
+            return (
+              <div key={f.id} className="vip-todo-card">
+                <span className="vip-todo-bar" />
+                <span className="vip-todo-main">
+                  {f.lead_id ? (
+                    <Link to={`/leads/${f.lead_id}`} className="vip-todo-party">
+                      {leadName(f.leads, f.parties) || f.title}
+                    </Link>
+                  ) : (
+                    <span className="vip-todo-party">{leadName(f.leads, f.parties) || f.title}</span>
+                  )}
+                  <span className="vip-todo-sub">{overdueLine(f)}</span>
+                </span>
+                {/* One action per card: Call on the most urgent, Move on the
+                    rest — the design's own rule, and it keeps a field screen
+                    from turning into a row of buttons. */}
+                {i === 0 && mobile ? (
+                  <a href={`tel:${mobile}`} className="vip-todo-call">
+                    Call
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    className="vip-todo-move"
+                    onClick={() => {
+                      setMoving(moving === f.id ? null : f.id)
+                      setMoveDate('')
+                    }}
+                  >
+                    Move
+                  </button>
+                )}
+                {moving === f.id && (
+                  <div className="vip-action-panel">
+                    <button type="button" className="vip-action-opt" onClick={() => handleMove(f.id, addDays(1))}>
+                      Tomorrow
+                    </button>
+                    <button type="button" className="vip-action-opt" onClick={() => handleMove(f.id, addDays(3))}>
+                      In 3 days
+                    </button>
+                    <input type="date" className="vip-input vip-input-inline" value={moveDate} onChange={(e) => setMoveDate(e.target.value)} />
+                    <button type="button" className="vip-action-opt vip-active" disabled={!moveDate} onClick={() => handleMove(f.id, moveDate)}>
+                      Save
+                    </button>
+                    <button type="button" className="vip-action-close" onClick={() => setMoving(null)}>
+                      Cancel
+                    </button>
                   </div>
-                  <div className="vip-kpi-note">{t.sub}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+                )}
+              </div>
+            )
+          })}
+          {openFollowUps.length > shownFollowUps.length && (
+            <button
+              type="button"
+              className="vip-day-entry-link"
+              onClick={() => setPanel(followUpPanel('Still to do', openFollowUps, handleMarkDone))}
+            >
+              +{openFollowUps.length - shownFollowUps.length} more · see all
+            </button>
+          )}
         </>
       )}
 
-      {target !== null && (
-        <div className="vip-card">
-          <div className="vip-card-head">
-            <div className="vip-card-title">Order value vs target</div>
-            <span className="vip-card-note">{PERIOD_LABEL_SUFFIX[period]}</span>
-          </div>
-          {target === undefined ? (
-            <p className="vip-empty">Loading…</p>
-          ) : (
-            <TargetBar target={target} period={period} />
-          )}
+      {myDay && myDay.tomorrow > 0 && (
+        <div className="vip-card vip-todo-tomorrow">
+          <span>
+            <span className="vip-day-foot-label">Tomorrow</span>
+            <span className="vip-todo-tomorrow-text">
+              {myDay.tomorrow} follow-up{myDay.tomorrow === 1 ? '' : 's'} · {myDay.tomorrowVisits} site visit
+              {myDay.tomorrowVisits === 1 ? '' : 's'}
+            </span>
+          </span>
         </div>
       )}
 
+      {/* ---------- the standing work buckets, unchanged ---------- */}
       <div className="vip-card-head">
         <div className="vip-card-title">Work queue</div>
         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--vip-lost)' }}>
@@ -375,7 +466,7 @@ function Home() {
         {!attentionBuckets ? (
           <p className="vip-empty">Loading…</p>
         ) : queueTotal === 0 ? (
-          <p className="vip-empty">Nothing needs your attention right now.</p>
+          <p className="vip-empty">No leads are going cold right now.</p>
         ) : (
           queueRows
             .filter((r) => r.count > 0)
@@ -393,28 +484,30 @@ function Home() {
         )}
       </div>
 
-      <div className="vip-card">
-        <div className="vip-card-head">
-          <div className="vip-card-title">Your reminders</div>
-          <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
-            {addingFollowUp ? 'Cancel' : '+ Add reminder'}
-          </button>
+      {target !== null && (
+        <div className="vip-card">
+          <div className="vip-card-head">
+            <div className="vip-card-title">Order value vs target</div>
+            {/* The W/M/Q/Y switch used to head the "My numbers" KPI grid; that
+                grid is now "Done today" (a single day, no period to pick), so
+                the control moved to the one block that still has a period. */}
+            <div className="vip-seg-mini" role="group" aria-label="Target period">
+              {PERIOD_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  title={opt.label}
+                  className={period === opt.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                  onClick={() => setPeriod(opt.value)}
+                >
+                  {opt.short}
+                </button>
+              ))}
+            </div>
+          </div>
+          {target === undefined ? <p className="vip-empty">Loading…</p> : <TargetBar target={target} period={period} />}
         </div>
-        {addingFollowUp && (
-          <FollowUpForm
-            assignedTo={employee.id}
-            createdBy={employee.id}
-            onSaved={(row) => {
-              setFollowUps((prev) => [...prev, row])
-              setAddingFollowUp(false)
-            }}
-            onCancel={() => setAddingFollowUp(false)}
-          />
-        )}
-        {!addingFollowUp && (
-          <p className="vip-empty">Set a personal reminder — it also shows in the work queue above once due.</p>
-        )}
-      </div>
+      )}
 
       {closing.length > 0 && (
         <div className="vip-card">

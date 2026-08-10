@@ -1,4 +1,7 @@
 const PRESETS = [
+  // Today is the Day Review — a single-day accountability read rather than a
+  // period report, so it replaces the report cards entirely (see Dashboard.jsx).
+  { value: 'today', label: 'Today' },
   { value: 'week', label: 'Week' },
   { value: '15d', label: '15D' },
   { value: 'month', label: 'Month' },

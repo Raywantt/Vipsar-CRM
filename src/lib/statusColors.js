@@ -61,6 +61,13 @@ export const TONE_WARN_SOFT = 'var(--vip-status-warn-soft)'
 export const TONE_BAD_SOFT = 'var(--vip-status-bad-soft)'
 export const TONE_NEUTRAL_SOFT = 'var(--vip-status-neutral-soft)'
 
+// Specifically "a deal was won" — the deeper green of the `won` stage, not
+// TONE_GOOD's teal. Distinct because "healthy" and "closed won" are different
+// claims and the design gives them different colours. Home.jsx's "Won this
+// period" KPI already used var(--vip-won) inline; this is that same value
+// promoted so the Day Review's won figures can't drift from it.
+export const TONE_WON = 'var(--vip-won)'
+
 // Sanity check in dev: every suggested stage should have an explicit color.
 if (import.meta.env.DEV) {
   const missing = LEAD_STAGE_OPTIONS.filter((s) => !STAGE_FG[s])

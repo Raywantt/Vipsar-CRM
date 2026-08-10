@@ -11,8 +11,10 @@ import { toISODate } from './followupDates'
 // reminder could only ever show its party's name, so one linked to a lead
 // with no party row — or created before the form asked for a lead at all —
 // rendered with no visible link whatsoever.
+// `mobile` rides along on both party embeds so Today's "Still to do" cards
+// can offer a real tel: link on an open reminder without a second lookup.
 const FOLLOW_UP_SELECT =
-  'id, assigned_to, created_by, party_id, lead_id, activity_type, title, notes, due_date, due_time, is_done, done_at, created_at, parties(name), leads(id, current_stage, parties!party_id(name), sites(nickname, locality)), created_by_employee:employees!created_by(name)'
+  'id, assigned_to, created_by, party_id, lead_id, activity_type, title, notes, due_date, due_time, is_done, done_at, created_at, parties(name, mobile), leads(id, current_stage, parties!party_id(name, mobile), sites(nickname, locality)), created_by_employee:employees!created_by(name)'
 
 // Every follow-up assigned to this employee, done or not — used by
 // EmployeeProfile's Follow-ups card, which reviews the full history.

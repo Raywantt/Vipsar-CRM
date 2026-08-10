@@ -35,6 +35,14 @@ function startOfYear(date) {
 export function rangeForPreset(preset, customStart, customEnd) {
   const now = new Date()
 
+  // Dashboard's Day Review period. It drives its own date-scoped queries
+  // (src/lib/dayReviewQueries.js) rather than this range, but returning a
+  // real range keeps 'today' from falling through to the null that means
+  // "custom preset with a missing bound" and renders a pick-your-dates prompt.
+  if (preset === 'today') {
+    return { start: atStartOfDay(now), end: atEndOfDay(now) }
+  }
+
   if (preset === '15d') {
     const start = atStartOfDay(now)
     start.setDate(start.getDate() - 14)

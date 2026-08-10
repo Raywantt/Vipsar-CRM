@@ -70,9 +70,12 @@ needs before touching anything:
   (the old role-keyed `HOME_TILES`/`src/lib/homeTiles.js` tile-grid pattern
   is gone — see the Mobile redesign section's Today bullet — so a future
   role would need its own new mechanism, not an entry in a map that no
-  longer exists), and **a screen listing past activities** (`ActivityLog`
-  only logs new ones; nothing browses old ones outside a lead's own
-  timeline or a Sales Exec Profile's Activity log section). **Followups**
+  longer exists), and **a general screen listing past activities**
+  (`ActivityLog` only logs new ones; nothing browses old ones freely —
+  the Day Review's day sheet lists a given exec's activities *for one
+  chosen day*, and a lead's own timeline / a Sales Exec Profile's Activity
+  log section cover their own slices, but there's still no
+  "all activities, any range, filterable" screen). **Followups**
   *is* now built — real personal + owner-assigned reminders with actual
   push notifications, see the dedicated Follow-ups section below — but
   editing an existing follow-up's details and a standalone Follow-ups list
@@ -156,6 +159,15 @@ needs before touching anything:
   a Booking Update logged without the lead's stage being flipped to `won`
   — is still open; the owner is taking it up later, don't "fix" it as a
   side effect of unrelated work.
+- **Day Review** (`Today`, the first period on Dashboard's date-range
+  control — see its own section below) is the newest pass: a single-day
+  accountability read for the owner, built on a **new `lead_change_log`
+  audit trail** written by a Postgres trigger. It also restructured the
+  exec's own Today screen into Done-today / Still-to-do halves (see the
+  Today section) and fixed a **pre-existing timestamp bug** affecting every
+  naive `TIMESTAMP` column in this schema — read that section's Timestamps
+  paragraph and use `src/lib/dbTime.js`'s `parseTimestamp` before rendering
+  any date or time from the database.
 - Domain model, lead-sourcing logic, and locked-in design decisions ("don't
   reverse without discussion") live in `DECISIONS.md`, not here.
 
@@ -186,6 +198,8 @@ src/
                 NeedsAttentionCard, KpiSparkRow,
                 DashboardHeatmap, DonutChart, DrilldownPanel,
                 AddEmployeeForm, ManageEmployeesSection,
+                DayReviewCard, DayReviewHeader (exports DayDateBar +
+                DayKpiStrip — see the Day Review section),
                 DeletePartySection, ChangePasswordForm, InstallPrompt,
                 NotificationPrompt, OfflineIndicator, FollowUpForm, FollowUpList,
                 FabSheet — the mobile shell's FAB bottom sheet, see the
@@ -207,6 +221,10 @@ src/
                 targetMetrics.js, targetPeriods.js, targetQueries.js,
                 partyQueries.js, employeeQueries.js, leadOwnerHistory.js,
                 tabRoutes.js, attention.js, drilldownBuilders.js,
+                dayReviewQueries.js, dayReview.js, dbTime.js — the Day
+                Review's day-scoped fetches, its pure aggregation, and the
+                one correct way to parse a timestamp out of this schema
+                (see the Day Review section),
                 followUpQueries.js, followupDates.js, pushSubscription.js,
                 theme.js — light/dark override, see the Design system
                 section's Dark mode bullet — `homeTiles.js` is deleted, see
@@ -287,7 +305,20 @@ design handoff from Claude Design. Per-page CSS files (`Dashboard.css`,
 recreate them; add a `vip-`-prefixed class to `vipsar-theme.css` instead of
 writing new per-component CSS. `src/index.css` is kept as an intentionally
 empty seam (nothing left to own) rather than deleted, since `main.jsx`
-imports it before the theme file.
+imports it before the theme file. Section numbering runs 1–23; **22 is dark
+mode and stays physically last in the file** even though 23 (Day Review) is
+numbered higher — 22 only overrides `:root` tokens and `.vip-chip-*`, so
+nothing in 23 can beat it, and keeping the token redefinitions at the end is
+the whole point of that section. Add new sections after 23.
+
+**Watch the `.vip-only-mobile`/`.vip-only-desktop` cascade trap when adding a
+class that sets `display`.** Both utilities are single-class rules
+(`.vip-only-mobile { display: none }` lives inside section 17's ≥1024px
+block), so any *unguarded* `display` you declare on the same element in a
+later section wins at equal specificity and leaks the hidden half through.
+This has now bitten twice — `.vip-leads-layout` (section 21) and
+`.vip-daycards` (section 23) — both fixed the same way: leave `display` out
+of the base rule and set it only inside the media query that should own it.
 
 **Non-negotiable: build and render every screen to the standard of the best
 frontend engineer working from that Claude Design handoff — not an
@@ -628,12 +659,45 @@ grid/target bar/work queue/reminders/closing-next) from a tile-based
 shortcut screen into the current form; `src/lib/homeTiles.js`/`HOME_TILES`
 (the old role-keyed tile config) is deleted, not just unused — read the
 Mobile redesign section before assuming a "Home tile" mechanism still
-exists anywhere. The KPI grid renders twice — `.vip-only-mobile` (hairline
-`.vip-dd-kpi-grid`) and `.vip-only-desktop` (the older separated
-`.vip-kpi-grid` cards) — both driven by the same `KPI_TILES` data array so
-the two markups can't drift on values; every other block on this page
-(target bar, work queue, reminders, closing next) is unchanged between
-mobile and desktop, just narrower inside `.vip-wide`'s desktop cap.
+exists anywhere.
+
+**Restructured again by the Day Review pass (2026-08-10)** into the two
+halves that handoff's screen 4c asks for. **There is no check-out flow, no
+modal, no gate on logout, and the phrase "wrap up your day" appears
+nowhere** — the screen just answers both questions whenever the rep looks at
+it. Top to bottom now: greeting bar → **Done today** → **Still to do today**
+→ the standing work buckets.
+
+* **Done today** replaces the old "My numbers" W/M/Q/Y KPI grid entirely
+  (`KPI_TILES` and both of its parallel mobile/desktop markups are gone).
+  Four tiles — Activities, Follow-ups `done / due`, Leads touched, Quotes
+  sent — from one `fetchDayReview(todayISO())` call run through
+  `buildDayRows([employee], …)`, i.e. **the exact same aggregation the
+  Dashboard's team table uses**, for this employee alone, so the two can't
+  disagree. A "since 9:12 am" note comes off the first activity logged.
+  Below it, a card of the day's three most significant entries
+  (`buildSignificantEntries` — teal dot = activity, navy = a lead edit,
+  red/green = lost/won) ending in **"See everything I logged today"**, which
+  opens this employee's own `daySheet` panel — the same panel the owner sees.
+* **Still to do today** replaces the old "Your reminders" card, keeping its
+  `+ Add reminder` toggle (so nothing was lost). Each open follow-up — due
+  today *or already late* — is a card with a red left bar, its own urgency
+  line ("3 days late" / "due 11:00 am"), and **one action**: Call (a real
+  `tel:` link on the most urgent, which is why `FOLLOW_UP_SELECT` now
+  embeds `parties(name, mobile)`) or Move (an inline reschedule panel).
+  Capped at 3, then "+N more · see all" opening the existing `followup`
+  drill-down kind. Followed by a **Tomorrow** row.
+* **The work queue lost its two follow-up rows** (Overdue follow-ups / Due
+  today). Those were the same reminders "Still to do today" now lists in
+  full, and the user's whole reason for picking this option was to stop
+  showing them twice. What's left is the three lead-ageing buckets (stale /
+  silent quotes / slipped) — the queue is now about leads going cold, which
+  is genuinely distinct from a reminder.
+* **The W/M/Q/Y period switch moved onto the "Order value vs target" card.**
+  It used to head the "My numbers" grid; that grid is now a single day with
+  no period to pick, and the target bar is the only block left that has one.
+  `PERIOD_LABEL_SUFFIX` went with it — the control itself now says which
+  period is showing.
 
 **Real duplicate-fetch bug found and fixed** (a code-review finding, part of
 a broader "every dashboard downloads the whole company and reduces it in
@@ -1633,7 +1697,10 @@ since it isn't part of the date-range-scoped report data.
   "Deal value" stat (`Math.max(order_value, quote_value)`) was deliberately
   left as a separate, fourth formula — a single lead's lifetime headline
   number, not a pipeline aggregate — not folded into this pass.
-* **Date range** (`DateRangeSelector.jsx`) — **Week** (Monday–today) /
+* **Date range** (`DateRangeSelector.jsx`) — **Today** (the Day Review — see
+  its own section above; it replaces the entire card grid below rather than
+  re-filtering it, and drives its own day-scoped queries) / **Week**
+  (Monday–today) /
   **15D** (rolling 15 days ending today, not calendar-aligned) / **Month** /
   **Quarter** / **Custom** (two date inputs), in that left-to-right order.
   Computed by `src/lib/dateRanges.js`; an incomplete custom range returns
@@ -2078,6 +2145,140 @@ confirmed unchanged (still the paired featured-row layout); and the mobile
 width was confirmed to keep the plain vertical list rather than attempting
 the tile grid at phone width.
 
+### Day Review (Dashboard's `Today` period)
+
+Built from a third Claude Design handoff (`design_handoff_today_review/`
+README.md + `VIPSAR Mobile.dc.html` turn 4). A **daily accountability read,
+not a report**: an owner opens it during or at the end of the day and answers
+"what did each exec log, what did they change on each lead, which follow-ups
+closed, and how does that compare across the team" without asking anyone.
+**Every number is bounded to a single calendar day** — nothing here aggregates
+wider, and it deliberately **isn't a scored leaderboard** (raw counts only, no
+weighting, no composite index, no ranking badge; sorting is the only ordering).
+
+`Today` is the first segment of the existing `DateRangeSelector`, not a
+separate route. Picking it **replaces the whole Reports card grid** — a
+pipeline total or a month's attainment says nothing about eight hours, so
+re-filtering the standing cards would be worse than not showing them.
+
+* **The audit trail** (`Schema/migration_lead_change_log.sql`, **run live
+  2026-08-10**) — a new `lead_change_log` table, written **only by a Postgres
+  trigger on `leads`**, never by app code. There is no single lead-update
+  service in this app (`leads` is written from four LeadDetail sections,
+  `LeadStageSection`, `LeadQuickActions` and three side-effect paths in
+  `ActivityLog.jsx`), so a JS helper would have to be called from all of them
+  and the first missed call site becomes a silently absent audit row. The
+  trigger catches every path including direct edits in the Supabase table
+  editor. `field` is a closed set: `quote_value`/`order_value`/`product`/
+  `created`. **Append-only at both layers** — no INSERT/UPDATE/DELETE grant or
+  policy for anyone, the `SECURITY DEFINER` trigger is the table's only
+  writer. SELECT is "own leads or owner role", mirroring
+  `migration_scope_stage_history.sql`.
+* **Stage changes are NOT in that table** — they come from `stage_history`,
+  which already records exactly that and has real history going back to the
+  start of the project. Logging them in both places would create two sources
+  of truth for one fact and leave the day sheet blank for every date before
+  the migration. Won/Lost are stages in this app, not a separate status
+  field, so the handoff's `status` and `stage` change types collapse into one.
+  **Consequence worth knowing**: `migration_owner_only_stage.sql` means only
+  an owner can change a stage, so `stage_history.changed_by` is always the
+  owner — a rep's day sheet will never show a stage move, and since the team
+  table lists only sales execs, the owner's own stage moves don't appear on
+  it at all. That follows from the owner-only rule, not from this feature.
+* **`leads.created_by_employee_id`** (same migration, stamped by its own
+  `BEFORE INSERT` trigger, backfilled from `owner_employee_id`) — the "New
+  leads" column counts what a rep *created*. Using `owner_employee_id` would
+  re-credit every reassigned lead to whoever holds it now, retroactively
+  rewriting a day sheet for a date before the reassignment happened.
+* **Deliberately not logged** (per the handoff's own decision record): owner
+  reassignment (`lead_owner_history` has it), contact/address/source edits,
+  and lead notes — **there is no notes column on `leads` at all**, only on
+  `activities`, and those already show in the day sheet's Activities block.
+  The spec's `old_display`/`new_display` pre-formatted columns were dropped
+  too: `src/lib/format.js` already formats every rupee figure, so a second
+  baked-in copy is just a value that can drift from the renderer.
+* **`src/lib/dayReviewQueries.js`** — seven parallel day-bounded fetches
+  (activities, change log, stage history, new leads, follow-ups due on D,
+  follow-ups due on D+1, quotes sent) plus a second-round `fetchPriorStages`
+  for the `old chip → new chip` diff (`stage_history` only records the
+  *destination* of a change). `dayBounds()` runs midnight-to-midnight in the
+  **browser's** local timezone, matching `todayISO()`/`rangeForPreset()`
+  rather than inventing a second definition of "today". The change-log query's
+  error is surfaced separately (`changesUnavailable`) so a missing migration
+  degrades that one block instead of failing the screen.
+* **`src/lib/dayReview.js`** — all shaping, no network calls, same division of
+  labour `drilldownBuilders.js` follows. `buildDayRows`/`buildDayTotals`/
+  `buildDayKpis`/`buildDaySheetPanel`/`buildSignificantEntries`. Covered by
+  `dayReview.test.js` (25 cases).
+* **The pending vs missed rule** — an open follow-up is **pending** while D is
+  still running and only becomes **missed** once the day is over. There's no
+  configured end-of-working-day in this app, so the boundary is midnight.
+  Calling an open reminder a miss at 10 am would be a lie a manager acts on.
+  The cell renders `done / pending` in amber while the day runs and
+  `done / missed` in red afterwards, with a `title` spelling it out — the
+  design's literal `6 / 2 · 1 pending` third figure doesn't fit a 1fr column
+  among nine, and the colour carries the same meaning.
+* **The team table** (`DayReviewCard.jsx`) — desktop is a real
+  `190px + repeat(9, 1fr)` grid with `ACTIVITY`/`LEADS`/`FOLLOW-UPS` group
+  headers spanning 3/4/2, sortable headers (desc then asc, default Total ↓),
+  **a zero rendered as an em-dash** except in the Total column and the
+  done/missed pair, and a Team total footer row. A zero-activity exec is
+  muted and sinks to the bottom on its own — no badge, no red band, no
+  pinning. The handoff called this desktop-only with no mobile version;
+  **that was overridden on purpose** (Dashboard is a mobile tab here and the
+  owner works from a phone), so below 1024px the same rows render as stacked
+  `.vip-daycard`s opening the same day sheet.
+* **The day sheet** — a `daySheet` kind in `DrilldownPanel`, three blocks in
+  the order a manager actually asks: follow-ups (missed group first, with the
+  **one action this panel allows** — Reschedule) → activities logged →
+  changes made to leads. Each block caps its list with a "+N more" line.
+  `DrilldownPanel`'s head gained an optional `avatar`, and its value row is
+  now conditional — a day sheet leads with a person, not a headline figure.
+* **A sales exec sees only their own row.** Their queries are already
+  RLS-scoped, so listing the whole team would render every colleague as an
+  all-zero row — worse than not showing them. `dayEmployees` is
+  `isOwner ? employees : [employee]`.
+
+**Timestamps — read this before touching any date rendering.** Most timestamp
+columns in this schema are `TIMESTAMP` *without* time zone, filled from
+`now()` on a UTC database, so they hold a UTC wall clock with nothing marking
+it as such; PostgREST serialises that as `"2026-08-09T09:49:01"`. Handing that
+to `new Date()` parses it as **local** time (the ES spec's rule for an
+offset-less date-time), so every such timestamp rendered **5½ hours early** in
+IST. Confirmed against the live database, not inferred: a `lead_change_log`
+row (a real `timestamptz`) came back `...T09:34:43+00:00` and an `activities`
+row 15 minutes later on the same DB clock came back `...T09:49:01` with no
+zone. **`src/lib/dbTime.js`'s `parseTimestamp` is the fix and the one correct
+way to parse these** — it appends the missing `Z` and passes a
+zone-carrying string through untouched, so it's safe on any timestamp column.
+This was a **pre-existing bug**, not one this feature introduced; the three
+places that render a naive timestamp to a user were fixed with it
+(`drilldownBuilders.js`'s log drill-down, `EmployeeProfile.jsx`'s Activity
+log, `LeadActivityTimeline.jsx`'s date). **Still unfixed, deliberately**: the
+many places that only *compare* or sort naive timestamps (range filters in
+`KpiSparkRow`/`TargetsVsActualsCard`/`SalesFunnelCard`/`attention.js`), where
+a uniform offset mostly cancels out — a period boundary can still misclassify
+an event inside a 5½-hour window, which is worth its own audit rather than a
+scattergun edit here.
+
+**Verified live** against the real dev database, not just reasoned through:
+stepping back a day reloaded every figure (Live · updated → `Final · 9 Aug`,
+activities 0 → 3, new leads 0 → 1, Tomorrow 1 → —); the day sheet's rows
+matched the table's counts exactly (table said 3 activities / 1 call /
+1 visit, sheet listed 3 rows with exactly that mix; table said 0 changes and
+1 new lead, sheet showed one `CREATED` row and "1 lead created · no edits");
+dash-for-zero and real-number-for-Total confirmed in both directions; a real
+`quote_value` edit appeared as `₹5.0L → ₹8.4L`; and the timestamp fix was
+confirmed by an activity stored as `09:49` UTC rendering as **3:19 pm**. Both
+`.vip-only-mobile`/`.vip-only-desktop` sides were checked by computed style at
+375px and 1440px — **a real cascade bug was caught this way**: `.vip-daycards`
+carried an unguarded `display: flex`, which beat `.vip-only-mobile`'s
+`display: none` (equal specificity, later in the file) and leaked the mobile
+card list through at desktop width, exactly the failure `.vip-leads-layout`
+hit before it. **Not exercised live**: multi-exec sorting and the
+zero-activity-sinks-to-the-bottom behaviour (this dev database has one sales
+exec; both are covered by unit tests), and the Reschedule write path.
+
 ### Profile (`src/pages/Profile.jsx`)
 
 The Mobile redesign pass hid the whole owner-only admin block below (Add
@@ -2494,7 +2695,17 @@ renders) rather than assuming a fresh tab means a fresh session.
 ## Conventions
 
 - Secrets (Supabase URL/keys, etc.) go in a git-ignored `.env` file — never commit them. `.env.example` documents the required variable names with placeholders.
-- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Three migrations flagged as outstanding before the pilot — `parties.party_type`'s `'pmc'` value, `targets.period_type`'s `'quarter'` value, and the `lead_owner_history` table + its RLS policies — were all run live on 2026-08-09 via `Schema/migration_pilot_outstanding.sql` and re-verified end to end in the browser (created a `pmc` party from New Lead's "other party" field, saved a Quarter target, reassigned a lead's owner and confirmed a real history entry with the correct "changed by" attribution — a related bug in `insertLeadOwnerHistory`'s own `.select()` not fetching back `changed_by_employee`, caught during that verification, is fixed too). None of the three are outstanding anymore. Still outstanding: the Lead stage taxonomy rename (see its own section above) needs a one-time data migration run live — `ALTER TABLE leads ALTER COLUMN current_stage SET DEFAULT 'calling';`, then `UPDATE leads SET current_stage = 'calling' WHERE current_stage = 'new';`, `UPDATE leads SET current_stage = 'negotiation' WHERE current_stage = 'hot';`, `UPDATE leads SET current_stage = 'quote_submission' WHERE current_stage = 'quote';`, and the matching `UPDATE stage_history SET stage = 'negotiation' WHERE stage = 'hot';` / `UPDATE stage_history SET stage = 'quote_submission' WHERE stage = 'quote';` to keep the historical trail consistent. No CHECK constraint needs altering for this one (`current_stage`/`stage_history.stage` are both free text, and `follow_ups.activity_type`'s CHECK already allows the `'other'` value the On Hold flow uses) — until the `UPDATE`s run, live leads still sitting at the old `new`/`hot`/`quote` values will render as a plain grey "Other…" chip with their raw old value as the label, rather than a colored stage chip. A code-review pass also flagged the two columns every `own_data_or_owner_role_*` RLS policy filters on, `leads.owner_employee_id` and `activities.employee_id`, plus `stage_history(stage, changed_at)` (the columns `fetchWonStageHistory` filters/sorts on), as unindexed — every `leads`/`activities` query for every employee was a sequential scan on those columns. Fixed live via `idx_leads_owner`/`idx_activities_employee`/`idx_stage_history_stage_changed`, run 2026-08-09; `Schema/tostem_crm_schema.sql`'s own index list now includes all three so a fresh install gets them too. Also outstanding: the new **Architect Meeting** activity type (see the ActivityLog section above) needs `Schema/migration_architect_meeting.sql` run live — it adds `'architect_meeting'` to both `activities.activity_type`'s and `follow_ups.activity_type`'s CHECK constraints (confirmed via a real live error that the former's constraint name is exactly `activities_activity_type_check`, as the migration assumes; the latter's name wasn't independently confirmed the same way, hence that file's own SELECT-first safety check). Until this runs, tapping Architect Meeting and submitting fails with a CHECK violation, surfaced as a normal inline error — everything up to that point (the architect search-or-create picker, the party insert if a new architect is typed) already works against the live DB today, since neither depends on this constraint. **Two more migrations from the 2026-08-10 data-isolation pass are also outstanding** (see the Data isolation section below): `Schema/migration_scope_stage_history.sql` (narrows `stage_history` SELECT to "own leads or owner role" — until it runs, a sales exec's browser still *receives* every lead's stage-change rows in the raw network response, even though nothing renders them) and `Schema/migration_owner_only_stage.sql` (the `BEFORE UPDATE` trigger on `leads` enforcing owner-only stage changes, plus owner-only `stage_history` INSERT — until it runs, the "sales exec can't change stage" rule is UI-only and a rep could still flip a stage through the API). Both are safe to re-run and neither is required for the app to work as it does today — the UI already behaves correctly without them; they close the gap between the UI's rules and the database's. **`Schema/migration_backlog_2026_08_10.sql` bundles all four outstanding items** (architect meeting, the stage taxonomy rename, and both of the above) into one safe-to-re-run file with verification queries — prefer it over running the individual files, because **the order is load-bearing and not obvious**: the owner-only-stage trigger fires even for roles that bypass RLS (triggers aren't part of RLS), and the SQL Editor has no `auth.uid()`, so `current_employee_role()` is NULL there — running the trigger step before the taxonomy `UPDATE`s would make those `UPDATE`s abort with "Only an owner can change a lead's stage". The trigger function carries an `auth.uid() IS NOT NULL` guard so admin SQL keeps working after it's installed (a deactivated employee is still blocked — real `auth.uid()`, NULL role), but the bundled file also sequences the steps so the hazard can't bite.
+- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Three migrations flagged as outstanding before the pilot — `parties.party_type`'s `'pmc'` value, `targets.period_type`'s `'quarter'` value, and the `lead_owner_history` table + its RLS policies — were all run live on 2026-08-09 via `Schema/migration_pilot_outstanding.sql` and re-verified end to end in the browser (created a `pmc` party from New Lead's "other party" field, saved a Quarter target, reassigned a lead's owner and confirmed a real history entry with the correct "changed by" attribution — a related bug in `insertLeadOwnerHistory`'s own `.select()` not fetching back `changed_by_employee`, caught during that verification, is fixed too). None of the three are outstanding anymore. Still outstanding: the Lead stage taxonomy rename (see its own section above) needs a one-time data migration run live — `ALTER TABLE leads ALTER COLUMN current_stage SET DEFAULT 'calling';`, then `UPDATE leads SET current_stage = 'calling' WHERE current_stage = 'new';`, `UPDATE leads SET current_stage = 'negotiation' WHERE current_stage = 'hot';`, `UPDATE leads SET current_stage = 'quote_submission' WHERE current_stage = 'quote';`, and the matching `UPDATE stage_history SET stage = 'negotiation' WHERE stage = 'hot';` / `UPDATE stage_history SET stage = 'quote_submission' WHERE stage = 'quote';` to keep the historical trail consistent. No CHECK constraint needs altering for this one (`current_stage`/`stage_history.stage` are both free text, and `follow_ups.activity_type`'s CHECK already allows the `'other'` value the On Hold flow uses) — until the `UPDATE`s run, live leads still sitting at the old `new`/`hot`/`quote` values will render as a plain grey "Other…" chip with their raw old value as the label, rather than a colored stage chip. A code-review pass also flagged the two columns every `own_data_or_owner_role_*` RLS policy filters on, `leads.owner_employee_id` and `activities.employee_id`, plus `stage_history(stage, changed_at)` (the columns `fetchWonStageHistory` filters/sorts on), as unindexed — every `leads`/`activities` query for every employee was a sequential scan on those columns. Fixed live via `idx_leads_owner`/`idx_activities_employee`/`idx_stage_history_stage_changed`, run 2026-08-09; `Schema/tostem_crm_schema.sql`'s own index list now includes all three so a fresh install gets them too. Also outstanding: the new **Architect Meeting** activity type (see the ActivityLog section above) needs `Schema/migration_architect_meeting.sql` run live — it adds `'architect_meeting'` to both `activities.activity_type`'s and `follow_ups.activity_type`'s CHECK constraints (confirmed via a real live error that the former's constraint name is exactly `activities_activity_type_check`, as the migration assumes; the latter's name wasn't independently confirmed the same way, hence that file's own SELECT-first safety check). Until this runs, tapping Architect Meeting and submitting fails with a CHECK violation, surfaced as a normal inline error — everything up to that point (the architect search-or-create picker, the party insert if a new architect is typed) already works against the live DB today, since neither depends on this constraint. **Two more migrations from the 2026-08-10 data-isolation pass are also outstanding** (see the Data isolation section below): `Schema/migration_scope_stage_history.sql` (narrows `stage_history` SELECT to "own leads or owner role" — until it runs, a sales exec's browser still *receives* every lead's stage-change rows in the raw network response, even though nothing renders them) and `Schema/migration_owner_only_stage.sql` (the `BEFORE UPDATE` trigger on `leads` enforcing owner-only stage changes, plus owner-only `stage_history` INSERT — until it runs, the "sales exec can't change stage" rule is UI-only and a rep could still flip a stage through the API). Both are safe to re-run and neither is required for the app to work as it does today — the UI already behaves correctly without them; they close the gap between the UI's rules and the database's. **`Schema/migration_lead_change_log.sql` was run live on 2026-08-10** and is
+no longer outstanding — it creates the `lead_change_log` audit trail, adds
+`leads.created_by_employee_id`, and installs three triggers on `leads` (see
+the Day Review section for what each does and why the trail is trigger-written
+rather than written from app code). It had to run **after**
+`migration_backlog_2026_08_10.sql`, since that file's bulk stage-rename
+`UPDATE`s must land before its own owner-only-stage trigger is installed, and
+the Day Review reads stage moves straight out of `stage_history`. Verified end
+to end in the browser afterwards: a real `quote_value` edit made through Lead
+Detail produced a correctly attributed log row that renders on the day sheet.
+**`Schema/migration_backlog_2026_08_10.sql` bundles all four outstanding items** (architect meeting, the stage taxonomy rename, and both of the above) into one safe-to-re-run file with verification queries — prefer it over running the individual files, because **the order is load-bearing and not obvious**: the owner-only-stage trigger fires even for roles that bypass RLS (triggers aren't part of RLS), and the SQL Editor has no `auth.uid()`, so `current_employee_role()` is NULL there — running the trigger step before the taxonomy `UPDATE`s would make those `UPDATE`s abort with "Only an owner can change a lead's stage". The trigger function carries an `auth.uid() IS NOT NULL` guard so admin SQL keeps working after it's installed (a deactivated employee is still blocked — real `auth.uid()`, NULL role), but the bundled file also sequences the steps so the hazard can't bite.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`; **confirmed live** — `current_employee_id()`/`current_employee_role()` and every policy below have been run against the real project and verified: deactivating an employee (`employees.is_active = false` in Manage Employees) now actually revokes their database access, not just the client-side `ProtectedRoute` block): every policy that used to inline `(SELECT id/role FROM employees WHERE auth_user_id = auth.uid())`, or leave a table wide open with `USING (true)`/`WITH CHECK (true)`, now goes through one of two `SECURITY DEFINER` helper functions instead — `current_employee_id()`/`current_employee_role()`, both filtered to `is_active = true` and both resolving to `NULL` for a deactivated employee's row. That single change is what makes deactivating someone in Manage Employees actually revoke their access, not just hide the UI. `activities`/`leads`/`plans`/`targets` use "own data or owner role" (`employee_id`/`owner_employee_id` `= current_employee_id()`, or `current_employee_role() = 'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT requires `current_employee_role() IS NOT NULL` (i.e. "you resolve to some active employee" — this doesn't filter which employee rows come back, so an active owner still sees every row including inactive ones; it only gates whether a deactivated caller can query the table at all), INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`/`areas`/`site_contacts`/`products`/`stage_history`/`lead_owner_history` SELECT/INSERT now require `current_employee_role() IS NOT NULL` too — these used to be unconditionally `true` (open to any authenticated session regardless of `is_active`), which is exactly how a deactivated rep kept full access to the whole party directory even after being switched off. `sites`/`parties` UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts` UPDATE/DELETE stay owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products` UPDATE/DELETE owner-only. `stage_history`/`lead_owner_history` have no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT requires `current_employee_role() = 'owner'`, INSERT requires `current_employee_role() IS NOT NULL`, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it (`employee_id = current_employee_id()`, no `OR` branch); real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely and never calls these functions (`service_role` has no `auth.uid()`). A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
 - Deploying/configuring anything on Supabase's or Vercel's side still needs the user to do the parts that require *their own* credentials — the initial `supabase login` (interactive browser OAuth) and anything on Vercel's dashboard (env vars, redeploys) — and Edge Function secrets (`supabase secrets set ...`) are values only the user should be typing in, since a raw `service_role`/VAPID-private-key never belongs in this transcript's tool output. Once `supabase login`+`link` have been run locally, though, subsequent `supabase functions deploy`/`delete` calls work fine from a normal shell session on the same machine — this isn't a hard sandbox limitation the way the initial OAuth is. `supabase init` (to generate `supabase/config.toml`) may be needed before `link`/`deploy` will resolve the project correctly, even if `supabase/.temp/linked-project.json` already exists from an earlier `link` — the CLI keys its local cache off `config.toml`'s `project_id`, not just that temp file.
@@ -2518,9 +2729,11 @@ renders) rather than assuming a fresh tab means a fresh session.
    PWAs.
 7. ⬅️ current — Deploy + pilot with 1-2 sales execs before full rollout.
    Still open from the "Current state" list above: a `plans`-table screen,
-   role-differentiated Home/Today content, and a screen listing past
-   activities. Followups (see the dedicated section) and the Mobile
-   redesign (see the dedicated section — the below-1024px experience end to
-   end, desktop untouched) both shipped during this phase.
+   role-differentiated Home/Today content, and a general
+   browse-past-activities screen. Followups (see the dedicated section), the
+   Mobile redesign (the below-1024px experience end to end, desktop
+   untouched) and the Day Review (`Today` on the Dashboard, plus the
+   `lead_change_log` audit trail and the Done/Still-to-do restructure of the
+   exec's own Today screen) all shipped during this phase.
 
 For domain model, lead-sourcing logic, and locked-in design decisions, see DECISIONS.md.

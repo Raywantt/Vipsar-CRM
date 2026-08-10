@@ -10,6 +10,7 @@ import { LEAD_STAGE_OPTIONS, stageLabel } from './leadStageOptions'
 import { LOSS_REASON_OPTIONS } from './lossReasonOptions'
 import { stageChipClass, stageFg } from './statusColors'
 import { formatCurrencyCompact } from './format'
+import { parseTimestamp } from './dbTime'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeFunnel } from '../components/SalesFunnelCard'
 import { dealValueFor } from './pipelineValue'
@@ -292,8 +293,11 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
       const meta = r.accompanied_by ? `with ${r.employees?.name ?? 'colleague'}` : r.leads_generated != null ? `${r.leads_generated} leads generated` : null
       return {
         id: r.id,
-        date: new Date(r.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-        time: new Date(r.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        // parseTimestamp, not new Date(): activities.created_at is a naive
+        // TIMESTAMP holding UTC, so a bare parse reads it as local and prints
+        // every entry 5.5 hours early in IST. See src/lib/dbTime.js.
+        date: parseTimestamp(r.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+        time: parseTimestamp(r.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
         party,
         stage: stage ? stageLabel(stage) : null,
         chipClass: stage ? stageChipClass(stage) : null,

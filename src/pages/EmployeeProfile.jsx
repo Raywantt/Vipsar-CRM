@@ -16,6 +16,7 @@ import { stageChipClass } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
+import { parseTimestamp } from '../lib/dbTime'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
 import { errorMessage } from '../lib/errorMessage'
@@ -655,8 +656,10 @@ function EmployeeProfile() {
                   activityLog.map((a) => (
                     <Link key={a.id} to={a.lead_id ? `/leads/${a.lead_id}` : '#'} className="vip-dd-log-row" style={a.lead_id ? undefined : { pointerEvents: 'none' }}>
                       <span className="vip-dd-log-when">
-                        <span>{new Date(a.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
-                        <span className="vip-dd-log-time">{new Date(a.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                        {/* parseTimestamp, not new Date() — activities.created_at
+                            is a naive TIMESTAMP holding UTC (see src/lib/dbTime.js). */}
+                        <span>{parseTimestamp(a.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                        <span className="vip-dd-log-time">{parseTimestamp(a.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
                       </span>
                       <span className="vip-dd-log-main">
                         <span className="vip-dd-log-head">
