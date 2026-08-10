@@ -16,6 +16,7 @@ import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
 import { formatCurrencyCompact } from '../lib/format'
 import FollowUpForm from '../components/FollowUpForm'
 import DrilldownPanel from '../components/DrilldownPanel'
+import CoordinatorToday from './CoordinatorToday'
 
 function formatDate(value) {
   if (!value) return '—'
@@ -562,4 +563,17 @@ function TargetBar({ target, period }) {
   )
 }
 
-export default Home
+// `/` is one route serving different screens per role. The switch lives in a
+// wrapper rather than an early return inside Home, because Home runs a dozen
+// hooks and fires several fetches before it renders anything — a coordinator
+// hitting an early return would still pay for every one of those queries, all
+// of which are scoped to leads and activities they don't own.
+//
+// Owner and sales_executive both keep Home exactly as it was.
+function Today() {
+  const { employee } = useAuth()
+  if (employee?.role === 'sales_coordinator') return <CoordinatorToday />
+  return <Home />
+}
+
+export default Today

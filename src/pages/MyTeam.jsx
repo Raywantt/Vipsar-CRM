@@ -6,17 +6,18 @@ import { computeAttentionBuckets, countDistinctLeads } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
+import { roleLabel } from '../lib/roles'
 import { errorMessage } from '../lib/errorMessage'
 
 const BAD = '#b4232a'
 const OK = '#7a6413'
 
-// Only sales_executive exists today (fetchTeamMembers already excludes
-// owner rows) — kept as a map, not a hardcoded label, so a future role
-// added to the team just needs an entry here, same spirit as PARTY_TYPE_LABELS.
-const ROLE_LABELS = {
-  sales_executive: 'Sales Executive',
-}
+// Labels come from src/lib/roles.js now. This file used to hold its own map
+// containing only sales_executive, on the assumption that was the only role
+// fetchTeamMembers could return — Phase 8's sales_coordinator broke that, and
+// coordinators would have rendered here with the raw column value as their
+// label (and as their filter chip). The role filter below is built from the
+// data, so they appear as their own chip automatically.
 
 function MyTeam() {
   const [employees, setEmployees] = useState([])
@@ -119,7 +120,7 @@ function MyTeam() {
                   className={roleFilter === r ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
                   onClick={() => setRoleFilter(r)}
                 >
-                  {ROLE_LABELS[r] ?? r}
+                  {roleLabel(r)}
                 </button>
               ))}
             </div>
@@ -157,7 +158,7 @@ function MyTeam() {
                       )}
                     </div>
                     <span className="vip-team-sub">
-                      {[ROLE_LABELS[emp.role] ?? emp.role, emp.office_location].filter(Boolean).join(' · ')}
+                      {[roleLabel(emp.role), emp.office_location].filter(Boolean).join(' · ')}
                     </span>
                     {emp.mobile && <span className="vip-team-sub">{emp.mobile}</span>}
                   </div>

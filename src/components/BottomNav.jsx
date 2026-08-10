@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getInitials } from '../lib/initials'
+import { roleLabel } from '../lib/roles'
 import { IconActivity, IconGrid, IconHome, IconList, IconPlus, IconSearch, IconTeam } from './NavIcons'
 import FabSheet from './FabSheet'
 
@@ -25,6 +26,19 @@ function BottomNav() {
   // NavLink matching ignores the query string entirely, so both used to
   // light up together regardless of ?tab=. Compare the tab param directly
   // instead so only one is ever active.
+  // Capability flags, not `role !== 'owner'`. That older shorthand meant
+  // "everyone who isn't an owner is a rep", which Phase 8's sales_coordinator
+  // broke: a coordinator was shown the Activity Log link and the FAB's Log
+  // Activity row, both of which route to /activity — a sales_executive-only
+  // route that bounces them straight back to Home. A coordinator owns no
+  // leads or activities of their own, so neither entry point applies.
+  // Creating records on a team member's behalf is a Phase 4 flow with its own
+  // exec picker; until that exists the coordinator gets no FAB at all rather
+  // than one opening a sheet with nothing usable in it.
+  const canLogActivity = employee?.role === 'sales_executive'
+  const canCreateOwnLead = employee?.role === 'sales_executive' || employee?.role === 'owner'
+  const showFab = canLogActivity || canCreateOwnLead
+
   const onLeadsTab = location.pathname === '/dashboard' && new URLSearchParams(location.search).get('tab') === 'leads'
   const dashboardClass = !onLeadsTab && location.pathname === '/dashboard' ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
   const leadsClass = onLeadsTab ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
@@ -55,21 +69,28 @@ function BottomNav() {
           <IconList />
           <span className="vip-nav-label">Leads</span>
         </Link>
+        {/* The slot itself stays even when the button doesn't — it's the
+            reserved 76px gap the four tabs are laid out around, so removing it
+            would reflow the whole bar for a coordinator. */}
         <div className="vip-fab-slot">
-          <button type="button" className="vip-fab" onClick={() => setSheetOpen(true)} aria-label="Add">
-            <IconPlus className="vip-fab-icon" />
-          </button>
+          {showFab && (
+            <button type="button" className="vip-fab" onClick={() => setSheetOpen(true)} aria-label="Add">
+              <IconPlus className="vip-fab-icon" />
+            </button>
+          )}
         </div>
         <Link to="/dashboard" className={dashboardMobileClass} title="Dashboard">
           <IconGrid />
           <span className="vip-nav-label">Dashboard</span>
         </Link>
 
-        <NavLink to="/leads/new" className={extraTabClass} title="New Lead">
-          <IconPlus />
-          <span className="vip-nav-label">New Lead</span>
-        </NavLink>
-        {employee?.role !== 'owner' && (
+        {canCreateOwnLead && (
+          <NavLink to="/leads/new" className={extraTabClass} title="New Lead">
+            <IconPlus />
+            <span className="vip-nav-label">New Lead</span>
+          </NavLink>
+        )}
+        {canLogActivity && (
           <NavLink to="/activity" className={extraTabClass} title="Activity Log">
             <IconActivity />
             <span className="vip-nav-label">Activity Log</span>
@@ -105,11 +126,13 @@ function BottomNav() {
           <div className="vip-avatar">{getInitials(employee?.name)}</div>
           <div className="vip-sidebar-foot-text">
             <div className="vip-sidebar-foot-name">{employee?.name}</div>
-            <div className="vip-sidebar-foot-role">{employee?.role?.replace('_', ' ')}</div>
+            <div className="vip-sidebar-foot-role">{roleLabel(employee?.role)}</div>
           </div>
         </Link>
       </nav>
-      {sheetOpen && <FabSheet isOwner={employee?.role === 'owner'} onClose={() => setSheetOpen(false)} />}
+      {sheetOpen && (
+        <FabSheet canCreateLead={canCreateOwnLead} canLogActivity={canLogActivity} onClose={() => setSheetOpen(false)} />
+      )}
     </>
   )
 }

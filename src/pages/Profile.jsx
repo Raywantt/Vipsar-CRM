@@ -1,18 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { getPushPermissionState, hasActiveSubscription, subscribeToPush, unsubscribeFromPush } from '../lib/pushSubscription'
-import { fetchAllEmployees } from '../lib/employeeQueries'
+import { fetchAllEmployees, fetchCoordinators } from '../lib/employeeQueries'
+import { roleLabel } from '../lib/roles'
 import AddEmployeeForm from '../components/AddEmployeeForm'
 import ManageEmployeesSection from '../components/ManageEmployeesSection'
 import DeletePartySection from '../components/DeletePartySection'
 import ChangePasswordForm from '../components/ChangePasswordForm'
 import { errorMessage } from '../lib/errorMessage'
 import { getStoredTheme, setTheme } from '../lib/theme'
-
-const ROLE_LABELS = {
-  owner: 'Owner',
-  sales_executive: 'Sales Executive',
-}
 
 const THEME_OPTIONS = [
   { value: 'light', label: 'Light' },
@@ -30,6 +26,7 @@ function Profile() {
   const [notifError, setNotifError] = useState(null)
 
   const [employees, setEmployees] = useState([])
+  const [coordinators, setCoordinators] = useState([])
   const [employeesLoading, setEmployeesLoading] = useState(isOwner)
   const [addingEmployee, setAddingEmployee] = useState(false)
 
@@ -50,10 +47,11 @@ function Profile() {
   useEffect(() => {
     if (!isOwner) return
     let active = true
-    fetchAllEmployees().then(({ data, error }) => {
+    Promise.all([fetchAllEmployees(), fetchCoordinators()]).then(([all, coords]) => {
       if (!active) return
       setEmployeesLoading(false)
-      if (!error) setEmployees(data ?? [])
+      if (!all.error) setEmployees(all.data ?? [])
+      if (!coords.error) setCoordinators(coords.data ?? [])
     })
     return () => {
       active = false
@@ -64,6 +62,19 @@ function Profile() {
     setEmployees((prev) => {
       const exists = prev.some((e) => e.id === row.id)
       return exists ? prev.map((e) => (e.id === row.id ? row : e)) : [...prev, row].sort((a, b) => a.name.localeCompare(b.name))
+    })
+    // Keep the "Reports to" options in step with the role just saved, without
+    // a refetch: promoting someone to coordinator has to make them selectable
+    // immediately, and demoting them has to stop other execs being assignable
+    // to a person who is no longer a coordinator.
+    setCoordinators((prev) => {
+      const eligible = row.role === 'sales_coordinator' && row.is_active
+      const listed = prev.some((c) => c.id === row.id)
+      if (eligible && !listed) {
+        return [...prev, { id: row.id, name: row.name }].sort((a, b) => a.name.localeCompare(b.name))
+      }
+      if (!eligible && listed) return prev.filter((c) => c.id !== row.id)
+      return listed ? prev.map((c) => (c.id === row.id ? { id: row.id, name: row.name } : c)) : prev
     })
   }
 
@@ -102,7 +113,7 @@ function Profile() {
           </div>
           <div>
             <div className="vip-fact-label">Role</div>
-            <div className="vip-fact-value">{ROLE_LABELS[employee?.role] ?? employee?.role}</div>
+            <div className="vip-fact-value">{roleLabel(employee?.role)}</div>
           </div>
           <div>
             <div className="vip-fact-label">Mobile</div>
@@ -149,43 +160,59 @@ function Profile() {
         <p className="vip-form-note">System matches your phone or browser's own light/dark setting.</p>
       </div>
 
-      {/* Owner-only admin tooling — desktop only (design_handoff_vipsar_mobile:
-          "not shown on mobile"). A phone-width Profile stays a lean personal
-          screen; team/data management stays a desktop task. */}
-      {isOwner && (
-        <div className="vip-only-desktop">
-          <div className="vip-stack">
-            <p className="vip-lede">Owner-only tools for managing the team and cleaning up data.</p>
+      {/* Owner-only admin tooling. Add employee and Delete a party stay
+          desktop-only (design_handoff_vipsar_mobile: "not shown on mobile") —
+          both are sit-down tasks needing a UUID pasted from the Supabase
+          dashboard, or a deliberate destructive confirm.
 
-            <div className="vip-card">
-              <div className="vip-card-head">
-                <div className="vip-card-title">Add employee</div>
-                {!addingEmployee && (
-                  <button type="button" className="vip-btn-link" onClick={() => setAddingEmployee(true)}>
-                    + Add
-                  </button>
+          Manage employees is deliberately NOT in that wrapper as of Phase 8:
+          it now owns coordinator assignment, which is a normal
+          "reshuffle who reports to whom" action an owner may well do from a
+          phone. Keeping it desktop-only would have meant the only route to it
+          was a laptop. */}
+      {isOwner && (
+        <>
+          <div className="vip-only-desktop">
+            <div className="vip-stack">
+              <p className="vip-lede">Owner-only tools for managing the team and cleaning up data.</p>
+
+              <div className="vip-card">
+                <div className="vip-card-head">
+                  <div className="vip-card-title">Add employee</div>
+                  {!addingEmployee && (
+                    <button type="button" className="vip-btn-link" onClick={() => setAddingEmployee(true)}>
+                      + Add
+                    </button>
+                  )}
+                </div>
+                {addingEmployee && (
+                  <AddEmployeeForm
+                    onCreated={(row) => {
+                      upsertEmployee(row)
+                      setAddingEmployee(false)
+                    }}
+                    onCancel={() => setAddingEmployee(false)}
+                  />
                 )}
               </div>
-              {addingEmployee && (
-                <AddEmployeeForm
-                  onCreated={(row) => {
-                    upsertEmployee(row)
-                    setAddingEmployee(false)
-                  }}
-                  onCancel={() => setAddingEmployee(false)}
-                />
-              )}
             </div>
+          </div>
 
-            {employeesLoading ? (
-              <p className="vip-empty">Loading employees…</p>
-            ) : (
-              <ManageEmployeesSection employees={employees} currentEmployeeId={employee?.id} onUpdated={upsertEmployee} />
-            )}
+          {employeesLoading ? (
+            <p className="vip-empty">Loading employees…</p>
+          ) : (
+            <ManageEmployeesSection
+              employees={employees}
+              coordinators={coordinators}
+              currentEmployeeId={employee?.id}
+              onUpdated={upsertEmployee}
+            />
+          )}
 
+          <div className="vip-only-desktop">
             <DeletePartySection />
           </div>
-        </div>
+        </>
       )}
 
       <div className="vip-card">

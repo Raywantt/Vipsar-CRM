@@ -21,7 +21,14 @@ CREATE TABLE employees (
   mobile          TEXT,
   office_location TEXT,
   role            TEXT NOT NULL DEFAULT 'sales_executive'
-                    CHECK (role IN ('owner','sales_executive')),
+                    CHECK (role IN ('owner','sales_executive','sales_coordinator')),
+  -- Which sales_coordinator this employee reports to. NULL for an owner, for
+  -- a coordinator (they report to the owner, not to each other), and for an
+  -- unassigned exec. INTEGER, not UUID — this references employees.id, which
+  -- is SERIAL. Enforced by validate_employee_role_assignment(), a trigger
+  -- rather than a CHECK because the rule is cross-row: see
+  -- Schema/migration_sales_coordinator.sql STEP 3.
+  coordinator_id  INTEGER REFERENCES employees(id) ON DELETE SET NULL,
   is_active       BOOLEAN DEFAULT true,   -- deactivate, never delete a person with history
   created_at      TIMESTAMP DEFAULT now()
 );
@@ -33,9 +40,13 @@ ALTER TABLE employees
   ADD CONSTRAINT fk_auth_user FOREIGN KEY (auth_user_id)
   REFERENCES auth.users(id) ON DELETE SET NULL;
 
--- Adding a third role later (e.g. 'manager') is a one-line change: add it to
--- the CHECK list above, then add matching branches to the RLS policies below.
--- No structural change needed.
+-- A third role, 'sales_coordinator', was added this way in Phase 8 — see
+-- Schema/migration_sales_coordinator.sql. It turned out NOT to be the
+-- one-line change this comment predicted: an oversight role needs a team
+-- link (coordinator_id above), a cross-row validation trigger, and its own
+-- OR'd branch on ~15 policies. A fourth role scoped to individual rows would
+-- be similarly involved; one that only reads company-wide really would be
+-- one line.
 --
 -- Row Level Security policies: see Schema/rls_policies.sql — the
 -- "own data or owner role" pattern for activities, leads, parties, and plans,
@@ -146,6 +157,14 @@ CREATE TABLE leads (
   lead_generated_at    DATE,
   current_stage        TEXT DEFAULT 'new',   -- free text, standardize the list at the app layer
 
+  -- SC edit lock, NOT an audit field. NULL = the assigned exec has never
+  -- saved this row, so the sales_coordinator who entered it may still edit
+  -- it; 'sales_executive' = the exec has taken it over and the SC drops to
+  -- view-only. Written only by the stamp_entered_by_role() trigger, never by
+  -- app code. Full rationale: migration_sales_coordinator.sql STEP 4.
+  entered_by_role      TEXT CHECK (entered_by_role IS NULL OR entered_by_role IN
+                          ('owner','sales_executive','sales_coordinator')),
+
   rfq_raised           BOOLEAN DEFAULT false,
   rfq_raised_at        DATE,
   quote_sent           BOOLEAN DEFAULT false,
@@ -179,6 +198,9 @@ CREATE TABLE activities (
   accompanied_by  INTEGER REFERENCES employees(id) ON DELETE SET NULL,
   notes           TEXT,
   leads_generated INTEGER,   -- only used for 'office_day' entries
+  -- Same SC edit lock as leads.entered_by_role above — see that comment.
+  entered_by_role TEXT CHECK (entered_by_role IS NULL OR entered_by_role IN
+                     ('owner','sales_executive','sales_coordinator')),
   created_at      TIMESTAMP DEFAULT now(),
 
   CONSTRAINT activity_needs_an_anchor CHECK (
@@ -319,6 +341,16 @@ CREATE INDEX idx_stage_history_lead    ON stage_history(lead_id);
 -- sorts by changed_at desc against the whole table (unbounded, no date
 -- filter at the query level) — this composite index covers both.
 CREATE INDEX idx_stage_history_stage_changed ON stage_history(stage, changed_at);
+-- Phase 8 (sales_coordinator). idx_employees_coordinator drives
+-- is_my_team_member(), called by every team-scoped policy. The other four
+-- back the EXISTS lookups that parties/sites SELECT now runs per row, once
+-- an exec's read is narrowed from company-wide to own-leads-only —
+-- see migration_sales_coordinator.sql STEP 6.
+CREATE INDEX idx_employees_coordinator ON employees(coordinator_id);
+CREATE INDEX idx_parties_created_by    ON parties(created_by);
+CREATE INDEX idx_sites_discovered_by   ON sites(discovered_by);
+CREATE INDEX idx_leads_referred_by     ON leads(referred_by_party_id);
+CREATE INDEX idx_leads_other_party     ON leads(other_party_id);
 CREATE INDEX idx_follow_ups_assigned_due ON follow_ups(assigned_to, due_date) WHERE is_done = false;
 CREATE INDEX idx_follow_ups_due_notify   ON follow_ups(due_date, due_time) WHERE is_done = false AND notified_at IS NULL;
 CREATE INDEX idx_push_subscriptions_employee ON push_subscriptions(employee_id);

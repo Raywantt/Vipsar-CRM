@@ -205,9 +205,10 @@ src/
                 FabSheet — the mobile shell's FAB bottom sheet, see the
                 Mobile redesign section)
   pages/        top-level views (Login, Home [renders Today, see the Mobile
-                redesign section], Profile, Search, Dashboard,
-                LeadQuickCapture, LeadDetail, EmployeeProfile, MyTeam,
-                ActivityLog, ...)
+                redesign section], CoordinatorToday [the sales_coordinator's
+                own `/` — see the Sales Coordinator section], Profile, Search,
+                Dashboard, LeadQuickCapture, LeadDetail, EmployeeProfile,
+                MyTeam, ActivityLog, ...)
   contexts/     AuthContext — session + employee (id/name/mobile/role) lookup;
                 HeaderContext — lets Lead Detail/Sales Exec Profile/Dashboard
                 push a dynamic {title, sub} override into AppNav's header
@@ -226,6 +227,8 @@ src/
                 one correct way to parse a timestamp out of this schema
                 (see the Day Review section),
                 followUpQueries.js, followupDates.js, pushSubscription.js,
+                roles.js — the canonical role list/labels, see the Sales
+                Coordinator section —
                 theme.js — light/dark override, see the Design system
                 section's Dark mode bullet — `homeTiles.js` is deleted, see
                 the Mobile redesign section)
@@ -2559,6 +2562,89 @@ function.
   `.vip-dd-kpi-grid` metric grid automatically picked up the 2-column
   mobile layout from the shared CSS fix above.
 
+### Sales Coordinator (Phase 8 — role 3 of 3)
+
+A third role, `sales_coordinator` (SC): oversight between owner and rep. Owns
+no leads/activities/plans of their own, supervises a fixed set of sales execs
+via `employees.coordinator_id`, and is fully isolated from every other SC's
+team. **Schema + RLS are live** (`Schema/migration_sales_coordinator.sql`, run
+2026-08-10, all 9 verification checks PASS). **Phase 3 UI is built; Phase 4 —
+the coordinator's actual team screen — is not.** Full rationale for every
+decision below lives in `DECISIONS.md`'s Phase 8 section; don't re-derive it
+here.
+
+* **`is_my_team_member(employee_id)`** is the one helper every team-scoped
+  policy routes through — the third `SECURITY DEFINER` function alongside
+  `current_employee_id()`/`current_employee_role()`. SC policies are added as
+  **separate, additionally-permissive policies** (`coordinator_team_*`), not
+  edits to the existing `own_data_or_owner_role_*` ones, so owner/exec
+  behaviour is byte-for-byte unchanged. Two deliberate exceptions, both
+  marked SUPERSEDED in `rls_policies.sql`: `parties` and `sites` SELECT.
+* **A sales exec's `parties`/`sites` read is now scoped to their own leads**
+  — reversing the earlier open-read decision that existed to make
+  search-before-create work across reps. Company-wide dedup is no longer
+  guaranteed; cross-team duplicates are accepted. Measured live: an exec
+  owning 3 of 77 leads sees 9 of 54 parties. **The `created_by`/
+  `discovered_by` branch in those policies is load-bearing** — Postgres
+  applies the SELECT policy to `INSERT ... RETURNING`, and
+  `PartySearchOrCreate` does `.insert().select().single()` on a party that has
+  no lead yet, so without it New Lead breaks outright. Verified live.
+* **`entered_by_role` on `leads`/`activities` is a LOCK FLAG, not an audit
+  field** — the only one of its kind here. `NULL` = the assigned exec hasn't
+  saved it yet, so the SC who entered it may still edit; `'sales_executive'` =
+  the exec has taken it over and the SC drops to view-only. Written **only by
+  the `stamp_entered_by_role()` trigger**, never app code (same
+  no-single-update-service reasoning as `lead_change_log`). Existing rows were
+  deliberately **not** backfilled.
+* **The lock is column-level on `leads`, row-level on `activities`.** SCs keep
+  stage rights permanently — `enforce_owner_only_stage_change()` was widened
+  to `('owner','sales_coordinator')`, so a rep still can't change a stage but
+  their coordinator can. RLS restricts rows not columns, so a row-level lock
+  would have revoked that the instant an exec touched the lead;
+  `enforce_coordinator_lock()` draws the line inside the row instead, allowing
+  only `current_stage`, `next_followup_date` and `order_value` once locked.
+  **These two are a pair — removing either silently guts the other.**
+* **SC follow-up assignment uses `follow_ups`, not `plans`.** The spec asked
+  for `plans.assigned_by`, but `plans` has zero code references anywhere in
+  `src/` and there is no plans view; `follow_ups` already carries
+  `assigned_to`/`created_by`, already renders "Assigned by {name}", and
+  already fires a push. No `assigned_by` column was added. `plans` remains
+  untouched and unused.
+* **`src/lib/roles.js` is canonical** (`ROLE_OPTIONS`/`ROLE_LABELS`/
+  `roleLabel()`/`canHaveCoordinator()`). Adding the third role found the same
+  label table hand-rolled in four files, two listing only owner/
+  sales_executive. Use it; don't write a fourth copy.
+* **Role admin lives in Profile → Manage employees**, not a new screen (the
+  app already had two employee surfaces). A "Reports to" dropdown sits beside
+  the role dropdown, shown only when the employee's *saved* role is
+  `sales_executive`. That card was moved **out of** Profile's
+  `.vip-only-desktop` block — Add employee and Delete a party stay
+  desktop-only, but reshuffling reporting lines is a phone-reasonable task.
+  `updateEmployeeRole()` **clears `coordinator_id` in the same statement**
+  when the new role isn't exec, or the validation trigger rejects the write.
+* Demoting an exec who still holds data **warns with real counts and allows**;
+  demoting an SC who still has reports is **hard-blocked by the database**
+  (an orphaned `coordinator_id` breaks visibility for their whole team).
+* **Nav gates on capabilities, not `role !== 'owner'`** — that shorthand meant
+  "anyone who isn't an owner is a rep", which offered a coordinator the
+  Activity Log link and FAB row, both routing to a `sales_executive`-only
+  page. `BottomNav` now computes `canLogActivity`/`canCreateOwnLead` and
+  passes them to `FabSheet` (which lost its `isOwner` prop). **An SC gets no
+  FAB and no `/leads/new`** until Phase 4 builds the on-behalf-of flow — that
+  form assigns the lead to whoever fills it in, which RLS rejects for an SC.
+  The empty `.vip-fab-slot` div still renders: it's the reserved 76px gap the
+  four tabs lay out around.
+* `Home.jsx` exports a `Today` wrapper that renders `CoordinatorToday` for an
+  SC and the unchanged `Home` for everyone else — a wrapper, not an early
+  return, because `Home` fires a dozen hooks and several fetches before it
+  renders. `CoordinatorToday` is currently a **placeholder** (greeting bar +
+  "your team view is being built"); Phase 4 replaces the card, not the bar.
+* **Not verified live**: the owner and coordinator paths (no test login was
+  available) — the Reports-to dropdown, both guard messages, and
+  `CoordinatorToday` are reasoned and compile-clean but unexercised. The
+  sales-exec path *was* checked in-browser: Profile renders with no owner
+  tools leaking, nav/FAB unchanged, role label correct.
+
 ### Data isolation — what a sales exec can see and change
 
 A full audit (2026-08-10) of "a sales exec only sees their own data and only
@@ -2706,6 +2792,8 @@ the Day Review reads stage moves straight out of `stage_history`. Verified end
 to end in the browser afterwards: a real `quote_value` edit made through Lead
 Detail produced a correctly attributed log row that renders on the day sheet.
 **`Schema/migration_backlog_2026_08_10.sql` bundles all four outstanding items** (architect meeting, the stage taxonomy rename, and both of the above) into one safe-to-re-run file with verification queries — prefer it over running the individual files, because **the order is load-bearing and not obvious**: the owner-only-stage trigger fires even for roles that bypass RLS (triggers aren't part of RLS), and the SQL Editor has no `auth.uid()`, so `current_employee_role()` is NULL there — running the trigger step before the taxonomy `UPDATE`s would make those `UPDATE`s abort with "Only an owner can change a lead's stage". The trigger function carries an `auth.uid() IS NOT NULL` guard so admin SQL keeps working after it's installed (a deactivated employee is still blocked — real `auth.uid()`, NULL role), but the bundled file also sequences the steps so the hazard can't bite.
+- **`Schema/migration_sales_coordinator.sql` was run live on 2026-08-10** and is no longer outstanding — it adds the `sales_coordinator` role, `employees.coordinator_id`, `entered_by_role` on `leads`/`activities`, the `is_my_team_member()` helper, 13 `coordinator_team_*` policies, the narrowed `parties`/`sites` reads, and two new triggers (`validate_employee_role_assignment`, `enforce_coordinator_lock`); it also replaces `enforce_owner_only_stage_change()`, so it **must run after** `migration_backlog_2026_08_10.sql` or the backlog overwrites it back to owner-only. All 9 verification checks returned PASS. One ordering bug was found and fixed by running it live: `is_my_team_member()` is `LANGUAGE sql`, whose body Postgres validates at CREATE time, so defining it before `coordinator_id` existed failed the whole file on its first statement with `42703`. It's now STEP 3, after the column — don't move it back up, and prefer reordering over switching to plpgsql if a similar dependency appears (plpgsql's late binding hides the problem until runtime).
+- `Schema/DESTRUCTIVE_reset_all_data.sql` empties every table except one owner's `employees` row. **Not a migration** — never include it in a run-everything-in-order list. It exists so a test reset is documented and repeatable. Note it deliberately does *not* touch `auth.users`: deleting employee rows leaves orphaned Supabase Auth logins that must be cleaned up by hand in the dashboard, and scripting that risks removing your own login.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`; **confirmed live** — `current_employee_id()`/`current_employee_role()` and every policy below have been run against the real project and verified: deactivating an employee (`employees.is_active = false` in Manage Employees) now actually revokes their database access, not just the client-side `ProtectedRoute` block): every policy that used to inline `(SELECT id/role FROM employees WHERE auth_user_id = auth.uid())`, or leave a table wide open with `USING (true)`/`WITH CHECK (true)`, now goes through one of two `SECURITY DEFINER` helper functions instead — `current_employee_id()`/`current_employee_role()`, both filtered to `is_active = true` and both resolving to `NULL` for a deactivated employee's row. That single change is what makes deactivating someone in Manage Employees actually revoke their access, not just hide the UI. `activities`/`leads`/`plans`/`targets` use "own data or owner role" (`employee_id`/`owner_employee_id` `= current_employee_id()`, or `current_employee_role() = 'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT requires `current_employee_role() IS NOT NULL` (i.e. "you resolve to some active employee" — this doesn't filter which employee rows come back, so an active owner still sees every row including inactive ones; it only gates whether a deactivated caller can query the table at all), INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`/`areas`/`site_contacts`/`products`/`stage_history`/`lead_owner_history` SELECT/INSERT now require `current_employee_role() IS NOT NULL` too — these used to be unconditionally `true` (open to any authenticated session regardless of `is_active`), which is exactly how a deactivated rep kept full access to the whole party directory even after being switched off. `sites`/`parties` UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts` UPDATE/DELETE stay owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products` UPDATE/DELETE owner-only. `stage_history`/`lead_owner_history` have no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT requires `current_employee_role() = 'owner'`, INSERT requires `current_employee_role() IS NOT NULL`, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it (`employee_id = current_employee_id()`, no `OR` branch); real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely and never calls these functions (`service_role` has no `auth.uid()`). A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
 - Deploying/configuring anything on Supabase's or Vercel's side still needs the user to do the parts that require *their own* credentials — the initial `supabase login` (interactive browser OAuth) and anything on Vercel's dashboard (env vars, redeploys) — and Edge Function secrets (`supabase secrets set ...`) are values only the user should be typing in, since a raw `service_role`/VAPID-private-key never belongs in this transcript's tool output. Once `supabase login`+`link` have been run locally, though, subsequent `supabase functions deploy`/`delete` calls work fine from a normal shell session on the same machine — this isn't a hard sandbox limitation the way the initial OAuth is. `supabase init` (to generate `supabase/config.toml`) may be needed before `link`/`deploy` will resolve the project correctly, even if `supabase/.temp/linked-project.json` already exists from an earlier `link` — the CLI keys its local cache off `config.toml`'s `project_id`, not just that temp file.
@@ -2727,7 +2815,20 @@ Detail produced a correctly attributed log row that renders on the day sheet.
    installability section above. Out of scope: background sync/auto-retry
    of failed submissions, iOS's more aggressive cache-clearing on inactive
    PWAs.
-7. ⬅️ current — Deploy + pilot with 1-2 sales execs before full rollout.
+8. ⬅️ current — **Sales Coordinator role** (see its own section above).
+   Phases 1–2 (schema + RLS) are live and verified; Phase 3 (role/team admin
+   in Profile) and the Phase 5 routing it needed are built but only
+   exec-path-verified. **Still to build: Phase 4** — the coordinator's Today
+   screen (team overview rows, red flags, follow-up assignment, lead/activity
+   entry on a team member's behalf), replacing `CoordinatorToday`'s
+   placeholder card. Red-flag thresholds are agreed (10+ days no activity on
+   a lead; a follow-up past its due date and not done) but note the 10-day
+   figure is a *third* staleness threshold alongside `attention.js`'s
+   existing 7 and 14 — worth unifying before rollout. Out of scope by
+   decision: push notifications for red flags, company-wide comparison views
+   for an SC, and de-duplicating parties/sites created across teams after the
+   scoping change.
+7. Deploy + pilot with 1-2 sales execs before full rollout.
    Still open from the "Current state" list above: a `plans`-table screen,
    role-differentiated Home/Today content, and a general
    browse-past-activities screen. Followups (see the dedicated section), the

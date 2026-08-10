@@ -33,7 +33,7 @@ function App() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
                 <Dashboard />
               </ProtectedRoute>
             }
@@ -44,7 +44,14 @@ function App() {
               // 'owner' included deliberately: an owner can also personally log
               // leads via quick-capture, not just sales execs. Not a testing
               // workaround — see CLAUDE.md's LeadQuickCapture section.
-              <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
+              //
+              // sales_coordinator is deliberately EXCLUDED for now. This screen
+              // assigns the new lead to whoever is filling it in, and a
+              // coordinator owns no leads of their own — the RLS insert policy
+              // would reject it (is_my_team_member() is false for yourself).
+              // Creating a lead on a team member's behalf is Phase 4 and needs
+              // an exec picker this form doesn't have yet.
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
                 <LeadQuickCapture />
               </ProtectedRoute>
             }
@@ -52,7 +59,7 @@ function App() {
           <Route
             path="/leads/:id"
             element={
-              <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
                 <LeadDetail />
               </ProtectedRoute>
             }
@@ -63,7 +70,7 @@ function App() {
               // Both roles can hit the route; EmployeeProfile itself enforces
               // who can see what (owner: any employee, sales exec: self
               // only, else redirect to /dashboard) — see FLOW.md §4.
-              <ProtectedRoute allowedRoles={['sales_executive', 'owner']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
                 <EmployeeProfile />
               </ProtectedRoute>
             }
@@ -89,7 +96,7 @@ function App() {
           <Route
             path="/profile"
             element={
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
                 <Profile />
               </ProtectedRoute>
             }
@@ -97,7 +104,7 @@ function App() {
           <Route
             path="/"
             element={
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
                 <Home />
               </ProtectedRoute>
             }
@@ -105,7 +112,7 @@ function App() {
           <Route
             path="/search"
             element={
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
                 <Search />
               </ProtectedRoute>
             }

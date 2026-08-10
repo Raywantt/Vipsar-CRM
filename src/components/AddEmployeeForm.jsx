@@ -1,11 +1,7 @@
 import { useState } from 'react'
 import { insertEmployee } from '../lib/employeeQueries'
+import { ROLE_OPTIONS } from '../lib/roles'
 import { errorMessage } from '../lib/errorMessage'
-
-const ROLE_OPTIONS = [
-  { value: 'sales_executive', label: 'Sales Executive' },
-  { value: 'owner', label: 'Owner' },
-]
 
 function AddEmployeeForm({ onCreated, onCancel }) {
   const [name, setName] = useState('')

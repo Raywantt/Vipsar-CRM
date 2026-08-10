@@ -345,6 +345,14 @@ DROP POLICY IF EXISTS "authenticated_select" ON parties;
 DROP POLICY IF EXISTS "authenticated_insert" ON parties;
 DROP POLICY IF EXISTS "owner_only_delete" ON parties;
 
+-- SUPERSEDED BY Schema/migration_sales_coordinator.sql STEP 6 (Phase 8).
+-- This open read was itself the fix for cross-rep dedup (see the STEP D
+-- note above); Phase 8 narrows it back to "own leads, or rows I created" for
+-- a sales_executive, keeping company-wide read for owner and
+-- sales_coordinator only. That migration DROPs this policy by name and
+-- replaces it with "team_scoped_select". Left here so the history of the
+-- decision is legible — do not re-run this file after that migration
+-- without re-running that migration too, or the narrowing silently reverts.
 CREATE POLICY "authenticated_select" ON parties
   FOR SELECT USING (current_employee_role() IS NOT NULL);
 
@@ -398,6 +406,8 @@ DROP POLICY IF EXISTS "authenticated_insert" ON sites;
 DROP POLICY IF EXISTS "own_data_or_owner_role_update" ON sites;
 DROP POLICY IF EXISTS "owner_only_delete" ON sites;
 
+-- SUPERSEDED BY Schema/migration_sales_coordinator.sql STEP 6 — same as
+-- parties above, replaced by "team_scoped_select". See that note.
 CREATE POLICY "authenticated_select" ON sites
   FOR SELECT USING (current_employee_role() IS NOT NULL);
 
@@ -641,10 +651,24 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON follow_ups, push_subscriptions TO servic
 
 
 -- ------------------------------------------------------------
--- Adding a third role later (e.g. 'manager') is a one-line change:
--- add it to the CHECK list on employees.role, then add a matching
--- `OR current_employee_role() = 'manager'` branch to each policy
--- above. No structural change needed — deactivation already applies
--- to any role, since current_employee_role() returns NULL for a
--- deactivated row regardless of what that row's role column says.
+-- PHASE 8 ADDS A THIRD ROLE — see Schema/migration_sales_coordinator.sql,
+-- which layers 'sales_coordinator' on top of everything in this file.
+--
+-- This comment used to predict that a third role would be "a one-line
+-- change: add it to the CHECK list, then add a matching
+-- `OR current_employee_role() = 'manager'` branch to each policy above."
+-- That held only for a role scoped company-wide. sales_coordinator is
+-- scoped to a TEAM, so it needed: a team link (employees.coordinator_id),
+-- a cross-row validation trigger, an is_my_team_member() helper alongside
+-- the two in STEP A2, and its own separate policy per table+action rather
+-- than an edit to the ones here.
+--
+-- The Phase 8 policies are added as SEPARATE, additionally-permissive
+-- policies (multiple permissive policies for one table+action are OR'd),
+-- so nothing in this file changed behaviour — with two deliberate
+-- exceptions, both marked SUPERSEDED above: parties and sites SELECT.
+--
+-- Deactivation still applies to every role automatically, unchanged:
+-- current_employee_role() returns NULL for a deactivated row regardless of
+-- what that row's role column says, and is_my_team_member() checks it too.
 -- ------------------------------------------------------------
