@@ -175,15 +175,23 @@ function EmployeeProfile() {
   const [addingFollowUp, setAddingFollowUp] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  // Role guard — a sales exec may only open their own page (FLOW.md §4);
+  // Role guard — a sales exec may only open their own page (FLOW.md §4).
   // RLS on activities/leads/targets already returns empty for anyone else's
-  // data, this redirect is the UI-layer half of that same rule.
+  // data, but `employees` itself is openly readable by any active employee
+  // (see Schema/rls_policies.sql), so without this the fetch effects below
+  // would still successfully pull a colleague's profile row before the
+  // redirect below ever fires — React runs every effect scheduled on the
+  // initial mount in the same pass, `navigate()` doesn't preempt them. Every
+  // data-fetch effect below is gated on `allowed` for exactly that reason,
+  // not just this redirect.
+  const allowed = isOwner || isSelf
   useEffect(() => {
     if (!viewer) return
-    if (!isOwner && !isSelf) navigate('/dashboard', { replace: true })
-  }, [viewer, isOwner, isSelf, execId, navigate])
+    if (!allowed) navigate('/dashboard', { replace: true })
+  }, [viewer, allowed, navigate])
 
   useEffect(() => {
+    if (!viewer || !allowed) return
     let active = true
     fetchEmployeeProfile(execId).then(({ data, error }) => {
       if (!active) return
@@ -193,9 +201,10 @@ function EmployeeProfile() {
     return () => {
       active = false
     }
-  }, [execId])
+  }, [execId, viewer, allowed])
 
   useEffect(() => {
+    if (!viewer || !allowed) return
     let active = true
     fetchActiveSalesExecs().then(({ data, error }) => {
       if (!active) return
@@ -204,9 +213,10 @@ function EmployeeProfile() {
     return () => {
       active = false
     }
-  }, [])
+  }, [viewer, allowed])
 
   useEffect(() => {
+    if (!viewer || !allowed) return
     let active = true
     fetchFollowUpsForEmployee(execId).then(({ data, error }) => {
       if (!active) return
@@ -215,7 +225,7 @@ function EmployeeProfile() {
     return () => {
       active = false
     }
-  }, [execId])
+  }, [execId, viewer, allowed])
 
   async function handleMarkDone(id) {
     const { data, error } = await markFollowUpDone(id)
@@ -224,7 +234,7 @@ function EmployeeProfile() {
   }
 
   useEffect(() => {
-    if (!range) return
+    if (!range || !viewer || !allowed) return
     let active = true
     setLoading(true)
     Promise.all([
@@ -255,7 +265,7 @@ function EmployeeProfile() {
       active = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [execId, preset])
+  }, [execId, preset, viewer, allowed])
 
   const execName = profileEmployee?.name ?? ''
   useEffect(() => {

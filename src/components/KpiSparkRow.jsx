@@ -166,6 +166,7 @@ function KpiSparkRow({
   orderValueActual,
   activitiesCount,
   openPipelineValue,
+  openLeadCount,
   winRatePct,
   staleCount,
   weightedForecast,
@@ -201,7 +202,17 @@ function KpiSparkRow({
       delta: weekOverWeek(activitiesTrendWindow, (a) => a.created_at),
       onOpen: onOpenActivities,
     },
-    { label: 'Open pipeline', value: formatCurrencyCompact(openPipelineValue), series: null, delta: null, onOpen: onOpenPipeline },
+    {
+      label: 'Open pipeline',
+      value: formatCurrencyCompact(openPipelineValue),
+      series: null,
+      // How many leads that rupee figure is spread across — reuses the
+      // delta slot (up: null renders it plain/muted, no up/down tint) so
+      // the count sits inline beside the value rather than needing its own
+      // row. Point-in-time like the value itself, not a trend.
+      delta: openLeadCount != null ? { label: `${openLeadCount} lead${openLeadCount === 1 ? '' : 's'}`, up: null } : null,
+      onOpen: onOpenPipeline,
+    },
     {
       label: 'Win rate',
       value: winRatePct != null ? `${winRatePct}%` : '—',

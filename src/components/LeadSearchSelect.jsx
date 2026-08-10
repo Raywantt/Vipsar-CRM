@@ -10,8 +10,23 @@ function leadLabel(lead) {
   return `${who} — ${where} (${stageLabel(lead.current_stage ?? 'calling')})`
 }
 
-function LeadSearchSelect({ onSelect }) {
+// `employeeId` scopes which leads are searchable — defaults to the logged-in
+// employee (ActivityLog's case: a rep logging against their own lead). Passed
+// explicitly by FollowUpForm so an owner assigning a reminder to a rep
+// searches *that rep's* leads rather than their own; RLS lets an owner read
+// any lead, and a sales exec can only ever resolve to their own id anyway.
+//
+// `allLeads` drops the owner filter entirely (still RLS-bounded, so it only
+// ever means "everything you're allowed to see"). FollowUpForm sets it when
+// an owner is picking a lead for their *own* reminder — an owner works across
+// the whole pipeline, so restricting them to leads they personally carry made
+// the picker come back empty on a real database.
+//
+// `party_id` is selected (not just the embedded party name) because
+// FollowUpForm stores it on the follow-up row alongside lead_id.
+function LeadSearchSelect({ onSelect, employeeId, allLeads = false }) {
   const { employee } = useAuth()
+  const scopedEmployeeId = employeeId ?? employee?.id
 
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
@@ -20,13 +35,15 @@ function LeadSearchSelect({ onSelect }) {
   const [selected, setSelected] = useState(null)
 
   useEffect(() => {
-    if (!employee?.id) return
+    if (!allLeads && !scopedEmployeeId) return
     let active = true
 
-    supabase
+    let request = supabase
       .from('leads')
-      .select('id, current_stage, source_type, parties!party_id(name, party_type), sites(id, nickname, locality, site_stage)')
-      .eq('owner_employee_id', employee.id)
+      .select('id, current_stage, source_type, party_id, parties!party_id(name, party_type), sites(id, nickname, locality, site_stage)')
+    if (!allLeads) request = request.eq('owner_employee_id', scopedEmployeeId)
+
+    request
       .order('created_at', { ascending: false })
       .limit(100)
       .then(({ data, error }) => {
@@ -42,7 +59,7 @@ function LeadSearchSelect({ onSelect }) {
     return () => {
       active = false
     }
-  }, [employee?.id])
+  }, [scopedEmployeeId, allLeads])
 
   const term = query.trim().toLowerCase()
   // Nothing renders below the box until you actually type — with a large

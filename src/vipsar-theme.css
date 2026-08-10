@@ -949,6 +949,15 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 }
 .vip-dd-close:hover { background: var(--vip-canvas); }
 
+/* "‹ Back" — only rendered once a body has drilled one level deeper (see
+   DrilldownPanel's stack), sitting above the head so the title below it is
+   the level you're actually on. */
+.vip-dd-back {
+  align-self: flex-start; border: 0; background: none; padding: 0; margin: 0;
+  font: 600 12px var(--vip-sans); color: var(--vip-teal); cursor: pointer;
+}
+.vip-dd-back:hover { text-decoration: underline; }
+
 .vip-dd-stats {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px;
   background: var(--vip-line-soft); border: 1px solid var(--vip-line-soft); border-radius: var(--vip-r-field);
@@ -1045,8 +1054,15 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 /* Win-rate drill-down's "3W · 2L" hint sitting between label and value */
 .vip-dd-contrib-hint { flex: 0 0 90px; }
 
-/* pipeline kind: stage rows + conversion cards + top leads */
+/* pipeline kind: stage rows + conversion cards + leads. Stage rows are
+   buttons (they double as a filter for the Leads section below) — reset so
+   one still reads as a plain row, not a button. */
 .vip-dd-stage-row { display: flex; align-items: center; gap: 10px; }
+button.vip-dd-stage-row {
+  width: 100%; border: 0; background: none; padding: 4px 0; margin: 0;
+  font: inherit; cursor: pointer; text-align: left; border-radius: 6px;
+}
+button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
 .vip-dd-stage-label { flex: 0 0 112px; font-size: 12px; color: var(--vip-body); }
 .vip-dd-stage-track { flex: 1; height: 18px; background: var(--vip-line-soft); border-radius: 4px; overflow: hidden; }
 .vip-dd-stage-fill { display: block; height: 100%; background: var(--vip-teal); }

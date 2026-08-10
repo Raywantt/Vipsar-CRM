@@ -17,10 +17,10 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24
 // can reuse the exact same reached-count/avg-days-in-stage numbers this card
 // shows, instead of a second computation that could drift from it.
 export function computeFunnel(stageHistory, leads) {
-  // stage_history SELECT is open to everyone (unlike leads/activities), so
-  // a sales exec's rows for leads they don't own come back with
-  // `leads: null` (RLS on the embedded relation) — drop those to get the
-  // same "own data or owner role" scoping every other card gets for free.
+  // stage_history SELECT is scoped to "own leads or owner role" as of
+  // Schema/migration_scope_stage_history.sql. This null-embed filter predates
+  // that and is kept as belt-and-braces (it's also what still scopes the card
+  // correctly if that migration hasn't been run against a given environment).
   // Same trick TargetsVsActualsCard's computeOrderValueActuals already uses.
   const visibleHistory = stageHistory.filter((row) => row.leads)
 

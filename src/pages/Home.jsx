@@ -12,7 +12,7 @@ import { todayISO } from '../lib/followupDates'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
-import { formatCurrencyCompact, formatCurrency } from '../lib/format'
+import { formatCurrencyCompact } from '../lib/format'
 import FollowUpForm from '../components/FollowUpForm'
 import DrilldownPanel from '../components/DrilldownPanel'
 
@@ -425,7 +425,7 @@ function Home() {
                 <div className="vip-row-title">{lead.parties?.name ?? '(no party)'}</div>
               </div>
               <div className="vip-row-side">
-                <div className="vip-row-value">{formatCurrency(lead.quote_value)}</div>
+                <div className="vip-row-value">{formatCurrencyCompact(lead.quote_value)}</div>
                 <div className="vip-row-meta">
                   {formatDate(lead.estimated_close_date)}
                   {lead.closure_probability != null ? ` · ${lead.closure_probability}%` : ''}

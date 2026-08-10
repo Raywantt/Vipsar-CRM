@@ -101,8 +101,9 @@ export function wonEventsInRange(wonStageHistory, range) {
 }
 
 // ---------- attain: order value (company-wide or one exec) ----------
-export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId, rangeLabel }) {
+export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId, rangeLabel, scopeLabel = 'Company' }) {
   const employee = employeeId ? employees.find((e) => e.id === employeeId) : null
+  const isCompanyScope = !employee && scopeLabel === 'Company'
   const actualsByEmployee = computeOrderValueActuals(wonStageHistory, range, true)
   const actual = employeeId
     ? actualsByEmployee.get(employeeId) ?? 0
@@ -113,7 +114,7 @@ export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory
   const daily = dailyTotals(events, range, (e) => e.changedAt, (e) => e.value)
   const pace = buildPaceChart(daily, target)
 
-  const contrib = employeeId
+  const contrib = employeeId || !isCompanyScope
     ? []
     : employees
         .map((e) => ({ label: e.name, value: actualsByEmployee.get(e.id) ?? 0 }))
@@ -123,8 +124,8 @@ export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory
 
   return {
     kind: 'attain',
-    eyebrow: employee ? `${employee.name} · order value` : 'Company · order value',
-    title: employee ? 'Booked value against personal target' : 'Booked value against company target',
+    eyebrow: employee ? `${employee.name} · order value` : `${scopeLabel} · order value`,
+    title: employee || !isCompanyScope ? 'Booked value against personal target' : 'Booked value against company target',
     value: formatCurrencyCompact(actual),
     delta: target != null ? `of ${formatCurrencyCompact(target)} target` : null,
     note: `${rangeLabel}. Order value is the only rupee target this dashboard tracks — everything else on the grid is activity volume.`,
@@ -144,8 +145,8 @@ export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory
   }
 }
 
-// ---------- attain: activity volume (company-wide) ----------
-export function buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel }) {
+// ---------- attain: activity volume (company-wide for the owner, own-only for a sales exec) ----------
+export function buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel, scopeLabel = 'Company' }) {
   const actual = activities.length
   // Activity counts are whole numbers; target_value can be stored as a
   // decimal (SetTargetForm's number input allows it, and a company total is
@@ -165,11 +166,11 @@ export function buildActivitiesAttainPanel({ activities, targets, employees, ran
 
   return {
     kind: 'attain',
-    eyebrow: 'Company · activity volume',
+    eyebrow: `${scopeLabel} · activity volume`,
     title: 'Activities logged, by type',
     value: String(actual),
     delta: target != null ? `of ${target} target` : null,
-    note: `${rangeLabel}. Every logged site visit, call, RFQ, office day and booking update, across every exec.`,
+    note: `${rangeLabel}. Every logged site visit, call, RFQ, office day and booking update${scopeLabel === 'Company' ? ', across every exec' : ''}.`,
     stats: [
       { label: 'Total logged', value: String(actual), sub: target != null ? `of ${target} target` : rangeLabel, color: '#101617' },
       { label: 'Site visit', value: String(contrib[0]?.actual ?? 0), sub: contrib[0]?.target != null ? `of ${contrib[0].target}` : 'no target set', color: '#101617' },
@@ -303,8 +304,65 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
   }
 }
 
-// ---------- pipeline / funnel ----------
-export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory }) {
+// ---------- stageLeads: one stage's leads, opened from a pipeline panel ----------
+// A second-level drill-down — DrilldownPanel pushes this over the pipeline
+// panel that opened it (see its `stack` state) rather than replacing the
+// panel prop, so "‹ Back" returns to the stage overview. Built here, eagerly,
+// and attached to each pipeline stage row's `drill` field, which keeps
+// DrilldownPanel presentational (no builder imports, no lead data of its own)
+// exactly as this file's header comment intends.
+export function buildStageLeadsPanel({ breakdownLeads, stage, scopeLabel = 'Company' }) {
+  const stageLeads = breakdownLeads.filter((l) => (l.current_stage ?? 'calling') === stage)
+  const total = stageLeads.reduce((s, l) => s + dealValueFor(l), 0)
+
+  const owners = [
+    ...new Map(
+      stageLeads.filter((l) => l.owner_employee_id).map((l) => [l.owner_employee_id, l.employees?.name ?? 'Unassigned'])
+    ),
+  ]
+    .map(([id, name]) => ({
+      id,
+      name,
+      count: stageLeads.filter((l) => l.owner_employee_id === id).length,
+    }))
+    .sort((a, b) => b.count - a.count)
+
+  return {
+    kind: 'stageLeads',
+    eyebrow: `${scopeLabel} · ${stageLabel(stage)}`,
+    title: `Every lead at ${stageLabel(stage)}`,
+    value: formatCurrencyCompact(total),
+    note: `${stageLeads.length} lead${stageLeads.length === 1 ? '' : 's'} sitting at this stage right now.`,
+    stats: [
+      { label: 'Leads', value: String(stageLeads.length), sub: 'at this stage', color: '#101617' },
+      { label: 'Value', value: formatCurrencyCompact(total), sub: 'combined', color: '#101617' },
+      { label: 'Owners', value: String(owners.length), sub: 'with a lead here', color: '#485456' },
+    ],
+    owners,
+    leadRows: [...stageLeads]
+      .sort((a, b) => dealValueFor(b) - dealValueFor(a))
+      .map((l) => ({
+        leadId: l.id,
+        party: l.parties?.name ?? l.sites?.nickname ?? '(no party)',
+        ownerId: l.owner_employee_id ?? null,
+        owner: l.employees?.name ?? 'Unassigned',
+        stage: stageLabel(l.current_stage ?? 'calling'),
+        chipClass: stageChipClass(l.current_stage ?? 'calling'),
+        value: formatCurrencyCompact(dealValueFor(l)),
+      })),
+  }
+}
+
+// ---------- pipeline ----------
+// Used to take a `mode: 'stage' | 'funnel'` flag — Sales funnel's own
+// "Details" link used to open this same panel with mode: 'funnel', but that
+// only ever changed the header text (eyebrow/title); the body
+// (stageRows/convRows/topLeads) was identical either way, and the one thing
+// that would have been funnel-specific (`funnelRows`, reach + avg-days per
+// stage) was computed but never actually rendered by PipelineBody. Removed
+// (2026-08-09, at the user's request) along with Sales funnel's "Details"
+// link entirely, rather than keeping a mode param with one caller.
+export function buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel = 'Company' }) {
   const openLeads = breakdownLeads.filter((l) => !CLOSED_STAGES.includes(l.current_stage ?? 'calling'))
   const openTotal = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
 
@@ -315,12 +373,13 @@ export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory })
       count: stageLeads.length,
       value: formatCurrencyCompact(stageLeads.reduce((s, l) => s + dealValueFor(l), 0)),
       color: stageFg(stage),
+      // Clicking this row opens that stage's own lead list, one level deeper.
+      drill: buildStageLeadsPanel({ breakdownLeads, stage, scopeLabel }),
     }
   })
   const maxStage = Math.max(1, ...stageRows.map((r) => r.count))
 
   const funnel = computeFunnel(funnelStageHistory, breakdownLeads)
-  const maxReached = Math.max(1, ...funnel.map((f) => f.reached))
   // 'lost' is a parallel exit a lead can hit from any stage, not the next
   // step after 'won' — excluded here so the chain doesn't produce a
   // nonsensical "won → lost" conversion card. 'on_hold' is excluded for the
@@ -355,8 +414,8 @@ export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory })
 
   return {
     kind: 'pipeline',
-    eyebrow: mode === 'funnel' ? 'Company · funnel and velocity' : 'Company · open pipeline',
-    title: mode === 'funnel' ? 'Where leads reach each stage, and how long they sit there' : 'Open pipeline by stage',
+    eyebrow: `${scopeLabel} · open pipeline`,
+    title: 'Open pipeline by stage',
     value: formatCurrencyCompact(openTotal),
     note: `${openLeads.length} open leads, across every stage that isn't won or lost.`,
     stats: [
@@ -367,19 +426,12 @@ export function buildPipelinePanel({ mode, breakdownLeads, funnelStageHistory })
     ],
     stageRows: stageRows.map((r) => ({ ...r, pct: `${Math.round((r.count / maxStage) * 100)}%` })),
     convRows,
-    funnelRows: funnel.map((f) => ({
-      label: stageLabel(f.stage),
-      count: f.reached,
-      avgDays: f.avgDays == null ? '—' : `${f.avgDays.toFixed(1)}d`,
-      pct: `${Math.round((f.reached / maxReached) * 100)}%`,
-      color: stageFg(f.stage),
-    })),
     topLeads,
   }
 }
 
 // ---------- win rate (its own minimal kind — a real per-exec breakdown, not a forced reuse of `pipeline`) ----------
-export function buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel }) {
+export function buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel, scopeLabel = 'Company' }) {
   const inRange = decidedStageHistory.filter((row) => row.leads && new Date(row.changed_at) >= range.start && new Date(row.changed_at) <= range.end)
   const won = inRange.filter((r) => r.stage === 'won')
   const lost = inRange.filter((r) => r.stage === 'lost')
@@ -396,8 +448,8 @@ export function buildWinRatePanel({ decidedStageHistory, employees, range, range
 
   return {
     kind: 'winrate',
-    eyebrow: 'Company · win rate',
-    title: 'Won vs lost, by exec',
+    eyebrow: `${scopeLabel} · win rate`,
+    title: scopeLabel === 'Company' ? 'Won vs lost, by exec' : 'Won vs lost',
     value: winRate != null ? `${winRate}%` : '—',
     note: `${rangeLabel}. Measured on decided leads only (won or lost) — a lead still open isn't counted either way.`,
     stats: [
@@ -419,7 +471,7 @@ export function buildWinRatePanel({ decidedStageHistory, employees, range, range
 }
 
 // ---------- forecast ----------
-export function buildForecastPanel({ forecast }) {
+export function buildForecastPanel({ forecast, scopeLabel = 'Company' }) {
   const total = forecast.length
   const gross = forecast.reduce((s, l) => s + Number(l.quote_value ?? 0), 0)
   const weighted = forecast.reduce((s, l) => s + (Number(l.quote_value ?? 0) * (l.closure_probability ?? 0)) / 100, 0)
@@ -436,7 +488,7 @@ export function buildForecastPanel({ forecast }) {
 
   return {
     kind: 'forecast',
-    eyebrow: 'Company · weighted closure forecast',
+    eyebrow: `${scopeLabel} · weighted closure forecast`,
     title: 'What the open pipeline is worth, weighted by probability',
     value: formatCurrencyCompact(weighted),
     note: `${total} leads with a quote sent or a closure probability set. Weighted = quote value × closure probability.`,
@@ -467,7 +519,7 @@ export function buildForecastPanel({ forecast }) {
 }
 
 // ---------- mix: leads by source ----------
-export function buildMixPanel({ periodLeads, breakdownLeads, sourceOptions, rangeLabel }) {
+export function buildMixPanel({ periodLeads, breakdownLeads, sourceOptions, rangeLabel, scopeLabel = 'Company' }) {
   const total = periodLeads.length
   const counts = sourceOptions.map((opt) => ({
     label: opt.label,
@@ -492,7 +544,7 @@ export function buildMixPanel({ periodLeads, breakdownLeads, sourceOptions, rang
 
   return {
     kind: 'mix',
-    eyebrow: 'Company · lead source',
+    eyebrow: `${scopeLabel} · lead source`,
     title: 'Where new leads come from',
     value: String(total),
     note: `${rangeLabel}. Conversion is all-time (won ÷ total) for that source, not scoped to this period.`,

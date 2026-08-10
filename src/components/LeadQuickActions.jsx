@@ -2,17 +2,31 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { insertLeadOwnerHistory } from '../lib/leadOwnerHistory'
-import { FOLLOWUP_OPTIONS, followupDateFor } from '../lib/followupDates'
 import LeadStageSection from './LeadStageSection'
+import FollowUpForm from './FollowUpForm'
 import { errorMessage } from '../lib/errorMessage'
 
 // The three quick actions from the Lead Profile handoff (README.md §6.1 /
-// DATA_CONTRACT.md §5). Change stage reuses LeadStageSection unmodified
-// (mandatory loss-reason-on-lost prompt included) rather than duplicating
-// that flow — this component just controls *when* it's visible. Set
-// follow-up/Reassign owner are new, simpler writes with no existing
-// component to reuse. Reassign owner is owner-only even within canEdit
-// (FLOW.md §4 — an owning sales exec gets the other two, never this one).
+// DATA_CONTRACT.md §5).
+//
+// **Change stage and Reassign owner are both owner-only**, even within
+// canEdit — a sales exec who owns the lead gets neither. Reassign owner was
+// always this way (FLOW.md §4); Change stage joined it later, at the user's
+// request: moving a lead through the funnel (including closing it Won or
+// Lost) is the owner's call, not the rep's. A rep can still record the
+// numbers behind a close — order value via Activity Log's Booking Update or
+// Sales progress' own Order value field — they just don't flip the stage
+// themselves. NOTE: this is a UI-layer gate only; `leads` UPDATE is "own data
+// or owner role" at the RLS layer, so a rep's own lead is still technically
+// stage-updatable via the API. See Schema/migration_owner_only_stage.sql for
+// the database-level enforcement to match.
+//
+// Set follow-up mounts the same FollowUpForm Home's "Add reminder" uses,
+// with this lead preset (so it never asks "which lead?") and assigned to the
+// lead's *owner* rather than whoever is clicking — an owner setting a
+// reminder on a rep's lead is reminding the rep, and it's their device the
+// push notification should reach. Same rule LeadStageSection's On Hold flow
+// already follows for its own createFollowUp call.
 function LeadQuickActions({
   lead,
   leadTitle,
@@ -24,11 +38,6 @@ function LeadQuickActions({
 }) {
   const { employee } = useAuth()
   const [open, setOpen] = useState(null) // 'stage' | 'followup' | 'owner' | null
-
-  const [followupChoice, setFollowupChoice] = useState('')
-  const [customDate, setCustomDate] = useState('')
-  const [savingFollowup, setSavingFollowup] = useState(false)
-  const [followupError, setFollowupError] = useState(null)
   const [followupSaved, setFollowupSaved] = useState(false)
 
   const [ownerChoice, setOwnerChoice] = useState(lead.owner_employee_id ?? '')
@@ -39,29 +48,7 @@ function LeadQuickActions({
 
   function toggle(key) {
     setOpen((prev) => (prev === key ? null : key))
-  }
-
-  async function handleSaveFollowup() {
-    const date = followupDateFor(followupChoice, customDate)
-    if (!date) return
-    setSavingFollowup(true)
-    setFollowupError(null)
     setFollowupSaved(false)
-
-    const { data, error } = await supabase
-      .from('leads')
-      .update({ next_followup_date: date })
-      .eq('id', lead.id)
-      .select()
-      .single()
-
-    setSavingFollowup(false)
-    if (error) {
-      setFollowupError(errorMessage(error))
-      return
-    }
-    setFollowupSaved(true)
-    onFollowUpSaved(data)
   }
 
   async function handleReassignOwner(newOwnerId) {
@@ -112,14 +99,16 @@ function LeadQuickActions({
   return (
     <div className="vip-stack-s">
       <div className="vip-btn-row" style={{ flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          className={open === 'stage' ? 'vip-btn vip-btn-dark vip-btn-sm' : 'vip-btn vip-btn-secondary vip-btn-sm'}
-          style={{ width: 'auto', flex: '0 0 auto' }}
-          onClick={() => toggle('stage')}
-        >
-          Change stage
-        </button>
+        {isOwner && (
+          <button
+            type="button"
+            className={open === 'stage' ? 'vip-btn vip-btn-dark vip-btn-sm' : 'vip-btn vip-btn-secondary vip-btn-sm'}
+            style={{ width: 'auto', flex: '0 0 auto' }}
+            onClick={() => toggle('stage')}
+          >
+            Change stage
+          </button>
+        )}
         <button
           type="button"
           className={open === 'followup' ? 'vip-btn vip-btn-dark vip-btn-sm' : 'vip-btn vip-btn-secondary vip-btn-sm'}
@@ -140,44 +129,20 @@ function LeadQuickActions({
         )}
       </div>
 
-      {open === 'stage' && <LeadStageSection lead={lead} leadTitle={leadTitle} onStageChanged={onStageChanged} />}
+      {open === 'stage' && isOwner && <LeadStageSection lead={lead} leadTitle={leadTitle} onStageChanged={onStageChanged} />}
 
       {open === 'followup' && (
-        <div className="vip-action-panel">
-          <span className="vip-action-panel-title">Set follow-up</span>
-          <div className="vip-action-panel-opts">
-            {FOLLOWUP_OPTIONS.map((label) => (
-              <button
-                key={label}
-                type="button"
-                className={followupChoice === label ? 'vip-action-opt vip-active' : 'vip-action-opt'}
-                onClick={() => setFollowupChoice(label)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {followupChoice === 'Custom date' && (
-            <input
-              type="date"
-              className="vip-input"
-              style={{ minHeight: 30, padding: '4px 8px', width: 'auto' }}
-              value={customDate}
-              onChange={(e) => setCustomDate(e.target.value)}
-            />
-          )}
-          <button
-            type="button"
-            className="vip-action-opt vip-active"
-            disabled={!followupDateFor(followupChoice, customDate) || savingFollowup}
-            onClick={handleSaveFollowup}
-          >
-            {savingFollowup ? 'Saving…' : 'Save'}
-          </button>
-          <button type="button" className="vip-action-close" onClick={() => setOpen(null)}>
-            Close
-          </button>
-        </div>
+        <FollowUpForm
+          lead={lead}
+          assignedTo={lead.owner_employee_id ?? employee?.id}
+          createdBy={employee?.id}
+          onSaved={(row) => {
+            setFollowupSaved(true)
+            setOpen(null)
+            onFollowUpSaved(row)
+          }}
+          onCancel={() => setOpen(null)}
+        />
       )}
 
       {open === 'owner' && (
@@ -202,8 +167,10 @@ function LeadQuickActions({
         </div>
       )}
 
-      {followupError && <p className="vip-error" role="alert">{followupError}</p>}
-      {followupSaved && !followupError && open === 'followup' && <p className="vip-success" role="status" aria-live="polite">Follow-up set.</p>}
+      {/* FollowUpForm surfaces its own save error inline, so there's no
+          followupError to mirror here — only the confirmation, which has to
+          outlive the panel since onSaved closes it. */}
+      {followupSaved && open !== 'followup' && <p className="vip-success" role="status" aria-live="polite">Reminder set.</p>}
       {ownerError && <p className="vip-error" role="alert">{ownerError}</p>}
       {ownerHistoryWarning && <p className="vip-error" role="alert">{ownerHistoryWarning}</p>}
       {ownerSaved && !ownerError && open === 'owner' && <p className="vip-success" role="status" aria-live="polite">Owner reassigned.</p>}

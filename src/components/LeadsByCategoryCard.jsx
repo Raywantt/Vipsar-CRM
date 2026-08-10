@@ -1,4 +1,4 @@
-import { formatCurrency } from '../lib/format'
+import { formatCurrencyCompact } from '../lib/format'
 import { stageChipClass } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
 import { dealValueFor } from '../lib/pipelineValue'
@@ -56,7 +56,7 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
               <div className="vip-row-side" style={{ display: 'flex', gap: 14 }}>
                 <div className="vip-row-value">{count}</div>
                 <div className="vip-row-meta vip-num" style={{ width: 48, textAlign: 'right' }}>
-                  {formatCurrency(dealValue)}
+                  {formatCurrencyCompact(dealValue)}
                 </div>
               </div>
             </div>
@@ -70,7 +70,7 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
             <div>Total</div>
             <div style={{ display: 'flex', gap: 14 }}>
               <div>{leads.length}</div>
-              <div style={{ width: 48, textAlign: 'right' }}>{formatCurrency(totalDealValue)}</div>
+              <div style={{ width: 48, textAlign: 'right' }}>{formatCurrencyCompact(totalDealValue)}</div>
             </div>
           </div>
         </>

@@ -130,7 +130,7 @@ describe('buildPipelinePanel', () => {
       { id: 'L1', current_stage: 'calling', quote_value: 1000, order_value: null },
     ]
     const funnelStageHistory = []
-    const panel = buildPipelinePanel({ mode: 'funnel', breakdownLeads, funnelStageHistory })
+    const panel = buildPipelinePanel({ breakdownLeads, funnelStageHistory })
     const labels = panel.convRows.map((r) => r.label)
     labels.forEach((label) => {
       expect(label).not.toMatch(/Won.*Lost/i)
@@ -143,7 +143,7 @@ describe('buildPipelinePanel', () => {
       { id: 'L1', current_stage: 'negotiation', quote_value: 10000, order_value: null },
       { id: 'L2', current_stage: 'won', quote_value: 5000, order_value: 8000 },
     ]
-    const panel = buildPipelinePanel({ mode: 'stage', breakdownLeads, funnelStageHistory: [] })
+    const panel = buildPipelinePanel({ breakdownLeads, funnelStageHistory: [] })
     expect(panel.stats.find((s) => s.label === 'Open value').sub).toBe('1 leads')
   })
 })

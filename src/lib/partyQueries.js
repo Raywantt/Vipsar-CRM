@@ -27,16 +27,12 @@ export function fetchLeadsForPartyDirectory() {
 // leads.party_id only — a party appears elsewhere on a lead as a referrer
 // (referred_by_party_id) or the quick-capture "other" contact
 // (other_party_id), but neither of those makes them "the lead", so only
-// party_id counts here. Fetched unbounded and pre-sorted, reduced client-side
-// to one row per party (its most recent lead) — same shape as
-// fetchLastActivityPerLead's reduction. FollowUpForm's only consumer now —
-// Search's party rows get the same "most recent lead" mapping for free from
-// fetchLeadsForPartyDirectory above instead of a second scan (this one used
-// to be Search's second scan, before that merge).
-export function fetchLeadsByParty() {
-  return supabase.from('leads').select('id, party_id, created_at').order('created_at', { ascending: false })
-}
-
+// party_id counts here. Reduces a pre-sorted leads list to one row per party
+// (its most recent lead) — same shape as fetchLastActivityPerLead's
+// reduction. Sole consumer is Search's party directory, fed by
+// fetchLeadsForPartyDirectory above. (It had a dedicated `fetchLeadsByParty`
+// fetch of its own for FollowUpForm's old silent party-to-lead resolution;
+// that form asks for a lead outright now, so the query went with it.)
 export function mostRecentLeadByParty(leadsByPartyRows) {
   const map = new Map()
   leadsByPartyRows.forEach((row) => {

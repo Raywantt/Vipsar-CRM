@@ -435,6 +435,17 @@ function LeadDetail() {
     }
   }
 
+  // Set follow-up now creates a real follow_ups row (FollowUpForm, the same
+  // flow Home's "Add reminder" uses) rather than only stamping the lead's own
+  // next_followup_date — so this receives the follow-up row, not a lead row.
+  // FollowUpForm has already written next_followup_date on the lead itself;
+  // mirroring it into local state here keeps the Deal-progress "resumes"
+  // line and the deal stats in step without a refetch.
+  function handleFollowUpSaved(followUp) {
+    setLead((prev) => ({ ...prev, next_followup_date: followUp.due_date }))
+    if (lead?.current_stage === 'on_hold') setOnHoldFollowUp(followUp)
+  }
+
   const mainContent = (
     <div className="vip-stack">
       <div className="vip-profile-band">
@@ -480,7 +491,7 @@ function LeadDetail() {
             isOwner={isOwner}
             activeSalesExecs={activeSalesExecs}
             onStageChanged={handleStageChanged}
-            onFollowUpSaved={(updatedLead) => setLead((prev) => ({ ...prev, ...updatedLead }))}
+            onFollowUpSaved={handleFollowUpSaved}
             onOwnerReassigned={(updatedLead, historyRow) => {
               setLead((prev) => ({ ...prev, ...updatedLead }))
               if (historyRow) setOwnerHistory((prev) => [...prev, historyRow])
@@ -689,7 +700,7 @@ function LeadDetail() {
     isOwner,
     activeSalesExecs,
     onStageChanged: handleStageChanged,
-    onFollowUpSaved: (updatedLead) => setLead((prev) => ({ ...prev, ...updatedLead })),
+    onFollowUpSaved: handleFollowUpSaved,
     onOwnerReassigned: (updatedLead, historyRow) => {
       setLead((prev) => ({ ...prev, ...updatedLead }))
       if (historyRow) setOwnerHistory((prev) => [...prev, historyRow])

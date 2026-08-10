@@ -140,11 +140,12 @@ export function fetchActivitiesTrendWindow() {
     .gte('created_at', since.toISOString())
 }
 
-// stage_history SELECT is open to everyone (see Schema/rls_policies.sql) —
-// unlike leads/activities, RLS itself doesn't scope this per employee. The
-// embedded `leads(owner_employee_id)` comes back null for a sales exec's
-// rows on leads they don't own (RLS on the embed), same trick
-// fetchWonStageHistory (targetQueries.js) already relies on — drop those
+// stage_history SELECT is scoped to "own leads or owner role" as of
+// Schema/migration_scope_stage_history.sql, so a sales exec's rows come back
+// pre-filtered. The embedded `leads(owner_employee_id)` null-check below is
+// kept anyway — belt-and-braces if that migration hasn't been run against a
+// given environment yet, same trick fetchWonStageHistory (targetQueries.js)
+// relies on — drop those
 // rows client-side to get the same "own data or owner role" scoping every
 // other Dashboard query gets for free.
 export function fetchStageHistoryForFunnel() {

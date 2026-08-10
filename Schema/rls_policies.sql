@@ -486,14 +486,37 @@ CREATE POLICY "owner_only_delete" ON products
 -- ------------------------------------------------------------
 
 -- stage_history: every stage change, logged by any active employee,
--- readable by all active employees
+-- readable only for leads the caller owns (or by an owner, for any lead).
+-- Was `current_employee_role() IS NOT NULL` (any active employee, full
+-- stop) until Schema/migration_scope_stage_history.sql tightened it — that
+-- open policy let a sales exec's browser pull lead_id/stage/changed_at for
+-- every lead in the company via fetchStageHistoryForFunnel/
+-- fetchWonStageHistory/fetchDecidedStageHistory, even though the app's own
+-- client-side aggregation already dropped those rows (via the embedded
+-- `leads(...)` coming back null under RLS) before rendering anything. See
+-- that migration file for the full writeup.
 DROP POLICY IF EXISTS "authenticated_select" ON stage_history;
-CREATE POLICY "authenticated_select" ON stage_history
-  FOR SELECT USING (current_employee_role() IS NOT NULL);
+DROP POLICY IF EXISTS "own_data_or_owner_role_select" ON stage_history;
+CREATE POLICY "own_data_or_owner_role_select" ON stage_history
+  FOR SELECT USING (
+    current_employee_role() = 'owner'
+    OR EXISTS (
+      SELECT 1 FROM leads
+      WHERE leads.id = stage_history.lead_id
+        AND leads.owner_employee_id = current_employee_id()
+    )
+  );
 
+-- INSERT is owner-only, matching "only an owner changes a lead's stage"
+-- (Schema/migration_owner_only_stage.sql, which also adds the BEFORE UPDATE
+-- trigger on leads that enforces the column itself — a policy can restrict
+-- rows, not columns, so the trigger is the other half). Was
+-- `current_employee_role() IS NOT NULL`; leaving it open would let a rep
+-- write a history row for a stage change they can no longer actually make.
 DROP POLICY IF EXISTS "authenticated_insert" ON stage_history;
-CREATE POLICY "authenticated_insert" ON stage_history
-  FOR INSERT WITH CHECK (current_employee_role() IS NOT NULL);
+DROP POLICY IF EXISTS "owner_only_insert" ON stage_history;
+CREATE POLICY "owner_only_insert" ON stage_history
+  FOR INSERT WITH CHECK (current_employee_role() = 'owner');
 
 -- lead_owner_history: every owner reassignment, logged by any active
 -- employee, readable by all active employees — same append-only

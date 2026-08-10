@@ -9,7 +9,6 @@ import ClosureForecastCard from '../components/ClosureForecastCard'
 import TargetsVsActualsCard, { computeOrderValueActuals } from '../components/TargetsVsActualsCard'
 import LeadsListCard from '../components/LeadsListCard'
 import LeadsByCategoryCard from '../components/LeadsByCategoryCard'
-import LeadStageBoard from '../components/LeadStageBoard'
 import SalesFunnelCard from '../components/SalesFunnelCard'
 import LossReasonsCard from '../components/LossReasonsCard'
 import NeedsAttentionCard from '../components/NeedsAttentionCard'
@@ -52,10 +51,6 @@ import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
 
-function stageCategory(lead) {
-  return lead.current_stage
-}
-
 function siteStageCategory(lead) {
   if (!lead.site_id) return 'No site'
   return lead.sites?.site_stage || 'Not set'
@@ -76,6 +71,12 @@ function Dashboard() {
   const { employee } = useAuth()
   const { setOverride } = useHeaderOverride()
   const isOwner = employee?.role === 'owner'
+  // Every drill-down builder below defaults its eyebrow to 'Company' —
+  // correct for the owner (whose queries really are company-wide), but a
+  // sales exec's own queries are RLS-scoped to just their own leads/
+  // activities, so labeling them 'Company' implied broader visibility than
+  // actually exists. See CLAUDE.md's data-isolation audit.
+  const scopeLabel = isOwner ? 'Company' : employee?.name ?? 'You'
   const [searchParams] = useSearchParams()
 
   // No more in-page tab buttons — Reports/All leads is chosen purely by
@@ -88,8 +89,6 @@ function Dashboard() {
     const tab = searchParams.get('tab')
     setActiveTab(tab === 'leads' ? 'leads' : 'reports')
   }, [searchParams])
-  const [stageView, setStageView] = useState('table')
-
   const [preset, setPreset] = useState('week')
   const [customStart, setCustomStart] = useState(todayISO())
   const [customEnd, setCustomEnd] = useState(todayISO())
@@ -305,6 +304,7 @@ function Dashboard() {
     }
   })
   const maxStageCount = Math.max(1, ...stageRows.map((r) => r.count))
+  const openLeadCount = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling')).length
 
   const rangeLabel = RANGE_LABELS[preset]
   const attentionBuckets = computeAttentionBuckets(breakdownLeads, lastActivityByLead)
@@ -379,6 +379,7 @@ function Dashboard() {
                 orderValueActual={wonThisRange}
                 activitiesCount={activities.length}
                 openPipelineValue={openPipelineValue}
+                openLeadCount={openLeadCount}
                 winRatePct={winRatePct}
                 staleCount={staleBucket.count}
                 weightedForecast={weightedForecastValue}
@@ -386,13 +387,13 @@ function Dashboard() {
                 activitiesTrendWindow={activitiesTrendWindow}
                 decidedStageHistory={decidedStageHistory}
                 onOpenOrderValue={() =>
-                  setPanel(buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId: null, rangeLabel }))
+                  setPanel(buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId: null, rangeLabel, scopeLabel }))
                 }
-                onOpenActivities={() => setPanel(buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel }))}
-                onOpenPipeline={() => setPanel(buildPipelinePanel({ mode: 'stage', breakdownLeads, funnelStageHistory }))}
-                onOpenWinRate={() => setPanel(buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel }))}
-                onOpenStale={() => setPanel(buildAgeingPanel(staleBucket))}
-                onOpenForecast={() => setPanel(buildForecastPanel({ forecast }))}
+                onOpenActivities={() => setPanel(buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel, scopeLabel }))}
+                onOpenPipeline={() => setPanel(buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel }))}
+                onOpenWinRate={() => setPanel(buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel, scopeLabel }))}
+                onOpenStale={() => setPanel(buildAgeingPanel(staleBucket, scopeLabel, null, false))}
+                onOpenForecast={() => setPanel(buildForecastPanel({ forecast, scopeLabel }))}
               />
             </>
           )}
@@ -414,13 +415,13 @@ function Dashboard() {
                     onOpenLog={handleOpenLog}
                     onOpenPanel={setPanel}
                   />
-                  {!loading && <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} />}
+                  {!loading && <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} scopeLabel={scopeLabel} />}
                 </div>
               </div>
             ) : (
               !loading && (
                 <div className="vip-span-2">
-                  <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} wide />
+                  <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} wide scopeLabel={scopeLabel} />
                 </div>
               )
             )}
@@ -432,89 +433,60 @@ function Dashboard() {
                 <ActivityCountsCard
                   activities={activities}
                   rangeLabel={rangeLabel}
-                  onOpenPanel={range ? () => setPanel(buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel })) : undefined}
+                  onOpenPanel={range ? () => setPanel(buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel, scopeLabel })) : undefined}
                 />
                 <LeadsBySourceCard
                   leads={leads}
                   showByEmployee={isOwner}
                   onOpenPanel={() =>
-                    setPanel(buildMixPanel({ periodLeads: leads, breakdownLeads, sourceOptions: sourceOptionsForRole, rangeLabel }))
+                    setPanel(buildMixPanel({ periodLeads: leads, breakdownLeads, sourceOptions: sourceOptionsForRole, rangeLabel, scopeLabel }))
                   }
                 />
               </>
             )}
 
             <div className="vip-span-2">
-              <ClosureForecastCard leads={forecast} onOpenPanel={() => setPanel(buildForecastPanel({ forecast }))} />
+              <ClosureForecastCard leads={forecast} onOpenPanel={() => setPanel(buildForecastPanel({ forecast, scopeLabel }))} />
             </div>
 
             <div className="vip-card">
               <div className="vip-card-head">
                 <div className="vip-card-title">Pipeline by stage</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <button
-                    type="button"
-                    className="vip-dd-open-link"
-                    onClick={() => setPanel(buildPipelinePanel({ mode: 'stage', breakdownLeads, funnelStageHistory }))}
-                  >
-                    Details ›
-                  </button>
-                  <div className="vip-seg-mini">
-                    <button
-                      type="button"
-                      className={stageView === 'table' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                      onClick={() => setStageView('table')}
-                    >
-                      Table
-                    </button>
-                    <button
-                      type="button"
-                      className={stageView === 'board' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                      onClick={() => setStageView('board')}
-                    >
-                      Board
-                    </button>
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  className="vip-dd-open-link"
+                  onClick={() => setPanel(buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel }))}
+                >
+                  Details ›
+                </button>
               </div>
-              {stageView === 'table' ? (
-                breakdownLeads.length === 0 ? (
-                  <p className="vip-empty">No leads found.</p>
-                ) : (
-                  stageRows.map(({ stage, count, value }) => (
-                    <div key={stage} className="vip-bar-row">
-                      <div style={{ flex: '0 0 92px' }}>
-                        <span className={stageChipClass(stage)}>{stageLabel(stage)}</span>
-                      </div>
-                      <div className="vip-bar-count" style={{ flex: '0 0 20px' }}>
-                        {count}
-                      </div>
-                      <div className="vip-bar-track vip-thick">
-                        <div className="vip-bar-fill" style={{ width: `${(count / maxStageCount) * 100}%` }} />
-                      </div>
-                      <div className="vip-bar-value">{formatCurrencyCompact(value)}</div>
-                    </div>
-                  ))
-                )
+              {breakdownLeads.length === 0 ? (
+                <p className="vip-empty">No leads found.</p>
               ) : (
-                <LeadStageBoard leads={breakdownLeads} isOwner={isOwner} />
+                stageRows.map(({ stage, count, value }) => (
+                  <div key={stage} className="vip-bar-row">
+                    <div style={{ flex: '0 0 92px' }}>
+                      <span className={stageChipClass(stage)}>{stageLabel(stage)}</span>
+                    </div>
+                    <div className="vip-bar-count" style={{ flex: '0 0 20px' }}>
+                      {count}
+                    </div>
+                    <div className="vip-bar-track vip-thick">
+                      <div className="vip-bar-fill" style={{ width: `${(count / maxStageCount) * 100}%` }} />
+                    </div>
+                    <div className="vip-bar-value">{formatCurrencyCompact(value)}</div>
+                  </div>
+                ))
               )}
             </div>
 
-            <SalesFunnelCard
-              stageHistory={funnelStageHistory}
-              leads={breakdownLeads}
-              onOpenPanel={() => setPanel(buildPipelinePanel({ mode: 'funnel', breakdownLeads, funnelStageHistory }))}
-            />
-
-            <LeadsByCategoryCard
-              title="Leads by stage (detail)"
-              leads={breakdownLeads}
-              getCategory={stageCategory}
-              categoryOrder={LEAD_STAGE_OPTIONS}
-              colorStages
-              onOpenPanel={() => setPanel(buildPipelinePanel({ mode: 'stage', breakdownLeads, funnelStageHistory }))}
-            />
+            {/* No "Details" here — its drill-down used to open the exact
+                same content as Pipeline by stage's own Details (same
+                stageRows/convRows/topLeads, only the header text differed),
+                so it was removed rather than kept as a duplicate. This card
+                already shows everything funnel-specific (reach + avg-days
+                per stage) inline. */}
+            <SalesFunnelCard stageHistory={funnelStageHistory} leads={breakdownLeads} />
 
             <LeadsByCategoryCard
               title="Leads by area"
@@ -526,7 +498,7 @@ function Dashboard() {
                   buildCategoryMixPanel({
                     breakdownLeads,
                     getCategory: areaCategory,
-                    eyebrow: 'Company · leads by area',
+                    eyebrow: `${scopeLabel} · leads by area`,
                     title: 'Where leads are located',
                     unit: 'area',
                   })
@@ -544,7 +516,7 @@ function Dashboard() {
                   buildCategoryMixPanel({
                     breakdownLeads,
                     getCategory: siteStageCategory,
-                    eyebrow: 'Company · leads by site stage',
+                    eyebrow: `${scopeLabel} · leads by site stage`,
                     title: 'How far along each site is',
                     unit: 'site stage',
                   })
@@ -552,23 +524,30 @@ function Dashboard() {
               }
             />
 
-            <LeadsByCategoryCard
-              title="Leads by product"
-              leads={breakdownLeads}
-              getCategory={productCategory}
-              maxRows={6}
-              onOpenPanel={() =>
-                setPanel(
-                  buildCategoryMixPanel({
-                    breakdownLeads,
-                    getCategory: productCategory,
-                    eyebrow: 'Company · leads by product',
-                    title: 'What leads are asking for',
-                    unit: 'product',
-                  })
-                )
-              }
-            />
+            {/* Odd one out now that "Leads by stage (detail)" is gone — the
+                other four half-width report cards below pair up (Pipeline +
+                Funnel, Area + Site stage), so this one goes full-width
+                instead of leaving CSS grid a visible gap (see the Desktop
+                layout note in CLAUDE.md about getting this pairing wrong). */}
+            <div className="vip-span-2">
+              <LeadsByCategoryCard
+                title="Leads by product"
+                leads={breakdownLeads}
+                getCategory={productCategory}
+                maxRows={6}
+                onOpenPanel={() =>
+                  setPanel(
+                    buildCategoryMixPanel({
+                      breakdownLeads,
+                      getCategory: productCategory,
+                      eyebrow: `${scopeLabel} · leads by product`,
+                      title: 'What leads are asking for',
+                      unit: 'product',
+                    })
+                  )
+                }
+              />
+            </div>
 
             {isOwner && (
               <div className="vip-span-2">

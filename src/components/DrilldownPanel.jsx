@@ -363,24 +363,28 @@ function AttainBody({ panel }) {
   )
 }
 
-function PipelineBody({ panel }) {
+// Unchanged from the original except that each stage row is now a button —
+// clicking one drills one level deeper into that stage's own lead list
+// (panel.stageRows[].drill, prebuilt by buildPipelinePanel), pushed onto
+// DrilldownPanel's stack so "‹ Back" comes back here.
+function PipelineBody({ panel, onDrill }) {
   return (
     <div className="vip-dd-section-stack">
       {panel.stageRows?.length > 0 && (
         <div className="vip-dd-section">
           <div className="vip-dd-section-head">
             <div className="vip-dd-section-title">Where the value is sitting</div>
-            <div className="vip-dd-hint">count · value</div>
+            <div className="vip-dd-hint">count · value · tap a stage for its leads</div>
           </div>
           {panel.stageRows.map((s) => (
-            <div key={s.label} className="vip-dd-stage-row">
+            <button key={s.label} type="button" className="vip-dd-stage-row" onClick={() => s.drill && onDrill(s.drill)}>
               <span className="vip-dd-stage-label">{s.label}</span>
               <span className="vip-dd-stage-track">
                 <span className="vip-dd-stage-fill" style={{ width: s.pct, background: s.color }} />
               </span>
               <span className="vip-dd-stage-count">{s.count}</span>
               <span className="vip-dd-stage-value">{s.value}</span>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -418,6 +422,59 @@ function PipelineBody({ panel }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// Second level of the pipeline drill-down — every lead at one stage, with an
+// owner filter. Same panel chrome/row vocabulary as every other kind (this
+// is a normal `panel`, just one DrilldownPanel pushed on the stack), so it
+// reads as "the same drill-down screen, one level in" rather than a new UI.
+function StageLeadsBody({ panel }) {
+  const [ownerFilter, setOwnerFilter] = useState('')
+
+  useEffect(() => {
+    setOwnerFilter('')
+  }, [panel])
+
+  const rows = ownerFilter ? panel.leadRows.filter((r) => String(r.ownerId) === ownerFilter) : panel.leadRows
+
+  return (
+    <div className="vip-dd-section-stack">
+      {panel.owners.length > 0 && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-title">Filter by owner</div>
+          <select className="vip-select" value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
+            <option value="">All owners ({panel.leadRows.length})</option>
+            {panel.owners.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name} ({o.count})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">Leads</div>
+          <div className="vip-dd-hint">
+            {rows.length} of {panel.leadRows.length} · by value
+          </div>
+        </div>
+        {rows.length === 0 ? (
+          <p className="vip-empty">No leads for this owner at this stage.</p>
+        ) : (
+          rows.map((r) => (
+            <Link key={r.leadId} to={`/leads/${r.leadId}`} className="vip-dd-lead-row">
+              <span className="vip-dd-lead-party">{r.party}</span>
+              <span className={r.chipClass}>{r.stage}</span>
+              <span className="vip-dd-lead-owner">{r.owner}</span>
+              <span className="vip-dd-lead-value">{r.value}</span>
+            </Link>
+          ))
+        )}
+      </div>
     </div>
   )
 }
@@ -593,38 +650,57 @@ const BODIES = {
   followup: FollowUpBody,
   attain: AttainBody,
   pipeline: PipelineBody,
+  stageLeads: StageLeadsBody,
   winrate: WinRateBody,
   forecast: ForecastBody,
   mix: MixBody,
   loss: LossBody,
 }
 
+// `panel` (the prop) is always the root of the drill-down; `stack` holds any
+// deeper panels a body pushed via onDrill (today only PipelineBody's
+// stage rows → that stage's lead list). The deepest one renders, "‹ Back"
+// pops one level, ✕ closes the whole thing. Resets whenever the caller
+// opens a different root panel.
 function DrilldownPanel({ panel, onClose }) {
+  const [stack, setStack] = useState([])
+
+  useEffect(() => {
+    setStack([])
+  }, [panel])
+
   if (!panel) return null
-  const Body = BODIES[panel.kind]
+
+  const current = stack.length ? stack[stack.length - 1] : panel
+  const Body = BODIES[current.kind]
 
   return (
     <>
       <div className="vip-dd-backdrop" onClick={onClose} />
       <div className="vip-dd-panel">
+        {stack.length > 0 && (
+          <button type="button" className="vip-dd-back" onClick={() => setStack((s) => s.slice(0, -1))}>
+            ‹ Back
+          </button>
+        )}
         <div className="vip-dd-head">
           <div className="vip-dd-head-text">
-            <div className="vip-dd-eyebrow">{panel.eyebrow}</div>
-            <div className="vip-dd-title">{panel.title}</div>
+            <div className="vip-dd-eyebrow">{current.eyebrow}</div>
+            <div className="vip-dd-title">{current.title}</div>
             <div className="vip-dd-value-row">
-              <span className="vip-dd-value">{panel.value}</span>
-              {panel.delta && <span className="vip-dd-delta">{panel.delta}</span>}
+              <span className="vip-dd-value">{current.value}</span>
+              {current.delta && <span className="vip-dd-delta">{current.delta}</span>}
             </div>
-            {panel.note && <div className="vip-dd-note">{panel.note}</div>}
+            {current.note && <div className="vip-dd-note">{current.note}</div>}
           </div>
           <button type="button" className="vip-dd-close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
 
-        <StatsGrid stats={panel.stats} />
+        <StatsGrid stats={current.stats} />
 
-        {Body && <Body panel={panel} />}
+        {Body && <Body panel={current} onDrill={(next) => setStack((s) => [...s, next])} />}
       </div>
     </>
   )

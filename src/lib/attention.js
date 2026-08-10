@@ -186,11 +186,16 @@ export function countDistinctLeads(buckets) {
 // 'You' (Today's personal queue, design_handoff_vipsar_mobile screen 9).
 // `viewerEmployeeId` is only used (and only needed) for the 'You' case — it
 // becomes the `employee_id` on a "Log call" swipe action's activities
-// insert, and `queueActions` (derived from scopeLabel, not a separate flag
-// callers have to remember to pass) gates whether AgeingBody renders the
-// swipe actions/bulk footer button at all, since bulk-editing leads that
-// aren't the viewer's own (Dashboard's company-wide buckets) isn't offered.
-export function buildAgeingPanel(bucket, scopeLabel = 'Company', viewerEmployeeId = null) {
+// insert. `queueActions` gates whether AgeingBody renders the swipe
+// actions/bulk footer button at all, since bulk-editing leads that aren't
+// the viewer's own isn't offered on Dashboard's buckets even when they're
+// labeled with the viewer's own name rather than 'Company' (a sales exec's
+// Dashboard buckets are already scoped to their own leads by RLS — see
+// Dashboard.jsx's `scopeLabel` — but that's a label fix, not a request to
+// turn on Home's swipe-action queue there too). Defaults to the old
+// `scopeLabel !== 'Company'` rule so Home's own call (scopeLabel: 'You')
+// is unaffected; Dashboard passes `queueActions: false` explicitly.
+export function buildAgeingPanel(bucket, scopeLabel = 'Company', viewerEmployeeId = null, queueActions = scopeLabel !== 'Company') {
   const owners = new Map()
   bucket.rows.forEach((row) => {
     const key = row.ownerId ?? 'unassigned'
@@ -210,7 +215,7 @@ export function buildAgeingPanel(bucket, scopeLabel = 'Company', viewerEmployeeI
     title: bucket.title,
     value: String(bucket.count),
     note: bucket.note,
-    queueActions: scopeLabel !== 'Company',
+    queueActions,
     viewerEmployeeId,
     stats: [
       { label: 'Value involved', value: formatCurrencyCompact(totalValue), sub: `across ${bucket.count} lead${bucket.count === 1 ? '' : 's'}`, color: '#b4232a' },

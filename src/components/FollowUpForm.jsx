@@ -1,59 +1,53 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { useAuth } from '../contexts/AuthContext'
 import { FOLLOWUP_OPTIONS, followupDateFor } from '../lib/followupDates'
-import { fetchLeadsByParty, mostRecentLeadByParty } from '../lib/partyQueries'
 import { createFollowUp } from '../lib/followUpQueries'
 import { ACTIVITY_TYPES } from '../lib/activityTypes'
-import PartySearchOrCreate from './PartySearchOrCreate'
+import LeadSearchSelect from './LeadSearchSelect'
 import { errorMessage } from '../lib/errorMessage'
 
 // assignedTo is locked, not a picker — the caller (Home for a self reminder,
-// EmployeeProfile for an owner assigning one) decides who this is for.
-// party_id is the only link the user picks; lead_id is resolved silently
-// from that party's most recent lead via the same fetchLeadsByParty/
-// mostRecentLeadByParty helpers Search.jsx already uses for its party
-// directory's "worked with" links, then folded into both the follow_ups
-// insert and (if resolved) a sync onto that lead's next_followup_date —
-// mirrors LeadQuickActions' existing "Set follow-up" write exactly.
-function FollowUpForm({ assignedTo, createdBy, onSaved, onCancel }) {
+// EmployeeProfile for an owner assigning one, LeadQuickActions for a reminder
+// on a specific lead) decides who this is for.
+//
+// The link is now a **lead**, picked explicitly, not a party whose most recent
+// lead was silently resolved behind the scenes (the old behaviour — it meant a
+// reminder often ended up with no lead attached at all, or attached to a lead
+// the user never chose). `party_id` still gets written, derived from whichever
+// lead is linked, so FollowUpList keeps showing a client name.
+//
+// `lead` (optional) presets the link and hides the picker entirely — passed by
+// LeadQuickActions, where the lead is already the screen you're on, so asking
+// "which lead?" would be redundant. Everywhere else the picker shows and the
+// link stays optional (a reminder with no lead is still valid).
+function FollowUpForm({ assignedTo, createdBy, lead = null, onSaved, onCancel }) {
+  const { employee } = useAuth()
+  // An owner picking a lead for their own reminder searches the whole
+  // pipeline, not just leads they personally carry (which on a real database
+  // is often none) — see LeadSearchSelect's `allLeads`. Assigning to someone
+  // else still scopes to that person's leads.
+  const searchAllLeads = employee?.role === 'owner' && assignedTo === employee?.id
+
   const [followupChoice, setFollowupChoice] = useState('')
   const [customDate, setCustomDate] = useState('')
   const [dueTime, setDueTime] = useState('')
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
-  const [party, setParty] = useState(null)
+  const [pickedLead, setPickedLead] = useState(null)
   const [activityType, setActivityType] = useState('')
-  const [resolvedLead, setResolvedLead] = useState(null) // { id, createdAt } | null, once looked up
-  const [resolvingLead, setResolvingLead] = useState(false)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
   const dueDate = followupDateFor(followupChoice, customDate)
+  // A preset lead always wins over the picker (the picker isn't rendered in
+  // that case anyway).
+  const linkedLead = lead ?? pickedLead
 
-  useEffect(() => {
-    if (!party) {
-      setResolvedLead(null)
-      return
-    }
-    let active = true
-    setResolvingLead(true)
-    fetchLeadsByParty().then(({ data, error: fetchError }) => {
-      if (!active) return
-      setResolvingLead(false)
-      if (fetchError) return
-      const leadId = mostRecentLeadByParty(data ?? []).get(party.id) ?? null
-      const row = leadId ? (data ?? []).find((r) => r.id === leadId) : null
-      setResolvedLead(leadId ? { id: leadId, createdAt: row?.created_at ?? null } : null)
-    })
-    return () => {
-      active = false
-    }
-  }, [party])
-
-  function handlePartySelect(nextParty) {
-    setParty(nextParty)
-    if (!nextParty) setActivityType('')
+  function handleLeadSelect(nextLead) {
+    setPickedLead(nextLead)
+    if (!nextLead) setActivityType('')
   }
 
   async function handleSave() {
@@ -64,9 +58,9 @@ function FollowUpForm({ assignedTo, createdBy, onSaved, onCancel }) {
     const { data, error: saveError } = await createFollowUp({
       assignedTo,
       createdBy,
-      partyId: party?.id ?? null,
-      leadId: resolvedLead?.id ?? null,
-      activityType: party ? activityType || null : null,
+      partyId: linkedLead?.party_id ?? null,
+      leadId: linkedLead?.id ?? null,
+      activityType: linkedLead ? activityType || null : null,
       title: title.trim(),
       notes: notes.trim() || null,
       dueDate,
@@ -79,8 +73,11 @@ function FollowUpForm({ assignedTo, createdBy, onSaved, onCancel }) {
       return
     }
 
-    if (resolvedLead?.id) {
-      await supabase.from('leads').update({ next_followup_date: dueDate }).eq('id', resolvedLead.id)
+    // Keep the lead's own next_followup_date in step with the reminder, so
+    // this doesn't create a second, out-of-sync "when's the next touch" field
+    // (same plain overwrite LeadQuickActions' old inline picker did).
+    if (linkedLead?.id) {
+      await supabase.from('leads').update({ next_followup_date: dueDate }).eq('id', linkedLead.id)
     }
 
     setSaving(false)
@@ -124,18 +121,14 @@ function FollowUpForm({ assignedTo, createdBy, onSaved, onCancel }) {
         />
       </label>
 
-      <div className="vip-field">
-        Related party <span className="vip-field-hint">optional</span>
-        <PartySearchOrCreate label="Party" allowCreate={false} onSelect={handlePartySelect} />
-      </div>
-
-      {party && !resolvingLead && (
-        <p className="vip-field-hint" style={{ margin: 0 }}>
-          {resolvedLead ? 'Linked to their most recent lead.' : 'No lead on file for this party yet — reminder will still be saved against the party.'}
-        </p>
+      {!lead && (
+        <div className="vip-field">
+          Related lead <span className="vip-field-hint">optional</span>
+          <LeadSearchSelect onSelect={handleLeadSelect} employeeId={assignedTo} allLeads={searchAllLeads} />
+        </div>
       )}
 
-      {party && (
+      {linkedLead && (
         <div className="vip-field">
           Type of follow-up <span className="vip-field-hint">optional</span>
           <div className="vip-chip-wrap">

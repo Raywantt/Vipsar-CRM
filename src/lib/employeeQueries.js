@@ -11,7 +11,7 @@ export function fetchAllEmployees() {
 export function fetchEmployeeProfile(id) {
   return supabase
     .from('employees')
-    .select('id, name, role, office_location, mobile, is_active, created_at')
+    .select('id, name, role, office_location, is_active, created_at')
     .eq('id', id)
     .single()
 }

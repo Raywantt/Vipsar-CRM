@@ -14,6 +14,20 @@ function formatDueTime(timeStr) {
   return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 }
 
+// Same fallback chain every other lead-naming surface in this app uses
+// (client name → site nickname → locality), so a reminder on a lead with no
+// party still names something real instead of rendering blank. Falls back to
+// the follow-up's own party for a party-only reminder, then to nothing.
+function followUpLinkLabel(f) {
+  return (
+    f.leads?.parties?.name ??
+    f.leads?.sites?.nickname ??
+    f.leads?.sites?.locality ??
+    f.parties?.name ??
+    (f.lead_id ? `Lead #${f.lead_id}` : null)
+  )
+}
+
 // Shared row list for Home's "Your reminders" and EmployeeProfile's
 // "Follow-ups" cards. No outer <Link> wraps the row (unlike most list cards
 // in this app), so the party/lead link and the assignor link are both plain
@@ -27,6 +41,8 @@ function FollowUpList({ followUps, onMarkDone, emptyLabel = 'Nothing here.' }) {
       {followUps.map((f) => {
         const assignedByOther = f.created_by !== f.assigned_to
         const dueTime = formatDueTime(f.due_time)
+        const linkLabel = followUpLinkLabel(f)
+        const typeLabel = f.activity_type ? (ACTIVITY_LABELS[f.activity_type] ?? 'Other') : null
         return (
           <div key={f.id} className="vip-row">
             <div className="vip-row-main" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
@@ -44,11 +60,13 @@ function FollowUpList({ followUps, onMarkDone, emptyLabel = 'Nothing here.' }) {
                 >
                   {f.title}
                 </div>
-                <div className="vip-row-sub">
-                  {f.activity_type && (ACTIVITY_LABELS[f.activity_type] ?? 'Other')}
-                  {f.activity_type && (f.lead_id || f.party_id) ? ' · ' : ''}
-                  {f.lead_id ? <Link to={`/leads/${f.lead_id}`}>{f.parties?.name}</Link> : f.parties?.name}
-                </div>
+                {(typeLabel || linkLabel) && (
+                  <div className="vip-row-sub">
+                    {typeLabel}
+                    {typeLabel && linkLabel ? ' · ' : ''}
+                    {f.lead_id && linkLabel ? <Link to={`/leads/${f.lead_id}`}>{linkLabel}</Link> : linkLabel}
+                  </div>
+                )}
                 {f.notes && <div className="vip-row-sub">{f.notes}</div>}
                 {assignedByOther && (
                   <div className="vip-row-sub">

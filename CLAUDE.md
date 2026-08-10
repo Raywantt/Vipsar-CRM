@@ -2,6 +2,36 @@
 
 Guidance for Claude Code when working in this repository.
 
+## IMPORTANT — ask before you build
+
+**Ask clarifying questions whenever a request leaves real room for
+interpretation. This is strongly recommended, not optional, and it takes
+priority over any "bias toward acting without asking" default.** The user
+has said explicitly, more than once, that they'd rather answer two or three
+questions up front than review a screen built on a guess. A wrong guess
+costs a full build-and-revert cycle; a question costs one message.
+
+Use `AskUserQuestion` (2–4 questions, with a recommended option marked) as
+soon as any of these is true — don't wait until you're stuck:
+
+- The request names a UI change but not the exact placement, shape, or
+  wording ("add a lead count alongside the pipeline" — *which* pipeline
+  figure? the KPI tile, the card header, both?).
+- "Bring back the old look" / "like it was before" — confirm *which*
+  previous state, especially when several changes landed in one session.
+- A feature could reasonably be inline (filters on the current screen) or
+  navigational (a second screen/panel) — these look nothing alike; pick with
+  the user, not for them.
+- The change removes or replaces something that already exists — confirm
+  what happens to what's there now, and what fills the space it leaves.
+- Anything touching layout on a screen the user actively uses. This app's
+  Dashboard has been reworked repeatedly off vague briefs; a question about
+  intent is always cheaper than another visual revert.
+
+Note the difference from a purely technical choice (which util to reuse,
+where a class belongs) — those you should still just decide, per the rest of
+this file. This rule is about **what the user sees and how it behaves**.
+
 ## What this is
 
 A CRM for a Tostem window & door dealership: tracking leads, quotes, orders,
@@ -152,7 +182,7 @@ src/
                 DateRangeSelector, ActivityCountsCard,
                 LeadsBySourceCard, ClosureForecastCard, TargetsVsActualsCard,
                 SetTargetForm, LeadsListCard, LeadsByCategoryCard,
-                LeadStageBoard, SalesFunnelCard, LossReasonsCard,
+                SalesFunnelCard, LossReasonsCard,
                 NeedsAttentionCard, KpiSparkRow,
                 DashboardHeatmap, DonutChart, DrilldownPanel,
                 AddEmployeeForm, ManageEmployeesSection,
@@ -381,8 +411,8 @@ approximation of it.** Concretely:
 * **Universal linking** — the rule of thumb from `design_handoff_detail_pages/
   FLOW.md`, applied globally: a person's name is always a link to
   `/employees/:id`; a lead or client's name is always a link to
-  `/leads/:id`. Covers `LeadsListCard`, `ClosureForecastCard`,
-  `LeadStageBoard`, `Search`'s party directory "Worked with" links, its
+  `/leads/:id`. Covers `LeadsListCard`, `ClosureForecastCard`, Pipeline by
+  stage's own Leads view, `Search`'s party directory "Worked with" links, its
   Leads results, `LeadActivityTimeline`'s "by {employee}", and the
   Dashboard heatmap's row-header name (clicking a **cell** still opens the
   existing metric drill-down, unchanged — only the name itself navigates).
@@ -446,12 +476,13 @@ approximation of it.** Concretely:
   cards sit in `.vip-report-grid` (2 columns); a card wrapped in
   `.vip-span-2` breaks out to the full row instead — used for cards whose
   content needs the width (Closure forecast, the Targets-vs.-actuals-plus-
-  Needs-Attention featured row, Why we lose), so the four
-  `LeadsByCategoryCard` instances plus the Table/Board pipeline-by-stage
-  card + Sales funnel pair are the only ones that actually pair up
-  half-width. Get this pairing wrong (an odd number of half-width cards
-  in a row) and CSS grid leaves a visible gap — checked via computed
-  `getBoundingClientRect()` during build, not just eyeballed. Home's tile
+  Needs-Attention featured row, Why we lose, and — since it's the odd one
+  out — Leads by product), so Activity counts + Leads by source, Pipeline by
+  stage + Sales funnel, and Leads by area + Leads by site stage are the
+  three pairs that actually sit half-width. Get this pairing wrong (an odd
+  number of half-width cards in a row) and CSS grid leaves a visible gap —
+  checked via computed `getBoundingClientRect()` during build, not just
+  eyeballed. Home's tile
   stack becomes `.vip-tile-grid` (2×2) and the KPI grid goes 4-up in one
   row. `.vip-narrow`/`.vip-wide` are plain utility classes, not React
   components — applying one is a one-line class-name change per page, not a
@@ -499,8 +530,9 @@ approximation of it.** Concretely:
   drill-down are tightly coupled. Reuse an existing `build*Panel` call
   before adding a new one — e.g. the KPI row's "Stale leads" tile and the
   Needs Attention card's matching row call the exact same
-  `buildAgeingPanel(staleBucket)`, and "Leads by stage (detail)" opens the
-  identical panel Pipeline-by-stage's own "Details" link does.
+  `buildAgeingPanel(staleBucket)`. Sales funnel used to have its own
+  "Details" opening this same `pipeline` panel — removed, see the Sales
+  funnel bullet below for why.
 * **Color tokens** — a code-review finding flagged 216 inline `style={{}}`
   objects and 85 hardcoded hex colors across `src/`, worst in
   `LeadDetail.jsx` (46 inline styles) and `DrilldownPanel.jsx` (24) — plus
@@ -853,14 +885,39 @@ toggle button so at most one is open at a time:
   **Not yet verified live** (no test login was available in the session
   that made this change) — reasoned through and lint-clean, same as any
   other change in this doc awaiting its first live check.
-* **Set follow-up** — writes the existing `leads.next_followup_date` field
-  directly (Tomorrow / In 3 days / Next Monday / In 2 weeks / a custom date
-  input) — one more entry point onto the same field `ActivityLog` already
-  sets, and distinct from the real Follow-ups feature (see its own section)
-  even though it shares that feature's date-picker logic via
-  `src/lib/followupDates.js`.
+* **Set follow-up** — mounts the **same `FollowUpForm`** Home's "Add
+  reminder" uses, so a reminder set from a lead is a real `follow_ups` row
+  with a real push notification, not just a date stamp (2026-08-10, at the
+  user's request — "the follow up they can give after going to a lead's
+  screen should follow the same flow as add reminder on the home screen").
+  It used to write `leads.next_followup_date` directly from its own inline
+  Tomorrow/In-3-days/… panel, which meant a lead-screen follow-up never
+  reminded anyone. Two things differ from Home's mount: the lead is passed
+  in as `lead={lead}`, so **the "Related lead" picker isn't rendered at all**
+  (you're already on the lead — asking would be redundant), and `assignedTo`
+  is the **lead's owner** (`lead.owner_employee_id ?? employee.id`), not
+  whoever clicked — an owner setting a reminder on a rep's lead is reminding
+  the rep, and it's the rep's device the push should reach. Same rule
+  `LeadStageSection`'s On Hold flow already used for its own `createFollowUp`
+  call. `next_followup_date` still gets written (FollowUpForm does it for any
+  linked lead), so nothing that read that field lost its value —
+  `LeadDetail`'s `handleFollowUpSaved` merges it into local state from the
+  returned row's `due_date` rather than refetching.
+* **Change stage** — **owner-only** as of 2026-08-10, at the user's request
+  ("a sales executive cannot change stage of a lead"). Confirmed to include
+  the outcome stages: a rep can no longer mark their own deal Won or Lost
+  either. They can still record the money behind a close — Activity Log's
+  Booking Update, and Sales progress' own Order value field — they just
+  don't flip the stage. The gate is the same one-line `{isOwner && …}`
+  Reassign owner already used. **This is a UI gate; `Schema/migration_owner_only_stage.sql`
+  is the database half** (a `BEFORE UPDATE` trigger on `leads`, because RLS
+  restricts rows and not columns, and both roles authenticate as
+  `authenticated` so a column-level `REVOKE` would lock the owner out too),
+  plus `stage_history` INSERT narrowed to owner-only so the audit trail
+  can't be written by someone who can't cause the change. See Conventions —
+  **not yet run live**.
 * **Reassign owner** — **owner-only**, even within `canEdit` (a sales exec
-  who owns the lead gets the other two actions but never this one, per the
+  who owns the lead gets Set follow-up but neither of the other two, per the
   design handoff's `FLOW.md` §4). Updates `leads.owner_employee_id`
   (already legal under existing "own data or owner role" RLS, no schema
   change) and inserts into `lead_owner_history` (see Conventions — now
@@ -1009,11 +1066,11 @@ everywhere in the codebase and UI, not just relabeling it:
 `leadStageOptions.js` — values are the literal `current_stage` strings
 (and double as CSS chip class suffixes, so they stay single-token slugs
 like `joinery_follow_up`), labels are what's actually shown. Every
-display site across the app (`LeadStageSection`'s chip picker,
-`LeadStageBoard`'s columns, `SalesFunnelCard`, `LeadsListCard`,
+display site across the app (`LeadStageSection`'s chip picker, Dashboard's
+Pipeline by stage card, `SalesFunnelCard`, `LeadsListCard`,
 `LeadActivityTimeline`, `Search`, `ActivityLog`, `EmployeeProfile`,
-`drilldownBuilders.js`'s panels, `LeadsByCategoryCard`'s Stage instance)
-renders through `stageLabel()` rather than the raw value — a `current_stage`
+`drilldownBuilders.js`'s panels) renders through `stageLabel()` rather than
+the raw value — a `current_stage`
 value that isn't a recognized `LEAD_STAGE_OPTIONS` entry (only reachable
 today via older data or a direct DB edit, since `LeadStageSection`'s
 picker no longer has a free-text "Other…" option — removed in a later
@@ -1220,30 +1277,49 @@ optional time, a required short title, an optional link to a party, an
 activity-type tag once a party's linked, and an always-optional notes field.
 
 * **`FollowUpForm.jsx`/`FollowUpList.jsx`** (`src/components/`) — the shared
-  create form and row-list, reused by both surfaces below. The date field
-  reuses `FOLLOWUP_OPTIONS`/`followupDateFor` from `src/lib/followupDates.js`
-  (extracted out of `LeadQuickActions.jsx`'s existing "Set follow-up" quick
-  action so both can't drift into different date math). Linking is
-  **party-only** in the UI — there's no separate "pick a lead" step — but
-  `FollowUpForm` silently resolves that party's most recent lead app-side via
-  the *existing* `fetchLeadsByParty`/`mostRecentLeadByParty` helpers in
-  `src/lib/partyQueries.js` (`mostRecentLeadByParty` is shared with
-  `Search`'s own party directory too, off its `fetchLeadsForPartyDirectory`
-  query rather than this narrower single-purpose one — see the Search
-  section), and if one resolves, saving the
-  follow-up **also** sets that lead's `next_followup_date` to the same due
-  date in the same save call — mirrors `LeadQuickActions`' existing "Set
-  follow-up" write exactly (a plain overwrite, not a merge), so this
-  doesn't create a second, out-of-sync "when's the next touch" field. A
-  party with more than one lead resolves to whichever is most recently
-  created — same ambiguity Search's "worked with" list already accepts,
-  not a new one.
-  Activity type (shown only once a party's picked) reuses the canonical
+  create form and row-list, reused by all three surfaces below. The date
+  field reuses `FOLLOWUP_OPTIONS`/`followupDateFor` from
+  `src/lib/followupDates.js` (extracted out of `LeadQuickActions.jsx`'s old
+  inline "Set follow-up" panel so both couldn't drift into different date
+  math; that panel is gone now — see the Lead Profile section — but the
+  shared module stays, since `LeadStageSection`'s On Hold flow still uses
+  it).
+  **Linking is by lead, picked explicitly** (2026-08-10). It used to be a
+  party picker whose most recent lead was silently resolved behind the
+  scenes via `fetchLeadsByParty`/`mostRecentLeadByParty` — the user's actual
+  complaint was that reminders showed no lead at all, which this was the
+  cause of: a party with no lead linked nothing, and a party with several
+  linked whichever happened to be newest rather than the one meant. The
+  field is now an optional **"Related lead"** `LeadSearchSelect`; `party_id`
+  is still written, derived from the chosen lead's own `party_id`, so
+  nothing that read the party link broke. `fetchLeadsByParty` was deleted
+  from `partyQueries.js` as dead code (`mostRecentLeadByParty` stays —
+  `Search`'s party directory still uses it, off `fetchLeadsForPartyDirectory`).
+  **The lead stays optional** — a reminder with no lead is still valid and
+  still saves; only date + title are required.
+  Two props shape the picker: **`lead`** presets the link and hides the
+  picker entirely (`LeadQuickActions`' mount — see the Lead Profile
+  section), and `LeadSearchSelect`'s new **`allLeads`** drops its
+  `owner_employee_id` filter, set by `FollowUpForm` when an **owner** is
+  picking a lead for their *own* reminder. That last one is a real bug found
+  in the browser, not a hypothetical: scoping an owner to leads they
+  personally carry made the picker come back "No matching leads" on the real
+  database, since the owner carries few or none themselves. Assigning to
+  someone else still scopes to *that person's* leads (`employeeId={assignedTo}`).
+  If a lead is linked, saving **also** sets that lead's `next_followup_date`
+  to the same due date (a plain overwrite, not a merge), so this doesn't
+  create a second, out-of-sync "when's the next touch" field.
+  Activity type (shown only once a lead is linked) reuses the canonical
   `ACTIVITY_TYPES` list plus an `other` option, rather than inventing a
-  parallel taxonomy. Editing an existing follow-up's details, and any delete
-  UI, are **out of scope for this pass** — only create and mark-done exist
-  in the UI (owner-only DELETE still exists at the RLS layer, same as every
-  other table, for manual cleanup).
+  parallel taxonomy. `FollowUpList` names the linked lead via the same
+  client-name → site-nickname → locality fallback chain every other
+  lead-naming surface uses (falling back to the follow-up's own party, then
+  `Lead #id`) — `FOLLOW_UP_SELECT` embeds `leads(...)` for exactly this;
+  before, a row could only ever show its *party's* name, so a reminder on a
+  lead with no party row rendered with no visible link whatsoever. Editing
+  an existing follow-up's details, and any delete UI, are **out of scope**
+  — only create and mark-done exist in the UI (owner-only DELETE still
+  exists at the RLS layer, same as every other table, for manual cleanup).
 * **`followupDates.js`'s `todayISO()`/`toISODate()`** are the one place in
   this app that should ever compute "today" as a plain date string — every
   caller that needs one (`fetchDueFollowUpsForEmployee` in
@@ -1277,6 +1353,10 @@ activity-type tag once a party's linked, and an always-optional notes field.
   from their own profile. `FollowUpList` shows "Assigned by {name}" whenever
   `created_by !== assigned_to`, so an owner reviewing this page can see
   whether their own assigned reminders were followed up on and marked done.
+* **Lead Profile** (`src/components/LeadQuickActions.jsx`) — the third
+  mount, added 2026-08-10: "Set follow-up" on a lead now creates a real
+  follow-up rather than only stamping a date. Lead preset (no picker),
+  assigned to the lead's owner. See the Lead Profile section's own bullet.
 * **Profile** (`src/pages/Profile.jsx` — see its own section below) — a
   "Notifications" card between the identity facts and the owner-only
   settings block, showing this device's actual `Notification.permission`
@@ -1596,7 +1676,12 @@ since it isn't part of the date-range-scoped report data.
   (`wonEventsInRange`/`fetchActivitiesTrendWindow`/`decidedStageHistory`).
   The other three are point-in-time snapshots with nothing stored over
   time, so they render value-only rather than fabricate a trend — this was
-  a deliberate call, not a TODO.
+  a deliberate call, not a TODO. **Open pipeline** is the one exception to
+  "value-only": it shows how many open leads that rupee figure is spread
+  across ("₹5.0L · 2 leads", `openLeadCount` from `Dashboard.jsx`), reusing
+  the tile's existing delta slot with `up: null` so the count renders plain
+  and muted rather than as a green/red trend — it's a second snapshot
+  figure, not a change over time.
 * **Activity counts** (`ActivityCountsCard.jsx`) — counts by `activity_type`
   for the selected range; a fixed 5-row list, always. Used to also render a
   "by exec" matrix (one column per employee, no cap) — dropped in the
@@ -1734,10 +1819,19 @@ since it isn't part of the date-range-scoped report data.
   in advance. A successful insert is appended straight into
   `Dashboard.jsx`'s `targets` state (`onTargetCreated`) so the table above
   updates immediately.
-* **Leads by stage / by area / by site stage / by product**
-  (`LeadsByCategoryCard.jsx`, one generic component reused 4×) — count +
-  `order_value` sum, grouped by `current_stage` / the lead's site's area /
-  the lead's site's `site_stage` / `products.name`. Pipeline snapshots like
+* **Leads by area / by site stage / by product**
+  (`LeadsByCategoryCard.jsx`, one generic component reused 3×) — count +
+  `order_value` sum, grouped by the lead's site's area / the lead's site's
+  `site_stage` / `products.name`. A fourth instance, "Leads by stage
+  (detail)", used to sit here too — removed (2026-08-09) since it was a
+  near-exact duplicate of the "Pipeline by stage" card just below (same 11
+  buckets, same count + value per bucket, same `pipeline` drill-down link),
+  eating a full card's worth of space for no second insight. See the
+  **Pipeline by stage** bullet below for where that stage-level detail lives
+  now. Product is the odd one out now that Stage is gone (Area and Site
+  Stage still pair up half-width) — it's `vip-span-2` (full row) instead,
+  same "promote the leftover card rather than leave CSS grid a visible gap"
+  fix the Desktop layout bullet warns about. Pipeline snapshots like
   Closure forecast, **not** date-range-scoped — "how many leads are in each
   category right now", not "how many arrived in a period" — fed by one
   shared unbounded query, `fetchLeadsForBreakdown` in `dashboardQueries.js`
@@ -1747,49 +1841,60 @@ since it isn't part of the date-range-scoped report data.
   to specific cards, but it's one shared query for all of them, harmless
   extra columns for the rest). `categoryOrder` (optional prop) pins a fixed
   set of buckets in a fixed order, shown even at zero count, so "no leads at
-  this stage" is visible rather than the row not existing — Stage uses
-  `LEAD_STAGE_OPTIONS` (`src/lib/leadStageOptions.js`, extracted out of
-  `LeadStageSection.jsx` so the two can't drift), Site Stage uses
+  this stage" is visible rather than the row not existing — Site Stage uses
   `SITE_STAGE_OPTIONS` plus `'Not set'`/`'No site'`; Area and Product have
   no fixed list (both come from a table, not a suggested list) so their
   buckets are discovered from the data and sorted by count desc instead —
   Product falls back to `'Not specified'`, matching `SalesProgressSection`'s
   own "— Not specified —" label for an unset `product_id`. `maxRows`
-  (optional prop, new) caps a card to its top rows plus a "+N more · View
-  all" footer — only passed for **Area and Product** (real data, no natural
-  ceiling — 11 and 9 rows on real data before this), **not** Stage or Site
-  Stage, whose `categoryOrder` is already a short, fixed, meaningful list
-  (7 and 6 rows) where trimming would arbitrarily hide a real bucket like
-  `lost` rather than an overflow. All four now have a "Details" link:
-  Stage's opens the identical `pipeline` panel the Pipeline-by-stage card's
-  own link does (same data, no point building a second view of it); Area/
-  Site Stage/Product open a new `buildCategoryMixPanel` (`mix` kind, real
-  count/share/won-conversion per bucket off the same `breakdownLeads`, just
-  not capped) — generic enough that a fifth `LeadsByCategoryCard` instance
-  wouldn't need a sixth drill-down kind, just another `buildCategoryMixPanel`
-  call.
-* **Leads by stage — Table/Board toggle** (`stageView` state in
-  `Dashboard.jsx`, default `'table'`) — the Stage instance specifically
-  (not Area/Site Stage, which have no meaningful "pipeline" reading) can
-  switch to `LeadStageBoard.jsx`, a **read-only** Kanban-style board:
-  columns = `LEAD_STAGE_OPTIONS`, same order as the table's `categoryOrder`;
-  each column header shows the stage name + count + summed `order_value`;
-  each card is a `<Link to="/leads/:id">` (party name → site nickname/
-  locality → `'(no party)'` fallback chain, matching `LeadsListCard`'s),
-  showing order value and — owner-only — the lead's owner name.
-  Deliberately **not** drag-and-drop: a card click opens `LeadDetail`, where
-  the actual stage change happens through the existing, already-correct
-  flow (mandatory loss-reason prompt, `stage_history` logging, ownership
-  checks) — reimplementing that as a drop-to-change interaction was
-  considered and explicitly deferred, not an oversight. Columns scroll
-  horizontally (`overflow-x: auto`); each column's card list scrolls
-  independently past a max-height. This card and Sales funnel below now sit
-  side by side (both half-width, no `vip-span-2`) instead of each taking a
-  full row — a Dashboard-v2 layout change, paired deliberately since they're
-  the two "shape of the pipeline" cards; get an odd count of half-width
-  siblings elsewhere in the grid and CSS leaves a visible gap (see the
-  Desktop layout bullet above), so this card's own "Details" link opens the
-  same `pipeline` panel (`mode: 'stage'`) as the Table/Board toggle's data.
+  (optional prop) caps a card to its top rows plus a "+N more · View all"
+  footer — only passed for **Area and Product** (real data, no natural
+  ceiling — 11 and 9 rows on real data), **not** Site Stage, whose
+  `categoryOrder` is already a short, fixed, meaningful list (6 rows) where
+  trimming would arbitrarily hide a real bucket rather than an overflow. All
+  three have a "Details" link opening `buildCategoryMixPanel` (`mix` kind,
+  real count/share/won-conversion per bucket off the same `breakdownLeads`,
+  just not capped) — generic enough that a fourth instance wouldn't need a
+  second drill-down kind, just another `buildCategoryMixPanel` call.
+* **Pipeline by stage** (inline in `Dashboard.jsx`) — count + `order_value`
+  sum per `current_stage` as a plain bar-row list, all 11
+  `LEAD_STAGE_OPTIONS` buckets shown even at zero. Its own markup rather
+  than a `LeadsByCategoryCard` instance (that's also why the old
+  near-duplicate "Leads by stage (detail)" card could go — see the previous
+  bullet). It used to carry a **Table/Board** segmented toggle, Board being
+  a read-only Kanban (`LeadStageBoard.jsx`, now **deleted**) whose cards
+  linked to `LeadDetail` to actually change stage there; removed 2026-08-09
+  at the user's request for being messy and for duplicating what a click
+  into `LeadDetail` already does. A **Table/Leads** toggle briefly replaced
+  it in the same pass — an inline stage-list-beside-leads split view — and
+  was reverted immediately: the user's actual ask was for the *drill-down*
+  to go deeper, not for the card to grow a second mode. **Don't reintroduce
+  a second view mode on this card without asking** (see the "ask before you
+  build" section at the top of this file — this exact card is why it's
+  there). The card is a list plus a "Details ›" link, nothing else. It and
+  Sales funnel sit side by side (both half-width, no `vip-span-2`), paired
+  deliberately as the two "shape of the pipeline" cards.
+* **Pipeline drill-down — a second level** (`buildPipelinePanel`/
+  `buildStageLeadsPanel` in `drilldownBuilders.js`, `PipelineBody`/
+  `StageLeadsBody` + the panel stack in `DrilldownPanel.jsx`) — the
+  `pipeline` panel itself (stage-value bars, stage-to-stage conversion
+  cards, "Biggest open leads" top-5) is **unchanged** from Dashboard v2.
+  What's new (2026-08-09) is that each "Where the value is sitting" bar is
+  now a button opening a `stageLeads` panel: every lead at that one stage,
+  with an owner `<select>` (each option showing that owner's count) and the
+  usual `vip-dd-lead-row` list linking to `/leads/:id`. Navigation is a
+  **stack inside `DrilldownPanel`**, not a swapped `panel` prop — the root
+  panel stays the caller's, a body pushes deeper via an `onDrill(panel)`
+  prop, "‹ Back" (`.vip-dd-back`) pops one level, ✕ closes everything, and
+  the stack resets whenever the caller opens a different root panel. Each
+  stage row's sub-panel is **prebuilt eagerly** by `buildPipelinePanel`
+  (attached as `stageRows[].drill`) rather than constructed on click, which
+  is what keeps `DrilldownPanel` presentational — no builder imports, no
+  lead data of its own — as its header comment has always required. Adding
+  a third level anywhere else is just another `onDrill` call; the stack
+  doesn't care how deep it goes. `buildPipelinePanel` also lost its old
+  `mode: 'stage' | 'funnel'` param in this same pass — see the Sales funnel
+  bullet below for why only one caller (and one behavior) was left.
 * **Sales funnel** (`SalesFunnelCard.jsx`) — reach-count + avg-days-in-stage
   per `LEAD_STAGE_OPTIONS` stage, from `fetchStageHistoryForFunnel` in
   `dashboardQueries.js` (`stage_history` joined to `leads(owner_employee_id)`).
@@ -1812,9 +1917,18 @@ since it isn't part of the date-range-scoped report data.
   actual logged transitions, which is the correct thing to measure there.
   One team-wide table, deliberately **no** per-employee breakdown — funnel
   shape is a whole-pipeline metric, not a per-rep tally like the other
-  cards. "Details" opens the same `pipeline` panel as Pipeline by stage,
-  just with `mode: 'funnel'` (conversion-rate-between-stages emphasis
-  instead of stage-value emphasis) — one builder, two entry points.
+  cards. **No "Details" link** (removed 2026-08-09, at the user's request,
+  after they noticed it and Pipeline by stage's own Details opened
+  identical content) — this card used to pass `buildPipelinePanel({ mode:
+  'funnel', ... })`, but `mode` only ever changed the panel's header text;
+  the body (stage-value bars, conversion cards, top leads) was the exact
+  same either click, and `funnelRows` (reach + avg-days per stage — the one
+  thing that *would* have been funnel-specific) was computed by the builder
+  but never actually rendered by `DrilldownPanel`. `buildPipelinePanel` lost
+  its `mode` param and `funnelRows` output entirely rather than keeping
+  either as dead weight for a caller that no longer exists — see its own
+  header comment in `drilldownBuilders.js`. This card's inline reach/
+  avg-days bars are still the real, only place that data is shown.
 * **Why we lose** (`LossReasonsCard.jsx`, **owner-only** — `{isOwner && ...}`
   in `Dashboard.jsx`, and the fetch itself is skipped entirely for a sales
   exec rather than firing a request that RLS would just return empty) —
@@ -2244,6 +2358,53 @@ function.
   `.vip-dd-kpi-grid` metric grid automatically picked up the 2-column
   mobile layout from the shared CSS fix above.
 
+### Data isolation — what a sales exec can see and change
+
+A full audit (2026-08-10) of "a sales exec only sees their own data and only
+changes their own leads", traced against `Schema/rls_policies.sql` and every
+`.from('leads'|'activities'|'targets'|'stage_history'|'employees'|'follow_ups')`
+call site. **Verified clean, don't re-litigate these**: all writes are backed
+by real RLS `WITH CHECK` clauses (a UI gate bypass fails server-side, so UI
+gates here are convenience, not the boundary); `/team`, `/employees/:id`'s
+role check, and the owner-only Dashboard cards (`LossReasonsCard`,
+`DashboardHeatmap`, exec filters) all hard-block rather than CSS-hide;
+`Home`, `NeedsAttentionCard`, `Search`'s "Worked with" list,
+`ClosureForecastCard` and `TargetsVsActualsCard` read only RLS-scoped
+`leads`/`activities`. What the audit actually found:
+
+* **`stage_history` SELECT was open to every active employee** — not scoped
+  to own leads. Three unconditional fetches (`fetchStageHistoryForFunnel`,
+  `fetchWonStageHistory`, `fetchDecidedStageHistory`) therefore pulled every
+  lead's stage rows on every Dashboard/Home/EmployeeProfile load. The
+  *displayed* numbers were never wrong — each consumer drops rows whose
+  embedded `leads(...)` came back null under RLS — but the raw network
+  response carried other reps' `lead_id`/`stage`/`changed_at`. Fixed at the
+  RLS layer by `Schema/migration_scope_stage_history.sql` (see Conventions;
+  **outstanding**). The client-side null-embed filters are deliberately kept
+  as belt-and-braces.
+* **`EmployeeProfile.jsx` fired its fetches before the role redirect** — the
+  guard was its own `useEffect`, and React runs every initial-mount effect
+  in the same pass, so `navigate()` didn't preempt them. Only
+  `fetchEmployeeProfile` actually returned anything (the other three hit
+  RLS-scoped tables), so the exposure was a colleague's name/role flashing
+  before redirect, but every fetch effect is now gated on
+  `allowed = isOwner || isSelf`.
+* **`employees` SELECT is open to any active employee** (name, mobile,
+  email, role) — a documented, deliberate exception, needed for name
+  lookups, `EmployeeLink`, and the "Accompanied by" dropdown. Left as-is,
+  but `fetchEmployeeProfile` stopped selecting `mobile`, which it fetched
+  and never rendered.
+* **Drill-down panels were labelled "Company" for everyone.** A sales exec's
+  panels are correctly scoped by RLS, but the hardcoded eyebrow implied
+  team-wide visibility. Every `build*Panel` in `drilldownBuilders.js` now
+  takes a `scopeLabel` (defaulting to `'Company'`, so the owner is
+  unchanged); `Dashboard.jsx` passes the viewer's own name for a non-owner.
+  `buildAgeingPanel` already had this param — the others just never got it.
+  Note its fourth arg, `queueActions`: Dashboard passes `false` explicitly,
+  since that flag used to be *derived* from `scopeLabel !== 'Company'` and
+  would otherwise have switched Dashboard's Needs Attention rows into
+  Today's swipe-action queue as a side effect of the label change.
+
 ### PWA installability (`src/components/InstallPrompt.jsx`, `OfflineIndicator.jsx`)
 
 Icons were generated from `src/assets/VIPSAR PWA icon design.pdf`. The
@@ -2333,7 +2494,7 @@ renders) rather than assuming a fresh tab means a fresh session.
 ## Conventions
 
 - Secrets (Supabase URL/keys, etc.) go in a git-ignored `.env` file — never commit them. `.env.example` documents the required variable names with placeholders.
-- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Three migrations flagged as outstanding before the pilot — `parties.party_type`'s `'pmc'` value, `targets.period_type`'s `'quarter'` value, and the `lead_owner_history` table + its RLS policies — were all run live on 2026-08-09 via `Schema/migration_pilot_outstanding.sql` and re-verified end to end in the browser (created a `pmc` party from New Lead's "other party" field, saved a Quarter target, reassigned a lead's owner and confirmed a real history entry with the correct "changed by" attribution — a related bug in `insertLeadOwnerHistory`'s own `.select()` not fetching back `changed_by_employee`, caught during that verification, is fixed too). None of the three are outstanding anymore. Still outstanding: the Lead stage taxonomy rename (see its own section above) needs a one-time data migration run live — `ALTER TABLE leads ALTER COLUMN current_stage SET DEFAULT 'calling';`, then `UPDATE leads SET current_stage = 'calling' WHERE current_stage = 'new';`, `UPDATE leads SET current_stage = 'negotiation' WHERE current_stage = 'hot';`, `UPDATE leads SET current_stage = 'quote_submission' WHERE current_stage = 'quote';`, and the matching `UPDATE stage_history SET stage = 'negotiation' WHERE stage = 'hot';` / `UPDATE stage_history SET stage = 'quote_submission' WHERE stage = 'quote';` to keep the historical trail consistent. No CHECK constraint needs altering for this one (`current_stage`/`stage_history.stage` are both free text, and `follow_ups.activity_type`'s CHECK already allows the `'other'` value the On Hold flow uses) — until the `UPDATE`s run, live leads still sitting at the old `new`/`hot`/`quote` values will render as a plain grey "Other…" chip with their raw old value as the label, rather than a colored stage chip. A code-review pass also flagged the two columns every `own_data_or_owner_role_*` RLS policy filters on, `leads.owner_employee_id` and `activities.employee_id`, plus `stage_history(stage, changed_at)` (the columns `fetchWonStageHistory` filters/sorts on), as unindexed — every `leads`/`activities` query for every employee was a sequential scan on those columns. Fixed live via `idx_leads_owner`/`idx_activities_employee`/`idx_stage_history_stage_changed`, run 2026-08-09; `Schema/tostem_crm_schema.sql`'s own index list now includes all three so a fresh install gets them too. Also outstanding: the new **Architect Meeting** activity type (see the ActivityLog section above) needs `Schema/migration_architect_meeting.sql` run live — it adds `'architect_meeting'` to both `activities.activity_type`'s and `follow_ups.activity_type`'s CHECK constraints (confirmed via a real live error that the former's constraint name is exactly `activities_activity_type_check`, as the migration assumes; the latter's name wasn't independently confirmed the same way, hence that file's own SELECT-first safety check). Until this runs, tapping Architect Meeting and submitting fails with a CHECK violation, surfaced as a normal inline error — everything up to that point (the architect search-or-create picker, the party insert if a new architect is typed) already works against the live DB today, since neither depends on this constraint.
+- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Three migrations flagged as outstanding before the pilot — `parties.party_type`'s `'pmc'` value, `targets.period_type`'s `'quarter'` value, and the `lead_owner_history` table + its RLS policies — were all run live on 2026-08-09 via `Schema/migration_pilot_outstanding.sql` and re-verified end to end in the browser (created a `pmc` party from New Lead's "other party" field, saved a Quarter target, reassigned a lead's owner and confirmed a real history entry with the correct "changed by" attribution — a related bug in `insertLeadOwnerHistory`'s own `.select()` not fetching back `changed_by_employee`, caught during that verification, is fixed too). None of the three are outstanding anymore. Still outstanding: the Lead stage taxonomy rename (see its own section above) needs a one-time data migration run live — `ALTER TABLE leads ALTER COLUMN current_stage SET DEFAULT 'calling';`, then `UPDATE leads SET current_stage = 'calling' WHERE current_stage = 'new';`, `UPDATE leads SET current_stage = 'negotiation' WHERE current_stage = 'hot';`, `UPDATE leads SET current_stage = 'quote_submission' WHERE current_stage = 'quote';`, and the matching `UPDATE stage_history SET stage = 'negotiation' WHERE stage = 'hot';` / `UPDATE stage_history SET stage = 'quote_submission' WHERE stage = 'quote';` to keep the historical trail consistent. No CHECK constraint needs altering for this one (`current_stage`/`stage_history.stage` are both free text, and `follow_ups.activity_type`'s CHECK already allows the `'other'` value the On Hold flow uses) — until the `UPDATE`s run, live leads still sitting at the old `new`/`hot`/`quote` values will render as a plain grey "Other…" chip with their raw old value as the label, rather than a colored stage chip. A code-review pass also flagged the two columns every `own_data_or_owner_role_*` RLS policy filters on, `leads.owner_employee_id` and `activities.employee_id`, plus `stage_history(stage, changed_at)` (the columns `fetchWonStageHistory` filters/sorts on), as unindexed — every `leads`/`activities` query for every employee was a sequential scan on those columns. Fixed live via `idx_leads_owner`/`idx_activities_employee`/`idx_stage_history_stage_changed`, run 2026-08-09; `Schema/tostem_crm_schema.sql`'s own index list now includes all three so a fresh install gets them too. Also outstanding: the new **Architect Meeting** activity type (see the ActivityLog section above) needs `Schema/migration_architect_meeting.sql` run live — it adds `'architect_meeting'` to both `activities.activity_type`'s and `follow_ups.activity_type`'s CHECK constraints (confirmed via a real live error that the former's constraint name is exactly `activities_activity_type_check`, as the migration assumes; the latter's name wasn't independently confirmed the same way, hence that file's own SELECT-first safety check). Until this runs, tapping Architect Meeting and submitting fails with a CHECK violation, surfaced as a normal inline error — everything up to that point (the architect search-or-create picker, the party insert if a new architect is typed) already works against the live DB today, since neither depends on this constraint. **Two more migrations from the 2026-08-10 data-isolation pass are also outstanding** (see the Data isolation section below): `Schema/migration_scope_stage_history.sql` (narrows `stage_history` SELECT to "own leads or owner role" — until it runs, a sales exec's browser still *receives* every lead's stage-change rows in the raw network response, even though nothing renders them) and `Schema/migration_owner_only_stage.sql` (the `BEFORE UPDATE` trigger on `leads` enforcing owner-only stage changes, plus owner-only `stage_history` INSERT — until it runs, the "sales exec can't change stage" rule is UI-only and a rep could still flip a stage through the API). Both are safe to re-run and neither is required for the app to work as it does today — the UI already behaves correctly without them; they close the gap between the UI's rules and the database's.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`; **confirmed live** — `current_employee_id()`/`current_employee_role()` and every policy below have been run against the real project and verified: deactivating an employee (`employees.is_active = false` in Manage Employees) now actually revokes their database access, not just the client-side `ProtectedRoute` block): every policy that used to inline `(SELECT id/role FROM employees WHERE auth_user_id = auth.uid())`, or leave a table wide open with `USING (true)`/`WITH CHECK (true)`, now goes through one of two `SECURITY DEFINER` helper functions instead — `current_employee_id()`/`current_employee_role()`, both filtered to `is_active = true` and both resolving to `NULL` for a deactivated employee's row. That single change is what makes deactivating someone in Manage Employees actually revoke their access, not just hide the UI. `activities`/`leads`/`plans`/`targets` use "own data or owner role" (`employee_id`/`owner_employee_id` `= current_employee_id()`, or `current_employee_role() = 'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT requires `current_employee_role() IS NOT NULL` (i.e. "you resolve to some active employee" — this doesn't filter which employee rows come back, so an active owner still sees every row including inactive ones; it only gates whether a deactivated caller can query the table at all), INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`/`areas`/`site_contacts`/`products`/`stage_history`/`lead_owner_history` SELECT/INSERT now require `current_employee_role() IS NOT NULL` too — these used to be unconditionally `true` (open to any authenticated session regardless of `is_active`), which is exactly how a deactivated rep kept full access to the whole party directory even after being switched off. `sites`/`parties` UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts` UPDATE/DELETE stay owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products` UPDATE/DELETE owner-only. `stage_history`/`lead_owner_history` have no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT requires `current_employee_role() = 'owner'`, INSERT requires `current_employee_role() IS NOT NULL`, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it (`employee_id = current_employee_id()`, no `OR` branch); real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely and never calls these functions (`service_role` has no `auth.uid()`). A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
 - Deploying/configuring anything on Supabase's or Vercel's side still needs the user to do the parts that require *their own* credentials — the initial `supabase login` (interactive browser OAuth) and anything on Vercel's dashboard (env vars, redeploys) — and Edge Function secrets (`supabase secrets set ...`) are values only the user should be typing in, since a raw `service_role`/VAPID-private-key never belongs in this transcript's tool output. Once `supabase login`+`link` have been run locally, though, subsequent `supabase functions deploy`/`delete` calls work fine from a normal shell session on the same machine — this isn't a hard sandbox limitation the way the initial OAuth is. `supabase init` (to generate `supabase/config.toml`) may be needed before `link`/`deploy` will resolve the project correctly, even if `supabase/.temp/linked-project.json` already exists from an earlier `link` — the CLI keys its local cache off `config.toml`'s `project_id`, not just that temp file.

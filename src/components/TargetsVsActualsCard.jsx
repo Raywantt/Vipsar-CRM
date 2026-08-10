@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { METRIC_OPTIONS } from '../lib/targetMetrics'
-import { formatCurrency } from '../lib/format'
+import { formatCurrencyCompact } from '../lib/format'
 import SetTargetForm from './SetTargetForm'
 import DashboardHeatmap from './DashboardHeatmap'
 
@@ -136,7 +136,7 @@ export function targetFor(targets, employeeId, metric) {
 // as a decimal (SetTargetForm's number input allows it), but a count should
 // never render with a fractional part.
 function formatValue(metric, value) {
-  return metric === 'order_value' ? formatCurrency(value, { maximumFractionDigits: 0 }) : Math.round(value)
+  return metric === 'order_value' ? formatCurrencyCompact(value) : Math.round(value)
 }
 
 // Only ever mounted by Dashboard.jsx for a week/month/quarter preset —
