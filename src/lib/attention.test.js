@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { computeAttentionBuckets, countDistinctLeads, buildAgeingPanel, STALE_DAYS, SILENT_QUOTE_DAYS, PENDING_RFQ_DAYS } from './attention'
+import { computeAttentionBuckets, countDistinctLeads, buildAgeingPanel, STALE_DAYS, ATTENTION_DAYS, SILENT_QUOTE_DAYS, PENDING_RFQ_DAYS } from './attention'
 
 const NOW = new Date(2026, 7, 13, 12, 0, 0) // Thursday 2026-08-13, noon
 const daysAgo = (n) => new Date(NOW.getTime() - n * 24 * 60 * 60 * 1000).toISOString()
@@ -43,10 +43,10 @@ describe('computeAttentionBuckets', () => {
     buckets.forEach((b) => expect(b.count).toBe(0))
   })
 
-  it('flags a lead as stale once untouched for STALE_DAYS, using last activity over created_at', () => {
+  it('puts a lead in the queue once untouched for ATTENTION_DAYS, using last activity over created_at', () => {
     const lastActivity = new Map()
     const lead = baseLead({ id: 'stale-lead', created_at: daysAgo(100) })
-    lastActivity.set('stale-lead', daysAgo(STALE_DAYS))
+    lastActivity.set('stale-lead', daysAgo(ATTENTION_DAYS))
 
     const [stale] = computeAttentionBuckets([lead], lastActivity)
     expect(stale.key).toBe('stale')
@@ -54,14 +54,25 @@ describe('computeAttentionBuckets', () => {
     expect(stale.rows[0].last).toContain('Last activity')
   })
 
-  it('does not flag a lead touched more recently than STALE_DAYS', () => {
-    const lastActivity = new Map([['lead-1', daysAgo(STALE_DAYS - 1)]])
+  it('does not queue a lead touched more recently than ATTENTION_DAYS', () => {
+    const lastActivity = new Map([['lead-1', daysAgo(ATTENTION_DAYS - 1)]])
+    const [stale] = computeAttentionBuckets([baseLead()], lastActivity)
+    expect(stale.count).toBe(0)
+  })
+
+  // The whole point of splitting these two constants (2026-08-10): a lead
+  // starts reading as stale at STALE_DAYS but must not reach the queue until
+  // ATTENTION_DAYS. Collapsing them back into one value — the state this app
+  // shipped in for months — makes this fail.
+  it('leaves a lead that is stale but not yet due for attention out of the queue', () => {
+    expect(STALE_DAYS).toBeLessThan(ATTENTION_DAYS)
+    const lastActivity = new Map([['lead-1', daysAgo(STALE_DAYS)]])
     const [stale] = computeAttentionBuckets([baseLead()], lastActivity)
     expect(stale.count).toBe(0)
   })
 
   it('falls back to created_at when a lead has no logged activity at all', () => {
-    const lead = baseLead({ id: 'untouched', created_at: daysAgo(STALE_DAYS + 1) })
+    const lead = baseLead({ id: 'untouched', created_at: daysAgo(ATTENTION_DAYS + 1) })
     const [stale] = computeAttentionBuckets([lead], new Map())
     expect(stale.count).toBe(1)
     expect(stale.rows[0].last).toContain('No activity since created')
@@ -145,8 +156,10 @@ describe('computeAttentionBuckets', () => {
   })
 
   it('returns rows sorted oldest (highest age) first', () => {
+    // All three must clear ATTENTION_DAYS or they never reach the bucket to be
+    // sorted. 'a' was 10 days, which qualified while the queue threshold was 7.
     const leads = [
-      baseLead({ id: 'a', created_at: daysAgo(10) }),
+      baseLead({ id: 'a', created_at: daysAgo(16) }),
       baseLead({ id: 'b', created_at: daysAgo(50) }),
       baseLead({ id: 'c', created_at: daysAgo(20) }),
     ]

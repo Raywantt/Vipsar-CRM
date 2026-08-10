@@ -16,6 +16,7 @@ import { errorMessage } from '../lib/errorMessage'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { stageFg, TONE_GOOD, TONE_WARN, TONE_BAD, TONE_MID, TONE_GOOD_SOFT, TONE_WARN_SOFT, TONE_BAD_SOFT, TONE_NEUTRAL, TONE_NEUTRAL_SOFT } from '../lib/statusColors'
 import { getInitials } from '../lib/initials'
+import { STALE_DAYS, ATTENTION_DAYS } from '../lib/attention'
 import { formatCurrency, formatCurrencyCompact } from '../lib/format'
 
 const SOURCE_LABELS = {
@@ -210,8 +211,13 @@ function LeadDetail() {
   const isOnHold = stage === 'on_hold'
   const isOpen = !['won', 'lost'].includes(stage)
   const touchDays = daysBetween(lastActivityAt, Date.now())
-  const touchColor = touchDays >= 14 ? TONE_BAD : touchDays >= 7 ? TONE_WARN : TONE_GOOD
-  const isAtRisk = isOpen && !isOnHold && touchDays >= 14
+  // Thresholds come from attention.js so this page can't drift from the
+  // Needs Attention queue. They were hardcoded 14/7 here, and the labels
+  // disagreed with the rest of the app: 7 days read as "Cooling" here but was
+  // what the queue itself called stale. Settled 2026-08-10 — 7 days is stale,
+  // 14 is when it needs attention.
+  const touchColor = touchDays >= ATTENTION_DAYS ? TONE_BAD : touchDays >= STALE_DAYS ? TONE_WARN : TONE_GOOD
+  const isAtRisk = isOpen && !isOnHold && touchDays >= ATTENTION_DAYS
 
   const statusLabel = isWon ? 'Customer' : isOnHold ? 'On hold' : isAtRisk ? 'At risk' : 'Open lead'
   const statusStyle = isWon
@@ -221,8 +227,18 @@ function LeadDetail() {
       : isAtRisk
         ? { bg: TONE_BAD_SOFT, fg: TONE_BAD }
         : { bg: 'var(--vip-canvas-2)', fg: 'var(--vip-body)' }
-  const healthLabel = touchDays >= 14 ? `Stale · ${touchDays}d no touch` : touchDays >= 7 ? `Cooling · ${touchDays}d` : `Active · ${touchDays}d ago`
-  const healthStyle = touchDays >= 14 ? { bg: TONE_BAD_SOFT, fg: TONE_BAD } : touchDays >= 7 ? { bg: TONE_WARN_SOFT, fg: TONE_WARN } : { bg: TONE_GOOD_SOFT, fg: TONE_GOOD }
+  const healthLabel =
+    touchDays >= ATTENTION_DAYS
+      ? `Needs attention · ${touchDays}d no touch`
+      : touchDays >= STALE_DAYS
+        ? `Stale · ${touchDays}d`
+        : `Active · ${touchDays}d ago`
+  const healthStyle =
+    touchDays >= ATTENTION_DAYS
+      ? { bg: TONE_BAD_SOFT, fg: TONE_BAD }
+      : touchDays >= STALE_DAYS
+        ? { bg: TONE_WARN_SOFT, fg: TONE_WARN }
+        : { bg: TONE_GOOD_SOFT, fg: TONE_GOOD }
 
   const leadSubtitle = [
     party?.party_type,

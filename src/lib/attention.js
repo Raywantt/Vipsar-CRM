@@ -9,7 +9,29 @@ const CLOSED_STAGES = ['won', 'lost']
 
 // How many days of inaction before a lead lands in each bucket. Named here
 // so they're easy to retune without hunting through the compute logic below.
+//
+// STALE_DAYS and ATTENTION_DAYS are two different questions, settled with the
+// owner 2026-08-10 — they used to be one constant doing both jobs, which is
+// why a lead went into the Needs Attention queue on the same day it first got
+// called stale:
+//
+//   STALE_DAYS (7)     — when a lead starts *reading* as neglected. Drives
+//                        labels and colour only: LeadsListCard's "Nd silent",
+//                        Lead Profile's health pill.
+//   ATTENTION_DAYS (14) — when a lead actually *enters the queue*. Drives the
+//                        Needs Attention bucket, and therefore the KPI row's
+//                        "Stale leads" tile, Today's work queue, My Team's
+//                        "Needs attn." count and EmployeeProfile's stale stat,
+//                        all of which read computeAttentionBuckets.
+//
+// A week without contact is worth showing on the lead; it isn't yet worth
+// putting on someone's to-do list. Raising the queue threshold to 14 is a
+// deliberate reduction in what Needs Attention reports — the counts on every
+// surface listed above drop accordingly, and that is the intended effect, not
+// a regression. Phase 8's coordinator red flags use ATTENTION_DAYS too, which
+// is what retired the separate 10-day figure that spec asked for.
 export const STALE_DAYS = 7
+export const ATTENTION_DAYS = 14
 export const SILENT_QUOTE_DAYS = 5
 export const PENDING_RFQ_DAYS = 3
 
@@ -71,7 +93,7 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
     const lastActivityAt = lastActivityByLead.get(lead.id) ?? null
     const sinceTouch = lastActivityAt ?? lead.created_at
     const touchAge = daysSince(sinceTouch)
-    if (touchAge != null && touchAge >= STALE_DAYS) {
+    if (touchAge != null && touchAge >= ATTENTION_DAYS) {
       stale.push(
         toRow(lead, touchAge, lastActivityAt ? `Last activity ${touchAge}d ago` : `No activity since created, ${touchAge}d ago`)
       )
@@ -110,11 +132,14 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
   return [
     {
       key: 'stale',
-      title: 'No activity in 7+ days',
+      // Templated off the constant. It was hardcoded '7+ days' while the
+      // filter read STALE_DAYS, so retuning the threshold would have left the
+      // card confidently stating the old number.
+      title: `No activity in ${ATTENTION_DAYS}+ days`,
       sub: `${formatCurrencyCompact(totalValue(stale))} at risk`,
       count: stale.length,
       color: '#b4232a',
-      note: `A lead is stale when no activity of any type has been logged against it for ${STALE_DAYS}+ days.`,
+      note: `A lead reads as stale after ${STALE_DAYS} days without activity, and lands here once it reaches ${ATTENTION_DAYS}+ days.`,
       listTitle: 'Oldest first',
       listHint: 'no recent activity',
       rows: sortByAgeDesc(stale),

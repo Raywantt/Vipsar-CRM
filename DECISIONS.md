@@ -271,11 +271,12 @@ around — removing it would reflow the whole bar.
 For the SC's team overview, defined as constants at the app layer alongside
 the existing ones in `src/lib/attention.js` rather than as new DB state:
 
-* **No activity on a lead for 10+ days.** Note this is a *third* staleness
-  threshold in the app — `attention.js` already uses 7 days ("stale") and
-  14 days ("at risk" / the Lead Profile's health pill). 10 was specified for
-  the SC view; it is not reconciled with the other two, and the three should
-  probably be unified before full rollout.
+* **No activity on a lead for `ATTENTION_DAYS` (14).** The spec asked for 10,
+  which would have been a *third* staleness figure. Settled with the owner
+  instead (2026-08-10) by splitting the two questions apart — see the
+  staleness entry below — and the coordinator's red flag now reads the same
+  `ATTENTION_DAYS` constant every other attention surface does. There is no
+  10-day threshold anywhere.
 * **A follow-up whose due date has passed and is not done** ("missed
   follow-up"). Same condition the exec's own overdue list already uses, so
   the SC and the exec are never looking at different definitions.
@@ -287,3 +288,34 @@ the existing ones in `src/lib/attention.js` rather than as new DB state:
 Red flags are **dashboard indicators only**. No push notifications, even
 though the push pipeline exists and would be easy to reuse — explicitly out
 of scope, per product decision.
+
+## Staleness: "reads as stale" and "needs attention" are two thresholds (2026-08-10)
+
+`attention.js` had one constant, `STALE_DAYS = 7`, doing two different jobs,
+so a lead joined the Needs Attention queue on the same day it first started
+looking neglected. Split, at the owner's direction:
+
+* **`STALE_DAYS = 7`** — when a lead starts *reading* as neglected. Labels and
+  colour only: `LeadsListCard`'s "Nd silent", the Lead Profile's health pill.
+* **`ATTENTION_DAYS = 14`** — when a lead actually *enters the queue*. Drives
+  the Needs Attention stale bucket, and with it the KPI row's "Stale leads"
+  tile, Today's work queue, My Team's "Needs attn." count, EmployeeProfile's
+  stale stat, and Phase 8's coordinator red flags — every one of which reads
+  `computeAttentionBuckets`.
+
+A week without contact is worth showing on the lead; it isn't yet worth
+putting on someone's to-do list. **The counts on every surface listed above
+drop as a result — that's the intended effect, not a regression.**
+
+Two related inconsistencies were fixed at the same time, both pre-existing:
+
+* The Lead Profile's health pill hardcoded 14/7 and labelled 7 days
+  **"Cooling"** while the queue was calling the same lead stale. It now reads
+  from the shared constants: `Active` → `Stale` (7) → `Needs attention` (14).
+* The stale bucket's title was the literal string `'No activity in 7+ days'`
+  while its filter read the constant, so retuning the threshold would have
+  left the card stating the old number. Now templated.
+
+`src/lib/attention.test.js` pins the invariant directly — a lead at exactly
+`STALE_DAYS` must *not* be queued — so collapsing these back into one value
+fails the suite rather than silently changing what every dashboard reports.

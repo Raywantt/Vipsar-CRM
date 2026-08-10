@@ -1717,12 +1717,28 @@ since it isn't part of the date-range-scoped report data.
 * **Needs Attention** (`NeedsAttentionCard.jsx` + `src/lib/attention.js`,
   shown at every width, `vip-span-2`) — five real queues computed from
   `breakdownLeads` (see the category-breakdown bullet below for that query)
-  plus a new `fetchLastActivityPerLead()`: leads with **no activity in 7+
+  plus a new `fetchLastActivityPerLead()`: leads with **no activity in 14+
   days**, **quotes sent 5+ days ago with nothing logged since**, **overdue
   follow-ups** (`next_followup_date` in the past), **slipped close dates**
   (`estimated_close_date` in the past), and **RFQs raised 3+ days ago with
   no quote yet**. Thresholds are named constants at the top of `attention.js`
-  — tune there, not inline. Every row opens the `ageing` drill-down kind via
+  — tune there, not inline. **`STALE_DAYS` (7) and `ATTENTION_DAYS` (14) are
+  two different questions** (split 2026-08-10, at the owner's direction — they
+  were one constant doing both jobs, so a lead hit the queue the same day it
+  first read as neglected): `STALE_DAYS` is when a lead starts *reading* as
+  neglected and drives labels/colour only (`LeadsListCard`'s "Nd silent",
+  Lead Profile's health pill); `ATTENTION_DAYS` is when it actually *enters
+  the queue*, so it governs the stale bucket and therefore the KPI row's
+  "Stale leads" tile, Today's work queue, My Team's "Needs attn." count,
+  EmployeeProfile's stale stat, and Phase 8's coordinator red flags. Raising
+  it lowered the counts on all of those — intended, not a regression. Lead
+  Profile's health pill reads both constants now instead of hardcoding 14/7,
+  and its middle band was relabelled `Cooling` → `Stale` to stop it
+  contradicting what the queue calls the same lead; the bucket title was
+  likewise a hardcoded `'No activity in 7+ days'` next to a filter that read
+  the constant, now templated. `attention.test.js` pins the invariant (a lead
+  at exactly `STALE_DAYS` must not be queued), so merging them back fails the
+  suite instead of quietly changing every dashboard's numbers. Every row opens the `ageing` drill-down kind via
   `buildAgeingPanel`; the KPI row's "Stale leads" tile reuses the exact same
   call rather than a second computation (see the Dashboard-v2 Design-system
   bullet above for why that reuse matters generally). For Week/Month/
@@ -2821,13 +2837,12 @@ Detail produced a correctly attributed log row that renders on the day sheet.
    exec-path-verified. **Still to build: Phase 4** — the coordinator's Today
    screen (team overview rows, red flags, follow-up assignment, lead/activity
    entry on a team member's behalf), replacing `CoordinatorToday`'s
-   placeholder card. Red-flag thresholds are agreed (10+ days no activity on
-   a lead; a follow-up past its due date and not done) but note the 10-day
-   figure is a *third* staleness threshold alongside `attention.js`'s
-   existing 7 and 14 — worth unifying before rollout. Out of scope by
-   decision: push notifications for red flags, company-wide comparison views
-   for an SC, and de-duplicating parties/sites created across teams after the
-   scoping change.
+   placeholder card. Red flags are settled: a lead untouched for
+   `ATTENTION_DAYS` (14 — the shared constant, see the Staleness bullet in
+   the Dashboard section; the spec's separate 10-day figure was retired), and
+   a follow-up past its due date and not done. Out of scope by decision: push
+   notifications for red flags, company-wide comparison views for an SC, and
+   de-duplicating parties/sites created across teams after the scoping change.
 7. Deploy + pilot with 1-2 sales execs before full rollout.
    Still open from the "Current state" list above: a `plans`-table screen,
    role-differentiated Home/Today content, and a general
