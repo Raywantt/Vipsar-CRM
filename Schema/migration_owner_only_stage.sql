@@ -32,11 +32,23 @@
 -- the trigger's condition to allow NEW.current_stage IN ('won','lost').
 -- ============================================================
 
+-- The `auth.uid() IS NOT NULL` guard matters: a trigger fires even for a
+-- role that bypasses RLS (table owners do; triggers are not part of RLS), so
+-- without it this would block your own migrations and admin edits in the SQL
+-- Editor — where there's no JWT, so current_employee_role() is NULL and
+-- `NULL IS DISTINCT FROM 'owner'` is true. Skipping the check when there's no
+-- authenticated app user at all is not a hole: that path is postgres or
+-- service_role, both of which already bypass every policy in this file, and
+-- `anon` can't update leads regardless (the RLS UPDATE policy needs
+-- current_employee_id()/role, both NULL for it). A *deactivated* employee is
+-- still blocked — they have a real auth.uid(), and current_employee_role()
+-- resolves NULL for them, which is DISTINCT FROM 'owner'.
 CREATE OR REPLACE FUNCTION enforce_owner_only_stage_change()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF NEW.current_stage IS DISTINCT FROM OLD.current_stage
+     AND auth.uid() IS NOT NULL
      AND current_employee_role() IS DISTINCT FROM 'owner' THEN
     RAISE EXCEPTION 'Only an owner can change a lead''s stage'
       USING ERRCODE = 'check_violation';

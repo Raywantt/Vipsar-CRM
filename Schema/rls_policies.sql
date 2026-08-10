@@ -508,9 +508,11 @@ CREATE POLICY "own_data_or_owner_role_select" ON stage_history
   );
 
 -- INSERT is owner-only, matching "only an owner changes a lead's stage"
--- (Schema/migration_owner_only_stage.sql, which also adds the BEFORE UPDATE
--- trigger on leads that enforces the column itself — a policy can restrict
--- rows, not columns, so the trigger is the other half). Was
+-- (Schema/migration_owner_only_stage.sql — bundled, with the rest of the
+-- backlog and in a safe order, into Schema/migration_backlog_2026_08_10.sql
+-- — which also adds the BEFORE UPDATE trigger on leads that enforces the
+-- column itself; a policy can restrict rows, not columns, so the trigger is
+-- the other half). Was
 -- `current_employee_role() IS NOT NULL`; leaving it open would let a rep
 -- write a history row for a stage change they can no longer actually make.
 DROP POLICY IF EXISTS "authenticated_insert" ON stage_history;
