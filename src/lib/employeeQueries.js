@@ -67,10 +67,15 @@ export function fetchTeamMembers() {
 
 // Every active sales exec, for the profile page's ranking (blended
 // attainment among peers) and for the "Reassign owner" action's option list.
+// coordinator_id is selected so Dashboard can narrow this to one coordinator's
+// own team. It has to be filtered client-side rather than in the query: RLS on
+// `employees` is open to every active employee (needed for name lookups and the
+// "Accompanied by" dropdown), so the database will happily return every rep
+// regardless of who is asking.
 export function fetchActiveSalesExecs() {
   return supabase
     .from('employees')
-    .select('id, name, role, office_location, created_at')
+    .select('id, name, role, coordinator_id, office_location, created_at')
     .eq('role', 'sales_executive')
     .eq('is_active', true)
     .order('name')

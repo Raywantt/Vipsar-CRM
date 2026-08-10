@@ -45,7 +45,13 @@ function formatValueChip(min, max) {
   return null
 }
 
-function LeadsListCard({ isOwner, employees }) {
+// showOwnerFilter: does this viewer oversee more than one person? True for an
+// owner and for a sales coordinator (whose `employees` is pre-narrowed to
+// their own team by Dashboard). It was named `isOwner`, which read as a role
+// check and so silently denied a coordinator the owner facet.
+// `title` is passed in rather than derived here, so this card and AppNav's
+// header can't end up calling the same list two different things.
+function LeadsListCard({ showOwnerFilter, employees, title }) {
   const [employeeFilter, setEmployeeFilter] = useState('')
   const [stageFilter, setStageFilter] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
@@ -159,7 +165,7 @@ function LeadsListCard({ isOwner, employees }) {
 
   const activeChips = useMemo(() => {
     const chips = []
-    if (isOwner && employeeFilter) {
+    if (showOwnerFilter && employeeFilter) {
       const emp = employees.find((e) => String(e.id) === employeeFilter)
       if (emp) chips.push({ key: 'owner', label: `Owner: ${emp.name.split(' ')[0]}`, onRemove: () => setEmployeeFilter('') })
     }
@@ -190,14 +196,14 @@ function LeadsListCard({ isOwner, employees }) {
       })
     }
     return chips
-  }, [isOwner, employeeFilter, employees, stageFilter, sourceFilter, statusFilter, minValueInput, maxValueInput])
+  }, [showOwnerFilter, employeeFilter, employees, stageFilter, sourceFilter, statusFilter, minValueInput, maxValueInput])
 
   // The five facets, shared verbatim between mobile's disclosure panel and
   // desktop's persistent rail (see the two render blocks below) — one set
   // of controls, two places it can appear, so they can't drift apart.
   const filterFields = (
     <>
-      {isOwner && employees.length > 0 && (
+      {showOwnerFilter && employees.length > 0 && (
         <div className="vip-stack-s" style={{ gap: 6 }}>
           <div className="vip-fact-label">Owner</div>
           {employees.length <= 4 ? (
@@ -335,7 +341,7 @@ function LeadsListCard({ isOwner, employees }) {
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">{isOwner ? 'All leads' : 'My leads'}</div>
+      <div className="vip-card-title">{title}</div>
 
       <input
         className="vip-input"

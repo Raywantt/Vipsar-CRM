@@ -88,6 +88,10 @@ function Dashboard() {
   const isCoordinator = employee?.role === 'sales_coordinator'
   const seesOthersData = isOwner || isCoordinator
   const scopeLabel = isOwner ? 'Company' : isCoordinator ? 'My team' : employee?.name ?? 'You'
+  // One source for what the All Leads view is called — the page header and the
+  // card's own title both read this, so they can't drift into disagreeing
+  // about whose leads are on screen.
+  const leadsTitle = isOwner ? 'All leads' : isCoordinator ? 'Team leads' : 'My leads'
   const [searchParams] = useSearchParams()
 
   // No more in-page tab buttons — Reports/All leads is chosen purely by
@@ -150,14 +154,14 @@ function Dashboard() {
       const openLeads = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
       const value = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
       setOverride({
-        title: isOwner ? 'All leads' : isCoordinator ? 'Team leads' : 'My leads',
+        title: leadsTitle,
         sub: `${openLeads.length} open · ${formatCurrencyCompact(value)}`,
       })
     } else {
       setOverride({ sub: `${seesOthersData ? 'Team performance' : 'Your performance'} · ${RANGE_LABELS[preset]}` })
     }
     return () => setOverride(null)
-  }, [activeTab, isOwner, isCoordinator, seesOthersData, preset, breakdownLeads, setOverride])
+  }, [activeTab, leadsTitle, seesOthersData, preset, breakdownLeads, setOverride])
 
   useEffect(() => {
     const range = rangeForPreset(preset, customStart, customEnd)
@@ -197,16 +201,32 @@ function Dashboard() {
     }
   }, [])
 
+  // Scoped once, here, rather than at each of the ~8 places `employees` is
+  // consumed downstream (the Day Review table, per-exec breakdowns, every
+  // attainment drill-down, the All Leads owner filter). RLS on `employees` is
+  // deliberately open to any active employee, so this query returns every rep
+  // in the company no matter who asks — a coordinator seeing another team's
+  // reps listed as all-zero rows would be both wrong and confusing.
+  //
+  // Only the coordinator case is narrowed. An owner keeps the full roster, and
+  // a sales exec's own consumers are already gated off per-person breakdowns
+  // entirely, so neither changes behaviour here.
   useEffect(() => {
     let active = true
     fetchActiveSalesExecs().then(({ data, error }) => {
       if (!active) return
-      if (!error) setEmployees(data ?? [])
+      if (error) return
+      const all = data ?? []
+      setEmployees(
+        employee?.role === 'sales_coordinator'
+          ? all.filter((e) => e.coordinator_id === employee.id)
+          : all
+      )
     })
     return () => {
       active = false
     }
-  }, [])
+  }, [employee])
 
   useEffect(() => {
     let active = true
@@ -360,7 +380,11 @@ function Dashboard() {
   // A sales exec sees only their own row. Their queries are already RLS-scoped
   // to their own data, so listing the whole team would render every colleague
   // as an all-zero row — worse than not showing them at all.
-  const dayEmployees = isOwner ? employees : employee ? [employee] : []
+  // `employees` is already narrowed to a coordinator's own team above, so this
+  // gives them the same one-row-per-exec table the owner gets. A sales exec
+  // still sees only themselves: their queries are RLS-scoped, so listing
+  // colleagues would render every one of them as an all-zero row.
+  const dayEmployees = seesOthersData ? employees : employee ? [employee] : []
   const dayIsPast = dayDate < todayISO()
   const dayRows = dayData ? buildDayRows(dayEmployees, dayData, dayIsPast) : []
   const dayTotals = buildDayTotals(dayRows)
@@ -531,7 +555,7 @@ function Dashboard() {
                     range={range}
                     rangeLabel={rangeLabel}
                     employees={employees}
-                    showByEmployee={isOwner}
+                    showByEmployee={seesOthersData}
                     onTargetCreated={(row) => setTargets((prev) => [...prev, row])}
                     onOpenLog={handleOpenLog}
                     onOpenPanel={setPanel}
@@ -558,7 +582,7 @@ function Dashboard() {
                 />
                 <LeadsBySourceCard
                   leads={leads}
-                  showByEmployee={isOwner}
+                  showByEmployee={seesOthersData}
                   onOpenPanel={() =>
                     setPanel(buildMixPanel({ periodLeads: leads, breakdownLeads, sourceOptions: sourceOptionsForRole, rangeLabel, scopeLabel }))
                   }
@@ -681,7 +705,7 @@ function Dashboard() {
         </>
       )}
 
-      {activeTab === 'leads' && <LeadsListCard isOwner={isOwner} employees={employees} />}
+      {activeTab === 'leads' && <LeadsListCard showOwnerFilter={seesOthersData} employees={employees} title={leadsTitle} />}
     </div>
   )
 }
