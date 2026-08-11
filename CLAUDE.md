@@ -2668,12 +2668,24 @@ here.
   labelled with the coordinator's own name (now "My team"), and
   `sourceOptionsForRole` handed them `SALES_EXEC_SOURCES`, hiding their own
   team's Lixil and referral leads. `seesOthersData` is the flag to reuse.
-  **Still wrong for a coordinator, deferred to Phase 4** because each needs a
-  design decision rather than a relabel: the Day Review's `dayEmployees` shows
-  only the coordinator instead of their team, `showByEmployee={isOwner}` on
-  Targets-vs-actuals and Leads-by-source gives them no per-exec breakdown
-  despite supervising several, and `LeadsListCard`'s owner filter facet never
-  renders for them.
+  Three further symptoms of the same shape were fixed together, since they
+  shared one root cause: `Dashboard`'s `employees` comes from
+  `fetchActiveSalesExecs()`, which returns **every** rep in the company (RLS
+  on `employees` is deliberately open — name lookups, the "Accompanied by"
+  dropdown — so the database won't narrow it). Every consumer then guessed
+  with `isOwner ? all : just-me`, which put a coordinator on the wrong side
+  each time. **Scope it once at that fetch** (`employee.role ===
+  'sales_coordinator'` → filter to `coordinator_id === employee.id`) and the
+  Day Review table, the per-exec breakdowns on Targets-vs-actuals and
+  Leads-by-source, and All Leads' owner filter all follow. Don't re-add a
+  per-consumer role check.
+  `LeadsListCard`'s `isOwner` prop is now **`showOwnerFilter`** — the old name
+  read as a role check, which is exactly why a coordinator was denied the
+  facet — and its title is passed in as `title` rather than derived from the
+  same flag, so the card and `AppNav`'s header can't disagree about whose
+  leads are on screen (`leadsTitle` in `Dashboard.jsx` is the one source).
+  A coordinator with nobody assigned degrades gracefully: "No sales
+  executives to show", verified live.
 
 ### Data isolation — what a sales exec can see and change
 
@@ -2868,11 +2880,15 @@ Detail produced a correctly attributed log row that renders on the day sheet.
    PWAs.
 8. ⬅️ current — **Sales Coordinator role** (see its own section above).
    Phases 1–2 (schema + RLS) are live and verified; Phase 3 (role/team admin
-   in Profile) and the Phase 5 routing it needed are built but only
-   exec-path-verified. **Still to build: Phase 4** — the coordinator's Today
+   in Profile) and the Phase 5 routing it needed are built, and all three
+   roles were driven live 2026-08-10. A coordinator's **Dashboard** is done
+   too — team-scoped Day Review, per-exec breakdowns, All Leads owner filter.
+   **Still to build: Phase 4** — the coordinator's Today
    screen (team overview rows, red flags, follow-up assignment, lead/activity
    entry on a team member's behalf), replacing `CoordinatorToday`'s
-   placeholder card. Red flags are settled: a lead untouched for
+   placeholder card. Entry-on-behalf is the piece with real work left: it
+   needs an exec picker, and until it exists `/leads/new` and the FAB stay
+   closed to a coordinator (see the Sales Coordinator section). Red flags are settled: a lead untouched for
    `ATTENTION_DAYS` (14 — the shared constant, see the Staleness bullet in
    the Dashboard section; the spec's separate 10-day figure was retired), and
    a follow-up past its due date and not done. Out of scope by decision: push
