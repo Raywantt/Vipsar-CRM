@@ -12,14 +12,25 @@ const SEARCH_DEBOUNCE_MS = 350
 // the create form (e.g. "Other's name" excludes client/firm, adds pmc). A
 // single-value list hides the Type field entirely and uses that value
 // directly — the Client name field doesn't need to ask, it's always 'client'.
+//
+// createdByEmployeeId overrides whose id is written to parties.created_by —
+// defaults to the logged-in employee. A sales_coordinator entering a lead on
+// behalf of an exec (LeadQuickCapture, ActivityLog's Architect Meeting) passes
+// the picked exec's id here instead, so created_by lines up with who the
+// record is actually for. This matters beyond attribution: parties UPDATE is
+// "own data (created_by) or owner role", so if this stayed the coordinator's
+// own id, the exec would have no standing edit rights on a party the
+// coordinator created for them.
 function PartySearchOrCreate({
   label = 'Party',
   defaultPartyType = 'client',
   allowCreate = true,
   typeOptions = DEFAULT_PARTY_TYPES,
   onSelect,
+  createdByEmployeeId,
 }) {
   const { employee } = useAuth()
+  const effectiveCreatedBy = createdByEmployeeId ?? employee?.id ?? null
 
   const [name, setName] = useState('')
   const [mobile, setMobile] = useState('')
@@ -105,7 +116,7 @@ function PartySearchOrCreate({
         name: newName.trim(),
         mobile: newMobile.trim() || null,
         party_type: newPartyType,
-        created_by: employee?.id ?? null,
+        created_by: effectiveCreatedBy,
       })
       .select('id, name, mobile, party_type')
       .single()

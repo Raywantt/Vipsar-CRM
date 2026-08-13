@@ -45,13 +45,12 @@ function App() {
               // leads via quick-capture, not just sales execs. Not a testing
               // workaround — see CLAUDE.md's LeadQuickCapture section.
               //
-              // sales_coordinator is deliberately EXCLUDED for now. This screen
-              // assigns the new lead to whoever is filling it in, and a
-              // coordinator owns no leads of their own — the RLS insert policy
-              // would reject it (is_my_team_member() is false for yourself).
-              // Creating a lead on a team member's behalf is Phase 4 and needs
-              // an exec picker this form doesn't have yet.
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive']}>
+              // sales_coordinator now included too (Phase 4's entry-on-behalf
+              // flow): the form itself asks "Who is this for?" and assigns the
+              // new lead to the picked exec (owner_employee_id), not the
+              // coordinator, so the RLS insert policy's is_my_team_member()
+              // check passes. See CLAUDE.md's Sales Coordinator section.
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
                 <LeadQuickCapture />
               </ProtectedRoute>
             }
@@ -88,7 +87,10 @@ function App() {
             element={
               // owner-excluded deliberately: owners don't log field activity
               // themselves, only sales execs do — see CLAUDE.md's ActivityLog section.
-              <ProtectedRoute allowedRoles={['sales_executive']}>
+              // sales_coordinator included: the entry-on-behalf flow — a
+              // mandatory "Who is this for?" picker credits the activity to
+              // the picked exec (employee_id), not the coordinator.
+              <ProtectedRoute allowedRoles={['sales_executive', 'sales_coordinator']}>
                 <ActivityLog />
               </ProtectedRoute>
             }

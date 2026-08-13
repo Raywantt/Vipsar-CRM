@@ -6,10 +6,12 @@ import { IconActivity, IconPlus } from './NavIcons'
 //
 // Takes explicit capability props rather than the `isOwner` flag it used to.
 // That flag encoded "not an owner means a rep", which stopped being true when
-// Phase 8 added sales_coordinator: a coordinator would have been offered Log
-// Activity, routing to a sales_executive-only page. BottomNav decides who can
-// do what and this component just renders it — and doesn't open at all unless
-// at least one row applies, so there's no empty-sheet state to design for.
+// Phase 8 added sales_coordinator. BottomNav decides who can do what and this
+// component just renders it — and doesn't open at all unless at least one row
+// applies, so there's no empty-sheet state to design for. A coordinator gets
+// both rows: neither /leads/new nor /activity route to a screen that assumes
+// "you own what you're about to create" anymore — both now ask "who is this
+// for?" and credit the picked exec, not whoever is filling in the form.
 function FabSheet({ canCreateLead, canLogActivity, onClose }) {
   return (
     <>

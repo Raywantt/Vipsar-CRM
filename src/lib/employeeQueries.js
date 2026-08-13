@@ -86,18 +86,37 @@ export function fetchActiveSalesExecs() {
 // from fetchActivityLogForExec in dashboardQueries.js, which is scoped to
 // one activity type at a time for the heatmap's per-cell drill-down).
 // Capped at 60 days back, same window fetchActivityLogForExec uses.
+// logged_by_employee_id is selected (aliased so it doesn't collide with the
+// row's own employee_id embed) so the card can show "Logged by {name}
+// (Sales Coordinator)" whenever a coordinator entered it on this exec's
+// behalf — see migration_coordinator_entry.sql.
 export function fetchActivityLogForEmployee(employeeId, limit = 20) {
   const since = new Date()
   since.setDate(since.getDate() - 60)
   return supabase
     .from('activities')
     .select(
-      'id, activity_type, notes, created_at, lead_id, leads(parties!party_id(name), sites(nickname, locality))'
+      'id, activity_type, notes, created_at, lead_id, logged_by_employee_id, logged_by:employees!logged_by_employee_id(name, role), leads(parties!party_id(name), sites(nickname, locality))'
     )
     .eq('employee_id', employeeId)
     .gte('created_at', since.toISOString())
     .order('created_at', { ascending: false })
     .limit(limit)
+}
+
+// A sales_coordinator's own assigned team, for the "Who is this for?" picker
+// on New Lead / Log Activity (see BottomNav's FAB — a coordinator owns no
+// leads or activities of their own, so both forms need an explicit exec to
+// act on behalf of). Wraps fetchActiveSalesExecs rather than a fresh query:
+// employees SELECT is open to every active employee (needed for name
+// lookups elsewhere), so the database can't narrow this server-side — same
+// client-side coordinator_id filter Dashboard already applies, centralized
+// here so a third call site doesn't reinvent it. See the Sales Coordinator
+// section's "isOwner ? … : …" bug note in CLAUDE.md for why this scoping
+// belongs at the fetch, not repeated per consumer.
+export async function fetchMyTeamExecs(coordinatorId) {
+  const { data, error } = await fetchActiveSalesExecs()
+  return { data: (data ?? []).filter((e) => e.coordinator_id === coordinatorId), error }
 }
 
 // Only handles the employees-row half of "add an employee" — the Supabase

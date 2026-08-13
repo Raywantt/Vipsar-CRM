@@ -8,6 +8,7 @@ import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { todayISO } from '../lib/followupDates'
 import { createFollowUp } from '../lib/followUpQueries'
+import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { errorMessage } from '../lib/errorMessage'
 
 function leadLabel(lead) {
@@ -17,8 +18,19 @@ function leadLabel(lead) {
 
 function ActivityLog() {
   const { employee } = useAuth()
+  const isCoordinator = employee?.role === 'sales_coordinator'
   const [searchParams] = useSearchParams()
   const preselectedLeadId = searchParams.get('lead')
+
+  // A coordinator owns no leads/activities of their own — this picks who the
+  // activity is actually for, and that exec's id is what activities.employee_id
+  // gets set to (never the coordinator's). Not reset by resetForm/"Log another
+  // activity", same reasoning as LeadQuickCapture's forExec: a coordinator
+  // logging several activities in a row is almost always doing it for the
+  // same exec who just called in.
+  const [teamExecs, setTeamExecs] = useState([])
+  const [teamExecsLoaded, setTeamExecsLoaded] = useState(!isCoordinator)
+  const [forExec, setForExec] = useState(null)
 
   const [activityType, setActivityType] = useState(null)
   const [selectedLead, setSelectedLead] = useState(null)
@@ -59,11 +71,31 @@ function ActivityLog() {
   }, [])
 
   useEffect(() => {
+    if (!isCoordinator) return
+    let active = true
+    fetchMyTeamExecs(employee?.id).then(({ data }) => {
+      if (!active) return
+      setTeamExecs(data ?? [])
+      setTeamExecsLoaded(true)
+    })
+    return () => {
+      active = false
+    }
+  }, [isCoordinator, employee?.id])
+
+  useEffect(() => {
     if (!preselectedLeadId) return
     let active = true
     supabase
       .from('leads')
-      .select('id, current_stage, source_type, parties!party_id(name), sites(id, nickname, locality, site_stage)')
+      // owner_employee_id + the embed are only used for the coordinator case
+      // below — auto-filling "Who is this for?" from the lead that was
+      // already picked on Lead Detail, rather than making the coordinator
+      // re-identify an exec they've already implicitly selected by opening
+      // this specific lead's activity log.
+      .select(
+        'id, current_stage, source_type, owner_employee_id, parties!party_id(name), sites(id, nickname, locality, site_stage), employees!owner_employee_id(id, name)'
+      )
       .eq('id', preselectedLeadId)
       .maybeSingle()
       .then(({ data }) => {
@@ -71,12 +103,15 @@ function ActivityLog() {
         if (data) {
           setPreselectedLead(data)
           setSelectedLead(data)
+          if (isCoordinator && data.employees) {
+            setForExec({ id: data.employees.id, name: data.employees.name })
+          }
         }
       })
     return () => {
       active = false
     }
-  }, [preselectedLeadId])
+  }, [preselectedLeadId, isCoordinator])
 
   // Keeps the Site stage field in sync with whichever lead is currently
   // selected (search pick, preselected-from-Lead-Detail, or reset back to
@@ -106,9 +141,13 @@ function ActivityLog() {
   // excluded from this lead-picker block the same way Office Day is.
   const needsAnchor = activityType && !isOfficeDay && !isArchitectMeeting
   const anchorSatisfied = isOfficeDay || (isArchitectMeeting ? Boolean(selectedArchitect) : Boolean(selectedLead))
-  const canSubmit = Boolean(activityType) && anchorSatisfied && !submitting
+  const canSubmit = Boolean(activityType) && anchorSatisfied && (!isCoordinator || Boolean(forExec)) && !submitting
   const leadPreselectedAndLocked =
     Boolean(preselectedLeadId) && selectedLead && String(selectedLead.id) === preselectedLeadId && !changingLead
+  // Whose activity this really is — the picked exec for a coordinator
+  // entering it on their behalf, otherwise the logged-in employee. Drives
+  // activities.employee_id, the lead search scope, and party attribution.
+  const actingForId = isCoordinator ? forExec?.id ?? null : employee?.id ?? null
 
   function selectActivityType(value) {
     setActivityType(value)
@@ -139,7 +178,7 @@ function ActivityLog() {
     const { data: activity, error: activityError } = await supabase
       .from('activities')
       .insert({
-        employee_id: employee?.id ?? null,
+        employee_id: actingForId,
         lead_id: selectedLead?.id ?? null,
         party_id: isArchitectMeeting ? selectedArchitect?.id ?? null : null,
         activity_type: activityType,
@@ -200,13 +239,16 @@ function ActivityLog() {
 
     // Architect Meeting has no lead to write next_followup_date onto, so its
     // "Next follow-up" instead creates a real reminder (same table/helper
-    // LeadDetail's On Hold flow already uses) assigned to the employee who
-    // logged it, linked to the architect party. activityType: 'other' — the
-    // real 'architect_meeting' value isn't in follow_ups' own activity_type
-    // CHECK list, same reasoning On Hold's own createFollowUp call uses.
+    // LeadDetail's On Hold flow already uses) assigned to whoever the meeting
+    // is credited to (actingForId — the exec, when a coordinator logged this
+    // on their behalf), linked to the architect party. createdBy stays the
+    // real actor, so FollowUpList's "Assigned by {name}" shows correctly when
+    // the two differ. activityType: 'other' — the real 'architect_meeting'
+    // value isn't in follow_ups' own activity_type CHECK list, same reasoning
+    // On Hold's own createFollowUp call uses.
     if (isArchitectMeeting && selectedArchitect && nextFollowupDate) {
       const { error: followUpError } = await createFollowUp({
-        assignedTo: employee?.id,
+        assignedTo: actingForId,
         createdBy: employee?.id,
         partyId: selectedArchitect.id,
         activityType: 'other',
@@ -265,6 +307,36 @@ function ActivityLog() {
 
   return (
     <form className="vip-form vip-narrow vip-pad-sticky-footer" onSubmit={handleSubmit}>
+      {isCoordinator && (
+        <label className="vip-field">
+          Who is this for? *
+          {teamExecsLoaded && teamExecs.length === 0 ? (
+            <p className="vip-form-note">You have no sales executives assigned to you yet.</p>
+          ) : (
+            <select
+              className="vip-select"
+              value={forExec?.id ?? ''}
+              onChange={(e) => {
+                setForExec(teamExecs.find((ex) => String(ex.id) === e.target.value) ?? null)
+                // Switching exec mid-form invalidates any lead already picked
+                // for the previous one — LeadSearchSelect re-scopes to the
+                // new exec, but a stale selectedLead wouldn't re-validate
+                // itself against that scope on its own.
+                setSelectedLead(null)
+              }}
+              disabled={leadPreselectedAndLocked}
+            >
+              <option value="">{teamExecsLoaded ? '— Select an exec —' : 'Loading your team…'}</option>
+              {teamExecs.map((ex) => (
+                <option key={ex.id} value={ex.id}>
+                  {ex.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </label>
+      )}
+
       <div className="vip-lede">What did you do?</div>
 
       <div className="vip-choice-grid">
@@ -294,8 +366,10 @@ function ActivityLog() {
                 Change
               </button>
             </div>
+          ) : isCoordinator && !forExec ? (
+            <p className="vip-form-note">Select who this is for above, to search their leads.</p>
           ) : (
-            <LeadSearchSelect onSelect={setSelectedLead} />
+            <LeadSearchSelect onSelect={setSelectedLead} employeeId={actingForId} />
           )}
         </>
       )}
@@ -310,6 +384,7 @@ function ActivityLog() {
             defaultPartyType="architect"
             typeOptions={['architect']}
             onSelect={setSelectedArchitect}
+            createdByEmployeeId={actingForId}
           />
         </>
       )}
@@ -361,7 +436,7 @@ function ActivityLog() {
             <select className="vip-select" value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)}>
               <option value="">— Not specified —</option>
               {employees
-                .filter((e) => e.id !== employee?.id)
+                .filter((e) => e.id !== actingForId)
                 .map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.name}
