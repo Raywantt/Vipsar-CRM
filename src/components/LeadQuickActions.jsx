@@ -9,17 +9,28 @@ import { errorMessage } from '../lib/errorMessage'
 // The three quick actions from the Lead Profile handoff (README.md §6.1 /
 // DATA_CONTRACT.md §5).
 //
-// **Change stage and Reassign owner are both owner-only**, even within
-// canEdit — a sales exec who owns the lead gets neither. Reassign owner was
-// always this way (FLOW.md §4); Change stage joined it later, at the user's
-// request: moving a lead through the funnel (including closing it Won or
-// Lost) is the owner's call, not the rep's. A rep can still record the
-// numbers behind a close — order value via Activity Log's Booking Update or
-// Sales progress' own Order value field — they just don't flip the stage
-// themselves. NOTE: this is a UI-layer gate only; `leads` UPDATE is "own data
-// or owner role" at the RLS layer, so a rep's own lead is still technically
-// stage-updatable via the API. See Schema/migration_owner_only_stage.sql for
-// the database-level enforcement to match.
+// This whole component only mounts under `canEdit`, which as of 2026-08-13
+// means the three people who may change a lead: its own sales executive,
+// that exec's sales coordinator, and the owner (see LeadDetail.jsx).
+//
+// **Change stage is available to all three.** It was owner-only between
+// 2026-08-10 and 2026-08-13 — deliberately, then deliberately reversed; the
+// rep gets it back, but forward-only. `canMoveStageBackward` (owner and
+// coordinator) is passed straight through to LeadStageSection, which greys
+// out any chip that would walk the lead to an earlier stage. That is a UI
+// convenience, not the boundary: the owner_only_stage_change trigger in
+// Schema/migration_lead_edit_rights.sql is what actually refuses the write.
+//
+// **Reassign owner is owner + coordinator** (`canReassign`) — moving a lead
+// between people is an oversight action, and a rep reassigning their own
+// lead away isn't a thing they should do unilaterally. The database bounds
+// the coordinator's half of that: coordinator_team_update's WITH CHECK keeps
+// the new owner inside their own team.
+//
+// Both flags arrive as capabilities rather than as a role, on purpose. An
+// `isOwner` prop is what previously made this component un-openable for a
+// coordinator who had full database rights the entire time — the same
+// "not an owner means a rep" shorthand that cost them the desktop nav.
 //
 // Set follow-up mounts the same FollowUpForm Home's "Add reminder" uses,
 // with this lead preset (so it never asks "which lead?") and assigned to the
@@ -30,7 +41,9 @@ import { errorMessage } from '../lib/errorMessage'
 function LeadQuickActions({
   lead,
   leadTitle,
-  isOwner,
+  canReassign,
+  canMoveStageBackward,
+  pausedAtStage,
   activeSalesExecs,
   onStageChanged,
   onFollowUpSaved,
@@ -99,16 +112,14 @@ function LeadQuickActions({
   return (
     <div className="vip-stack-s">
       <div className="vip-btn-row" style={{ flexWrap: 'wrap' }}>
-        {isOwner && (
-          <button
-            type="button"
-            className={open === 'stage' ? 'vip-btn vip-btn-dark vip-btn-sm' : 'vip-btn vip-btn-secondary vip-btn-sm'}
-            style={{ width: 'auto', flex: '0 0 auto' }}
-            onClick={() => toggle('stage')}
-          >
-            Change stage
-          </button>
-        )}
+        <button
+          type="button"
+          className={open === 'stage' ? 'vip-btn vip-btn-dark vip-btn-sm' : 'vip-btn vip-btn-secondary vip-btn-sm'}
+          style={{ width: 'auto', flex: '0 0 auto' }}
+          onClick={() => toggle('stage')}
+        >
+          Change stage
+        </button>
         <button
           type="button"
           className={open === 'followup' ? 'vip-btn vip-btn-dark vip-btn-sm' : 'vip-btn vip-btn-secondary vip-btn-sm'}
@@ -117,7 +128,7 @@ function LeadQuickActions({
         >
           Set follow-up
         </button>
-        {isOwner && (
+        {canReassign && (
           <button
             type="button"
             className={open === 'owner' ? 'vip-btn vip-btn-dark vip-btn-sm' : 'vip-btn vip-btn-secondary vip-btn-sm'}
@@ -129,7 +140,15 @@ function LeadQuickActions({
         )}
       </div>
 
-      {open === 'stage' && isOwner && <LeadStageSection lead={lead} leadTitle={leadTitle} onStageChanged={onStageChanged} />}
+      {open === 'stage' && (
+        <LeadStageSection
+          lead={lead}
+          leadTitle={leadTitle}
+          canMoveStageBackward={canMoveStageBackward}
+          pausedAtStage={pausedAtStage}
+          onStageChanged={onStageChanged}
+        />
+      )}
 
       {open === 'followup' && (
         <FollowUpForm

@@ -207,11 +207,34 @@ function LeadDetail() {
   if (loadError) return <p className="vip-state-msg-error">{loadError}</p>
   if (!lead) return <p className="vip-state-msg">Lead not found.</p>
 
-  // RLS already refuses the actual UPDATE for a non-owning sales exec — this
-  // is the UI-level mirror of that, so they see a clear read-only notice
-  // instead of full edit forms that would just fail silently on save.
-  const canEdit = employee?.role === 'owner' || lead.owner_employee_id === employee?.id
+  // Exactly three people may change a lead (owner's ruling, 2026-08-13): its
+  // own sales executive, that exec's sales coordinator, and the owner. Another
+  // rep gets nothing — RLS already refuses their UPDATE, and this is the
+  // UI-level mirror of that, so they see a clear read-only notice instead of
+  // edit forms that would fail on save.
+  //
+  // The coordinator test is just the role, with no team check alongside it,
+  // and that is not a shortcut: `leads` SELECT only ever returns a row to a
+  // coordinator through coordinator_team_select, i.e. is_my_team_member(
+  // owner_employee_id). If a coordinator can load this lead at all, it is by
+  // definition one of their team's. Re-deriving the team here would need the
+  // owner's coordinator_id, which this page doesn't fetch, to restate a fact
+  // the database has already decided.
   const isOwner = employee?.role === 'owner'
+  const isCoordinator = employee?.role === 'sales_coordinator'
+  const canEdit = isOwner || isCoordinator || lead.owner_employee_id === employee?.id
+
+  // Reassigning moves a lead between people — owner and coordinator only. The
+  // database agrees: coordinator_team_update's WITH CHECK keeps the new owner
+  // inside the coordinator's own team and, since is_my_team_member() is false
+  // for their own id, stops them assigning a lead to themselves.
+  const canReassign = isOwner || isCoordinator
+
+  // A sales executive may only move a lead FORWARD; walking it back is a
+  // coordinator/owner action. Enforced by the owner_only_stage_change trigger
+  // (Schema/migration_lead_edit_rights.sql) — this flag just lets the picker
+  // grey the chip out with a reason instead of collecting a database error.
+  const canMoveStageBackward = isOwner || isCoordinator
 
   const stage = lead.current_stage ?? 'calling'
   const isWon = stage === 'won'
@@ -475,6 +498,32 @@ function LeadDetail() {
     if (lead?.current_stage === 'on_hold') setOnHoldFollowUp(followUp)
   }
 
+  // ONE props object, spread into BOTH LeadQuickActions mounts (the desktop
+  // inline one in mainContent below, and the mobile sheet at the end of the
+  // return). They used to be built separately, which is the same shape of bug
+  // that left a coordinator with no New Lead button on desktop: two renderings
+  // of one control, each computing its own inputs, free to drift apart. It has
+  // to be declared above mainContent — that's a const, so referencing it from
+  // an earlier line would hit the temporal dead zone.
+  const quickActionsProps = {
+    lead,
+    leadTitle,
+    canReassign,
+    canMoveStageBackward,
+    // Where an on-hold lead actually paused, so the picker ranks it there
+    // rather than at the rankless 'on_hold' — otherwise a rep could walk a
+    // lead backwards via a detour through On hold. Same derivation the Deal
+    // progress stepper uses above.
+    pausedAtStage: isOnHold ? effectiveStage : null,
+    activeSalesExecs,
+    onStageChanged: handleStageChanged,
+    onFollowUpSaved: handleFollowUpSaved,
+    onOwnerReassigned: (updatedLead, historyRow) => {
+      setLead((prev) => ({ ...prev, ...updatedLead }))
+      if (historyRow) setOwnerHistory((prev) => [...prev, historyRow])
+    },
+  }
+
   const mainContent = (
     <div className="vip-stack">
       <div className="vip-profile-band">
@@ -515,16 +564,7 @@ function LeadDetail() {
 
         {canEdit && (
           <LeadQuickActions
-            lead={lead}
-            leadTitle={leadTitle}
-            isOwner={isOwner}
-            activeSalesExecs={activeSalesExecs}
-            onStageChanged={handleStageChanged}
-            onFollowUpSaved={handleFollowUpSaved}
-            onOwnerReassigned={(updatedLead, historyRow) => {
-              setLead((prev) => ({ ...prev, ...updatedLead }))
-              if (historyRow) setOwnerHistory((prev) => [...prev, historyRow])
-            }}
+            {...quickActionsProps}
           />
         )}
       </div>
@@ -723,18 +763,8 @@ function LeadDetail() {
       onContactAdded={(contact) => setSiteContacts((prev) => [...prev, contact])}
     />
   )
-  const quickActionsProps = {
-    lead,
-    leadTitle,
-    isOwner,
-    activeSalesExecs,
-    onStageChanged: handleStageChanged,
-    onFollowUpSaved: handleFollowUpSaved,
-    onOwnerReassigned: (updatedLead, historyRow) => {
-      setLead((prev) => ({ ...prev, ...updatedLead }))
-      if (historyRow) setOwnerHistory((prev) => [...prev, historyRow])
-    },
-  }
+  // (quickActionsProps is declared once, above mainContent — both mounts
+  // spread the same object. Don't rebuild it here.)
 
   return (
     <>

@@ -5,9 +5,17 @@ import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { LOSS_REASON_OPTIONS } from '../lib/lossReasonOptions'
 import { createFollowUp } from '../lib/followUpQueries'
 import { stageFg } from '../lib/statusColors'
+import { isBackwardStageMove } from '../lib/stageProgress'
 import { errorMessage } from '../lib/errorMessage'
 
-function LeadStageSection({ lead, leadTitle, onStageChanged }) {
+// canMoveStageBackward is false for a sales executive: they may move a lead
+// forward through the funnel, pause it, or close it, but not walk it back to
+// an earlier stage or reopen a won/lost deal. Those chips render disabled
+// with a reason rather than being hidden — a rep should be able to see that
+// the stage exists and who to ask, not be left wondering where it went.
+// The real enforcement is the owner_only_stage_change trigger; see
+// src/lib/stageProgress.js for the shared rule and the trigger it mirrors.
+function LeadStageSection({ lead, leadTitle, canMoveStageBackward = true, pausedAtStage = null, onStageChanged }) {
   const { employee } = useAuth()
 
   const [saving, setSaving] = useState(false)
@@ -249,20 +257,36 @@ function LeadStageSection({ lead, leadTitle, onStageChanged }) {
       <div className="vip-card-title">Stage</div>
 
       <div className="vip-chip-wrap">
-        {LEAD_STAGE_OPTIONS.map((stage) => (
-          <button
-            key={stage}
-            type="button"
-            className="vip-chip-select"
-            style={{ color: stageFg(stage) }}
-            aria-pressed={stage === lead.current_stage}
-            disabled={saving || savingLoss || savingOnHold || savingWon}
-            onClick={() => requestStage(stage)}
-          >
-            {stageLabel(stage)}
-          </button>
-        ))}
+        {LEAD_STAGE_OPTIONS.map((stage) => {
+          const backward =
+            !canMoveStageBackward && isBackwardStageMove(lead.current_stage, stage, pausedAtStage)
+          return (
+            <button
+              key={stage}
+              type="button"
+              className="vip-chip-select"
+              style={{ color: stageFg(stage) }}
+              aria-pressed={stage === lead.current_stage}
+              disabled={backward || saving || savingLoss || savingOnHold || savingWon}
+              title={
+                backward
+                  ? 'Only a sales coordinator or the owner can move a lead back to an earlier stage.'
+                  : undefined
+              }
+              onClick={() => requestStage(stage)}
+            >
+              {stageLabel(stage)}
+            </button>
+          )
+        })}
       </div>
+
+      {!canMoveStageBackward && (
+        <p className="vip-card-note" style={{ marginTop: 8 }}>
+          You can move this lead forward. To move it back to an earlier stage, ask your sales
+          coordinator or the owner.
+        </p>
+      )}
 
       {error && <p className="vip-error" role="alert">{error}</p>}
       {savedAt && !error && <p className="vip-success" role="status" aria-live="polite">Stage updated.</p>}

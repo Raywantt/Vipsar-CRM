@@ -32,6 +32,44 @@ Note the difference from a purely technical choice (which util to reuse,
 where a class belongs) — those you should still just decide, per the rest of
 this file. This rule is about **what the user sees and how it behaves**.
 
+**If a request doesn't say which role it's for, ask.** Don't infer it from
+whichever role happens to be logged in on the preview tab. This app has
+three (`owner` / `sales_executive` / `sales_coordinator`) and they diverge
+constantly — see the next section for why guessing is expensive.
+
+## IMPORTANT — every change is a role × breakpoint matrix
+
+**Nothing is done until it has been checked at BOTH widths for EVERY
+affected role.** Mobile (<1024px) and desktop (≥1024px), against each of
+`owner` / `sales_executive` / `sales_coordinator` the change can touch. A
+capability that appears on a phone but not on desktop (or the reverse) is a
+bug unless this file explicitly records it as a decision.
+
+This is not hypothetical. It shipped: a sales coordinator had **no New Lead
+and no Log Activity anywhere on desktop** (fixed 2026-08-13). `BottomNav.jsx`
+computed the same capability twice — the mobile FAB OR'd `sales_coordinator`
+in at its own call site, while the desktop `.vip-nav-extra` sidebar links
+kept the older exec/owner-only flags. The FAB is `display: none` at ≥1024px
+and those links are the *only* desktop path to `/leads/new` and `/activity`,
+so an entire role lost two core actions on an entire breakpoint. Both routes
+already admitted the role; both screens already had their "Who is this for?"
+picker. Only the nav gate was missed, and only on one side of the media
+query.
+
+Two rules follow:
+
+- **One flag per capability, read by both renderings.** Don't let a mobile
+  and a desktop control compute the same permission separately — that's the
+  drift that caused the above, and correcting the boolean without merging
+  the two just leaves the trap armed for next time. Gate the link, not the
+  viewport.
+- **Walk the matrix before declaring done.** Three dev servers
+  (`role-owner`/`role-coordinator`/`role-exec`, ports 5181/5182/5183) exist
+  so all three roles can be logged in simultaneously — separate origins mean
+  separate localStorage. **The session on a port may not match the port's
+  name** (they drift as tabs get reused); key off the rendered role in
+  `.vip-sidebar-foot-role`, not the launch-config label.
+
 ## What this is
 
 A CRM for a Tostem window & door dealership: tracking leads, quotes, orders,
@@ -918,7 +956,16 @@ section below) instead of making the rep find it again in
 href="tel:...">`, unaffected — a `tel:` link isn't an in-app route, so
 there's no SPA navigation to preserve there. This row is followed by
 `LeadQuickActions.jsx` (**only if `canEdit`** —
-`isOwner || lead.owner_employee_id === employee.id`, same gate as before)
+`isOwner || isCoordinator || lead.owner_employee_id === employee.id`, widened
+2026-08-13 to the three people who may edit a lead. The coordinator test is
+the bare role with no team check beside it, deliberately: `leads` SELECT only
+ever reaches a coordinator through `coordinator_team_select`, so a lead they
+can load is by definition their team's — re-deriving that here would need the
+owner's `coordinator_id`, which this page doesn't fetch, to restate a fact the
+database has already decided. Both mounts of this component, desktop inline
+and the mobile sheet, spread **one** `quickActionsProps` object; they used to
+build their props separately, which is the same drift shape that cost a
+coordinator the desktop nav — don't re-split them)
 — the three new quick actions from the handoff, each behind its own
 toggle button so at most one is open at a time:
 
@@ -970,22 +1017,34 @@ toggle button so at most one is open at a time:
   linked lead), so nothing that read that field lost its value —
   `LeadDetail`'s `handleFollowUpSaved` merges it into local state from the
   returned row's `due_date` rather than refetching.
-* **Change stage** — **owner-only** as of 2026-08-10, at the user's request
-  ("a sales executive cannot change stage of a lead"). Confirmed to include
-  the outcome stages: a rep can no longer mark their own deal Won or Lost
-  either. They can still record the money behind a close — Activity Log's
-  Booking Update, and Sales progress' own Order value field — they just
-  don't flip the stage. The gate is the same one-line `{isOwner && …}`
-  Reassign owner already used. **This is a UI gate; `Schema/migration_owner_only_stage.sql`
-  is the database half** (a `BEFORE UPDATE` trigger on `leads`, because RLS
-  restricts rows and not columns, and both roles authenticate as
-  `authenticated` so a column-level `REVOKE` would lock the owner out too),
-  plus `stage_history` INSERT narrowed to owner-only so the audit trail
-  can't be written by someone who can't cause the change. See Conventions —
-  **not yet run live**.
-* **Reassign owner** — **owner-only**, even within `canEdit` (a sales exec
-  who owns the lead gets Set follow-up but neither of the other two, per the
-  design handoff's `FLOW.md` §4). Updates `leads.owner_employee_id`
+* **Change stage** — **available to all three people who may edit the lead**
+  (its own exec, their coordinator, the owner) as of 2026-08-13, but a sales
+  executive may only move it **forward**. This reverses the 2026-08-10
+  owner-only rule ("a sales executive cannot change stage of a lead"); the
+  reversal was raised as a concern and re-confirmed by the owner, so don't
+  restore the old rule as a bug fix. The forward-only half is new in the same
+  pass: a rep can advance a lead, pause it, or close it Won/Lost, but cannot
+  walk it back to an earlier stage or reopen a decided deal — that's a
+  coordinator/owner action. `src/lib/stageProgress.js` holds the rule
+  (`isBackwardStageMove`, pinned by `stageProgress.test.js`); the picker
+  greys the blocked chips out with a reason rather than hiding them.
+  **That's a UI convenience, not the boundary** —
+  `Schema/migration_lead_edit_rights.sql` is the database half: it rewrites
+  `enforce_owner_only_stage_change()` (name kept deliberately, see that
+  file) to admit all three roles and to reject a backward move by an exec,
+  and adds an `own_lead_insert` policy on `stage_history` so a rep can
+  record the change they're now allowed to make. **Ranking an on-hold lead
+  at the stage it paused at is load-bearing in both copies** — `on_hold` has
+  no rank of its own, so without it `negotiation → on_hold → calling` reads
+  as two legal moves and launders a reversal.
+* **Reassign owner** — **owner + coordinator**, within `canEdit` (a sales
+  exec who owns the lead gets Change stage and Set follow-up, but not this —
+  moving a lead between people is an oversight action, per the design
+  handoff's `FLOW.md` §4, widened to the coordinator 2026-08-13). The
+  coordinator's half is bounded by the database, not just the UI:
+  `coordinator_team_update`'s `WITH CHECK` keeps the new owner inside their
+  own team, and `is_my_team_member()` is false for their own id, so they
+  can't assign a lead to themselves. Updates `leads.owner_employee_id`
   (already legal under existing "own data or owner role" RLS, no schema
   change) and inserts into `lead_owner_history` (see Conventions — now
   live). The write to `leads` and the history insert are independent: if
@@ -2652,14 +2711,24 @@ here.
   the `stamp_entered_by_role()` trigger**, never app code (same
   no-single-update-service reasoning as `lead_change_log`). Existing rows were
   deliberately **not** backfilled.
-* **The lock is column-level on `leads`, row-level on `activities`.** SCs keep
-  stage rights permanently — `enforce_owner_only_stage_change()` was widened
-  to `('owner','sales_coordinator')`, so a rep still can't change a stage but
-  their coordinator can. RLS restricts rows not columns, so a row-level lock
-  would have revoked that the instant an exec touched the lead;
-  `enforce_coordinator_lock()` draws the line inside the row instead, allowing
-  only `current_stage`, `next_followup_date` and `order_value` once locked.
-  **These two are a pair — removing either silently guts the other.**
+* **The lock on `leads` was REMOVED 2026-08-13; the one on `activities`
+  remains.** `enforce_coordinator_lock()` used to drop a coordinator to
+  `current_stage`/`next_followup_date`/`order_value` only, once the lead's
+  exec had saved it themselves — a column-level line drawn inside the row,
+  because RLS restricts rows not columns and a row-level lock would have
+  revoked the SC's stage rights the instant an exec touched the lead. That
+  trigger and its function are dropped by
+  `Schema/migration_lead_edit_rights.sql`: the owner's ruling is that a
+  coordinator edits a team lead's details at any time. **What this gives up,
+  knowingly:** an exec no longer has any guarantee that a record they saved
+  can't be edited underneath them. `entered_by_role` is still stamped by
+  `stamp_entered_by_role()` and still readable — it just stops being a lock —
+  and `lead_change_log` still records every value edit and who made it.
+  **The `activities` lock is untouched**: `coordinator_team_update`'s
+  `entered_by_role IS DISTINCT FROM 'sales_executive'` clause still stops an
+  SC editing an activity a rep logged. That was deliberate — an activity is a
+  record of something a person did on a date, not a property of the lead —
+  and was called out in the migration rather than silently bundled in.
 * **SC follow-up assignment uses `follow_ups`, not `plans`.** The spec asked
   for `plans.assigned_by`, but `plans` has zero code references anywhere in
   `src/` and there is no plans view; `follow_ups` already carries
@@ -2684,12 +2753,21 @@ here.
 * **Nav gates on capabilities, not `role !== 'owner'`** — that shorthand meant
   "anyone who isn't an owner is a rep", which offered a coordinator the
   Activity Log link and FAB row, both routing to a `sales_executive`-only
-  page. `BottomNav` now computes `canLogActivity`/`canCreateOwnLead` and
-  passes them to `FabSheet` (which lost its `isOwner` prop). **An SC gets no
-  FAB and no `/leads/new`** until Phase 4 builds the on-behalf-of flow — that
-  form assigns the lead to whoever fills it in, which RLS rejects for an SC.
-  The empty `.vip-fab-slot` div still renders: it's the reserved 76px gap the
-  four tabs lay out around.
+  page. `BottomNav` computes `canLogActivity`/`canCreateLead` and passes them
+  to `FabSheet` (which lost its `isOwner` prop). Both now include
+  `sales_coordinator`, since entry-on-behalf shipped — see that bullet below.
+  The `.vip-fab-slot` div renders even when the button inside it doesn't:
+  it's the reserved 76px gap the four tabs lay out around.
+  **These are ONE flag per capability, deliberately — do not re-split them.**
+  They were briefly two: the FAB OR'd `sales_coordinator` in at its own call
+  site while the desktop `.vip-nav-extra` links kept the older exec/owner-only
+  flags. Since `.vip-fab-slot` is `display: none` at ≥1024px and those links
+  are the **only** desktop path to `/leads/new` and `/activity`, a coordinator
+  had both actions on a phone and **neither on desktop** — a whole role losing
+  two core actions on a whole breakpoint, reported by the owner 2026-08-13 and
+  fixed by merging the flags rather than just correcting the boolean. Gate the
+  link, not the viewport. See the role × breakpoint section at the top of this
+  file.
 * `Home.jsx` exports a `Today` wrapper that renders `CoordinatorToday` for an
   SC and the unchanged `Home` for everyone else — a wrapper, not an early
   return, because `Home` fires a dozen hooks and several fetches before it
@@ -2977,6 +3055,7 @@ to end in the browser afterwards: a real `quote_value` edit made through Lead
 Detail produced a correctly attributed log row that renders on the day sheet.
 **`Schema/migration_backlog_2026_08_10.sql` bundles all four outstanding items** (architect meeting, the stage taxonomy rename, and both of the above) into one safe-to-re-run file with verification queries — prefer it over running the individual files, because **the order is load-bearing and not obvious**: the owner-only-stage trigger fires even for roles that bypass RLS (triggers aren't part of RLS), and the SQL Editor has no `auth.uid()`, so `current_employee_role()` is NULL there — running the trigger step before the taxonomy `UPDATE`s would make those `UPDATE`s abort with "Only an owner can change a lead's stage". The trigger function carries an `auth.uid() IS NOT NULL` guard so admin SQL keeps working after it's installed (a deactivated employee is still blocked — real `auth.uid()`, NULL role), but the bundled file also sequences the steps so the hazard can't bite.
 - **`Schema/migration_sales_coordinator.sql` was run live on 2026-08-10** and is no longer outstanding — it adds the `sales_coordinator` role, `employees.coordinator_id`, `entered_by_role` on `leads`/`activities`, the `is_my_team_member()` helper, 13 `coordinator_team_*` policies, the narrowed `parties`/`sites` reads, and two new triggers (`validate_employee_role_assignment`, `enforce_coordinator_lock`); it also replaces `enforce_owner_only_stage_change()`, so it **must run after** `migration_backlog_2026_08_10.sql` or the backlog overwrites it back to owner-only. All 9 verification checks returned PASS. One ordering bug was found and fixed by running it live: `is_my_team_member()` is `LANGUAGE sql`, whose body Postgres validates at CREATE time, so defining it before `coordinator_id` existed failed the whole file on its first statement with `42703`. It's now STEP 3, after the column — don't move it back up, and prefer reordering over switching to plpgsql if a similar dependency appears (plpgsql's late binding hides the problem until runtime).
+- **✅ `Schema/migration_lead_edit_rights.sql` was RUN LIVE 2026-08-13** and verified behaviourally, not by introspection — see below. It is the database half of the shared-lead-edit-rights ruling: stage changes open to all three editing roles with a forward-only restriction on `sales_executive`, an `own_lead_insert` policy on `stage_history` so a rep can record the change, and the removal of `enforce_coordinator_lock()`. **If it ever needs re-running, run it after `migration_sales_coordinator.sql`** — that file (and `migration_backlog_2026_08_10.sql` behind it) installs the owner-only version of the same trigger, so running either afterwards silently reverts this. The function/trigger names are deliberately unchanged (`enforce_owner_only_stage_change`/`owner_only_stage_change`) despite now being historical — renaming would let an older file's re-run install a *second*, stricter trigger alongside this one instead of cleanly overwriting it. **Proven live against lead #159**: a sales exec moved `calling → joinery_follow_up` and it succeeded (history row written and attributed); the same exec's direct API attempt at `joinery_follow_up → calling` was refused with `23514` and the trigger's own message; the **On hold laundering route is closed** (`→ on_hold` allowed, then `on_hold → calling` refused, because the trigger resolves the pre-hold stage out of `stage_history`); a coordinator moved the same lead *backward* 3→2 successfully; and a coordinator edited `quote_value` on a lead whose `entered_by_role` was already `'sales_executive'` — the exact write the dropped lock used to refuse.
 - `Schema/DESTRUCTIVE_reset_all_data.sql` empties every table except one owner's `employees` row. **Not a migration** — never include it in a run-everything-in-order list. It exists so a test reset is documented and repeatable. Note it deliberately does *not* touch `auth.users`: deleting employee rows leaves orphaned Supabase Auth logins that must be cleaned up by hand in the dashboard, and scripting that risks removing your own login.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`; **confirmed live** — `current_employee_id()`/`current_employee_role()` and every policy below have been run against the real project and verified: deactivating an employee (`employees.is_active = false` in Manage Employees) now actually revokes their database access, not just the client-side `ProtectedRoute` block): every policy that used to inline `(SELECT id/role FROM employees WHERE auth_user_id = auth.uid())`, or leave a table wide open with `USING (true)`/`WITH CHECK (true)`, now goes through one of two `SECURITY DEFINER` helper functions instead — `current_employee_id()`/`current_employee_role()`, both filtered to `is_active = true` and both resolving to `NULL` for a deactivated employee's row. That single change is what makes deactivating someone in Manage Employees actually revoke their access, not just hide the UI. `activities`/`leads`/`plans`/`targets` use "own data or owner role" (`employee_id`/`owner_employee_id` `= current_employee_id()`, or `current_employee_role() = 'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT requires `current_employee_role() IS NOT NULL` (i.e. "you resolve to some active employee" — this doesn't filter which employee rows come back, so an active owner still sees every row including inactive ones; it only gates whether a deactivated caller can query the table at all), INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`/`areas`/`site_contacts`/`products`/`stage_history`/`lead_owner_history` SELECT/INSERT now require `current_employee_role() IS NOT NULL` too — these used to be unconditionally `true` (open to any authenticated session regardless of `is_active`), which is exactly how a deactivated rep kept full access to the whole party directory even after being switched off. `sites`/`parties` UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts` UPDATE/DELETE stay owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products` UPDATE/DELETE owner-only. `stage_history`/`lead_owner_history` have no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT requires `current_employee_role() = 'owner'`, INSERT requires `current_employee_role() IS NOT NULL`, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it (`employee_id = current_employee_id()`, no `OR` branch); real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely and never calls these functions (`service_role` has no `auth.uid()`). A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
@@ -2995,17 +3074,24 @@ Deliberately deferred, not forgotten. Each was found, verified and costed
 during Phase 9; none is a bug report to re-investigate. Full detail in
 `PHASE9_LOG.md`.
 
-1. **A sales coordinator has database-level stage rights and no UI path to
-   them** (F-P2-2). `enforce_owner_only_stage_change()` admits
-   `sales_coordinator`, and `enforce_coordinator_lock()` exists *specifically*
-   to preserve those rights on a locked lead — the two are documented as a pair
-   that must not be separated. But `LeadQuickActions` never mounts for an SC
-   (`canEdit = isOwner || lead.owner_employee_id === employee.id`, never true
-   for them), so a coordinator cannot mark a lead won or lost. **Fixing
-   `canEdit` alone is NOT enough** — `LeadQuickActions.jsx:102` and `:132` gate
-   Change stage on `isOwner` (`role === 'owner'`), so the control would still
-   not render. Both need a capability check. Belongs with the Sales Coordinator
-   Phase 4 team-screen build, not a standalone patch.
+1. ~~**A sales coordinator has database-level stage rights and no UI path to
+   them** (F-P2-2).~~ **FIXED 2026-08-13** as part of the shared-lead-edit-rights
+   pass — `canEdit` now admits the coordinator, and both `isOwner` gates inside
+   `LeadQuickActions` are gone (Change stage is open to all three editors;
+   Reassign owner moved to a `canReassign` capability prop). The finding's own
+   warning held true and is worth remembering: fixing `canEdit` alone would not
+   have been enough, because the control was gated twice, in two different
+   files, on two different notions of the same permission.
+   The migration is live and the render matrix was driven in the browser for
+   all three roles at both widths (test lead **#159**, created for this).
+   **One gap left**: the mobile quick-actions *sheet* was never opened by a
+   real tap — the Browser pane's mouse input reliably wedges at 375px in this
+   sandbox (JS and resizing keep working; clicks stop being delivered). What
+   was confirmed at mobile is that the ⇄ trigger renders for exactly the right
+   roles, and both mounts now spread one `quickActionsProps` object, so the
+   sheet's contents follow from the desktop mount that *was* verified — that's
+   an argument from construction, not an observation. Worth one real tap on a
+   phone before the pilot.
 2. **Append-only tables are protected by one layer, not two** (F-P5-3).
    `authenticated` holds UPDATE on `stage_history`, DELETE on
    `lead_owner_history` and TRUNCATE on `lead_change_log`, inherited from

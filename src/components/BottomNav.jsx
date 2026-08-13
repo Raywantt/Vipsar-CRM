@@ -11,8 +11,11 @@ function tabClass({ isActive }) {
 }
 
 // Extra destinations only appear once BottomNav becomes the desktop sidebar
-// (see .vip-nav-extra in vipsar-theme.css) — on a phone they stay reachable
-// via Home's tiles instead, same as before.
+// (see .vip-nav-extra in vipsar-theme.css). Each needs its own mobile path,
+// since a phone never renders these: New Lead and Activity Log come off the
+// FAB below, Dashboard and All Leads off the 4-tab bar, My Team off a tile on
+// Dashboard itself. (Home's tile grid used to serve that purpose for all of
+// them — it was deleted in the Mobile redesign; don't cite it here again.)
 function extraTabClass({ isActive }) {
   return isActive ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
 }
@@ -29,17 +32,30 @@ function BottomNav() {
   // Capability flags, not `role !== 'owner'`. That older shorthand meant
   // "everyone who isn't an owner is a rep", which Phase 8's sales_coordinator
   // broke: a coordinator was shown the Activity Log link and the FAB's Log
-  // Activity row, both of which route to /activity — a sales_executive-only
-  // route that bounces them straight back to Home. A coordinator owns no
-  // leads or activities of their own, so neither the sidebar's own-data
-  // shortcut nor a bare "New Lead"/"Activity Log" nav link applies to them —
-  // those still stay exec/owner-only below. The FAB is different: both rows
-  // it opens now carry their own mandatory "Who is this for?" exec picker
-  // (Phase 4's entry-on-behalf flow), so a coordinator gets the FAB too.
-  const canLogActivity = employee?.role === 'sales_executive'
-  const canCreateOwnLead = employee?.role === 'sales_executive' || employee?.role === 'owner'
-  const isCoordinator = employee?.role === 'sales_coordinator'
-  const showFab = canLogActivity || canCreateOwnLead || isCoordinator
+  // Activity row, both of which route to /activity — at the time a
+  // sales_executive-only route that bounced them straight back to Home.
+  //
+  // These are ONE flag per capability, deliberately — the FAB (mobile) and
+  // the .vip-nav-extra sidebar links (desktop) are two renderings of the same
+  // permission and must read the same boolean. They didn't, once: the FAB
+  // OR'd sales_coordinator in at its own call site while the sidebar links
+  // kept the older exec/owner-only flags, so a coordinator got both actions on
+  // a phone and NEITHER on desktop, where the FAB is display:none (section 20)
+  // and those links are the only path to /leads/new and /activity at all.
+  // Don't reintroduce a per-breakpoint role check here — gate the link, not
+  // the viewport.
+  //
+  // A coordinator qualifies for both because neither screen assumes "you own
+  // what you're about to create" anymore: each carries a mandatory "Who is
+  // this for?" exec picker and credits the picked exec (entry-on-behalf, see
+  // CLAUDE.md's Sales Coordinator section). Both routes admit the role in
+  // App.jsx to match.
+  const canLogActivity = employee?.role === 'sales_executive' || employee?.role === 'sales_coordinator'
+  const canCreateLead =
+    employee?.role === 'sales_executive' ||
+    employee?.role === 'owner' ||
+    employee?.role === 'sales_coordinator'
+  const showFab = canLogActivity || canCreateLead
 
   const onLeadsTab = location.pathname === '/dashboard' && new URLSearchParams(location.search).get('tab') === 'leads'
   const dashboardClass = !onLeadsTab && location.pathname === '/dashboard' ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
@@ -86,7 +102,7 @@ function BottomNav() {
           <span className="vip-nav-label">Dashboard</span>
         </Link>
 
-        {canCreateOwnLead && (
+        {canCreateLead && (
           <NavLink to="/leads/new" className={extraTabClass} title="New Lead">
             <IconPlus />
             <span className="vip-nav-label">New Lead</span>
@@ -134,8 +150,8 @@ function BottomNav() {
       </nav>
       {sheetOpen && (
         <FabSheet
-          canCreateLead={canCreateOwnLead || isCoordinator}
-          canLogActivity={canLogActivity || isCoordinator}
+          canCreateLead={canCreateLead}
+          canLogActivity={canLogActivity}
           onClose={() => setSheetOpen(false)}
         />
       )}
