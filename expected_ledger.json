@@ -1,0 +1,1013 @@
+{
+  "_readme": "PHASE 9 EXPECTED LEDGER — computed from simulation_plan.json ALONE by phase9/audit.mjs. No database was queried and no src/lib module was imported; every business rule is re-implemented from its documented definition so that a Phase 7 mismatch is a real signal rather than a tautology. A mismatch may be an app bug OR a misreading of the documented rule here — Phase 7 adjudicates.",
+  "meta": {
+    "generated_by": "phase9/audit.mjs",
+    "reference_date": "2026-08-12",
+    "plan_prng_seed": 20260812,
+    "rules": {
+      "deal_value": "open lead -> quote_value only (order_value ignored even if present); won/lost -> order_value ?? quote_value. NULL when neither is set — never 0.",
+      "staleness": "STALE_DAYS=7 (reads as stale), ATTENTION_DAYS=14 (enters the queue). No 10-day rule exists.",
+      "coordinator_teams": "final coordinator_id only (Q-P1-2) — history follows the person, retroactively.",
+      "loss_reasons": "BOTH readings emitted (Q-P1-3): loss EVENTS and CURRENTLY-lost leads. Never collapsed.",
+      "timestamps": "plan *_at are naive UTC = IST-5h30m; bucketed by IST calendar day. DATE columns unshifted."
+    }
+  },
+  "company": {
+    "leads_total": 150,
+    "open_leads": 103,
+    "won_count": 21,
+    "lost_count": 26,
+    "open_pipeline_value": 30244000,
+    "leads_with_no_value": 78,
+    "activities_total": 1218,
+    "activities_by_type": {
+      "site_visit": 487,
+      "call": 536,
+      "rfq_raised": 37,
+      "office_day": 101,
+      "booking_update": 21,
+      "architect_meeting": 36
+    },
+    "by_stage": {
+      "rfq": {
+        "count": 8,
+        "value": 0
+      },
+      "negotiation": {
+        "count": 11,
+        "value": 12897000
+      },
+      "calling": {
+        "count": 20,
+        "value": 0
+      },
+      "joinery_follow_up": {
+        "count": 8,
+        "value": 0
+      },
+      "presentation": {
+        "count": 14,
+        "value": 0
+      },
+      "lost": {
+        "count": 26,
+        "value": 9828000
+      },
+      "won": {
+        "count": 21,
+        "value": 21155921
+      },
+      "on_hold": {
+        "count": 9,
+        "value": 4853000
+      },
+      "measurements": {
+        "count": 11,
+        "value": 0
+      },
+      "design_discussion": {
+        "count": 11,
+        "value": 0
+      },
+      "quote_submission": {
+        "count": 11,
+        "value": 12494000
+      }
+    },
+    "by_source": {
+      "scanning": {
+        "count": 53,
+        "value": 23001079
+      },
+      "showroom_walkin": {
+        "count": 18,
+        "value": 8837237
+      },
+      "referral_architect": {
+        "count": 30,
+        "value": 7244430
+      },
+      "lixil": {
+        "count": 35,
+        "value": 17662430
+      },
+      "referral_other": {
+        "count": 14,
+        "value": 4482745
+      }
+    },
+    "by_area": {
+      "Saket": {
+        "count": 16,
+        "value": 6523905
+      },
+      "Dwarka": {
+        "count": 11,
+        "value": 2164000
+      },
+      "Greater Kailash": {
+        "count": 7,
+        "value": 2102904
+      },
+      "Sohna Road": {
+        "count": 12,
+        "value": 6876983
+      },
+      "Vasant Kunj": {
+        "count": 13,
+        "value": 6719381
+      },
+      "Sector 21": {
+        "count": 6,
+        "value": 2158612
+      },
+      "Sector 56": {
+        "count": 10,
+        "value": 5208000
+      },
+      "Indirapuram": {
+        "count": 9,
+        "value": 3514412
+      },
+      "No site": {
+        "count": 22,
+        "value": 15426340
+      },
+      "Sector 128": {
+        "count": 12,
+        "value": 1711111
+      },
+      "Rohini": {
+        "count": 8,
+        "value": 3842861
+      },
+      "Pitampura": {
+        "count": 7,
+        "value": 2727412
+      },
+      "Golf Course Road": {
+        "count": 10,
+        "value": 1488000
+      },
+      "Sector 93A": {
+        "count": 7,
+        "value": 764000
+      }
+    },
+    "by_product": {
+      "Lift & Slide Door": {
+        "count": 13,
+        "value": 3112861
+      },
+      "Casement Window": {
+        "count": 14,
+        "value": 4607604
+      },
+      "Casement Door": {
+        "count": 11,
+        "value": 7097673
+      },
+      "Folding Door": {
+        "count": 19,
+        "value": 4272858
+      },
+      "Not specified": {
+        "count": 30,
+        "value": 17776774
+      },
+      "Curtain Wall": {
+        "count": 17,
+        "value": 7336831
+      },
+      "Sliding Window": {
+        "count": 13,
+        "value": 9685371
+      },
+      "Ventilator": {
+        "count": 10,
+        "value": 1277000
+      },
+      "Fixed Glass Window": {
+        "count": 6,
+        "value": 2846949
+      },
+      "Sliding Door": {
+        "count": 17,
+        "value": 3214000
+      }
+    },
+    "by_site_stage": {
+      "completed": {
+        "count": 28,
+        "value": 10201021
+      },
+      "Not set": {
+        "count": 32,
+        "value": 12585615
+      },
+      "foundation": {
+        "count": 21,
+        "value": 9693612
+      },
+      "finishing": {
+        "count": 25,
+        "value": 5168833
+      },
+      "structure": {
+        "count": 22,
+        "value": 8152500
+      },
+      "No site": {
+        "count": 22,
+        "value": 15426340
+      }
+    },
+    "follow_ups": {
+      "total": 78,
+      "done": 37,
+      "open_overdue": 17,
+      "due_today": 8,
+      "assigned_by_another": 32
+    }
+  },
+  "needs_attention": {
+    "stale": {
+      "count": 48,
+      "value": 15859000,
+      "lead_refs": [
+        "lead_0001",
+        "lead_0002",
+        "lead_0003",
+        "lead_0004",
+        "lead_0005",
+        "lead_0012",
+        "lead_0014",
+        "lead_0015",
+        "lead_0020",
+        "lead_0028",
+        "lead_0031",
+        "lead_0034",
+        "lead_0036",
+        "lead_0041",
+        "lead_0043",
+        "lead_0054",
+        "lead_0057",
+        "lead_0064",
+        "lead_0070",
+        "lead_0074",
+        "lead_0077",
+        "lead_0078",
+        "lead_0080",
+        "lead_0081",
+        "lead_0083",
+        "lead_0087",
+        "lead_0088",
+        "lead_0092",
+        "lead_0096",
+        "lead_0097",
+        "lead_0098",
+        "lead_0102",
+        "lead_0105",
+        "lead_0106",
+        "lead_0109",
+        "lead_0115",
+        "lead_0121",
+        "lead_0122",
+        "lead_0126",
+        "lead_0128",
+        "lead_0130",
+        "lead_0134",
+        "lead_0138",
+        "lead_0139",
+        "lead_0141",
+        "lead_0142",
+        "lead_0144",
+        "lead_0150"
+      ]
+    },
+    "silent_quotes": {
+      "count": 11,
+      "value": 15655000,
+      "lead_refs": [
+        "lead_0002",
+        "lead_0043",
+        "lead_0078",
+        "lead_0097",
+        "lead_0098",
+        "lead_0102",
+        "lead_0128",
+        "lead_0138",
+        "lead_0139",
+        "lead_0142",
+        "lead_0144"
+      ]
+    },
+    "followups_overdue": {
+      "count": 18,
+      "value": 7617000,
+      "lead_refs": [
+        "lead_0002",
+        "lead_0014",
+        "lead_0019",
+        "lead_0029",
+        "lead_0036",
+        "lead_0041",
+        "lead_0064",
+        "lead_0078",
+        "lead_0081",
+        "lead_0085",
+        "lead_0105",
+        "lead_0108",
+        "lead_0113",
+        "lead_0131",
+        "lead_0134",
+        "lead_0139",
+        "lead_0141",
+        "lead_0146"
+      ]
+    },
+    "slipped": {
+      "count": 16,
+      "value": 9590000,
+      "lead_refs": [
+        "lead_0019",
+        "lead_0028",
+        "lead_0045",
+        "lead_0058",
+        "lead_0076",
+        "lead_0095",
+        "lead_0098",
+        "lead_0100",
+        "lead_0107",
+        "lead_0108",
+        "lead_0121",
+        "lead_0128",
+        "lead_0130",
+        "lead_0135",
+        "lead_0142",
+        "lead_0148"
+      ]
+    },
+    "pending_rfq": {
+      "count": 10,
+      "value": 0,
+      "lead_refs": [
+        "lead_0001",
+        "lead_0015",
+        "lead_0028",
+        "lead_0076",
+        "lead_0079",
+        "lead_0081",
+        "lead_0103",
+        "lead_0123",
+        "lead_0129",
+        "lead_0135"
+      ]
+    }
+  },
+  "negative_control_cooling_band": {
+    "_why": "These leads are past STALE_DAYS but short of ATTENTION_DAYS. They must READ as stale on the lead itself and must NOT appear in the SILENCE-driven queue. One showing up there in Phase 7 means either the two constants were collapsed back together or a 10-day rule crept in from the brief.",
+    "_scope_correction": "SCOPED TO THE `stale` BUCKET ONLY — this was initially written as \"must not appear in ANY queue\", which is wrong and would have produced a false finding in Phase 7. The other four buckets key off unrelated conditions: an overdue next_followup_date, a slipped estimated_close_date, a silent quote, a pending RFQ. A lead can legitimately be 10 days silent AND carry an overdue reminder — those are independent facts, and 2 of these leads genuinely are. Only presence in `stale` disproves the threshold split.",
+    "count": 7,
+    "lead_refs": [
+      "lead_0016",
+      "lead_0026",
+      "lead_0032",
+      "lead_0085",
+      "lead_0111",
+      "lead_0116",
+      "lead_0131"
+    ],
+    "must_be_absent_from": [
+      "needs_attention.stale"
+    ],
+    "may_legitimately_appear_in": [
+      "followups_overdue",
+      "slipped",
+      "silent_quotes",
+      "pending_rfq"
+    ],
+    "silent_days_each": {
+      "lead_0016": 12,
+      "lead_0026": 11,
+      "lead_0032": 12,
+      "lead_0085": 12,
+      "lead_0111": 13,
+      "lead_0116": 12,
+      "lead_0131": 12
+    }
+  },
+  "per_employee": {
+    "ex_rohit": {
+      "leads_owned": 40,
+      "open_leads": 27,
+      "open_pipeline_value": 13309000,
+      "won_count": 8,
+      "won_value": 10017095,
+      "lost_count": 5,
+      "leads_created": 37,
+      "activities_total": 368,
+      "activities_by_type": {
+        "site_visit": 156,
+        "call": 160,
+        "rfq_raised": 17,
+        "office_day": 19,
+        "booking_update": 8,
+        "architect_meeting": 8
+      },
+      "follow_ups_assigned": 26,
+      "follow_ups_done": 14,
+      "follow_ups_open_overdue": 4,
+      "attention": {
+        "stale": 12,
+        "silent_quotes": 7,
+        "followups_overdue": 7,
+        "slipped": 3,
+        "pending_rfq": 3
+      },
+      "win_rate_pct": 62
+    },
+    "ex_priya": {
+      "leads_owned": 27,
+      "open_leads": 18,
+      "open_pipeline_value": 1965000,
+      "won_count": 4,
+      "won_value": 2191650,
+      "lost_count": 5,
+      "leads_created": 22,
+      "activities_total": 228,
+      "activities_by_type": {
+        "site_visit": 82,
+        "call": 110,
+        "rfq_raised": 7,
+        "office_day": 19,
+        "booking_update": 4,
+        "architect_meeting": 6
+      },
+      "follow_ups_assigned": 12,
+      "follow_ups_done": 4,
+      "follow_ups_open_overdue": 3,
+      "attention": {
+        "stale": 8,
+        "silent_quotes": 2,
+        "followups_overdue": 0,
+        "slipped": 5,
+        "pending_rfq": 1
+      },
+      "win_rate_pct": 44
+    },
+    "ex_imran": {
+      "leads_owned": 22,
+      "open_leads": 16,
+      "open_pipeline_value": 4737000,
+      "won_count": 2,
+      "won_value": 752359,
+      "lost_count": 4,
+      "leads_created": 22,
+      "activities_total": 148,
+      "activities_by_type": {
+        "site_visit": 63,
+        "call": 62,
+        "rfq_raised": 1,
+        "office_day": 14,
+        "booking_update": 2,
+        "architect_meeting": 6
+      },
+      "follow_ups_assigned": 9,
+      "follow_ups_done": 3,
+      "follow_ups_open_overdue": 3,
+      "attention": {
+        "stale": 5,
+        "silent_quotes": 0,
+        "followups_overdue": 2,
+        "slipped": 2,
+        "pending_rfq": 1
+      },
+      "win_rate_pct": 33
+    },
+    "ex_ananya": {
+      "leads_owned": 30,
+      "open_leads": 20,
+      "open_pipeline_value": 3551000,
+      "won_count": 5,
+      "won_value": 7282543,
+      "lost_count": 5,
+      "leads_created": 28,
+      "activities_total": 252,
+      "activities_by_type": {
+        "site_visit": 97,
+        "call": 120,
+        "rfq_raised": 6,
+        "office_day": 18,
+        "booking_update": 5,
+        "architect_meeting": 6
+      },
+      "follow_ups_assigned": 12,
+      "follow_ups_done": 7,
+      "follow_ups_open_overdue": 4,
+      "attention": {
+        "stale": 12,
+        "silent_quotes": 0,
+        "followups_overdue": 5,
+        "slipped": 3,
+        "pending_rfq": 2
+      },
+      "win_rate_pct": 50
+    },
+    "ex_karan": {
+      "leads_owned": 10,
+      "open_leads": 6,
+      "open_pipeline_value": 1876000,
+      "won_count": 0,
+      "won_value": 0,
+      "lost_count": 4,
+      "leads_created": 11,
+      "activities_total": 57,
+      "activities_by_type": {
+        "site_visit": 24,
+        "call": 20,
+        "rfq_raised": 1,
+        "office_day": 11,
+        "booking_update": 0,
+        "architect_meeting": 1
+      },
+      "follow_ups_assigned": 4,
+      "follow_ups_done": 1,
+      "follow_ups_open_overdue": 1,
+      "attention": {
+        "stale": 4,
+        "silent_quotes": 0,
+        "followups_overdue": 0,
+        "slipped": 2,
+        "pending_rfq": 1
+      },
+      "win_rate_pct": 0
+    },
+    "ex_sunita": {
+      "leads_owned": 21,
+      "open_leads": 16,
+      "open_pipeline_value": 4806000,
+      "won_count": 2,
+      "won_value": 912274,
+      "lost_count": 3,
+      "leads_created": 20,
+      "activities_total": 165,
+      "activities_by_type": {
+        "site_visit": 65,
+        "call": 64,
+        "rfq_raised": 5,
+        "office_day": 20,
+        "booking_update": 2,
+        "architect_meeting": 9
+      },
+      "follow_ups_assigned": 15,
+      "follow_ups_done": 8,
+      "follow_ups_open_overdue": 2,
+      "attention": {
+        "stale": 7,
+        "silent_quotes": 2,
+        "followups_overdue": 4,
+        "slipped": 1,
+        "pending_rfq": 2
+      },
+      "win_rate_pct": 40
+    }
+  },
+  "per_coordinator_team": {
+    "sc_north": {
+      "members": [
+        "ex_rohit",
+        "ex_priya",
+        "ex_imran"
+      ],
+      "leads_owned": 89,
+      "open_leads": 61,
+      "open_pipeline_value": 20011000,
+      "won_count": 14,
+      "activities_total": 744,
+      "attention_total": 58
+    },
+    "sc_south": {
+      "members": [
+        "ex_ananya",
+        "ex_karan",
+        "ex_sunita"
+      ],
+      "leads_owned": 61,
+      "open_leads": 42,
+      "open_pipeline_value": 10233000,
+      "won_count": 7,
+      "activities_total": 474,
+      "attention_total": 45
+    }
+  },
+  "loss_reasons": {
+    "_ruling": "Q-P1-3 is DEFERRED to Phase 7. Both counts are emitted and must not be collapsed.",
+    "a_loss_events": {
+      "total": 29,
+      "by_reason": {
+        "budget_cut": 7,
+        "price": 7,
+        "competitor": 7,
+        "timeline": 4,
+        "site_delay": 3,
+        "other": 1
+      }
+    },
+    "b_currently_lost": {
+      "total": 26,
+      "by_reason": {
+        "price": 7,
+        "budget_cut": 4,
+        "competitor": 7,
+        "timeline": 4,
+        "site_delay": 3,
+        "other": 1
+      }
+    },
+    "expected_visible_symptom": "The \"Why we lose\" card totals higher than the `lost` count on Pipeline by stage. Both figures are correct under their own reading; this is NOT a mismatch to report until the owner chooses."
+  },
+  "day_review": {
+    "2026-08-12": {
+      "ex_rohit": {
+        "activities": 6,
+        "calls": 2,
+        "visits": 4,
+        "leads_touched": 5,
+        "leads_created": 0,
+        "changes": 0,
+        "quotes_sent": 0,
+        "followups_due": 3,
+        "followups_done": 0,
+        "followups_tomorrow": 1
+      },
+      "ex_priya": {
+        "activities": 2,
+        "calls": 0,
+        "visits": 2,
+        "leads_touched": 2,
+        "leads_created": 0,
+        "changes": 0,
+        "quotes_sent": 0,
+        "followups_due": 1,
+        "followups_done": 0,
+        "followups_tomorrow": 1
+      },
+      "ex_imran": {
+        "activities": 2,
+        "calls": 1,
+        "visits": 1,
+        "leads_touched": 2,
+        "leads_created": 0,
+        "changes": 0,
+        "quotes_sent": 0,
+        "followups_due": 1,
+        "followups_done": 0,
+        "followups_tomorrow": 0
+      },
+      "ex_ananya": {
+        "activities": 1,
+        "calls": 1,
+        "visits": 0,
+        "leads_touched": 1,
+        "leads_created": 0,
+        "changes": 0,
+        "quotes_sent": 0,
+        "followups_due": 1,
+        "followups_done": 0,
+        "followups_tomorrow": 0
+      },
+      "ex_karan": {
+        "activities": 2,
+        "calls": 0,
+        "visits": 2,
+        "leads_touched": 2,
+        "leads_created": 0,
+        "changes": 0,
+        "quotes_sent": 0,
+        "followups_due": 0,
+        "followups_done": 0,
+        "followups_tomorrow": 2
+      },
+      "ex_sunita": {
+        "activities": 1,
+        "calls": 0,
+        "visits": 1,
+        "leads_touched": 1,
+        "leads_created": 0,
+        "changes": 0,
+        "quotes_sent": 0,
+        "followups_due": 2,
+        "followups_done": 0,
+        "followups_tomorrow": 0
+      }
+    }
+  },
+  "closure_forecast": [
+    {
+      "ref": "lead_0098",
+      "owner": "ex_rohit",
+      "value": 934000,
+      "probability": 80,
+      "estimated_close_date": "2026-06-20",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0107",
+      "owner": "ex_priya",
+      "value": null,
+      "probability": 30,
+      "estimated_close_date": "2026-06-23",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0135",
+      "owner": "ex_ananya",
+      "value": null,
+      "probability": 40,
+      "estimated_close_date": "2026-07-01",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0045",
+      "owner": "ex_imran",
+      "value": null,
+      "probability": 40,
+      "estimated_close_date": "2026-07-04",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0076",
+      "owner": "ex_imran",
+      "value": null,
+      "probability": 30,
+      "estimated_close_date": "2026-07-05",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0019",
+      "owner": "ex_sunita",
+      "value": 265000,
+      "probability": 50,
+      "estimated_close_date": "2026-07-06",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0121",
+      "owner": "ex_priya",
+      "value": 204000,
+      "probability": 40,
+      "estimated_close_date": "2026-07-12",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0100",
+      "owner": "ex_priya",
+      "value": 554000,
+      "probability": 30,
+      "estimated_close_date": "2026-07-14",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0128",
+      "owner": "ex_priya",
+      "value": 258000,
+      "probability": 60,
+      "estimated_close_date": "2026-07-14",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0058",
+      "owner": "ex_ananya",
+      "value": 1866000,
+      "probability": 80,
+      "estimated_close_date": "2026-07-19",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0095",
+      "owner": "ex_karan",
+      "value": 1876000,
+      "probability": 30,
+      "estimated_close_date": "2026-07-19",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0028",
+      "owner": "ex_ananya",
+      "value": null,
+      "probability": 30,
+      "estimated_close_date": "2026-07-27",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0148",
+      "owner": "ex_rohit",
+      "value": 266000,
+      "probability": 50,
+      "estimated_close_date": "2026-07-27",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0130",
+      "owner": "ex_karan",
+      "value": null,
+      "probability": 30,
+      "estimated_close_date": "2026-07-30",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0108",
+      "owner": "ex_rohit",
+      "value": 2418000,
+      "probability": 50,
+      "estimated_close_date": "2026-08-03",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0142",
+      "owner": "ex_priya",
+      "value": 949000,
+      "probability": 40,
+      "estimated_close_date": "2026-08-05",
+      "slipped": true
+    },
+    {
+      "ref": "lead_0092",
+      "owner": "ex_priya",
+      "value": null,
+      "probability": 30,
+      "estimated_close_date": "2026-08-19",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0102",
+      "owner": "ex_rohit",
+      "value": 1401000,
+      "probability": 40,
+      "estimated_close_date": "2026-08-20",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0002",
+      "owner": "ex_rohit",
+      "value": 718000,
+      "probability": 40,
+      "estimated_close_date": "2026-08-23",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0090",
+      "owner": "ex_imran",
+      "value": 934000,
+      "probability": 70,
+      "estimated_close_date": "2026-08-25",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0054",
+      "owner": "ex_ananya",
+      "value": null,
+      "probability": 20,
+      "estimated_close_date": "2026-09-01",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0078",
+      "owner": "ex_sunita",
+      "value": 1412000,
+      "probability": 70,
+      "estimated_close_date": "2026-09-02",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0137",
+      "owner": "ex_imran",
+      "value": 192000,
+      "probability": 40,
+      "estimated_close_date": "2026-09-06",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0060",
+      "owner": "ex_imran",
+      "value": 2423000,
+      "probability": 40,
+      "estimated_close_date": "2026-09-15",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0113",
+      "owner": "ex_ananya",
+      "value": 921000,
+      "probability": 70,
+      "estimated_close_date": "2026-10-01",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0139",
+      "owner": "ex_rohit",
+      "value": 1883000,
+      "probability": 80,
+      "estimated_close_date": "2026-10-02",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0129",
+      "owner": "ex_rohit",
+      "value": null,
+      "probability": 40,
+      "estimated_close_date": "2026-10-13",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0144",
+      "owner": "ex_rohit",
+      "value": 2417000,
+      "probability": 30,
+      "estimated_close_date": "2026-10-20",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0132",
+      "owner": "ex_ananya",
+      "value": 764000,
+      "probability": 30,
+      "estimated_close_date": "2026-10-21",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0043",
+      "owner": "ex_rohit",
+      "value": 1865000,
+      "probability": 60,
+      "estimated_close_date": "2026-11-05",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0097",
+      "owner": "ex_sunita",
+      "value": 3129000,
+      "probability": 60,
+      "estimated_close_date": "2026-11-17",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0032",
+      "owner": "ex_rohit",
+      "value": 718000,
+      "probability": 40,
+      "estimated_close_date": "2026-11-24",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0038",
+      "owner": "ex_imran",
+      "value": 1188000,
+      "probability": 50,
+      "estimated_close_date": "2026-11-29",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0138",
+      "owner": "ex_rohit",
+      "value": 689000,
+      "probability": 30,
+      "estimated_close_date": "2026-12-08",
+      "slipped": false
+    },
+    {
+      "ref": "lead_0005",
+      "owner": "ex_priya",
+      "value": null,
+      "probability": 35,
+      "estimated_close_date": null,
+      "slipped": false
+    },
+    {
+      "ref": "lead_0037",
+      "owner": "ex_rohit",
+      "value": null,
+      "probability": 35,
+      "estimated_close_date": null,
+      "slipped": false
+    }
+  ],
+  "cross_team_reassignment": {
+    "_why": "Exception 3b. Activity credit follows activities.employee_id; lead credit follows the FINAL owner. These deliberately diverge for these leads — Phase 7 must check each metric on its own terms rather than expecting one answer.",
+    "leads": [
+      {
+        "lead_ref": "lead_0098",
+        "original_owner": "ex_karan",
+        "final_owner": "ex_rohit",
+        "activities_still_credited_to_original": 6
+      },
+      {
+        "lead_ref": "lead_0138",
+        "original_owner": "ex_karan",
+        "final_owner": "ex_rohit",
+        "activities_still_credited_to_original": 7
+      }
+    ]
+  }
+}
