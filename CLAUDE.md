@@ -1738,7 +1738,19 @@ since it isn't part of the date-range-scoped report data.
   likewise a hardcoded `'No activity in 7+ days'` next to a filter that read
   the constant, now templated. `attention.test.js` pins the invariant (a lead
   at exactly `STALE_DAYS` must not be queued), so merging them back fails the
-  suite instead of quietly changing every dashboard's numbers. Every row opens the `ageing` drill-down kind via
+  suite instead of quietly changing every dashboard's numbers.
+  **Re-confirmed verbatim by the owner 2026-08-12 (Phase 9) — 7 days reads as
+  stale, 14 days enters Needs Attention. No values changed; this is a
+  confirmation, not a revision. The Phase 9 brief's separate 10-day red-flag
+  figure does not exist anywhere in this codebase and must not be reintroduced
+  from it.** One missed call site was fixed at the same time:
+  `EmployeeProfile.jsx`'s `touchColor()` hardcoded `14`/`7` instead of importing
+  the constants — the same defect Lead Profile's health pill had before the
+  2026-08-10 pass, overlooked on that sweep. It now reads `STALE_DAYS`/
+  `ATTENTION_DAYS`; output is identical today, but retuning either threshold
+  would otherwise have left that one screen colouring by the old numbers.
+  **Any new surface that colours or labels by staleness must import these
+  constants — never repeat the literals.** Every row opens the `ageing` drill-down kind via
   `buildAgeingPanel`; the KPI row's "Stale leads" tile reuses the exact same
   call rather than a second computation (see the Dashboard-v2 Design-system
   bullet above for why that reuse matters generally). For Week/Month/
@@ -2017,7 +2029,21 @@ since it isn't part of the date-range-scoped report data.
   avg-days bars are still the real, only place that data is shown.
 * **Why we lose** (`LossReasonsCard.jsx`, **owner-only** — `{isOwner && ...}`
   in `Dashboard.jsx`, and the fetch itself is skipped entirely for a sales
-  exec rather than firing a request that RLS would just return empty) —
+  exec rather than firing a request that RLS would just return empty).
+  **✅ SETTLED (Q-P1-3, owner's ruling 2026-08-13): this card counts only
+  CURRENTLY-LOST leads, not loss events.** `loss_reasons` is append-only (no
+  DELETE grant or policy for anyone, including the owner), so a lead marked
+  lost and later **reopened** keeps its loss reason forever — and the card used
+  to keep counting it, which is why it totalled higher than the `lost` count on
+  Pipeline by stage. A recovered deal is no longer reported as a loss. The
+  filter lives in **`Dashboard.jsx` where the fetch resolves**, not inside the
+  card: the same array feeds `LossReasonsCard` and `buildLossPanel`, so
+  filtering once at the source is what stops the compact card and its
+  drill-down disagreeing. `fetchLossReasons` embeds `leads(current_stage)` for
+  exactly this — the table alone cannot tell you whether the lead is still
+  lost. **The two figures are no longer expected to differ**; if this card ever
+  again totals more than the `lost` stage count, that filter has been lost.
+  The card itself shows a
   count per `reason`, fixed bucket order via `LOSS_REASON_OPTIONS`
   (`src/lib/lossReasonOptions.js`, extracted out of `LeadStageSection.jsx`
   the same way `LEAD_STAGE_OPTIONS`/`SITE_STAGE_OPTIONS` were, so the "why
@@ -2589,6 +2615,20 @@ the coordinator's actual team screen — is not.** Full rationale for every
 decision below lives in `DECISIONS.md`'s Phase 8 section; don't re-derive it
 here.
 
+* **A coordinator's team view follows the person, not the calendar** —
+  confirmed by the owner 2026-08-12 (Phase 9). `coordinator_id` holds current
+  state only, `is_my_team_member()` reads only that, and no history table
+  records reassignment (deliberate, see DECISIONS.md). So when an exec moves
+  between coordinators, **their whole history moves with them, retroactively**:
+  every lead and activity they ever logged appears in the new SC's team
+  aggregates and vanishes from the old SC's, including work done months earlier
+  under the previous reporting line. **This is intended, not a bug — don't
+  "fix" it**, and don't report it as a mismatch. Accepted limitation: a
+  coordinator's historical team report isn't stable over time. The cure would
+  be a `coordinator_history` table plus time-aware team queries on every
+  SC-facing screen — a real build, declined for the pilot, and one that must
+  not be attempted piecemeal (half the screens time-aware is worse than either
+  consistent answer).
 * **`is_my_team_member(employee_id)`** is the one helper every team-scoped
   policy routes through — the third `SECURITY DEFINER` function alongside
   `current_employee_id()`/`current_employee_role()`. SC policies are added as
@@ -2686,6 +2726,87 @@ here.
   leads are on screen (`leadsTitle` in `Dashboard.jsx` is the one source).
   A coordinator with nobody assigned degrades gracefully: "No sales
   executives to show", verified live.
+* **The FAB now works for a coordinator too** (2026-08-11) — a real workflow
+  gap, not a testing convenience: execs often phone or message their
+  coordinator to log a visit or hand over a new lead rather than doing it
+  themselves, and until this pass an SC had no way to record that at all.
+  `BottomNav`'s `showFab`/`FabSheet` open both rows for `sales_coordinator`
+  now; `/leads/new` and `/activity` (`App.jsx`) both allow the role too. Both
+  `LeadQuickCapture.jsx` and `ActivityLog.jsx` render a mandatory **"Who is
+  this for?"** picker (`fetchMyTeamExecs()`, `employeeQueries.js` — wraps
+  `fetchActiveSalesExecs()` with the same client-side `coordinator_id`
+  filter the Dashboard bug above already established, since `employees`
+  SELECT can't be scoped server-side) when the role is SC, and every write
+  that would normally use the logged-in employee's own id instead uses the
+  picked exec's: `leads.owner_employee_id`, `activities.employee_id`,
+  `sites.discovered_by`, and (via a new `createdByEmployeeId` prop on
+  `PartySearchOrCreate.jsx`) `parties.created_by`. The record therefore
+  "belongs to" the exec in every sense the rest of the app already reads —
+  Dashboard, targets, attainment, all of it — exactly as asked, not
+  attributed to the coordinator. `LeadSearchSelect`'s existing `employeeId`
+  prop (built for `FollowUpForm`'s owner-assigning-to-a-rep case) scopes
+  ActivityLog's lead picker to the chosen exec's own leads for free.
+  Arriving at `/activity?lead=<id>` from a lead's own "Log activity" link
+  auto-fills the picker from that lead's real owner instead of asking again
+  (a coordinator viewing a team lead already implicitly chose who it's for).
+  **"Done by the coordinator" is real, not inferred**: leads already had
+  `created_by_employee_id` (from the Day Review migration, live since
+  2026-08-10) recording the true creator regardless of who owns the lead —
+  Lead Detail's Deal owner card now reads it and shows "Added by sales
+  coordinator {name}" whenever it differs from the owner and the creator's
+  role is `sales_coordinator`. Activities had no equivalent column at all
+  (`employee_id` used to double as both "who it's credited to" and "who
+  logged it", since those were always the same person before this pass) —
+  `Schema/migration_coordinator_entry.sql` adds
+  `activities.logged_by_employee_id`, stamped by a `BEFORE INSERT` trigger
+  the same way `stamp_lead_creator()` already works, and both
+  `LeadActivityTimeline.jsx` and `EmployeeProfile.jsx`'s Activity log card
+  now show "logged by sales coordinator {name}" off it. That same migration
+  also adds two coordinator-team `UPDATE` policies that
+  `migration_sales_coordinator.sql` needed but never got — `sites` (Activity
+  Log's Site Visit flow updates `site_stage` on a team member's existing
+  site) and `parties` (so the coordinator retains a fallback edit path even
+  though `created_by` now points at the exec). The `sites` one isn't
+  theoretical — **reproduced live**: a coordinator logged a Site Visit and
+  set Site stage to "foundation", got a clean "Activity logged." with no
+  warning at all, and the site's stage was still "— Not specified —"
+  afterward. `ActivityLog.jsx`'s site-stage update has no `.select()` on it,
+  and RLS filters an `UPDATE`'s target rows the same way it would a
+  `SELECT` — a row the policy rejects just isn't matched, so it's a silent
+  0-row no-op, not an error the existing `warnings.push(...)` handling can
+  catch. Worth remembering generally: an RLS-rejected `UPDATE` with no
+  `.select()` fails silently, not loudly.
+  **✅ RUN LIVE — confirmed 2026-08-12 (Phase 9).** This bullet previously
+  said "⚠️ Not yet run against the live database", and that claim was
+  **wrong** by the time anyone read it: `activities.logged_by_employee_id`
+  was probed directly against the live REST API and exists. The failure this
+  paragraph used to describe — `LeadDetail.jsx`'s and
+  `fetchActivityLogForEmployee`'s `.select()` erroring out, so **Lead
+  Detail's Activity timeline silently showed "No activity yet." for every
+  lead with real activity, for every role** (neither call site treats the
+  error as fatal: `activitiesResult.data ?? []` / `log.data ?? []`) — is
+  therefore **not** a live bug. Kept on the record because the failure mode
+  is worth recognising if a future migration is ever skipped: a missing
+  column fails *silently as empty data*, not loudly.
+  Column existence does not by itself prove sections 2 and 3 of that
+  migration (the `sites`/`parties` `coordinator_team_update` policies)
+  landed — policies need `pg_policies` introspection, which Phase 9 runs
+  separately.
+  **Verified live** (2026-08-11, three real dev sessions — coordinator,
+  exec, owner, same three-port setup as the earlier Phase 8 verification):
+  captured a lead as coordinator Aaradhya Mishra for exec Raghav Gupta (exec
+  picker correctly scoped to her own two-person team via `coordinator_id`),
+  confirmed as the owner that the lead belongs to Raghav with "Added by
+  sales coordinator Aaradhya Mishra" on the Deal owner card; logged a Call
+  against that same lead the same way, `LeadSearchSelect` correctly scoped
+  to Raghav's leads, no RLS errors on either write; also logged a Site Visit
+  and reproduced the `sites` UPDATE gap itself (see above) as its own live
+  check, confirming the migration's second section targets a real bug and
+  not a hypothetical one. **Still not verified** (no longer blocked — the
+  migration is live as of 2026-08-12, these simply haven't been exercised
+  since): the "logged by sales coordinator" badge rendering, and that the
+  `sites`/`parties` coordinator UPDATE policies actually fix what was
+  reproduced above. Both are in scope for Phase 9's QA pass.
 
 ### Data isolation — what a sales exec can see and change
 
@@ -2844,7 +2965,7 @@ renders) rather than assuming a fresh tab means a fresh session.
 ## Conventions
 
 - Secrets (Supabase URL/keys, etc.) go in a git-ignored `.env` file — never commit them. `.env.example` documents the required variable names with placeholders.
-- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Three migrations flagged as outstanding before the pilot — `parties.party_type`'s `'pmc'` value, `targets.period_type`'s `'quarter'` value, and the `lead_owner_history` table + its RLS policies — were all run live on 2026-08-09 via `Schema/migration_pilot_outstanding.sql` and re-verified end to end in the browser (created a `pmc` party from New Lead's "other party" field, saved a Quarter target, reassigned a lead's owner and confirmed a real history entry with the correct "changed by" attribution — a related bug in `insertLeadOwnerHistory`'s own `.select()` not fetching back `changed_by_employee`, caught during that verification, is fixed too). None of the three are outstanding anymore. Still outstanding: the Lead stage taxonomy rename (see its own section above) needs a one-time data migration run live — `ALTER TABLE leads ALTER COLUMN current_stage SET DEFAULT 'calling';`, then `UPDATE leads SET current_stage = 'calling' WHERE current_stage = 'new';`, `UPDATE leads SET current_stage = 'negotiation' WHERE current_stage = 'hot';`, `UPDATE leads SET current_stage = 'quote_submission' WHERE current_stage = 'quote';`, and the matching `UPDATE stage_history SET stage = 'negotiation' WHERE stage = 'hot';` / `UPDATE stage_history SET stage = 'quote_submission' WHERE stage = 'quote';` to keep the historical trail consistent. No CHECK constraint needs altering for this one (`current_stage`/`stage_history.stage` are both free text, and `follow_ups.activity_type`'s CHECK already allows the `'other'` value the On Hold flow uses) — until the `UPDATE`s run, live leads still sitting at the old `new`/`hot`/`quote` values will render as a plain grey "Other…" chip with their raw old value as the label, rather than a colored stage chip. A code-review pass also flagged the two columns every `own_data_or_owner_role_*` RLS policy filters on, `leads.owner_employee_id` and `activities.employee_id`, plus `stage_history(stage, changed_at)` (the columns `fetchWonStageHistory` filters/sorts on), as unindexed — every `leads`/`activities` query for every employee was a sequential scan on those columns. Fixed live via `idx_leads_owner`/`idx_activities_employee`/`idx_stage_history_stage_changed`, run 2026-08-09; `Schema/tostem_crm_schema.sql`'s own index list now includes all three so a fresh install gets them too. Also outstanding: the new **Architect Meeting** activity type (see the ActivityLog section above) needs `Schema/migration_architect_meeting.sql` run live — it adds `'architect_meeting'` to both `activities.activity_type`'s and `follow_ups.activity_type`'s CHECK constraints (confirmed via a real live error that the former's constraint name is exactly `activities_activity_type_check`, as the migration assumes; the latter's name wasn't independently confirmed the same way, hence that file's own SELECT-first safety check). Until this runs, tapping Architect Meeting and submitting fails with a CHECK violation, surfaced as a normal inline error — everything up to that point (the architect search-or-create picker, the party insert if a new architect is typed) already works against the live DB today, since neither depends on this constraint. **Two more migrations from the 2026-08-10 data-isolation pass are also outstanding** (see the Data isolation section below): `Schema/migration_scope_stage_history.sql` (narrows `stage_history` SELECT to "own leads or owner role" — until it runs, a sales exec's browser still *receives* every lead's stage-change rows in the raw network response, even though nothing renders them) and `Schema/migration_owner_only_stage.sql` (the `BEFORE UPDATE` trigger on `leads` enforcing owner-only stage changes, plus owner-only `stage_history` INSERT — until it runs, the "sales exec can't change stage" rule is UI-only and a rep could still flip a stage through the API). Both are safe to re-run and neither is required for the app to work as it does today — the UI already behaves correctly without them; they close the gap between the UI's rules and the database's. **`Schema/migration_lead_change_log.sql` was run live on 2026-08-10** and is
+- The anon key this app runs on can't execute DDL. Any schema/DB change (new column, altered constraint, etc.) has to be handed to the user as a migration statement to run manually via the Supabase dashboard's SQL Editor — never assume a schema-file edit is reflected in the live database. Confirm with the user that `Schema/` files (schema + `Schema/rls_policies.sql`) have actually been run against the live project rather than trusting their presence in the repo. Three migrations flagged as outstanding before the pilot — `parties.party_type`'s `'pmc'` value, `targets.period_type`'s `'quarter'` value, and the `lead_owner_history` table + its RLS policies — were all run live on 2026-08-09 via `Schema/migration_pilot_outstanding.sql` and re-verified end to end in the browser (created a `pmc` party from New Lead's "other party" field, saved a Quarter target, reassigned a lead's owner and confirmed a real history entry with the correct "changed by" attribution — a related bug in `insertLeadOwnerHistory`'s own `.select()` not fetching back `changed_by_employee`, caught during that verification, is fixed too). None of the three are outstanding anymore. **⚠️ EVERYTHING THE REST OF THIS BULLET CALLS "OUTSTANDING" IS ACTUALLY LIVE — verified against the database 2026-08-12 (Phase 9), see `PHASE9_LOG.md`. `Schema/migration_backlog_2026_08_10.sql` was run; the four items below went in with it. The stale wording is kept only so the original reasoning stays legible.** Confirmed by introspection: `leads.current_stage` DEFAULT is `'calling'`; both `activities.activity_type` and `follow_ups.activity_type` CHECKs include `'architect_meeting'`; `stage_history`'s SELECT policy is scoped to own leads; the `owner_only_stage_change` trigger exists and `enforce_owner_only_stage_change()` admits `sales_coordinator`. ~~Still outstanding~~: the Lead stage taxonomy rename (see its own section above) needed a one-time data migration run live — `ALTER TABLE leads ALTER COLUMN current_stage SET DEFAULT 'calling';`, then `UPDATE leads SET current_stage = 'calling' WHERE current_stage = 'new';`, `UPDATE leads SET current_stage = 'negotiation' WHERE current_stage = 'hot';`, `UPDATE leads SET current_stage = 'quote_submission' WHERE current_stage = 'quote';`, and the matching `UPDATE stage_history SET stage = 'negotiation' WHERE stage = 'hot';` / `UPDATE stage_history SET stage = 'quote_submission' WHERE stage = 'quote';` to keep the historical trail consistent. No CHECK constraint needs altering for this one (`current_stage`/`stage_history.stage` are both free text, and `follow_ups.activity_type`'s CHECK already allows the `'other'` value the On Hold flow uses) — until the `UPDATE`s run, live leads still sitting at the old `new`/`hot`/`quote` values will render as a plain grey "Other…" chip with their raw old value as the label, rather than a colored stage chip. A code-review pass also flagged the two columns every `own_data_or_owner_role_*` RLS policy filters on, `leads.owner_employee_id` and `activities.employee_id`, plus `stage_history(stage, changed_at)` (the columns `fetchWonStageHistory` filters/sorts on), as unindexed — every `leads`/`activities` query for every employee was a sequential scan on those columns. Fixed live via `idx_leads_owner`/`idx_activities_employee`/`idx_stage_history_stage_changed`, run 2026-08-09; `Schema/tostem_crm_schema.sql`'s own index list now includes all three so a fresh install gets them too. ~~Also outstanding~~ (**live since the backlog run; verified 2026-08-12**): the new **Architect Meeting** activity type (see the ActivityLog section above) needed `Schema/migration_architect_meeting.sql` run live — it adds `'architect_meeting'` to both `activities.activity_type`'s and `follow_ups.activity_type`'s CHECK constraints (confirmed via a real live error that the former's constraint name is exactly `activities_activity_type_check`, as the migration assumes; the latter's name wasn't independently confirmed the same way, hence that file's own SELECT-first safety check). Until this runs, tapping Architect Meeting and submitting fails with a CHECK violation, surfaced as a normal inline error — everything up to that point (the architect search-or-create picker, the party insert if a new architect is typed) already works against the live DB today, since neither depends on this constraint. **Two more migrations from the 2026-08-10 data-isolation pass — ~~also outstanding~~, both LIVE, verified 2026-08-12** (see the Data isolation section below): `Schema/migration_scope_stage_history.sql` (narrows `stage_history` SELECT to "own leads or owner role" — until it runs, a sales exec's browser still *receives* every lead's stage-change rows in the raw network response, even though nothing renders them) and `Schema/migration_owner_only_stage.sql` (the `BEFORE UPDATE` trigger on `leads` enforcing owner-only stage changes, plus owner-only `stage_history` INSERT — until it runs, the "sales exec can't change stage" rule is UI-only and a rep could still flip a stage through the API). Both are safe to re-run and neither is required for the app to work as it does today — the UI already behaves correctly without them; they close the gap between the UI's rules and the database's. **`Schema/migration_lead_change_log.sql` was run live on 2026-08-10** and is
 no longer outstanding — it creates the `lead_change_log` audit trail, adds
 `leads.created_by_employee_id`, and installs three triggers on `leads` (see
 the Day Review section for what each does and why the trail is trigger-written
@@ -2860,8 +2981,56 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`; **confirmed live** — `current_employee_id()`/`current_employee_role()` and every policy below have been run against the real project and verified: deactivating an employee (`employees.is_active = false` in Manage Employees) now actually revokes their database access, not just the client-side `ProtectedRoute` block): every policy that used to inline `(SELECT id/role FROM employees WHERE auth_user_id = auth.uid())`, or leave a table wide open with `USING (true)`/`WITH CHECK (true)`, now goes through one of two `SECURITY DEFINER` helper functions instead — `current_employee_id()`/`current_employee_role()`, both filtered to `is_active = true` and both resolving to `NULL` for a deactivated employee's row. That single change is what makes deactivating someone in Manage Employees actually revoke their access, not just hide the UI. `activities`/`leads`/`plans`/`targets` use "own data or owner role" (`employee_id`/`owner_employee_id` `= current_employee_id()`, or `current_employee_role() = 'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT requires `current_employee_role() IS NOT NULL` (i.e. "you resolve to some active employee" — this doesn't filter which employee rows come back, so an active owner still sees every row including inactive ones; it only gates whether a deactivated caller can query the table at all), INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`/`areas`/`site_contacts`/`products`/`stage_history`/`lead_owner_history` SELECT/INSERT now require `current_employee_role() IS NOT NULL` too — these used to be unconditionally `true` (open to any authenticated session regardless of `is_active`), which is exactly how a deactivated rep kept full access to the whole party directory even after being switched off. `sites`/`parties` UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts` UPDATE/DELETE stay owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products` UPDATE/DELETE owner-only. `stage_history`/`lead_owner_history` have no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT requires `current_employee_role() = 'owner'`, INSERT requires `current_employee_role() IS NOT NULL`, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it (`employee_id = current_employee_id()`, no `OR` branch); real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely and never calls these functions (`service_role` has no `auth.uid()`). A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.
 - Deploying/configuring anything on Supabase's or Vercel's side still needs the user to do the parts that require *their own* credentials — the initial `supabase login` (interactive browser OAuth) and anything on Vercel's dashboard (env vars, redeploys) — and Edge Function secrets (`supabase secrets set ...`) are values only the user should be typing in, since a raw `service_role`/VAPID-private-key never belongs in this transcript's tool output. Once `supabase login`+`link` have been run locally, though, subsequent `supabase functions deploy`/`delete` calls work fine from a normal shell session on the same machine — this isn't a hard sandbox limitation the way the initial OAuth is. `supabase init` (to generate `supabase/config.toml`) may be needed before `link`/`deploy` will resolve the project correctly, even if `supabase/.temp/linked-project.json` already exists from an earlier `link` — the CLI keys its local cache off `config.toml`'s `project_id`, not just that temp file.
-- **`service_role` does not automatically get access to a new table** on this project — this is a newer Supabase platform default (see `supabase/config.toml`'s `auto_expose_new_tables` comment: "new entities are NOT auto-exposed, matching the new cloud default"), which broke the assumption that an Edge Function's `service_role` key bypasses everything automatically. Real failure mode hit while building the Follow-ups push pipeline: the Edge Function's own `createClient(url, serviceRoleKey)` query came back `permission denied for table follow_ups` / `42501` even though the service_role key was valid and present — PostgREST's own error hint spelled out the fix (`GRANT SELECT ON public.follow_ups TO service_role;`). Any future table a `service_role`-using Edge Function needs to touch needs this same explicit `GRANT ... TO service_role` in `rls_policies.sql` (see the `follow_ups`/`push_subscriptions` grant there for the pattern) — don't assume service_role "just works" on a new table the way it might on an older Supabase project.
+- **`service_role` does not automatically get access to a new table** on this project — this is a newer Supabase platform default (see `supabase/config.toml`'s `auto_expose_new_tables` comment: "new entities are NOT auto-exposed, matching the new cloud default"), which broke the assumption that an Edge Function's `service_role` key bypasses everything automatically. Real failure mode hit while building the Follow-ups push pipeline: the Edge Function's own `createClient(url, serviceRoleKey)` query came back `permission denied for table follow_ups` / `42501` even though the service_role key was valid and present — PostgREST's own error hint spelled out the fix (`GRANT SELECT ON public.follow_ups TO service_role;`). Any future table a `service_role`-using Edge Function needs to touch needs this same explicit `GRANT ... TO service_role` in `rls_policies.sql` (see the `follow_ups`/`push_subscriptions` grant there for the pattern) — don't assume service_role "just works" on a new table the way it might on an older Supabase project. **Measured exactly, 2026-08-12 (Phase 9): the gap splits by when a table was created, not by what kind of table it is.** `stage_history` and `loss_reasons` ship in `tostem_crm_schema.sql`, predate the platform default changing, and service_role still holds full DML on both (`SELECT` 200, `DELETE` 204 — confirmed by probe). `lead_change_log` (`migration_lead_change_log.sql`) and `lead_owner_history` (created live by `migration_pilot_outstanding.sql`, 2026-08-09) were both created after it and granted only to `authenticated`, so service_role gets `42501` on `SELECT` *and* `DELETE` for both. **No impact on the app** — it authenticates as `authenticated`, which holds the right grants; both tables read fine through a real owner session. It only bites tooling that reaches in with the service_role key (admin scripts, Edge Functions, teardown). Note `lead_owner_history` is *declared* in the base schema file but was actually created by a later migration — so "is it in `tostem_crm_schema.sql`?" is the wrong test; what matters is when it really hit the live database.
+- **The append-only tables are protected by ONE layer, not two — `rls_policies.sql`'s own claim that they are "permanently non-deletable at both layers" is wrong about the grant layer.** Measured 2026-08-12 (Phase 9), `information_schema.role_table_grants` for `authenticated`: `stage_history` carries **UPDATE** (plus TRUNCATE/REFERENCES/TRIGGER) despite STEP G intending SELECT+INSERT only; `lead_owner_history` carries **DELETE**, despite being listed as one of the tables deliberately excluded from the STEP A delete grant; `lead_change_log` carries **TRUNCATE**, which its own explicit `REVOKE INSERT, UPDATE, DELETE` didn't cover. Cause: `rls_policies.sql` STEP A sets `ALTER DEFAULT PRIVILEGES ... GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated`, and Supabase's own baseline grants add TRUNCATE/REFERENCES/TRIGGER — so any table created *after* that statement arrives broadly writable, and the curated STEP A grant list only ever described the tables that already existed. **Not currently exploitable**: RLS still refuses each of those operations because no matching policy exists (verified — `stage_history` has no UPDATE policy, `lead_owner_history` no DELETE policy), and PostgREST exposes no TRUNCATE verb at all. But the defence is the policy layer alone; adding one careless permissive policy would make the grant live. Treat "append-only" as needing an explicit `REVOKE` per table, the way `migration_lead_change_log.sql` STEP 6 does — and note even that one missed TRUNCATE.
+- **Verify against the live database, not against this file.** Two claims in these docs were found stale within a single Phase 9 session (`migration_coordinator_entry.sql` marked "not yet run" when it was live; a task brief asserting `areas`/`products` held preserved configuration when both were empty). The existing Conventions rule — never assume a `Schema/` file's presence means it ran — extends to prose in `CLAUDE.md`/`DECISIONS.md` describing live state. Probing a column costs one request; `phase9_verify_state.sql` (repo root, not `Schema/`) is a ready-made read-only introspection query covering every policy, trigger, helper function, grant and CHECK constraint the app depends on. Prefer it over trusting a sentence.
+- **An INSERT that asks for the row back is subject to the SELECT policy too, not just the INSERT policy.** Postgres applies the SELECT policy to an `INSERT ... RETURNING` clause, and supabase-js emits `RETURNING` for `.insert().select()` (PostgREST's `Prefer: return=representation`). Measured live 2026-08-12 (Phase 9): `loss_reasons` INSERT is open to any active employee (`current_employee_role() IS NOT NULL`) but its SELECT is **owner-only**, so `.insert().select()` there fails with `42501` for a sales exec or coordinator while the identical `.insert()` succeeds. `LeadStageSection.jsx`'s loss-reason write deliberately has no `.select()` — **adding one would break marking a lead lost for every non-owner.** Same trap applies to any table whose SELECT is narrower than its INSERT. Unlike the RLS-rejected-`UPDATE` case below, this one at least fails loudly rather than silently.
+- **Compare a DATE column as a calendar string, never against an instant.** `next_followup_date`, `estimated_close_date`, `due_date`, `quote_sent_at`, `rfq_raised_at` and `lost_at` are `DATE`, and `new Date('2026-08-13')` parses to **UTC midnight = 05:30 IST** — so `new Date(col).getTime() < Date.now()` says a date of *today* is already in the past, from 05:30 IST until midnight. That shipped: a follow-up due today was reported **overdue** for ~18½ hours of every day (Phase 9 finding F-P7-1, fixed in `attention.js`, `EmployeeProfile.jsx` and `LeadDetail.jsx`). Compare `col < todayISO()` — both are `YYYY-MM-DD`, so string order is date order and there is no timezone to get wrong. This is a *different* bug from the naive-`TIMESTAMP` parsing issue in the Day Review section; that one is about `TIMESTAMP` columns and is fixed with `parseTimestamp`. `Home.jsx`'s `new Date(\`${f.due_date}T00:00:00\`)` is the other correct pattern — appending the time forces local parsing.
+- **`dealValueFor()` is for SUMS; `dealValueOrNull()` is for DISPLAY.** Both live in `src/lib/pipelineValue.js`. The first coerces an unknown value to `0`, which is right for adding up and wrong for showing: a lead nobody has quoted is not a deal worth ₹0. Every per-lead display site used to read `dealValueFor` and print ₹0, which on real data was most of the rows in All Leads (Phase 9 finding F-P4-2). Don't "simplify" by making `dealValueFor` return null — `sumOpenPipelineValue` and the four category-breakdown cards add its result, and null would poison every total.
 - No GPS, geocoding, or drag-and-drop libraries in this project — deliberate (see DECISIONS.md and the Kanban board note above). No icon library either (no `lucide-react`/icon-font dependency) — `src/components/NavIcons.jsx` hand-authors BottomNav's icons as plain inline SVG instead; reuse/extend that file for any new icon rather than adding a package. Everything else icon-shaped stays plain text/CSS.
+
+## Open TODOs (carried out of the Phase 9 audit)
+
+Deliberately deferred, not forgotten. Each was found, verified and costed
+during Phase 9; none is a bug report to re-investigate. Full detail in
+`PHASE9_LOG.md`.
+
+1. **A sales coordinator has database-level stage rights and no UI path to
+   them** (F-P2-2). `enforce_owner_only_stage_change()` admits
+   `sales_coordinator`, and `enforce_coordinator_lock()` exists *specifically*
+   to preserve those rights on a locked lead — the two are documented as a pair
+   that must not be separated. But `LeadQuickActions` never mounts for an SC
+   (`canEdit = isOwner || lead.owner_employee_id === employee.id`, never true
+   for them), so a coordinator cannot mark a lead won or lost. **Fixing
+   `canEdit` alone is NOT enough** — `LeadQuickActions.jsx:102` and `:132` gate
+   Change stage on `isOwner` (`role === 'owner'`), so the control would still
+   not render. Both need a capability check. Belongs with the Sales Coordinator
+   Phase 4 team-screen build, not a standalone patch.
+2. **Append-only tables are protected by one layer, not two** (F-P5-3).
+   `authenticated` holds UPDATE on `stage_history`, DELETE on
+   `lead_owner_history` and TRUNCATE on `lead_change_log`, inherited from
+   `rls_policies.sql` STEP A's `ALTER DEFAULT PRIVILEGES`. **Not exploitable
+   today** — verified empirically from a real owner session: every one returns
+   0 rows because no matching policy exists, and PostgREST exposes no TRUNCATE
+   verb. The risk is latent: one careless permissive policy makes the grant
+   live, and an audit trail that can be silently rewritten is worth less than
+   the rows in it. The cause is structural — **every table added to this schema
+   arrives broadly writable and must `REVOKE` explicitly**;
+   `migration_lead_change_log.sql` STEP 6 is the only migration that remembered,
+   and even it missed TRUNCATE. Wants a small REVOKE migration before full
+   rollout.
+3. **No test covers the create-flow submit handlers.** Phase 9 verified that
+   New Lead and Log Activity render and populate correctly for every role, and
+   the writes behind them are proven (Phase 2 performed 2,712 inserts through
+   the identical RLS/trigger path). But submitting was deliberately not
+   exercised — it would have added rows that could not be cleanly reversed,
+   invalidating the audit's own ledger. Untested: field validation, the
+   `lead_needs_an_anchor` CHECK surfacing as a UI error, the post-submit reset,
+   and `ActivityLog`'s side-effect warning path.
+4. **Deferred verification gaps**: push notifications end-to-end (needs a real
+   device + VAPID endpoint), real-device iOS/Android rendering, and
+   installed-PWA (standalone) rendering — the dev server registers no service
+   worker, so these need `npm run build && npm run preview` on hardware.
 
 ## Roadmap
 
@@ -2883,12 +3052,15 @@ Detail produced a correctly attributed log row that renders on the day sheet.
    in Profile) and the Phase 5 routing it needed are built, and all three
    roles were driven live 2026-08-10. A coordinator's **Dashboard** is done
    too — team-scoped Day Review, per-exec breakdowns, All Leads owner filter.
-   **Still to build: Phase 4** — the coordinator's Today
-   screen (team overview rows, red flags, follow-up assignment, lead/activity
-   entry on a team member's behalf), replacing `CoordinatorToday`'s
-   placeholder card. Entry-on-behalf is the piece with real work left: it
-   needs an exec picker, and until it exists `/leads/new` and the FAB stay
-   closed to a coordinator (see the Sales Coordinator section). Red flags are settled: a lead untouched for
+   **Entry-on-behalf is now built** (2026-08-11) — the FAB, `/leads/new`, and
+   `/activity` are all open to a coordinator, each gated behind a mandatory
+   "Who is this for?" exec picker. See the Sales Coordinator section's own
+   bullet for the full shape. **Still to build: the rest of Phase 4** — the
+   coordinator's Today screen itself (team overview rows, red flags, and a
+   dedicated follow-up assignment flow from that team overview — an SC still
+   has no "Set follow-up" action anywhere today, since `LeadQuickActions`
+   only mounts under `canEdit`, which is never true for an SC on a lead they
+   don't own), replacing `CoordinatorToday`'s placeholder card. Red flags are settled: a lead untouched for
    `ATTENTION_DAYS` (14 — the shared constant, see the Staleness bullet in
    the Dashboard section; the spec's separate 10-day figure was retired), and
    a follow-up past its due date and not done. Out of scope by decision: push

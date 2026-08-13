@@ -289,6 +289,156 @@ Red flags are **dashboard indicators only**. No push notifications, even
 though the push pipeline exists and would be easy to reuse — explicitly out
 of scope, per product decision.
 
+## Phase 9 — pre-pilot audit and simulation (2026-08-12)
+
+A full pre-pilot exercise: seed six months of realistic data, test every flow
+in every role, attack the RLS isolation directly, then reconcile every number
+the CRM displays against a ledger computed independently from the simulation
+plan. Running log in `PHASE9_LOG.md`; that file is written so a fresh session
+can resume from any phase with no other context.
+
+### Verify against the database, not against the docs
+
+**Adopted as a standing rule after two documentation errors surfaced in one
+session.** `CLAUDE.md` marked `migration_coordinator_entry.sql` as "not yet
+run against the live database" when it was in fact applied, and the Phase 9
+task brief stated `areas` and `products` held preserved configuration when
+both were empty. Neither error was detectable by reading; both took one API
+probe to disprove.
+
+The repo already had this rule for schema *files* ("never assume a `Schema/`
+file's presence means it ran"). It now covers **prose describing live state**
+as well. `phase9_verify_state.sql` exists as a read-only introspection query
+over `pg_proc` / `pg_trigger` / `pg_policies` / `information_schema` — every
+helper function, trigger, policy, grant and CHECK constraint the app depends
+on, in one result table. Run it rather than trusting a sentence.
+
+Corollary for anyone editing these docs: a claim about live state should
+carry the date it was verified, not the date it was written.
+
+### `plans` is vestigial, and is a redundancy candidate — not removed
+
+Confirmed by direct search, not by reading the docs: **zero references to
+`plans` anywhere in `src/`**, and no UI surface of any kind. It is schema left
+over from the original sheet-replacement design, never built. It is *not*
+legacy-in-the-superseded-sense — nothing ever migrated off it.
+
+**Phase 9 seeds nothing into it** (product decision). Rows there could not be
+verified in the reconciliation phase and could not appear in the independent
+ledger, so seeding it would prove nothing while complicating teardown.
+
+**Logged as a Phase 4 redundancy candidate — report only, no removal.**
+Whether to drop the table is a product call, not an audit call. Note the
+related trap it already caused once: the Phase 8 spec routed SC follow-up
+assignment through `plans.assigned_by`, which would have written to a table no
+dashboard reads. Any future plan schema must model follow-up assignment as
+`follow_ups` rows for the same reason (see the `follow_ups`-not-`plans`
+section above).
+
+### A coordinator's team view follows the person, not the calendar (2026-08-12)
+
+**Confirmed by the owner during Phase 9, and it locks in a consequence the
+Phase 8 decision above implied but never spelled out.**
+
+`employees.coordinator_id` holds current state only and no history table records
+it (see the Phase 8 section — that was deliberate). The consequence, surfaced
+concretely by the Phase 9 simulation: when an exec moves between coordinators,
+**their entire history moves with them, retroactively.** Every lead and activity
+they ever logged appears in the new coordinator's team aggregates and disappears
+from the old one's — including work done months earlier under the previous
+reporting line. `lead_owner_history` does not soften this; it tracks *lead*
+ownership, which is a different question.
+
+**This is intended behaviour, not a defect.** A coordinator sees their current
+team's full history, full stop. Phase 7 must not report it as a mismatch, and
+nothing should be "fixed" to make old team reports stable.
+
+**Accepted limitation:** a coordinator's historical team report is not stable
+over time. Re-running "South team, last quarter" after an exec transfers away
+returns a smaller number than the same report gave at the time. For a business
+this size, with rare transfers, that was judged not worth the cure.
+
+**The cure, if it is ever wanted, is a real build, not a tweak** — a
+`coordinator_history` table plus making every team-scoped policy and query
+time-aware, on every SC-facing screen. Declined for the pilot. Don't attempt it
+piecemeal: a half-migrated version where some screens are time-aware and others
+aren't is worse than either consistent answer.
+
+### "Why we lose" counts CURRENTLY-LOST leads — SETTLED (2026-08-13)
+
+**The owner's ruling: count only leads still at `current_stage = 'lost'`, not
+every loss event.** A deal that died and was later recovered is no longer
+reported as a loss. Reading (B) below was chosen over (A).
+
+Consequences, all now true:
+
+* `Dashboard.jsx` filters the fetched rows to `leads.current_stage === 'lost'`
+  **where the fetch resolves**, not inside the card. The same array feeds
+  `LossReasonsCard` and `buildLossPanel`, so filtering once at the source is
+  what guarantees the compact card and its drill-down cannot disagree.
+* `fetchLossReasons` now embeds `leads(current_stage)` for exactly this — the
+  `loss_reasons` table alone cannot tell you whether the lead is still lost.
+* **The two cards are no longer expected to differ.** "Why we lose" and the
+  `lost` count on Pipeline by stage should now agree. If they ever diverge
+  again, that filter has been dropped.
+* Verified live on the Phase 9 data: 29 `loss_reasons` rows exist, 26 leads are
+  currently lost, and the card renders 26.
+* **Nothing was deleted.** `loss_reasons` stays append-only; the three reopened
+  leads keep their rows, they are simply no longer counted. Reading (A) remains
+  recoverable at any time by removing one filter.
+
+The original framing is kept below, because the reasoning behind both readings
+is what makes the ruling legible.
+
+### "Why we lose" and reopened leads — the question that was deferred (2026-08-12)
+
+Marking a lead lost writes a `loss_reasons` row, and that row is append-only:
+there is no DELETE grant or policy for anyone, including the owner. So when a
+lost lead is **reopened** and worked again, its loss reason survives and
+`LossReasonsCard` keeps counting it.
+
+The visible symptom is a mismatch between two cards on the same dashboard —
+"Why we lose" totals higher than the `lost` count on Pipeline by stage.
+
+Two defensible readings, and **the choice is deferred to Phase 7 by decision,
+not by neglect**:
+
+* **(A) Loss events** — count every `loss_reasons` row. A deal that died on
+  price and later recovered is still evidence that price is a friction point.
+  This is what the app does today.
+* **(B) Currently-lost leads** — count only rows whose lead is still at
+  `current_stage = 'lost'`. Matches the plain reading of "how many did we lose"
+  and keeps the two cards agreeing.
+
+**Phase 6's ledger must carry both figures and must not collapse them**; Phase 7
+reports the CRM against both and marks the comparison as awaiting a product
+decision rather than as a defect. The owner will choose once the real numbers
+are visible. Until then, **do not "fix" `LossReasonsCard` in either direction.**
+
+### Teardown is designed up front, and is SQL-Editor-only
+
+`phase9_teardown.sql` was written during Phase 0 rather than left to the end,
+because the mechanism turned out not to be uniform (see CLAUDE.md's
+`service_role` Conventions bullet for the measured grant split). Two of the
+four append-only tables are unreachable from any API path, so the **entire**
+teardown runs in the SQL Editor as `postgres` — one transaction, one place,
+no partial state, rather than splitting across two mechanisms.
+
+It guards on the preserved owner row (`employees.id = 3` and its
+`auth_user_id`) and aborts if that baseline doesn't match, deletes in FK order,
+and prints per-table row counts. Deleting `employees` rows does **not** remove
+their Supabase Auth logins — that stays a deliberate manual step, never
+scripted, since a bad bulk delete on `auth.users` could remove the owner's own
+login. Same reasoning `DESTRUCTIVE_reset_all_data.sql` already records.
+
+### `areas` and `products` start empty
+
+Both were verified empty at the Phase 0 baseline, contradicting the brief. The
+simulation therefore designs an area and product catalogue from scratch, and
+teardown empties both completely rather than trying to preserve rows
+underneath. If either table is ever treated as durable configuration, that has
+to be established deliberately — right now nothing in the database says so.
+
 ## Staleness: "reads as stale" and "needs attention" are two thresholds (2026-08-10)
 
 `attention.js` had one constant, `STALE_DAYS = 7`, doing two different jobs,
@@ -319,3 +469,29 @@ Two related inconsistencies were fixed at the same time, both pre-existing:
 `src/lib/attention.test.js` pins the invariant directly — a lead at exactly
 `STALE_DAYS` must *not* be queued — so collapsing these back into one value
 fails the suite rather than silently changing what every dashboard reports.
+
+### Re-confirmed by the owner, 2026-08-12 (Phase 9)
+
+Restated verbatim and unprompted during the Phase 9 audit: **"leads which are
+not touched for 7 days are stale, leads which are not touched for 14 days fall
+under needs attention."** That is exactly what `attention.js` already
+implements, so **no threshold changed** — this is a confirmation, not a
+revision. Recorded because the Phase 9 task brief specified a **10-day**
+red-flag threshold, which does not exist anywhere in this codebase and was
+retired here on 2026-08-10. **There is no 10-day rule. Do not reintroduce one
+from that brief.**
+
+The Phase 9 simulation deliberately seeds a **9–12 day negative control band**:
+leads that read as stale (past `STALE_DAYS`) but must *not* appear in any Needs
+Attention queue, coordinator red flag, or Today work queue. If any of them ever
+does, either the constants have been collapsed back together or a 10-day rule
+has crept in.
+
+One drift hazard was found and fixed while verifying this: `EmployeeProfile.jsx`'s
+`touchColor()` hardcoded `days >= 14 ? BAD : days >= 7 ? OK : GOOD` instead of
+reading the constants — the same defect `LeadDetail`'s health pill had before
+the 2026-08-10 pass, missed on that sweep. The values happened to agree, so
+nothing rendered differently; but retuning either threshold would have left
+that one screen colouring by the old numbers. It now imports `STALE_DAYS` /
+`ATTENTION_DAYS`. **Any new surface that colours or labels by staleness must
+import them too — never repeat the literals.**
