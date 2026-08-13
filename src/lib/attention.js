@@ -3,6 +3,7 @@ import { stageLabel } from './leadStageOptions'
 import { formatCurrencyCompact } from './format'
 import { getInitials } from './initials'
 import { dealValueFor } from './pipelineValue'
+import { todayISO } from './followupDates'
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24
 const CLOSED_STAGES = ['won', 'lost']
@@ -81,7 +82,19 @@ function sortByAgeDesc(rows) {
 // content, just the filters the CRM already tracks made visible in one place.
 export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
   const openLeads = breakdownLeads.filter(isOpen)
-  const today = Date.now()
+  // Today as a plain local YYYY-MM-DD, NOT an instant.
+  //
+  // next_followup_date and estimated_close_date are DATE columns, and the
+  // question they answer is "is this date before today" — a calendar question,
+  // not a moment-in-time one. The previous code asked
+  // `new Date(lead.next_followup_date).getTime() < Date.now()`, which parses a
+  // date-only string as UTC midnight (05:30 IST) and compares it to a real
+  // instant. From 05:30 IST onwards that made a follow-up due TODAY test as
+  // overdue — so roughly eighteen hours of every working day, the queue told a
+  // rep that work due right now was already late. Comparing YYYY-MM-DD strings
+  // is chronological, timezone-correct, and cannot drift with the clock.
+  // (Phase 9 finding F-P7-1.)
+  const today = todayISO()
 
   const stale = []
   const silentQuotes = []
@@ -107,12 +120,15 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
       }
     }
 
-    if (lead.next_followup_date && new Date(lead.next_followup_date).getTime() < today) {
+    if (lead.next_followup_date && lead.next_followup_date < today) {
       const overdueAge = daysSince(lead.next_followup_date)
       followupsOverdue.push(toRow(lead, overdueAge, `Follow-up was due ${overdueAge}d ago`))
     }
 
-    if (lead.estimated_close_date && new Date(lead.estimated_close_date).getTime() < today) {
+    // Same calendar comparison as above. This one was latent rather than
+    // visible — the defect is identical, there simply happened to be no lead
+    // whose estimated close date was today when it was found.
+    if (lead.estimated_close_date && lead.estimated_close_date < today) {
       const slipAge = daysSince(lead.estimated_close_date)
       slipped.push(toRow(lead, slipAge, `Est. close was ${slipAge}d ago`))
     }

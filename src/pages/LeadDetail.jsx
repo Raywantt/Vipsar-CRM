@@ -18,6 +18,7 @@ import { stageFg, TONE_GOOD, TONE_WARN, TONE_BAD, TONE_MID, TONE_GOOD_SOFT, TONE
 import { getInitials } from '../lib/initials'
 import { STALE_DAYS, ATTENTION_DAYS } from '../lib/attention'
 import { formatCurrency, formatCurrencyCompact } from '../lib/format'
+import { todayISO } from '../lib/followupDates'
 
 const SOURCE_LABELS = {
   scanning: 'Scanning',
@@ -103,7 +104,13 @@ function LeadDetail() {
 
       const { data: leadRow, error: leadError } = await supabase
         .from('leads')
-        .select('*, employees!owner_employee_id(name, office_location)')
+        // created_by is aliased separately from the owner embed above — a
+        // lead created by a sales_coordinator on an exec's behalf has
+        // created_by_employee_id != owner_employee_id (see
+        // migration_lead_change_log.sql's stamp_lead_creator trigger, which
+        // always stamps the real actor). Used by the Deal owner card's
+        // "Added by coordinator" note below.
+        .select('*, employees!owner_employee_id(name, office_location), created_by:employees!created_by_employee_id(name, role)')
         .eq('id', id)
         .single()
 
@@ -151,7 +158,7 @@ function LeadDetail() {
         supabase
           .from('activities')
           .select(
-            'id, activity_type, notes, created_at, employee_id, employees!employee_id(name), accompanied_by_employee:employees!accompanied_by(name)'
+            'id, activity_type, notes, created_at, employee_id, employees!employee_id(name), accompanied_by_employee:employees!accompanied_by(name), logged_by_employee_id, logged_by:employees!logged_by_employee_id(name, role)'
           )
           .eq('lead_id', leadRow.id)
           .order('created_at', { ascending: false }),
@@ -311,7 +318,10 @@ function LeadDetail() {
   const dealValue = Math.max(Number(lead.order_value ?? 0), Number(lead.quote_value ?? 0))
   const probability = lead.closure_probability ?? STAGE_PROBABILITY_DEFAULTS[stage] ?? 0
   const probColor = probability >= 60 ? TONE_GOOD : probability >= 35 ? TONE_WARN : TONE_BAD
-  const closeSlipped = lead.estimated_close_date && isOpen && new Date(lead.estimated_close_date) < new Date()
+  // Calendar comparison on a DATE column — see attention.js's note. A close
+  // date of TODAY is not yet slipped; the old instant comparison said it was,
+  // from 05:30 IST onwards.
+  const closeSlipped = lead.estimated_close_date && isOpen && lead.estimated_close_date < todayISO()
   const dealStats = [
     { label: 'Deal value', value: formatCurrency(dealValue), sub: isWon ? 'booked' : 'quoted scope', color: 'var(--vip-ink)' },
     { label: 'Probability', value: `${probability}%`, sub: isWon ? 'closed' : 'stage-weighted', color: probColor },
@@ -387,6 +397,9 @@ function LeadDetail() {
           </Link>
         ) : (
           <p className="vip-empty">Unassigned.</p>
+        )}
+        {lead.created_by?.role === 'sales_coordinator' && lead.created_by_employee_id !== lead.owner_employee_id && (
+          <p className="vip-form-note">Added by sales coordinator {lead.created_by.name}</p>
         )}
         {ownerHistory.length > 0 && (
           <div className="vip-rail-list-divided">

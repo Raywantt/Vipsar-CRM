@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
+import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { errorMessage } from '../lib/errorMessage'
 
 const SOURCE_OPTIONS = [
@@ -15,18 +16,45 @@ const SOURCE_LABELS = Object.fromEntries(SOURCE_OPTIONS.map((o) => [o.value, o.l
 
 function LeadQuickCapture() {
   const { employee } = useAuth()
+  const isCoordinator = employee?.role === 'sales_coordinator'
 
   const [sourceType, setSourceType] = useState(null)
   const [clientParty, setClientParty] = useState(null)
   const [siteNickname, setSiteNickname] = useState('')
   const [otherParty, setOtherParty] = useState(null)
+  // A coordinator owns no leads of their own — this picks who the lead is
+  // actually for, and that exec's id is what gets written to
+  // owner_employee_id (never the coordinator's). Deliberately not reset by
+  // resetForm/"Capture another lead": a coordinator entering several leads
+  // in a row is almost always doing it for the same exec who just called in.
+  const [teamExecs, setTeamExecs] = useState([])
+  const [teamExecsLoaded, setTeamExecsLoaded] = useState(!isCoordinator)
+  const [forExec, setForExec] = useState(null)
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const [createdLead, setCreatedLead] = useState(null)
 
+  useEffect(() => {
+    if (!isCoordinator) return
+    let active = true
+    fetchMyTeamExecs(employee?.id).then(({ data }) => {
+      if (!active) return
+      setTeamExecs(data ?? [])
+      setTeamExecsLoaded(true)
+    })
+    return () => {
+      active = false
+    }
+  }, [isCoordinator, employee?.id])
+
+  const ownerEmployeeId = isCoordinator ? forExec?.id ?? null : employee?.id ?? null
+
   const canSubmit =
-    Boolean(sourceType) && Boolean(clientParty || siteNickname.trim() || otherParty) && !submitting
+    Boolean(sourceType) &&
+    Boolean(clientParty || siteNickname.trim() || otherParty) &&
+    (!isCoordinator || Boolean(forExec)) &&
+    !submitting
 
   function resetForm() {
     setSourceType(null)
@@ -49,7 +77,7 @@ function LeadQuickCapture() {
         .insert({
           nickname: siteNickname.trim(),
           discovered_via: sourceType,
-          discovered_by: employee?.id ?? null,
+          discovered_by: ownerEmployeeId,
         })
         .select('id')
         .single()
@@ -71,7 +99,7 @@ function LeadQuickCapture() {
       .insert({
         site_id: siteId,
         party_id: partyId,
-        owner_employee_id: employee?.id ?? null,
+        owner_employee_id: ownerEmployeeId,
         source_type: sourceType,
         referred_by_party_id: referredByPartyId,
         other_party_id: otherParty?.id ?? null,
@@ -138,6 +166,28 @@ function LeadQuickCapture() {
 
   return (
     <form className="vip-form vip-narrow vip-pad-sticky-footer" onSubmit={handleSubmit}>
+      {isCoordinator && (
+        <label className="vip-field">
+          Who is this for? *
+          {teamExecsLoaded && teamExecs.length === 0 ? (
+            <p className="vip-form-note">You have no sales executives assigned to you yet.</p>
+          ) : (
+            <select
+              className="vip-select"
+              value={forExec?.id ?? ''}
+              onChange={(e) => setForExec(teamExecs.find((ex) => String(ex.id) === e.target.value) ?? null)}
+            >
+              <option value="">{teamExecsLoaded ? '— Select an exec —' : 'Loading your team…'}</option>
+              {teamExecs.map((ex) => (
+                <option key={ex.id} value={ex.id}>
+                  {ex.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </label>
+      )}
+
       {/* Source first — the only required field, see the mobile handoff's
           reordering rationale (README's New Lead section). */}
       <div className="vip-stack-s">
@@ -161,6 +211,7 @@ function LeadQuickCapture() {
         defaultPartyType="client"
         typeOptions={['client']}
         onSelect={setClientParty}
+        createdByEmployeeId={ownerEmployeeId}
       />
 
       <label className="vip-field">
@@ -178,6 +229,7 @@ function LeadQuickCapture() {
         defaultPartyType="architect"
         typeOptions={['architect', 'builder', 'pmc', 'other']}
         onSelect={setOtherParty}
+        createdByEmployeeId={ownerEmployeeId}
       />
 
       {submitError && <p className="vip-error" role="alert">{submitError}</p>}

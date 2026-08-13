@@ -165,6 +165,11 @@ export function fetchLossReasons() {
   return supabase
     .from('loss_reasons')
     .select(
-      'id, lead_id, reason, competitor_name, lost_at, leads(order_value, quote_value, parties!party_id(name), employees!owner_employee_id(name))'
+      // current_stage is embedded so the caller can drop rows whose lead has
+      // since been REOPENED — see Dashboard.jsx's filter and DECISIONS.md's
+      // Phase 9 ruling. loss_reasons is append-only, so the row survives the
+      // reopening and the table alone cannot tell you whether the lead is
+      // still lost.
+      'id, lead_id, reason, competitor_name, lost_at, leads(current_stage, order_value, quote_value, parties!party_id(name), employees!owner_employee_id(name))'
     )
 }

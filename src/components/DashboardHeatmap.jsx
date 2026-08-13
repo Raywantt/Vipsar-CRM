@@ -33,8 +33,13 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, ran
   const navigate = useNavigate()
   const orderActuals = computeOrderValueActuals(wonStageHistory, range, true)
 
+  // The grid's column count is published to CSS rather than duplicated in the
+  // stylesheet. COLS is derived from ACTIVITY_METRIC_OPTIONS, which has changed
+  // once already; a hardcoded track count in vipsar-theme.css silently fell out
+  // of step with it and left every row ending in an empty column. Setting it
+  // here means the two cannot diverge again. (Phase 9 finding F-P3-2.)
   return (
-    <div className="vip-dd-heatmap">
+    <div className="vip-dd-heatmap" style={{ '--vip-heatmap-cols': COLS.length }}>
       <div className="vip-dd-heatmap-row vip-dd-heatmap-head">
         <div className="vip-dd-heatmap-rowlabel">Sales exec</div>
         {COLS.map((c) => (

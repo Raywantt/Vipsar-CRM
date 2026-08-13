@@ -31,13 +31,15 @@ function BottomNav() {
   // broke: a coordinator was shown the Activity Log link and the FAB's Log
   // Activity row, both of which route to /activity — a sales_executive-only
   // route that bounces them straight back to Home. A coordinator owns no
-  // leads or activities of their own, so neither entry point applies.
-  // Creating records on a team member's behalf is a Phase 4 flow with its own
-  // exec picker; until that exists the coordinator gets no FAB at all rather
-  // than one opening a sheet with nothing usable in it.
+  // leads or activities of their own, so neither the sidebar's own-data
+  // shortcut nor a bare "New Lead"/"Activity Log" nav link applies to them —
+  // those still stay exec/owner-only below. The FAB is different: both rows
+  // it opens now carry their own mandatory "Who is this for?" exec picker
+  // (Phase 4's entry-on-behalf flow), so a coordinator gets the FAB too.
   const canLogActivity = employee?.role === 'sales_executive'
   const canCreateOwnLead = employee?.role === 'sales_executive' || employee?.role === 'owner'
-  const showFab = canLogActivity || canCreateOwnLead
+  const isCoordinator = employee?.role === 'sales_coordinator'
+  const showFab = canLogActivity || canCreateOwnLead || isCoordinator
 
   const onLeadsTab = location.pathname === '/dashboard' && new URLSearchParams(location.search).get('tab') === 'leads'
   const dashboardClass = !onLeadsTab && location.pathname === '/dashboard' ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
@@ -131,7 +133,11 @@ function BottomNav() {
         </Link>
       </nav>
       {sheetOpen && (
-        <FabSheet canCreateLead={canCreateOwnLead} canLogActivity={canLogActivity} onClose={() => setSheetOpen(false)} />
+        <FabSheet
+          canCreateLead={canCreateOwnLead || isCoordinator}
+          canLogActivity={canLogActivity || isCoordinator}
+          onClose={() => setSheetOpen(false)}
+        />
       )}
     </>
   )

@@ -30,6 +30,12 @@ function LeadActivityTimeline({ activities, stageHistory, ownerHistory = [] }) {
       byId: a.employee_id,
       notes: a.notes,
       accompaniedBy: a.accompanied_by_employee?.name,
+      // Set only when a sales_coordinator entered this on the exec's behalf
+      // (logged_by_employee_id != employee_id) — see migration_coordinator_entry.sql.
+      loggedByCoordinator:
+        a.logged_by?.role === 'sales_coordinator' && a.logged_by_employee_id !== a.employee_id
+          ? a.logged_by.name
+          : null,
     })),
     ...ownerHistory.map((h) => ({
       key: `owner-${h.id}`,
@@ -60,6 +66,7 @@ function LeadActivityTimeline({ activities, stageHistory, ownerHistory = [] }) {
               <div className="vip-timeline-by">
                 {entry.byId ? <Link to={`/employees/${entry.byId}`}>{entry.by}</Link> : entry.by}
                 {entry.accompaniedBy ? ` · with ${entry.accompaniedBy}` : ''}
+                {entry.loggedByCoordinator ? ` · logged by sales coordinator ${entry.loggedByCoordinator}` : ''}
               </div>
             </div>
           </div>
