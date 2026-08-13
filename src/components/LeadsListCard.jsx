@@ -6,7 +6,7 @@ import { STALE_DAYS } from '../lib/attention'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
 import { formatCurrencyCompact } from '../lib/format'
-import { dealValueFor } from '../lib/pipelineValue'
+import { dealValueFor, dealValueOrNull } from '../lib/pipelineValue'
 import EmployeeLink from './EmployeeLink'
 import { errorMessage } from '../lib/errorMessage'
 
@@ -51,6 +51,15 @@ function formatValueChip(min, max) {
 // check and so silently denied a coordinator the owner facet.
 // `title` is passed in rather than derived here, so this card and AppNav's
 // header can't end up calling the same list two different things.
+// A single lead's value for DISPLAY. dealValueOrNull returns null when the lead
+// carries neither a quote nor an order value, and an unpriced deal must read
+// '—' rather than ₹0 — see pipelineValue.js. Group and header totals keep using
+// dealValueFor, because summing genuinely does treat an unknown value as zero.
+function formatLeadValue(lead) {
+  const v = dealValueOrNull(lead)
+  return v == null ? '—' : formatCurrencyCompact(v)
+}
+
 function LeadsListCard({ showOwnerFilter, employees, title }) {
   const [employeeFilter, setEmployeeFilter] = useState('')
   const [stageFilter, setStageFilter] = useState('')
@@ -415,7 +424,7 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
                         </div>
                       </div>
                       <div className="vip-lead-row-side">
-                        <div className="vip-lead-row-value">{formatCurrencyCompact(dealValueFor(lead))}</div>
+                        <div className="vip-lead-row-value">{formatLeadValue(lead)}</div>
                         <div className={recency.isStale ? 'vip-lead-row-recency vip-stale' : 'vip-lead-row-recency'}>{recency.label}</div>
                       </div>
                     </Link>
@@ -480,7 +489,7 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
                     <span className="vip-leadrow-cell">
                       {SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type ?? '—'}
                     </span>
-                    <span className="vip-leadrow-num">{formatCurrencyCompact(dealValueFor(lead))}</span>
+                    <span className="vip-leadrow-num">{formatLeadValue(lead)}</span>
                     <span className={recency.isStale ? 'vip-leadrow-recency vip-stale' : 'vip-leadrow-recency'}>
                       {recency.label}
                     </span>

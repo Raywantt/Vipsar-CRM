@@ -9,7 +9,7 @@ import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQuerie
 import { fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
 import { fetchFollowUpsForEmployee, markFollowUpDone } from '../lib/followUpQueries'
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
-import { computeAttentionBuckets } from '../lib/attention'
+import { computeAttentionBuckets, STALE_DAYS, ATTENTION_DAYS } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageChipClass } from '../lib/statusColors'
@@ -17,6 +17,7 @@ import { stageLabel } from '../lib/leadStageOptions'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
 import { parseTimestamp } from '../lib/dbTime'
+import { todayISO } from '../lib/followupDates'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
 import { errorMessage } from '../lib/errorMessage'
@@ -60,8 +61,13 @@ function pctColor(p) {
   return p >= 100 ? GOOD : p >= 75 ? OK : BAD
 }
 
+// Reads the shared constants rather than repeating their values. Same fix
+// LeadDetail's health pill got on 2026-08-10; this call site was missed. The
+// numbers are identical today, so nothing renders differently — but retuning
+// STALE_DAYS or ATTENTION_DAYS would otherwise have left this one screen
+// confidently colouring by the old thresholds.
 function touchColor(days) {
-  return days >= 14 ? BAD : days >= 7 ? OK : GOOD
+  return days >= ATTENTION_DAYS ? BAD : days >= STALE_DAYS ? OK : GOOD
 }
 
 function leadTitle(lead) {
@@ -386,7 +392,10 @@ function EmployeeProfile() {
     .map((l) => {
       const lastAt = lastActivityByLead.get(l.id) ?? l.created_at
       const days = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000)
-      const overdueFollowup = l.next_followup_date && new Date(l.next_followup_date).getTime() < Date.now()
+      // Calendar comparison on a DATE column — see attention.js's note. Parsing
+      // a date-only string gives UTC midnight (05:30 IST), so comparing it to an
+      // instant marked a follow-up due TODAY as overdue for most of the day.
+      const overdueFollowup = l.next_followup_date && l.next_followup_date < todayISO()
       const nextStep = l.next_followup_date && !overdueFollowup
         ? `Follow-up ${new Date(l.next_followup_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`
         : overdueFollowup
@@ -667,6 +676,9 @@ function EmployeeProfile() {
                           <span className="vip-dd-log-party">{a.leads ? leadTitle(a.leads) : ''}</span>
                         </span>
                         {a.notes && <span className="vip-dd-log-notes">{a.notes}</span>}
+                        {a.logged_by?.role === 'sales_coordinator' && a.logged_by_employee_id !== execId && (
+                          <span className="vip-dd-log-notes">Logged by sales coordinator {a.logged_by.name}</span>
+                        )}
                       </span>
                     </Link>
                   ))

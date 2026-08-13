@@ -311,8 +311,13 @@ function Home() {
         {myDay?.firstActivityAt && <span className="vip-day-head-note">since {myDay.firstActivityAt}</span>}
       </div>
 
+      {/* vip-dd-kpi-grid-4 is required: the base class is repeat(6) above
+          1024px for the Dashboard's six-tile KPI row, and this strip has four.
+          Without it the row ended a third empty. DayReviewHeader's own four-tile
+          strip already carried the modifier; this one, added in the same pass,
+          did not. (Phase 9 finding F-P3-1.) */}
       {myDay && (
-        <div className="vip-dd-kpi-grid">
+        <div className="vip-dd-kpi-grid vip-dd-kpi-grid-4">
           {doneTiles.map((t) => (
             <div key={t.label} className="vip-dd-kpi-tile vip-dd-kpi-static">
               <span className="vip-dd-kpi-label">{t.label}</span>

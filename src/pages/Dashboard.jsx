@@ -334,7 +334,22 @@ function Dashboard() {
     let active = true
     fetchLossReasons().then(({ data, error }) => {
       if (!active) return
-      if (!error) setLossReasons(data ?? [])
+      // COUNT ONLY CURRENTLY-LOST LEADS (owner's ruling, 2026-08-13 — Q-P1-3).
+      //
+      // loss_reasons is append-only: there is no DELETE grant or policy for
+      // anyone, including the owner. So a lead marked lost and later reopened
+      // keeps its loss reason forever, and "Why we lose" used to keep counting
+      // it — which is why the card totalled higher than the `lost` count on
+      // Pipeline by stage (29 rows against 26 lost leads in the Phase 9 audit
+      // data). The two readings were "count every loss EVENT" and "count
+      // currently-lost LEADS"; the owner chose the latter, so a recovered deal
+      // stops being reported as a loss.
+      //
+      // Filtered HERE, once, rather than inside the card — the same array feeds
+      // LossReasonsCard and buildLossPanel, so filtering at the source is what
+      // guarantees the compact card and its drill-down can never disagree.
+      const stillLost = (data ?? []).filter((row) => row.leads?.current_stage === 'lost')
+      if (!error) setLossReasons(stillLost)
     })
     return () => {
       active = false

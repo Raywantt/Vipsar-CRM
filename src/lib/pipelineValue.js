@@ -12,9 +12,33 @@ export function isOpenLead(lead) {
   return !CLOSED_STAGES.includes(lead.current_stage ?? 'calling')
 }
 
+// The raw figure a lead contributes to a SUM. Coerces an unknown value to 0,
+// which is correct for adding up — a lead nobody has quoted contributes
+// nothing to the pipeline total.
+//
+// DO NOT use this to DISPLAY a single lead's value. Use dealValueOrNull below.
 export function dealValueFor(lead) {
   if (isOpenLead(lead)) return Number(lead.quote_value ?? 0)
   return Number(lead.order_value ?? lead.quote_value ?? 0)
+}
+
+// The same rule, but honest about "not known yet": returns null instead of 0
+// when the lead carries no value at all.
+//
+// The two exist separately on purpose. Summing needs 0; displaying needs to
+// distinguish "this deal is worth nothing" from "nobody has priced this yet",
+// and rendering the second as ₹0 is a factual claim the data does not support.
+// The canonical rule has always been explicit — "never a fabricated 0; a lead
+// with neither value renders —" — but every per-lead display site read
+// dealValueFor() and printed ₹0, which on real pilot data meant the great
+// majority of rows in All Leads. (Phase 9 finding F-P4-2.)
+//
+// Changing dealValueFor() itself to return null was the obvious-looking fix and
+// is the wrong one: sumOpenPipelineValue and the four category-breakdown cards
+// all add its result, and null would silently poison every total.
+export function dealValueOrNull(lead) {
+  const raw = isOpenLead(lead) ? lead.quote_value : (lead.order_value ?? lead.quote_value)
+  return raw == null || raw === '' ? null : Number(raw)
 }
 
 export function sumOpenPipelineValue(leads) {

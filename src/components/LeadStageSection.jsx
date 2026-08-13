@@ -164,6 +164,13 @@ function LeadStageSection({ lead, leadTitle, onStageChanged }) {
     setSavingLoss(true)
     setLossError(null)
 
+    // DO NOT add .select() here. loss_reasons INSERT is open to any active
+    // employee, but its SELECT is owner-only — and Postgres applies the SELECT
+    // policy to an INSERT's RETURNING clause, which is what supabase-js emits
+    // for .insert().select(). Asking for the row back would therefore fail with
+    // 42501 for a sales executive or coordinator while the plain insert
+    // succeeds, breaking "mark this lead lost" for everyone except the owner.
+    // Measured during the Phase 9 seed, which hit exactly this. (F-P2-1.)
     const { error } = await supabase.from('loss_reasons').insert({
       lead_id: lead.id,
       reason: lossReason,
