@@ -2675,3 +2675,58 @@ heatmap. Recorded rather than quietly dropped.
 
 **Phase 9 is complete. Remaining items are the ones deliberately deferred, all
 recorded in CLAUDE.md's Open TODOs.**
+
+---
+
+## Teardown — COMPLETE and independently verified
+
+**Date: 2026-08-13.** `phase9_teardown.sql` run by the owner in the Supabase SQL
+Editor, followed by the manual `auth.users` cleanup.
+
+**Verified against the live database rather than the script's own output**, per
+the standing rule this audit has followed throughout — a pasted result is a
+claim, not a measurement.
+
+### Database: exact restore of the Phase 0 baseline
+
+All 16 tables re-counted through a real authenticated owner session and compared
+against `seed_manifest.json`'s recorded `baseline_row_counts`:
+
+**EXACT MATCH on all 16.** `employees` = 1, every other table = 0.
+
+**2,937 rows removed** — the 2,712 the manifest tracked, plus the 225
+trigger-written `lead_change_log` rows the application could never have written
+or deleted itself.
+
+### Auth: 8 removed, 1 preserved
+
+Queried through the Admin API: **`auth.users` now holds exactly one account**,
+and it is `1c1c072a-51d5-4027-a592-c79e3c3d46f8` — the owner's own login. All
+eight `@vipsar-sim.test` accounts are gone, with no orphans left behind.
+
+### What survives, deliberately
+
+The seeded data is gone; **the means to recreate it is not**. `simulation_plan.json`
+(deterministic, PRNG seed 20260812), `phase9/seed.mjs` and the whole verification
+harness are committed. Re-seeding reproduces the identical 2,712 rows — the only
+extra step is clearing `seed_manifest.json`'s `rows_created` / `auth_users_created`
+first, since the seeder is manifest-driven and would otherwise skip everything as
+already done.
+
+**Expected consequence, not a regression:** every Phase 9 E2E suite now fails,
+because it needs both the data and the eight logins. `phase9/verify_seed.mjs`,
+`reconcile*.mjs` and `security-audit.mjs` are all in the same position. They are
+kept for the next time this exercise is run, not because they can run today.
+
+### Still outstanding for the owner
+
+**Rotate the `service_role` key** (Dashboard → Settings → API → Reset), as
+`.env.phase9` says. It is a full RLS bypass and has been in a local file for the
+duration of this audit. Nothing in the repo depends on it — `.env.phase9` is
+git-ignored and was never committed — so rotating it breaks nothing except the
+Phase 9 tooling, which now has no data to run against anyway. `.env.phase9`
+itself can be deleted at the same time.
+
+---
+
+**Phase 9 is closed.**

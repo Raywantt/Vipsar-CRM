@@ -11198,5 +11198,12 @@
     },
     "verified_independently": "phase9/verify_seed.mjs — 225/225 rows carry the intended timestamp, 0 still stamped at seeding time, 0 unmatched. changed_by populated on all 225 (no NULLs), so every row is attributable to a real employee on the Day Review.",
     "note": "Required because lead_change_log.changed_at is written by an AFTER trigger from DEFAULT now() and the table REVOKEs UPDATE from authenticated — no application session can correct it."
+  },
+  "teardown": {
+    "status": "COMPLETE",
+    "at": "2026-08-13",
+    "rows_removed": 2937,
+    "verified": "Independently re-counted via a real owner session; all 16 tables EXACT MATCH against baseline_row_counts. auth.users re-queried via Admin API: 1 account remains (the owner). No orphans.",
+    "note": "rows_created/auth_users_created below are the historical record of what WAS seeded. To re-seed, clear both first — phase9/seed.mjs is manifest-driven and skips anything already listed."
   }
 }
