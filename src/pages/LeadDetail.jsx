@@ -19,14 +19,12 @@ import { getInitials } from '../lib/initials'
 import { STALE_DAYS, ATTENTION_DAYS } from '../lib/attention'
 import { formatCurrency, formatCurrencyCompact } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
+import { SOURCE_TYPE_LABELS as SOURCE_LABELS } from '../lib/sourceTypeOptions'
 
-const SOURCE_LABELS = {
-  scanning: 'Scanning',
-  lixil: 'Lixil',
-  referral_architect: 'Architect referral',
-  referral_other: 'Other referral',
-  showroom_walkin: 'Showroom walk-in',
-}
+// Was a fourth hand-rolled copy of the source labels, which had already
+// drifted ('Other referral' vs the shared list's own wording). One list now —
+// src/lib/sourceTypeOptions.js — so splitting or renaming a source can't leave
+// this page saying something different from the dashboard.
 
 // Stage-default probability when closure_probability hasn't been set
 // explicitly on the lead (DATA_CONTRACT.md §4) — adapted to this app's own

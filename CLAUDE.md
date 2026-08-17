@@ -400,7 +400,11 @@ approximation of it.** Concretely:
   app shell (see PWA installability below). `vite.config.js`'s
   `workbox.globPatterns` includes `woff2` for this.
 * **Header** (`AppNav.jsx`) — a per-route title + sub (a small
-  `ROUTE_HEADERS` lookup), a back button
+  `ROUTE_HEADERS` lookup — **a sub describes the screen as it is now; check it
+  still holds when a screen's rules change.** `/leads/new`'s read "Fill any one
+  field" long after source and office territory became required, and it now
+  states the reading rule, "Required fields are marked *", rather than listing
+  fields that move with the chosen source), a back button
   (`vip-iconbtn`) on every route except `src/lib/tabRoutes.js`'s
   `TAB_ROUTES` (`/`, `/search`, `/dashboard` — the Mobile redesign's 4-tab
   bar's routes, see that section; the same set also drives
@@ -787,7 +791,12 @@ HTML.
   would break duplicate checking across reps. Takes a `typeOptions` prop
   (default: all six `party_type` values) that narrows the create form's
   Type dropdown; a single-value list (e.g. `['client']`) hides the Type
-  field entirely and uses that value directly.
+  field entirely and uses that value directly. A `required` prop draws the
+  ` *` marker the rest of a form's required fields use — **pass that rather
+  than appending an asterisk to `label`**, because `label` is also spoken in
+  two places an asterisk reads as a typo: the create form's "New {label}"
+  heading and the "+ Add new {label.toLowerCase()} …" button. It's a marker
+  only; the caller's own Save gate still does the enforcing.
 * `SiteSearchOrCreate` — Area picked first (from `areas`), then debounced
   search on `sites.locality`/`house_no` scoped to that `area_id`; site_stage
   is a preset dropdown + "Other…" free text (deliberately not a CHECK enum).
@@ -951,13 +960,15 @@ exactly the reporting the field exists for.
   mode). The consequence, and it's the point of the field rather than a side
   effect: **a scanning lead now always creates its `sites` row**, nickname or
   not (`sites.nickname` is nullable, and the site's remaining fields get
-  filled from Lead Detail later anyway). The site insert's guard is
-  `siteNickname.trim() || resolvedSiteStage`, and `resolvedSiteStage` is
+  filled from Lead Detail later anyway). `resolvedSiteStage` is
   computed once — next to `canSubmit`, not again at submit time — because a
   required field whose emptiness is decided twice eventually disagrees with
   its own button. It's gated on `isScanning` so a stage picked and then
   abandoned by switching source can't be written by a lead that never showed
   the field. **No migration**: `site_stage` is free text with no CHECK.
+  (**Superseded 2026-08-17**: the site insert has no guard at all now — *every*
+  lead creates a `sites` row, not just scanning ones. See the Site nickname
+  bullet below for why that had to change.)
 
 **Verified live** at both widths for all three roles (2026-08-13, the same
 three-port setup): territory renders and selects for every role, 4-up at
@@ -1026,9 +1037,57 @@ above was driven by dispatching real DOM click/input/change events, which do
 run React's own handlers, rather than by synthetic pointer input. Same class
 of sandbox limitation Phase 9's TODO 1 already records at 375px.
 
-* Quick-select maps to `source_type`/`discovered_via` as
-  `scanning`/`lixil`/`referral_architect` only — `referral_other`/
-  `showroom_walkin` aren't reachable here.
+* **Referrals are split into two sources** (2026-08-17, at the owner's
+  direction): **Referral** (`referral_other` — a client sending a neighbour, a
+  builder passing a job along) and **Architect referral**
+  (`referral_architect`). These were one button before, writing
+  `referral_architect` for every referral regardless of who sent it. **No
+  migration was needed** — both values were already in `leads.source_type`'s
+  CHECK; only the UI changed. The pre-split test leads all sit at
+  `referral_architect` and the owner's ruling was to leave them ("old database
+  is just test db"), so **a referral lead created before this date is not
+  evidence it came from an architect**. `showroom_walkin` still isn't reachable
+  here (4 of the 5 values are). The tap-select uses `.vip-choice-grid`, not
+  `.vip-choice-row`, for the same fourth-option reason territory does.
+* **"Referral from"** — a required `PartySearchOrCreate` on both referral
+  sources, writing `leads.referred_by_party_id`. On an **architect referral**
+  it's locked to `typeOptions={['architect']}`, so a name typed here is created
+  as a real architect party (a single-value list hides the Type dropdown
+  entirely); a general referral offers `client`/`builder`/`pmc`/`other`,
+  **deliberately not `architect`** — that's what the other source is for, and
+  offering it would let one thing be logged two ways and blur the split the
+  source exists to make. This **replaced** the old rule that set
+  `referred_by_party_id` only when a `referral_architect` lead had *both* a
+  client and an "other" party — a workaround for there being no field meaning
+  "who referred this", which is now exactly what this field means. The referrer
+  is linked whether or not a client is on the lead. Marked with `required` on
+  `PartySearchOrCreate` (see that component's bullet) so it carries the same
+  ` *` every other required field on the form does — it was the one required
+  field with no marker.
+  **`key={sourceType}` on that picker is load-bearing**: flipping between the
+  two referral sources swaps its `typeOptions` under an already-selected party,
+  and unlike the create-form's own type (which `PartySearchOrCreate` clamps), a
+  *selected* party isn't re-validated — so a `client` referrer could otherwise
+  survive onto an architect referral. `selectSource()` clears the parent's copy
+  for the same reason. Verified live: switching sources empties the field.
+* **"Other's name" stays on both referral sources**, but drops `architect` from
+  its type list (and its label) on architect referral only — the architect is
+  the referrer above, so offering the type again is a second place to record
+  the same person, and one that wouldn't reach `referred_by_party_id`.
+  `defaultPartyType="architect"` falling out of range there is handled by
+  `PartySearchOrCreate`'s existing clamp.
+* **Firm** (architect referral only) — an always-visible text box under
+  "Referral from", written to the **architect's own `parties.firm_name`**, not
+  to the lead. Shown whether the architect is new or already on file, which is
+  the point: `showFirmName` only ever revealed a firm box while *creating* a
+  party, so an existing architect's firm could never be filled in. Disabled
+  until a referrer is picked (it has nowhere to save otherwise). Pre-filled
+  from that architect's stored firm and **skipped when unchanged**, so
+  re-picking a known architect fires no write. Same post-insert placement and
+  the same mandatory `.select()` as the address side effect — `parties` UPDATE
+  is "own data (`created_by`) or owner role", so an architect another rep added
+  matches zero rows, and an RLS-rejected UPDATE without `.select()` returns no
+  error at all. Both failure paths surface as warnings on the success card.
 * Client name and Other's name each use their own `PartySearchOrCreate`.
   Client name passes `typeOptions={['client']}` — they're always a client,
   so the Type field doesn't show at all. Other's name passes
@@ -1037,23 +1096,80 @@ of sandbox limitation Phase 9's TODO 1 already records at 375px.
   the Client name field is for) and `firm` (not a realistic "other" on this
   screen); `pmc` was added as a `party_type` value specifically for this
   field, matching its label ("architect / PMC / anyone else").
-* Site nickname is a direct insert of `{nickname, discovered_via,
-  discovered_by}` (not via `SiteSearchOrCreate` — nicknames are free text,
-  nothing structured to search yet); `LeadDetail`'s Site details section is
-  where the structured `sites` fields get filled in later.
-* `party_id` = client's party if given, else other's party.
-  `referred_by_party_id` is set only when source is `referral_architect`
-  **and** both a client and other party exist — otherwise NULL even if an
-  "other" party was resolved (it's still created, just not linked to this
-  lead). Deliberate edge case — don't add extra linking logic without
-  checking with the user first.
+* **Site nickname is scanning-only** (2026-08-17, at the owner's direction) —
+  a rep who walked past a site can describe it; a Lixil or referral lead
+  arrives as a phone call about a site nobody has seen. It's a direct insert of
+  `{nickname, discovered_via, discovered_by}` (not via `SiteSearchOrCreate` —
+  nicknames are free text, nothing structured to search yet); `LeadDetail`'s
+  Site details section is where the structured `sites` fields get filled later.
+* **EVERY lead creates a `sites` row now**, unconditionally — even Lixil and
+  referral leads, which are asked no site question at all. **This is
+  load-bearing, not tidiness.** Nothing anywhere in the app can create a site
+  *after* capture: `SiteDetailsSection` and `AdditionalContactsSection` only
+  ever UPDATE an existing row and are rendered as `site && …` (and `site` only
+  loads when the lead has a `site_id`), and `ActivityLog`'s Site Visit stage
+  picker is gated on `selectedLead.sites?.id`. So a lead saved without a site
+  row could never get a stage, locality, area or site contact for the rest of
+  its life — which, once site nickname went scanning-only, would have been
+  every Lixil and referral lead. Both columns are nullable, so the row is an
+  honest empty record the rep fills in after the first visit, **not** a stage
+  guessed at capture about a site nobody has seen. Verified live on lead #162
+  (an architect referral, no site field ever shown): its Lead Detail renders a
+  Site details card with a working Site stage dropdown. Consequence for
+  reporting: those leads count under **"Not set"** on Dashboard's "Leads by
+  site stage", not "No site". If a future change reintroduces a guard here,
+  it must come with a way to create a site from Lead Detail.
+* `party_id` = client's party if given, else the referrer, else other's party.
+  `referred_by_party_id` is the "Referral from" party on either referral
+  source (see that bullet above). It used to be set only when the source was
+  `referral_architect` **and** both a client and other party existed — NULL even
+  if an "other" party was resolved. That was a workaround for having no field
+  that meant "who referred this"; "Referral from" is now that field, so the
+  extra condition is gone rather than merely relaxed.
 * `leads.other_party_id` (distinct from `referred_by_party_id`) is always set
   when an "other" party is resolved, regardless of source — purely so
   `LeadDetail` can later suggest linking that party as a site contact, even
   in the non-referral case where they'd otherwise be untraceable.
 * No DB transaction wraps the site+lead inserts — if the site succeeds but
   the lead fails, the site row is orphaned (error message surfaces the site
-  id, but nothing auto-cleans up).
+  id, but nothing auto-cleans up). Now that the site insert is unconditional,
+  that's the only failure shape here rather than one of two.
+
+**Verified live 2026-08-17** (the referral split, all three roles at 1440px and
+375px on the three-port setup, real sessions): four sources render 4-up at
+desktop and a clean 2×2 at 375px with no clipped label — "Architect referral"
+included — and no horizontal page scroll. Per-source field stacks confirmed for
+every role: Scanning keeps Address/Site nickname/Site stage; **Lixil shows no
+site field at all**; Referral adds "Referral from" and keeps `architect` in
+Other's name; Architect referral adds "Referral from" + Firm and drops
+`architect` from Other's name. The referrer picker's type list was confirmed
+hidden (locked to `architect`) on architect referral and
+`client`/`builder`/`pmc`/`other` on general referral, and the picker was
+confirmed to clear when the source flips between them. **The save path was
+exercised end to end**: lead **#162** (architect referral, referrer *Ar Zzq
+Testcase 17Aug*, firm *Zzq Test Associates*) saved clean with no warnings; the
+referrer was really created as `party_type = 'architect'`; the firm really
+landed on `parties.firm_name` (confirmed by re-searching the architect, whose
+result row now reads `architect · Zzq Test Associates` and which pre-fills the
+Firm box on re-selection); Lead Detail reads the source as "Architect referral"
+and **does** render a Site details card; and Dashboard's "New leads by source"
+splits correctly (`Referral 0` / `Architect referral 1`). **Live test rows to
+clean up when convenient**: lead #162, its `sites` row, and the party *Ar Zzq
+Testcase 17Aug* — owner-owned, deletable from the Supabase dashboard (there's
+no in-app lead delete, see the Profile section).
+
+**Copy/marker consistency pass** (same day, straight after): the header sub and
+the `required` marker were brought in line with what the form actually enforces
+— see the Design system's Header bullet and `PartySearchOrCreate`'s own. Both
+re-verified live at 375px and 1440px: the sub reads "Required fields are marked
+*", "Referral from *" carries the marker on both referral sources, and the two
+strings that must **not** gain one didn't (`+ Add new referral from "…"`, and
+the "New Referral from" create heading). `required` defaults to false, so every
+other caller is untouched — confirmed on Activity Log's Architect Meeting
+picker, still a plain "Architect name". One redundancy left deliberately: the
+shared Mobile-number hint still opens with "optional," even though the header
+now implies it. That copy also renders on screens whose headers state no such
+rule, so it isn't safe to strip from the shared component alone.
 
 ### LeadDetail (`src/pages/LeadDetail.jsx`) — the Lead Profile
 
@@ -2334,9 +2450,14 @@ since it isn't part of the date-range-scoped report data.
 * `ACTIVITY_TYPES`/`ACTIVITY_LABELS` live in `src/lib/activityTypes.js`
   (canonical, kept in sync with the `activities.activity_type` CHECK) —
   `ActivityLog.jsx` imports from there instead of defining its own copy.
-  `src/lib/sourceTypeOptions.js` is the dashboard-only equivalent for the
-  full 5-value `source_type` CHECK list — `LeadQuickCapture`'s own
-  `SOURCE_OPTIONS` stays a deliberate 3-value subset. `formatCurrency` (INR,
+  `src/lib/sourceTypeOptions.js` is the equivalent for the full 5-value
+  `source_type` CHECK list, and since 2026-08-17 it's the **only** place a
+  source's display text is defined: `LeadQuickCapture` derives its 4-value
+  capture subset by filtering that list (`showroom_walkin` isn't loggable from
+  the app), and `LeadDetail` imports `SOURCE_TYPE_LABELS` rather than keeping
+  the fourth hand-rolled copy it used to — which had already drifted ("Other
+  referral" against the shared list's own wording). Add or rename a source in
+  one file. `formatCurrency` (INR,
   `₹` + `en-IN` grouping) lives in `src/lib/format.js`, shared by
   `ClosureForecastCard`/`TargetsVsActualsCard`/`LeadsListCard`.
 

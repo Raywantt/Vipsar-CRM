@@ -12,7 +12,11 @@ const ROUTE_HEADERS = {
   '/search': { title: 'Search', sub: 'Leads, parties, sites' },
   '/profile': { title: 'Profile' },
   '/dashboard': { title: 'Dashboard' },
-  '/leads/new': { title: 'New lead', sub: 'Fill any one field' },
+  // Not "Fill any one field" — that stopped being true once source, office
+  // territory, and (per source) site stage and referral-from became required.
+  // Which fields those are changes with the chosen source, so the sub states
+  // the rule for reading the form rather than listing fields that move.
+  '/leads/new': { title: 'New lead', sub: 'Required fields are marked *' },
   '/activity': { title: 'Log activity' },
   '/team': { title: 'My Team', sub: 'Your sales team' },
 }

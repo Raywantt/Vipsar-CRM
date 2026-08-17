@@ -6,21 +6,34 @@ import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { TERRITORY_OPTIONS, territoryLabel } from '../lib/territoryOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
+import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
 import { errorMessage } from '../lib/errorMessage'
 
 // Which party types the "Other's name" field offers. 'firm' (shown as
 // "architect firm") is scanning-only for now, at the owner's direction — the
 // referral case is theirs to look at later, so don't widen this without asking.
+//
+// On an architect referral 'architect' comes out of the list: the architect is
+// the referrer, captured by the "Referral from" field above it, so offering the
+// type here again is just a second place to record the same person — and one
+// that wouldn't reach referred_by_party_id.
 const OTHER_PARTY_TYPES = ['architect', 'builder', 'pmc', 'other']
 const OTHER_PARTY_TYPES_SCANNING = ['architect', 'firm', 'builder', 'pmc', 'other']
+const OTHER_PARTY_TYPES_ARCH_REFERRAL = ['builder', 'pmc', 'other']
 
-const SOURCE_OPTIONS = [
-  { value: 'scanning', label: 'Scanning' },
-  { value: 'lixil', label: 'Lixil' },
-  { value: 'referral_architect', label: 'Referral' },
-]
+// Who a general referral can come from. Deliberately excludes 'architect' —
+// that's what the Architect referral source is for, and allowing it here would
+// let the same thing be logged two ways, blurring the split the whole source
+// exists to make. On an architect referral the picker is locked to 'architect'
+// (a single-value list hides the Type dropdown entirely).
+const REFERRER_TYPES = ['client', 'builder', 'pmc', 'other']
+const REFERRER_TYPES_ARCHITECT = ['architect']
 
-const SOURCE_LABELS = Object.fromEntries(SOURCE_OPTIONS.map((o) => [o.value, o.label]))
+// The subset of SOURCE_TYPE_OPTIONS a rep can pick at capture — showroom_walkin
+// exists in the data and on the dashboard, but isn't something a rep logs from
+// this screen. Order matters: it's the on-screen order of the tap-select.
+const CAPTURE_SOURCES = ['scanning', 'lixil', 'referral_other', 'referral_architect']
+const SOURCE_OPTIONS = SOURCE_TYPE_OPTIONS.filter((o) => CAPTURE_SOURCES.includes(o.value))
 
 function LeadQuickCapture() {
   const { employee } = useAuth()
@@ -33,6 +46,8 @@ function LeadQuickCapture() {
   const [siteNickname, setSiteNickname] = useState('')
   const [siteStage, setSiteStage] = useState('')
   const [customSiteStage, setCustomSiteStage] = useState('')
+  const [referralFrom, setReferralFrom] = useState(null)
+  const [firmName, setFirmName] = useState('')
   const [otherParty, setOtherParty] = useState(null)
   // A coordinator owns no leads of their own — this picks who the lead is
   // actually for, and that exec's id is what gets written to
@@ -63,14 +78,19 @@ function LeadQuickCapture() {
 
   const ownerEmployeeId = isCoordinator ? forExec?.id ?? null : employee?.id ?? null
 
-  // The architect-firm options, the client address box and the site stage
-  // dropdown are scanning-only.
+  // The architect-firm options, the client address box, the site nickname and
+  // the site stage dropdown are all scanning-only. Site nickname earns its
+  // place there and nowhere else: a rep who just walked past a site can
+  // describe it ("in front of the Verka factory"), while a Lixil or referral
+  // lead arrives as a person on the phone with no site seen yet.
   const isScanning = sourceType === 'scanning'
+  const isArchReferral = sourceType === 'referral_architect'
+  const isReferral = isArchReferral || sourceType === 'referral_other'
 
   // Resolved here rather than at submit time so the same value gates the Save
   // button and gets written — a required field whose emptiness is computed
   // twice is a field that eventually disagrees with its own button. Gated on
-  // isScanning so a stage picked and then abandoned by switching source can't
+  // the source so a value picked and then abandoned by switching source can't
   // be written by a lead that never showed the field.
   const resolvedSiteStage = !isScanning
     ? null
@@ -78,13 +98,35 @@ function LeadQuickCapture() {
       ? customSiteStage.trim() || null
       : siteStage || null
 
+  const resolvedReferralFrom = isReferral ? referralFrom : null
+
   const canSubmit =
     Boolean(sourceType) &&
     Boolean(officeTerritory) &&
-    Boolean(clientParty || siteNickname.trim() || otherParty) &&
+    Boolean(clientParty || (isScanning && siteNickname.trim()) || resolvedReferralFrom || otherParty) &&
     (!isScanning || Boolean(resolvedSiteStage)) &&
+    (!isReferral || Boolean(resolvedReferralFrom)) &&
     (!isCoordinator || Boolean(forExec)) &&
     !submitting
+
+  // Changing the source clears the referrer rather than leaving it resolved-
+  // away in state. Switching Referral → Architect referral swaps the picker's
+  // typeOptions underneath a party that's already chosen, and the picked party
+  // isn't re-validated against the new list the way PartySearchOrCreate's own
+  // create-form type is — so a 'client' referrer could otherwise survive onto
+  // an architect referral. The `key` on that picker remounts it to match.
+  function selectSource(value) {
+    setSourceType(value)
+    setReferralFrom(null)
+    setFirmName('')
+  }
+
+  // The firm belongs to the architect, not the lead — so it follows whoever is
+  // selected, pre-filled from their record when they already have one. Keyed on
+  // the id so re-picking the same architect doesn't wipe an edit in progress.
+  useEffect(() => {
+    setFirmName(referralFrom?.firm_name ?? '')
+  }, [referralFrom?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function resetForm() {
     setSourceType(null)
@@ -94,6 +136,8 @@ function LeadQuickCapture() {
     setSiteNickname('')
     setSiteStage('')
     setCustomSiteStage('')
+    setReferralFrom(null)
+    setFirmName('')
     setOtherParty(null)
     setSubmitError(null)
     setWarnings([])
@@ -106,37 +150,48 @@ function LeadQuickCapture() {
     setWarnings([])
     setSubmitting(true)
 
-    // A site stage is enough on its own to justify a site row — site_stage
-    // lives on sites, and there is deliberately no leads.site_stage to fall
-    // back on: the Dashboard's "Leads by site stage" card, Site Visit's stage
-    // update in ActivityLog and Lead Detail's Site details all read and write
-    // this one column, so a second copy on leads would fork one fact into two
-    // that disagree. nickname is nullable, and the rep can name the site later
-    // from Lead Detail — which is also where the rest of its fields get filled.
-    let siteId = null
-    if (siteNickname.trim() || resolvedSiteStage) {
-      const { data, error } = await supabase
-        .from('sites')
-        .insert({
-          nickname: siteNickname.trim() || null,
-          site_stage: resolvedSiteStage,
-          discovered_via: sourceType,
-          discovered_by: ownerEmployeeId,
-        })
-        .select('id')
-        .single()
+    // EVERY lead gets a site row, even when nothing about the site was asked.
+    // This is load-bearing, not tidiness: SiteDetailsSection and
+    // AdditionalContactsSection only ever UPDATE an existing row and are
+    // rendered as `site && …`, and ActivityLog's Site Visit stage picker is
+    // gated on `selectedLead.sites?.id` — nothing anywhere in the app can
+    // create a site after capture. A lead saved without one could therefore
+    // never get a stage, locality, area or site contact for the rest of its
+    // life. Since site nickname is now scanning-only, that would be every
+    // Lixil and referral lead.
+    //
+    // site_stage lives on sites and there is deliberately no leads.site_stage
+    // to fall back on: Dashboard's "Leads by site stage" card, Site Visit's
+    // stage update and Lead Detail's Site details all read and write this one
+    // column, so a second copy on leads would fork one fact into two that
+    // disagree. Both columns are nullable — an unnamed, unstaged site is an
+    // honest empty record the rep fills in from Lead Detail after the first
+    // visit, not a guess made at capture about a site nobody has seen.
+    const { data: siteRow, error: siteError } = await supabase
+      .from('sites')
+      .insert({
+        nickname: isScanning ? siteNickname.trim() || null : null,
+        site_stage: resolvedSiteStage,
+        discovered_via: sourceType,
+        discovered_by: ownerEmployeeId,
+      })
+      .select('id')
+      .single()
 
-      if (error) {
-        setSubmitError(`Couldn't save the site: ${errorMessage(error)}`)
-        setSubmitting(false)
-        return
-      }
-      siteId = data.id
+    if (siteError) {
+      setSubmitError(`Couldn't save the site: ${errorMessage(siteError)}`)
+      setSubmitting(false)
+      return
     }
+    const siteId = siteRow.id
 
-    const partyId = clientParty?.id ?? otherParty?.id ?? null
-    const referredByPartyId =
-      sourceType === 'referral_architect' && clientParty && otherParty ? otherParty.id : null
+    const partyId = clientParty?.id ?? resolvedReferralFrom?.id ?? otherParty?.id ?? null
+    // The referrer is the referrer on both referral sources, whether or not a
+    // client is on the lead yet. This replaces the older rule that only linked
+    // one when an architect-referral lead had BOTH a client and an "other"
+    // party — that was a workaround for there being no field meaning "who
+    // referred this", which is now exactly what this field means.
+    const referredByPartyId = resolvedReferralFrom?.id ?? null
 
     const { data: lead, error: leadError } = await supabase
       .from('leads')
@@ -154,11 +209,10 @@ function LeadQuickCapture() {
 
     if (leadError) {
       setSubmitting(false)
-      setSubmitError(
-        siteId
-          ? `Site was saved (id ${siteId}), but the lead failed: ${errorMessage(leadError)}`
-          : `Couldn't save the lead: ${errorMessage(leadError)}`
-      )
+      // The site always exists by this point, so it's always orphaned when the
+      // lead fails — surfacing its id is the only trace of it the rep gets;
+      // nothing auto-cleans it up (no transaction wraps the two inserts).
+      setSubmitError(`Site was saved (id ${siteId}), but the lead failed: ${errorMessage(leadError)}`)
       return
     }
 
@@ -200,6 +254,32 @@ function LeadQuickCapture() {
       }
     }
 
+    // The firm is a property of the architect, not of this lead, so it's
+    // written onto the referrer's party row. Same shape as the address above,
+    // and the same RLS trap: parties UPDATE is "own data (created_by) or owner
+    // role", so an architect another rep added matches zero rows — and without
+    // .select() an RLS-rejected UPDATE returns no error at all, just a silent
+    // no-op. Skipped when the value is unchanged, so picking an architect whose
+    // firm is already on file and saving straight through fires no write.
+    if (isArchReferral && resolvedReferralFrom) {
+      const firm = firmName.trim()
+      if (firm !== (resolvedReferralFrom.firm_name ?? '')) {
+        const { data: updatedFirm, error: firmError } = await supabase
+          .from('parties')
+          .update({ firm_name: firm || null })
+          .eq('id', resolvedReferralFrom.id)
+          .select('id')
+
+        if (firmError) {
+          nextWarnings.push(`The lead saved, but the firm didn't: ${errorMessage(firmError)}`)
+        } else if (!updatedFirm?.length) {
+          nextWarnings.push(
+            `The lead saved, but the firm didn't — ${resolvedReferralFrom.name} was added by someone else, so you can't edit that record.`
+          )
+        }
+      }
+    }
+
     setWarnings(nextWarnings)
     setSubmitting(false)
     setCreatedLead(lead)
@@ -220,7 +300,7 @@ function LeadQuickCapture() {
           </div>
           <div>
             <div className="vip-fact-label">Source</div>
-            <div className="vip-fact-value">{SOURCE_LABELS[createdLead.source_type]}</div>
+            <div className="vip-fact-value">{SOURCE_TYPE_LABELS[createdLead.source_type]}</div>
           </div>
           {createdLead.office_territory && (
             <div>
@@ -234,13 +314,25 @@ function LeadQuickCapture() {
               <div className="vip-fact-value">{clientParty.name}</div>
             </div>
           )}
+          {resolvedReferralFrom && (
+            <div>
+              <div className="vip-fact-label">Referral from</div>
+              <div className="vip-fact-value">{resolvedReferralFrom.name}</div>
+            </div>
+          )}
+          {isArchReferral && firmName.trim() && (
+            <div>
+              <div className="vip-fact-label">Firm</div>
+              <div className="vip-fact-value">{firmName.trim()}</div>
+            </div>
+          )}
           {otherParty && (
             <div>
               <div className="vip-fact-label">Other</div>
               <div className="vip-fact-value">{otherParty.name}</div>
             </div>
           )}
-          {siteNickname && (
+          {isScanning && siteNickname && (
             <div>
               <div className="vip-fact-label">Site</div>
               <div className="vip-fact-value">{siteNickname}</div>
@@ -293,13 +385,17 @@ function LeadQuickCapture() {
           reordering rationale (README's New Lead section). */}
       <div className="vip-stack-s">
         <div className="vip-field-label">Where from *</div>
-        <div className="vip-choice-row">
+        {/* .vip-choice-grid, NOT .vip-choice-row — that row is a no-wrap flex
+            of `flex: 1` children, so a fourth option squeezes past its track
+            on a phone. Applied alone: pairing the two classes puts two
+            `display` declarations on one element at equal specificity. */}
+        <div className="vip-choice-grid">
           {SOURCE_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               className={sourceType === opt.value ? 'vip-choice vip-active' : 'vip-choice'}
-              onClick={() => setSourceType(opt.value)}
+              onClick={() => selectSource(opt.value)}
             >
               {opt.label}
             </button>
@@ -346,15 +442,63 @@ function LeadQuickCapture() {
         </label>
       )}
 
-      <label className="vip-field">
-        Site nickname
-        <input
-          className="vip-input"
-          value={siteNickname}
-          onChange={(e) => setSiteNickname(e.target.value)}
-          placeholder="e.g. site in front of Verka factory in Sarabha Nagar"
+      {/* Both referral sources ask who sent the lead. On an architect referral
+          the picker is locked to party_type 'architect' (a single-value
+          typeOptions list hides the Type dropdown), so a name typed here is
+          created as a real architect party — which is what makes it show up
+          as one everywhere else in the app, not just on this lead.
+
+          key={sourceType} remounts the picker when the source flips between
+          the two referral kinds: the offered types change, and a party already
+          selected isn't re-validated against the new list. selectSource()
+          clears the parent's own copy for the same reason. */}
+      {isReferral && (
+        <PartySearchOrCreate
+          key={sourceType}
+          label="Referral from"
+          required
+          defaultPartyType={isArchReferral ? 'architect' : 'client'}
+          typeOptions={isArchReferral ? REFERRER_TYPES_ARCHITECT : REFERRER_TYPES}
+          onSelect={setReferralFrom}
+          createdByEmployeeId={ownerEmployeeId}
         />
-      </label>
+      )}
+
+      {/* Shown for an architect referral whether the architect is new or one
+          already on file — the old behaviour only ever asked while creating a
+          new party, so an existing architect's firm could never be filled in
+          from here. Saved onto the architect's own record, not the lead. */}
+      {isArchReferral && (
+        <label className="vip-field">
+          Firm{' '}
+          <span className="vip-field-hint">
+            {referralFrom ? `optional, saved against ${referralFrom.name}` : 'pick the architect above first'}
+          </span>
+          <input
+            className="vip-input"
+            value={firmName}
+            onChange={(e) => setFirmName(e.target.value)}
+            disabled={!referralFrom}
+            placeholder="e.g. Kapoor & Associates"
+          />
+        </label>
+      )}
+
+      {/* Scanning-only: a rep who walked past a site can describe it, while a
+          Lixil or referral lead arrives as a phone call about a site nobody
+          has seen. The site row itself is still created for every lead (see
+          handleSubmit) — it's just unnamed until Lead Detail fills it in. */}
+      {isScanning && (
+        <label className="vip-field">
+          Site nickname
+          <input
+            className="vip-input"
+            value={siteNickname}
+            onChange={(e) => setSiteNickname(e.target.value)}
+            placeholder="e.g. site in front of Verka factory in Sarabha Nagar"
+          />
+        </label>
+      )}
 
       {/* Scanning-only and required: a rep standing at a site they just
           scanned can see what stage it's at, which is the whole point of
@@ -389,10 +533,25 @@ function LeadQuickCapture() {
         </>
       )}
 
+      {/* On an architect referral the label drops "architect" along with the
+          type — the architect is the referrer above, and a field still
+          offering them here would read as a second place to put the same
+          person. PartySearchOrCreate clamps defaultPartyType into whatever
+          list is offered, so 'architect' falling out of range is handled. */}
       <PartySearchOrCreate
-        label="Other's name (architect / PMC / anyone else)"
+        label={
+          isArchReferral
+            ? "Other's name (builder / PMC / anyone else)"
+            : "Other's name (architect / PMC / anyone else)"
+        }
         defaultPartyType="architect"
-        typeOptions={isScanning ? OTHER_PARTY_TYPES_SCANNING : OTHER_PARTY_TYPES}
+        typeOptions={
+          isScanning
+            ? OTHER_PARTY_TYPES_SCANNING
+            : isArchReferral
+              ? OTHER_PARTY_TYPES_ARCH_REFERRAL
+              : OTHER_PARTY_TYPES
+        }
         showFirmName={isScanning}
         onSelect={setOtherParty}
         createdByEmployeeId={ownerEmployeeId}

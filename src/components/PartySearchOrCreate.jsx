@@ -23,6 +23,13 @@ const SEARCH_DEBOUNCE_MS = 350
 // own id, the exec would have no standing edit rights on a party the
 // coordinator created for them.
 //
+// required only draws the " *" marker every other required field on a form
+// uses — it enforces nothing itself (the caller's own Save gate does that).
+// It's a separate prop rather than something the caller appends to `label`
+// because `label` is also spoken in two other places, where an asterisk reads
+// as a typo: the create form's "New {label}" heading and the
+// "+ Add new {label.toLowerCase()} …" button.
+//
 // showFirmName reveals a "Firm name" box (parties.firm_name) in the create
 // form, but only while the chosen Type is 'architect' — an architect is a
 // person who works under a firm, so both are worth having. It stays hidden for
@@ -32,6 +39,7 @@ function PartySearchOrCreate({
   label = 'Party',
   defaultPartyType = 'client',
   allowCreate = true,
+  required = false,
   typeOptions = DEFAULT_PARTY_TYPES,
   showFirmName = false,
   onSelect,
@@ -250,7 +258,7 @@ function PartySearchOrCreate({
   return (
     <div className="vip-stack-s">
       <label className="vip-field">
-        {label}
+        {required ? `${label} *` : label}
         <input
           className="vip-input"
           type="text"
