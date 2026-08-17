@@ -1,39 +1,56 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import PartySearchOrCreate from './PartySearchOrCreate'
+import { setPartyFirm } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
+
+// Only an individual architect belongs to a firm — a 'firm' party already is
+// one, and a client or builder doesn't have an architect practice behind them.
+// Same rule Log Activity and New Lead apply.
+const takesFirm = (party) => party?.party_type === 'architect'
 
 const ROLE_OPTIONS = ['owner', 'architect', 'builder', 'project_manager', 'site_staff', 'other']
 
-async function addSiteContact(siteId, partyId, role, firmName) {
+// The firm is a link to a real 'firm' party now, not a typed name — see
+// setPartyFirm and Schema/migration_architect_firm_link.sql. It's written
+// after the contact row so a failure there can't strand a half-made contact,
+// and it comes back as a warning rather than an error: the contact itself did
+// save. The old code fired an unchecked .update() with no .select(), which
+// under parties' "own data or owner role" RLS could silently no-op on a party
+// another rep added — the caller never knew.
+async function addSiteContact(siteId, party, role, firmParty) {
   const { data, error } = await supabase
     .from('site_contacts')
-    .insert({ site_id: siteId, party_id: partyId, role })
+    .insert({ site_id: siteId, party_id: party.id, role })
     .select('id, role, party_id')
     .single()
 
   if (error) return { error }
 
-  if (firmName.trim()) {
-    await supabase.from('parties').update({ firm_name: firmName.trim() }).eq('id', partyId)
-  }
+  const warning = await setPartyFirm({
+    partyId: party.id,
+    partyName: party.name,
+    firmId: firmParty?.id ?? null,
+    currentFirmId: party.firm?.id ?? null,
+  })
 
-  return { data }
+  return { data, warning }
 }
 
 function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAdded }) {
   const [addingNew, setAddingNew] = useState(false)
   const [newContactParty, setNewContactParty] = useState(null)
   const [newContactRole, setNewContactRole] = useState('')
-  const [newContactFirm, setNewContactFirm] = useState('')
+  const [newContactFirm, setNewContactFirm] = useState(null)
   const [savingNew, setSavingNew] = useState(false)
   const [newError, setNewError] = useState(null)
 
   const [suggestionRole, setSuggestionRole] = useState('')
-  const [suggestionFirm, setSuggestionFirm] = useState('')
+  const [suggestionFirm, setSuggestionFirm] = useState(otherParty?.firm ?? null)
   const [savingSuggestion, setSavingSuggestion] = useState(false)
   const [suggestionError, setSuggestionError] = useState(null)
   const [suggestionDismissed, setSuggestionDismissed] = useState(false)
+  const [firmWarning, setFirmWarning] = useState(null)
 
   const alreadyLinkedPartyIds = new Set(siteContacts.map((c) => c.party_id))
   const showSuggestion = Boolean(otherParty) && !alreadyLinkedPartyIds.has(otherParty.id) && !suggestionDismissed
@@ -42,7 +59,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
     setSavingSuggestion(true)
     setSuggestionError(null)
 
-    const { data, error } = await addSiteContact(site.id, otherParty.id, suggestionRole, suggestionFirm)
+    const { data, error, warning } = await addSiteContact(site.id, otherParty, suggestionRole, suggestionFirm)
 
     setSavingSuggestion(false)
 
@@ -50,6 +67,8 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
       setSuggestionError(errorMessage(error))
       return
     }
+
+    setFirmWarning(warning ? `Contact added, but ${warning}` : null)
 
     onContactAdded({
       ...data,
@@ -62,7 +81,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
     setSavingNew(true)
     setNewError(null)
 
-    const { data, error } = await addSiteContact(site.id, newContactParty.id, newContactRole, newContactFirm)
+    const { data, error, warning } = await addSiteContact(site.id, newContactParty, newContactRole, newContactFirm)
 
     setSavingNew(false)
 
@@ -71,6 +90,8 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
       return
     }
 
+    setFirmWarning(warning ? `Contact added, but ${warning}` : null)
+
     onContactAdded({
       ...data,
       parties: { name: newContactParty.name, party_type: newContactParty.party_type },
@@ -78,12 +99,14 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
     setAddingNew(false)
     setNewContactParty(null)
     setNewContactRole('')
-    setNewContactFirm('')
+    setNewContactFirm(null)
   }
 
   return (
     <div className="vip-card">
       <div className="vip-card-title">Contacts</div>
+
+      {firmWarning && <p className="vip-error" role="alert">{firmWarning}</p>}
 
       {siteContacts.map((c) => (
         <div key={c.id} className="vip-row">
@@ -109,12 +132,18 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
               </option>
             ))}
           </select>
-          <input
-            className="vip-input"
-            value={suggestionFirm}
-            onChange={(e) => setSuggestionFirm(e.target.value)}
-            placeholder="Firm name (optional)"
-          />
+          {/* Only for an individual architect — see takesFirm. */}
+          {takesFirm(otherParty) && (
+            <PartySearchOrCreate
+              key={otherParty.id}
+              label="Firm"
+              hint="optional"
+              defaultPartyType="firm"
+              typeOptions={['firm']}
+              initialSelected={otherParty.firm ?? null}
+              onSelect={setSuggestionFirm}
+            />
+          )}
           {suggestionError && <p className="vip-error" role="alert">{suggestionError}</p>}
           <div className="vip-btn-row">
             <button
@@ -148,12 +177,17 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
               </option>
             ))}
           </select>
-          <input
-            className="vip-input"
-            value={newContactFirm}
-            onChange={(e) => setNewContactFirm(e.target.value)}
-            placeholder="Firm name (optional)"
-          />
+          {takesFirm(newContactParty) && (
+            <PartySearchOrCreate
+              key={newContactParty.id}
+              label="Firm"
+              hint="optional"
+              defaultPartyType="firm"
+              typeOptions={['firm']}
+              initialSelected={newContactParty.firm ?? null}
+              onSelect={setNewContactFirm}
+            />
+          )}
           {newError && <p className="vip-error" role="alert">{newError}</p>}
           <div className="vip-btn-row">
             <button

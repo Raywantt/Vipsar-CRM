@@ -42,6 +42,63 @@ export function mostRecentLeadByParty(leadsByPartyRows) {
   return map
 }
 
+// Columns every party picker needs. firm_party_id is the link; firm_name is
+// the read-only legacy fallback for rows the backfill in
+// Schema/migration_architect_firm_link.sql couldn't match to a real firm.
+//
+// The firm itself is resolved by attachFirms below rather than a PostgREST
+// embed, deliberately. firm_party_id is a SELF-reference, which makes an embed
+// ambiguous — the same FK describes both "the firm I point at" and "the
+// architects pointing at me" — and both hint forms were tried and measured
+// against the live API: `parties!firm_party_id` silently resolved the REVERSE
+// direction (returning "firm": [] for an architect whose link was really set),
+// and `parties!parties_firm_party_id_fkey` failed outright with PGRST200. Same
+// reasoning searchQueries.js already documents for not filtering on embedded
+// relations: two plain queries beat one fragile piece of PostgREST syntax.
+export const PARTY_COLUMNS = 'id, name, mobile, party_type, firm_name, firm_party_id'
+
+// Fills in .firm on each party from its firm_party_id, in one extra bounded
+// query (callers pass at most a page of rows). A firm the caller can't SELECT
+// under parties' own RLS just comes back absent, so .firm stays null and
+// display falls back to firm_name — no error, no empty-looking row.
+export async function attachFirms(parties) {
+  const ids = [...new Set(parties.map((p) => p.firm_party_id).filter(Boolean))]
+  if (ids.length === 0) return parties.map((p) => ({ ...p, firm: null }))
+
+  const { data } = await supabase.from('parties').select('id, name, party_type').in('id', ids)
+  const byId = new Map((data ?? []).map((f) => [f.id, f]))
+  return parties.map((p) => ({ ...p, firm: p.firm_party_id ? byId.get(p.firm_party_id) ?? null : null }))
+}
+
+// Points an architect at the 'firm' party they work under — the one writer of
+// parties.firm_party_id, shared by Log Activity, New Lead and Lead Detail's
+// contacts so the three can't drift into different rules or different warning
+// wording. Returns a warning string to surface, or null when all is well.
+//
+// Two things this deliberately handles rather than leaving to each caller:
+//   - A no-op when the link already points where it should, so logging a
+//     meeting with a known architect fires no write at all.
+//   - The silent-RLS-rejection trap. parties UPDATE is "own data (created_by)
+//     or owner role", so an architect another rep added matches ZERO rows —
+//     and without .select() an RLS-rejected UPDATE returns no error, just a
+//     quiet no-op. This file's own deleteParty comment and ActivityLog's
+//     site-stage bug are the other two places that bit us.
+export async function setPartyFirm({ partyId, partyName, firmId, currentFirmId }) {
+  if ((firmId ?? null) === (currentFirmId ?? null)) return null
+
+  const { data, error } = await supabase
+    .from('parties')
+    .update({ firm_party_id: firmId ?? null })
+    .eq('id', partyId)
+    .select('id')
+
+  if (error) return `the firm wasn't saved: ${error.message}`
+  if (!data?.length) {
+    return `the firm wasn't saved — ${partyName} was added by someone else, so you can't edit that record.`
+  }
+  return null
+}
+
 // Owner-only in the UI (Profile's Settings section) — RLS's owner_only_delete
 // policy on parties is the actual enforcement. leads.party_id/activities.party_id/
 // site_contacts.party_id have no ON DELETE clause (RESTRICT), so deleting a

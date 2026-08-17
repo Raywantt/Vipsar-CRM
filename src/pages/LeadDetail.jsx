@@ -20,6 +20,7 @@ import { STALE_DAYS, ATTENTION_DAYS } from '../lib/attention'
 import { formatCurrency, formatCurrencyCompact } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
 import { SOURCE_TYPE_LABELS as SOURCE_LABELS } from '../lib/sourceTypeOptions'
+import { attachFirms } from '../lib/partyQueries'
 
 // Was a fourth hand-rolled copy of the source labels, which had already
 // drifted ('Other referral' vs the shared list's own wording). One list now —
@@ -171,7 +172,9 @@ function LeadDetail() {
 
       setLead(leadRow)
       setParty(partyResult.data ?? null)
-      setOtherParty(otherPartyResult.data ?? null)
+      // .firm is resolved separately, not embedded — see attachFirms. The
+      // Contacts card reads it to pre-fill an architect's existing firm.
+      setOtherParty(otherPartyResult.data ? (await attachFirms([otherPartyResult.data]))[0] : null)
       setSite(siteResult.data ?? null)
       setSiteContacts(contactsResult.data ?? [])
       setStageHistory(stageHistoryResult.data ?? [])

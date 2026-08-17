@@ -3,9 +3,22 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
 import { partyTypeLabel } from '../lib/partyTypeOptions'
+import { PARTY_COLUMNS, attachFirms } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
 
 const DEFAULT_PARTY_TYPES = ['client', 'architect', 'builder', 'firm', 'other', 'pmc']
+
+// One place decides how a party's firm reads, so a linked firm and a legacy
+// text one can't render differently in different lists.
+//
+// The fallback is load-bearing but also a trap worth knowing: it masked a real
+// bug while the firm embed was silently returning nothing, because the legacy
+// firm_name happened to match. Any future change to how .firm is resolved must
+// be re-verified against an architect whose firm_name and linked firm DIFFER —
+// equal values cannot tell the two sources apart.
+export function firmLabel(party) {
+  return party?.firm?.name ?? party?.firm_name ?? null
+}
 const MIN_QUERY_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 350
 
@@ -30,18 +43,27 @@ const SEARCH_DEBOUNCE_MS = 350
 // as a typo: the create form's "New {label}" heading and the
 // "+ Add new {label.toLowerCase()} …" button.
 //
-// showFirmName reveals a "Firm name" box (parties.firm_name) in the create
-// form, but only while the chosen Type is 'architect' — an architect is a
-// person who works under a firm, so both are worth having. It stays hidden for
-// the 'firm' type itself, where the party already *is* the firm and a second
-// firm field would just be the name typed twice.
+// initialSelected seeds the picker with a party already chosen, for the case
+// one screen's field is derived from another's — Log Activity and New Lead
+// both pre-fill a Firm picker from the architect's own firm_party_id. It's a
+// seed, not a controlled value: pass a `key` that changes when the source
+// changes (e.g. the architect's id) so the picker re-seeds, which is the same
+// remount-on-change pattern New Lead already uses on its referrer field.
+//
+// The old showFirmName prop is GONE. It revealed a "Firm name" text box inside
+// the create form, writing parties.firm_name — which only ever worked for a
+// party being created here, and wrote a free-text label rather than a link.
+// Firms are real 'firm' parties now (see Schema/migration_architect_firm_link
+// .sql), so every caller that wants one renders its own Firm picker beside
+// this field instead, which works for existing architects too.
 function PartySearchOrCreate({
   label = 'Party',
   defaultPartyType = 'client',
   allowCreate = true,
   required = false,
+  hint = null,
   typeOptions = DEFAULT_PARTY_TYPES,
-  showFirmName = false,
+  initialSelected = null,
   onSelect,
   createdByEmployeeId,
 }) {
@@ -53,13 +75,12 @@ function PartySearchOrCreate({
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState(null)
-  const [selected, setSelected] = useState(null)
+  const [selected, setSelected] = useState(initialSelected)
 
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newMobile, setNewMobile] = useState('')
   const [newPartyType, setNewPartyType] = useState(defaultPartyType)
-  const [newFirmName, setNewFirmName] = useState('')
   const [createError, setCreateError] = useState(null)
   const [saving, setSaving] = useState(false)
 
@@ -106,20 +127,24 @@ function PartySearchOrCreate({
 
       const { data, error } = await supabase
         .from('parties')
-        .select('id, name, mobile, party_type, firm_name')
+        .select(PARTY_COLUMNS)
         .or(orParts.join(','))
         .order('name')
         .limit(8)
 
-      if (!active) return
-      setSearching(false)
       if (error) {
+        if (!active) return
+        setSearching(false)
         setSearchError(errorMessage(error))
         setResults([])
-      } else {
-        setSearchError(null)
-        setResults(data)
+        return
       }
+
+      const withFirms = await attachFirms(data)
+      if (!active) return
+      setSearching(false)
+      setSearchError(null)
+      setResults(withFirms)
     }, SEARCH_DEBOUNCE_MS)
 
     return () => {
@@ -141,7 +166,6 @@ function PartySearchOrCreate({
     setNewName(name.trim())
     setNewMobile(mobile.trim())
     setNewPartyType(typeOptions.includes(defaultPartyType) ? defaultPartyType : typeOptions[0])
-    setNewFirmName('')
     setCreateError(null)
   }
 
@@ -149,19 +173,20 @@ function PartySearchOrCreate({
     setCreateError(null)
     setSaving(true)
 
-    // firm_name only goes along when the box was actually on screen — a rep
-    // who typed a firm and then switched Type to 'builder' shouldn't have that
-    // stale value silently saved against a party the field never applied to.
+    // No firm here — a firm is its own party now, linked afterwards by
+    // whichever screen asked for one (see this file's header comment).
     const { data, error } = await supabase
       .from('parties')
       .insert({
         name: newName.trim(),
         mobile: newMobile.trim() || null,
         party_type: newPartyType,
-        firm_name: showFirmName && newPartyType === 'architect' ? newFirmName.trim() || null : null,
         created_by: effectiveCreatedBy,
       })
-      .select('id, name, mobile, party_type, firm_name')
+      // A brand-new party has no firm yet, so there's nothing to attach —
+      // firm is set to null explicitly rather than left undefined, so callers
+      // reading `.firm` see the same shape they get from a search result.
+      .select(PARTY_COLUMNS)
       .single()
 
     setSaving(false)
@@ -171,12 +196,13 @@ function PartySearchOrCreate({
       return
     }
 
+    const created = { ...data, firm: null }
     setCreating(false)
-    setSelected(data)
+    setSelected(created)
     setResults([])
     setName('')
     setMobile('')
-    onSelect?.(data)
+    onSelect?.(created)
   }
 
   function changeSelection() {
@@ -191,7 +217,7 @@ function PartySearchOrCreate({
           <div className="vip-row-title">{selected.name}</div>
           <div className="vip-row-sub">
             {partyTypeLabel(selected.party_type)}
-            {selected.firm_name ? ` · ${selected.firm_name}` : ''}
+            {firmLabel(selected) ? ` · ${firmLabel(selected)}` : ''}
             {selected.mobile ? ` · ${selected.mobile}` : ''}
           </div>
         </div>
@@ -226,12 +252,6 @@ function PartySearchOrCreate({
             </select>
           </label>
         )}
-        {showFirmName && newPartyType === 'architect' && (
-          <label className="vip-field">
-            Firm name <span className="vip-field-hint">optional, the firm this architect works under</span>
-            <input className="vip-input" value={newFirmName} onChange={(e) => setNewFirmName(e.target.value)} />
-          </label>
-        )}
         {createError && <p className="vip-error" role="alert">{createError}</p>}
         <div className="vip-btn-row">
           <button
@@ -259,6 +279,7 @@ function PartySearchOrCreate({
     <div className="vip-stack-s">
       <label className="vip-field">
         {required ? `${label} *` : label}
+        {hint && <span className="vip-field-hint">{hint}</span>}
         <input
           className="vip-input"
           type="text"
@@ -286,7 +307,7 @@ function PartySearchOrCreate({
                 <div className="vip-row-title">{party.name}</div>
                 <div className="vip-row-sub">
                   {partyTypeLabel(party.party_type)}
-                  {party.firm_name ? ` · ${party.firm_name}` : ''}
+                  {firmLabel(party) ? ` · ${firmLabel(party)}` : ''}
                   {party.mobile ? ` · ${party.mobile}` : ''}
                 </div>
               </div>

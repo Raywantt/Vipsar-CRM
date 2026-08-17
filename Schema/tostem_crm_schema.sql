@@ -201,8 +201,12 @@ CREATE TABLE activities (
   employee_id     INTEGER NOT NULL REFERENCES employees(id),
   party_id        INTEGER REFERENCES parties(id),
   lead_id         INTEGER REFERENCES leads(id),
+  -- Kept in sync with src/lib/activityTypes.js. A new value here must be
+  -- added to follow_ups.activity_type's CHECK below as well — that list is
+  -- driven by the same app-side constant.
   activity_type   TEXT NOT NULL CHECK (activity_type IN
-                    ('site_visit','call','rfq_raised','office_day','booking_update','architect_meeting')),
+                    ('site_visit','call','client_meeting','architect_meeting',
+                     'rfq_raised','design_sheet','office_day','booking_update')),
   accompanied_by  INTEGER REFERENCES employees(id) ON DELETE SET NULL,
   notes           TEXT,
   leads_generated INTEGER,   -- only used for 'office_day' entries
@@ -297,8 +301,13 @@ CREATE TABLE follow_ups (
   created_by     INTEGER NOT NULL REFERENCES employees(id),
   party_id       INTEGER REFERENCES parties(id),
   lead_id        INTEGER REFERENCES leads(id),
+  -- Mirrors activities.activity_type above (FollowUpForm's chip picker reads
+  -- the same list), plus 'other' for reminders the app creates on a user's
+  -- behalf — LeadStageSection's On Hold flow and Log Activity's Architect
+  -- Meeting both use it.
   activity_type  TEXT CHECK (activity_type IS NULL OR activity_type IN
-                    ('site_visit','call','rfq_raised','office_day','booking_update','architect_meeting','other')),
+                    ('site_visit','call','client_meeting','architect_meeting',
+                     'rfq_raised','design_sheet','office_day','booking_update','other')),
   title          TEXT NOT NULL,
   notes          TEXT,
   due_date       DATE NOT NULL,

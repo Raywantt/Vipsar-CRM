@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
+import { setPartyFirm } from '../lib/partyQueries'
 import { TERRITORY_OPTIONS, territoryLabel } from '../lib/territoryOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
@@ -47,7 +48,10 @@ function LeadQuickCapture() {
   const [siteStage, setSiteStage] = useState('')
   const [customSiteStage, setCustomSiteStage] = useState('')
   const [referralFrom, setReferralFrom] = useState(null)
-  const [firmName, setFirmName] = useState('')
+  // A real 'firm' party, not a typed name — see setPartyFirm/the firm link
+  // migration. Serves both architect paths on this screen: the referrer on an
+  // architect referral, and the "Other's name" party when it's an architect.
+  const [firmParty, setFirmParty] = useState(null)
   const [otherParty, setOtherParty] = useState(null)
   // A coordinator owns no leads of their own — this picks who the lead is
   // actually for, and that exec's id is what gets written to
@@ -100,6 +104,14 @@ function LeadQuickCapture() {
 
   const resolvedReferralFrom = isReferral ? referralFrom : null
 
+  // Whichever party on this form is an individual architect — the referrer on
+  // an architect referral, or "Other's name" anywhere else. At most one can be
+  // at a time: the two fields never both offer the 'architect' type (an
+  // architect referral drops it from Other's name, and no other source offers
+  // it on the referrer), so one firm field serves both paths. A 'firm' party
+  // is excluded on purpose — it already IS the firm.
+  const architectParty = [resolvedReferralFrom, otherParty].find((p) => p?.party_type === 'architect') ?? null
+
   const canSubmit =
     Boolean(sourceType) &&
     Boolean(officeTerritory) &&
@@ -118,15 +130,16 @@ function LeadQuickCapture() {
   function selectSource(value) {
     setSourceType(value)
     setReferralFrom(null)
-    setFirmName('')
+    setFirmParty(null)
   }
 
   // The firm belongs to the architect, not the lead — so it follows whoever is
-  // selected, pre-filled from their record when they already have one. Keyed on
-  // the id so re-picking the same architect doesn't wipe an edit in progress.
+  // selected, pre-filled from their stored link. This is the "type a known
+  // architect and their firm comes up on its own" behaviour. Keyed on the id
+  // so re-picking the same architect doesn't wipe an edit in progress.
   useEffect(() => {
-    setFirmName(referralFrom?.firm_name ?? '')
-  }, [referralFrom?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    setFirmParty(architectParty?.firm ?? null)
+  }, [architectParty?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function resetForm() {
     setSourceType(null)
@@ -137,7 +150,7 @@ function LeadQuickCapture() {
     setSiteStage('')
     setCustomSiteStage('')
     setReferralFrom(null)
-    setFirmName('')
+    setFirmParty(null)
     setOtherParty(null)
     setSubmitError(null)
     setWarnings([])
@@ -254,30 +267,17 @@ function LeadQuickCapture() {
       }
     }
 
-    // The firm is a property of the architect, not of this lead, so it's
-    // written onto the referrer's party row. Same shape as the address above,
-    // and the same RLS trap: parties UPDATE is "own data (created_by) or owner
-    // role", so an architect another rep added matches zero rows — and without
-    // .select() an RLS-rejected UPDATE returns no error at all, just a silent
-    // no-op. Skipped when the value is unchanged, so picking an architect whose
-    // firm is already on file and saving straight through fires no write.
-    if (isArchReferral && resolvedReferralFrom) {
-      const firm = firmName.trim()
-      if (firm !== (resolvedReferralFrom.firm_name ?? '')) {
-        const { data: updatedFirm, error: firmError } = await supabase
-          .from('parties')
-          .update({ firm_name: firm || null })
-          .eq('id', resolvedReferralFrom.id)
-          .select('id')
-
-        if (firmError) {
-          nextWarnings.push(`The lead saved, but the firm didn't: ${errorMessage(firmError)}`)
-        } else if (!updatedFirm?.length) {
-          nextWarnings.push(
-            `The lead saved, but the firm didn't — ${resolvedReferralFrom.name} was added by someone else, so you can't edit that record.`
-          )
-        }
-      }
+    // The firm is a property of the architect, not of this lead, so the link
+    // is written onto their party row. setPartyFirm owns the no-op and
+    // silent-RLS-rejection handling — see src/lib/partyQueries.js.
+    if (architectParty) {
+      const firmWarning = await setPartyFirm({
+        partyId: architectParty.id,
+        partyName: architectParty.name,
+        firmId: firmParty?.id ?? null,
+        currentFirmId: architectParty.firm?.id ?? null,
+      })
+      if (firmWarning) nextWarnings.push(`The lead saved, but ${firmWarning}`)
     }
 
     setWarnings(nextWarnings)
@@ -320,10 +320,10 @@ function LeadQuickCapture() {
               <div className="vip-fact-value">{resolvedReferralFrom.name}</div>
             </div>
           )}
-          {isArchReferral && firmName.trim() && (
+          {architectParty && firmParty && (
             <div>
               <div className="vip-fact-label">Firm</div>
-              <div className="vip-fact-value">{firmName.trim()}</div>
+              <div className="vip-fact-value">{firmParty.name}</div>
             </div>
           )}
           {otherParty && (
@@ -356,6 +356,24 @@ function LeadQuickCapture() {
       </div>
     )
   }
+
+  // Rendered under whichever field produced the architect — see its two call
+  // sites below. key'd on the architect's id so the picker re-seeds when a
+  // different architect is chosen (initialSelected is a seed, not a controlled
+  // value); that re-seed is what makes a known architect's firm appear on its
+  // own.
+  const firmField = architectParty && (
+    <PartySearchOrCreate
+      key={architectParty.id}
+      label="Firm"
+      hint={`optional, saved against ${architectParty.name}`}
+      defaultPartyType="firm"
+      typeOptions={['firm']}
+      initialSelected={architectParty.firm ?? null}
+      onSelect={setFirmParty}
+      createdByEmployeeId={ownerEmployeeId}
+    />
+  )
 
   return (
     <form className="vip-form vip-narrow vip-pad-sticky-footer" onSubmit={handleSubmit}>
@@ -464,25 +482,11 @@ function LeadQuickCapture() {
         />
       )}
 
-      {/* Shown for an architect referral whether the architect is new or one
-          already on file — the old behaviour only ever asked while creating a
-          new party, so an existing architect's firm could never be filled in
-          from here. Saved onto the architect's own record, not the lead. */}
-      {isArchReferral && (
-        <label className="vip-field">
-          Firm{' '}
-          <span className="vip-field-hint">
-            {referralFrom ? `optional, saved against ${referralFrom.name}` : 'pick the architect above first'}
-          </span>
-          <input
-            className="vip-input"
-            value={firmName}
-            onChange={(e) => setFirmName(e.target.value)}
-            disabled={!referralFrom}
-            placeholder="e.g. Kapoor & Associates"
-          />
-        </label>
-      )}
+      {/* The firm sits directly under whichever field produced the architect
+          — the referrer here, "Other's name" further down. Only one of those
+          two can be an architect at a time (see architectParty), so exactly
+          one of these renders. */}
+      {isArchReferral && firmField}
 
       {/* Scanning-only: a rep who walked past a site can describe it, while a
           Lixil or referral lead arrives as a phone call about a site nobody
@@ -552,10 +556,11 @@ function LeadQuickCapture() {
               ? OTHER_PARTY_TYPES_ARCH_REFERRAL
               : OTHER_PARTY_TYPES
         }
-        showFirmName={isScanning}
         onSelect={setOtherParty}
         createdByEmployeeId={ownerEmployeeId}
       />
+
+      {!isArchReferral && firmField}
 
       {submitError && <p className="vip-error" role="alert">{submitError}</p>}
 

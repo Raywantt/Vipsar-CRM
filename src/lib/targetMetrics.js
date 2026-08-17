@@ -16,7 +16,15 @@ import { ACTIVITY_TYPES } from './activityTypes'
 // target but no computable actual, which defeats the point of this section.
 // Built from ACTIVITY_TYPES rather than redeclared so it can't drift out of
 // sync.
-const TARGETABLE_ACTIVITY_VALUES = ['site_visit', 'call', 'rfq_raised', 'architect_meeting']
+//
+// Client Meeting joined this list when it was added (2026-08-17, per the
+// owner); Design Sheet deliberately did not — it's a deliverable that follows
+// from work already done rather than an outbound effort a rep gets a number
+// for, the same reasoning that keeps Office Day and Booking Update out. Both
+// are still logged, still counted in every activity total, and still shown on
+// Dashboard's Activity card either way — this list only controls what can
+// carry a TARGET.
+const TARGETABLE_ACTIVITY_VALUES = ['site_visit', 'call', 'client_meeting', 'rfq_raised', 'architect_meeting']
 
 // Activity-type-shaped targetable metrics only (excludes order_value/
 // won_count, which are computed differently) — shared by DashboardHeatmap's

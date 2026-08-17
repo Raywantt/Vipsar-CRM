@@ -258,7 +258,9 @@ src/
                 statusColors.js, activityTypes.js, sourceTypeOptions.js,
                 dateRanges.js, dashboardQueries.js, searchQueries.js, format.js,
                 targetMetrics.js, targetPeriods.js, targetQueries.js,
-                partyQueries.js, employeeQueries.js, leadOwnerHistory.js,
+                partyQueries.js — also owns the architect→firm tree
+                (PARTY_COLUMNS/attachFirms/setPartyFirm), see the ActivityLog
+                section — employeeQueries.js, leadOwnerHistory.js,
                 tabRoutes.js, attention.js, drilldownBuilders.js,
                 dayReviewQueries.js, dayReview.js, dbTime.js — the Day
                 Review's day-scoped fetches, its pure aggregation, and the
@@ -791,7 +793,14 @@ HTML.
   would break duplicate checking across reps. Takes a `typeOptions` prop
   (default: all six `party_type` values) that narrows the create form's
   Type dropdown; a single-value list (e.g. `['client']`) hides the Type
-  field entirely and uses that value directly. A `required` prop draws the
+  field entirely and uses that value directly. An `initialSelected` prop seeds
+  the picker with a party already chosen (a **seed, not a controlled value** —
+  pass a `key` that changes when the source does, so it re-seeds); `hint`
+  renders a `.vip-field-hint` under the label. **`showFirmName` is gone** — it
+  revealed a firm-name text box inside the create form, which only ever worked
+  for a party being created *here* and wrote free text rather than a link. Every
+  caller that wants a firm now renders its own Firm picker beside this field,
+  which also works for architects already on file. A `required` prop draws the
   ` *` marker the rest of a form's required fields use — **pass that rather
   than appending an asterisk to `label`**, because `label` is also spoken in
   two places an asterisk reads as a typo: the create form's "New {label}"
@@ -937,7 +946,11 @@ exactly the reporting the field exists for.
   the one stored value that doesn't read as itself sitting next to
   "architect" and "builder"), plus a **Firm name** box (`parties.firm_name`)
   shown only while the type is `architect` — for the `firm` type the party
-  already *is* the firm. **Real bug found and fixed in the browser while
+  already *is* the firm. (**Superseded 2026-08-17**: that box was
+  `showFirmName` inside the create dialog, which only ever worked while
+  *creating* a party and wrote free text. Firms are real `firm` parties now —
+  see the Firm bullet below and the architect→firm tree in the ActivityLog
+  section. The `firm` type option on "Other's name" is unchanged.) **Real bug found and fixed in the browser while
   building this**: `typeOptions` changes when the source changes, and a
   `<select>` whose value has no matching `<option>` displays the *first*
   option while React state keeps the old one — picking "architect firm" on a
@@ -1076,18 +1089,20 @@ of sandbox limitation Phase 9's TODO 1 already records at 375px.
   the same person, and one that wouldn't reach `referred_by_party_id`.
   `defaultPartyType="architect"` falling out of range there is handled by
   `PartySearchOrCreate`'s existing clamp.
-* **Firm** (architect referral only) — an always-visible text box under
-  "Referral from", written to the **architect's own `parties.firm_name`**, not
-  to the lead. Shown whether the architect is new or already on file, which is
-  the point: `showFirmName` only ever revealed a firm box while *creating* a
-  party, so an existing architect's firm could never be filled in. Disabled
-  until a referrer is picked (it has nowhere to save otherwise). Pre-filled
-  from that architect's stored firm and **skipped when unchanged**, so
-  re-picking a known architect fires no write. Same post-insert placement and
-  the same mandatory `.select()` as the address side effect — `parties` UPDATE
-  is "own data (`created_by`) or owner role", so an architect another rep added
-  matches zero rows, and an RLS-rejected UPDATE without `.select()` returns no
-  error at all. Both failure paths surface as warnings on the success card.
+* **Firm** — its own `PartySearchOrCreate` (`typeOptions={['firm']}`), writing
+  `parties.firm_party_id` on the architect via the shared `setPartyFirm`, not
+  onto the lead. It renders under **whichever field produced the architect**:
+  "Referral from" on an architect referral, "Other's name" on every other
+  source. `architectParty` picks whichever of those two is an individual
+  `architect`; **at most one can be at a time**, since the two fields never
+  both offer that type (an architect referral drops it from Other's name, and
+  no other source offers it on the referrer) — which is why one firm state
+  serves both paths. `key`'d on the architect's id with
+  `initialSelected={architect.firm}`, so a known architect's firm appears on
+  its own. This replaced two different free-text mechanisms: a Firm text box
+  on the referral path, and `showFirmName`'s box inside the "Other's name"
+  create dialog on the scanning path — the latter only ever worked while
+  *creating* a party, so an existing architect's firm could never be recorded.
 * Client name and Other's name each use their own `PartySearchOrCreate`.
   Client name passes `typeOptions={['client']}` — they're always a client,
   so the Type field doesn't show at all. Other's name passes
@@ -1151,7 +1166,9 @@ Testcase 17Aug*, firm *Zzq Test Associates*) saved clean with no warnings; the
 referrer was really created as `party_type = 'architect'`; the firm really
 landed on `parties.firm_name` (confirmed by re-searching the architect, whose
 result row now reads `architect · Zzq Test Associates` and which pre-fills the
-Firm box on re-selection); Lead Detail reads the source as "Architect referral"
+Firm box on re-selection — that pass still wrote free text; the firm-link
+migration later the same day promoted it to a real `firm` party and the field
+became a picker, see the Firm bullet above); Lead Detail reads the source as "Architect referral"
 and **does** render a Site details card; and Dashboard's "New leads by source"
 splits correctly (`Referral 0` / `Architect referral 1`). **Live test rows to
 clean up when convenient**: lead #162, its `sites` row, and the party *Ar Zzq
@@ -1386,7 +1403,22 @@ card (site contacts + a facts list), then — **unchanged from before** —
 `site_id`), same `canEdit` gate, same merge-not-replace `setLead` pattern
 as always (each section's save query has no `employees` embed, so
 `LeadDetail` merges the returned row rather than replacing state wholesale
-— a plain replace would drop `lead.employees`). **Real bug found and
+— a plain replace would drop `lead.employees`).
+
+**`AdditionalContactsSection` joined the architect→firm tree 2026-08-17** (see
+the ActivityLog section). Both of its firm inputs — the "mentioned during
+intake" suggestion and the "+ Add contact" form — were free-text boxes writing
+`parties.firm_name`; they're now `PartySearchOrCreate` firm pickers writing
+`firm_party_id` via the shared `setPartyFirm`, shown **only when the contact is
+an individual `architect`** (a client or builder has no architect practice
+behind them). `LeadDetail` resolves `otherParty.firm` through `attachFirms` so
+the suggestion pre-fills. **A real silent bug went with it**: the old
+`addSiteContact` fired an unchecked `.update()` with no `.select()`, so under
+`parties`' "own data or owner role" RLS it could no-op on a party another rep
+added and nobody would ever know — it returns a warning now, shown above the
+contact list, and the contact itself still saves either way.
+
+**Real bug found and
 fixed**: `SalesProgressSection.jsx`'s Save used to null out `quote_value`
 on every save where the "Quote sent" checkbox wasn't ticked, even though
 the Quote value field sits above that checkbox and is always visible/
@@ -1832,14 +1864,84 @@ themselves, so logging a site visit/call/RFQ/etc. isn't something they need;
 they still see every rep's logged activity through the Dashboard and a
 lead's own timeline. `LeadDetail`'s "Log activity" button is hidden for
 `canEdit` owners for the same reason, even though they can still edit the
-lead itself. Tap one of Site Visit/Call/RFQ Raised/Office Day/Booking
-Update/**Architect Meeting** (`ACTIVITY_TYPES`, `src/lib/activityTypes.js`
-— 6 values now); every type except Office Day and Architect Meeting then
+lead itself. Tap one of Site Visit/Call/**Client Meeting**/Architect
+Meeting/RFQ Raised/**Design Sheet**/Office Day/Booking Update
+(`ACTIVITY_TYPES`, `src/lib/activityTypes.js` — 8 values, and that list's
+declaration order is the on-screen order of the tap-select, grouped so field
+and meeting work sits together and paperwork sits together); every type except
+Office Day and Architect Meeting then
 shows `LeadSearchSelect` (select-only, scoped to the current employee's own
 leads via `owner_employee_id`). Office Day skips the anchor step entirely
 (matches the loosened `activity_needs_an_anchor` CHECK — see
 `Schema/tostem_crm_schema.sql`); Architect Meeting is anchored on an
 architect party instead of a lead, and has its own picker (see below).
+
+* **Client Meeting and Design Sheet** (added 2026-08-17) needed **no code in
+  this file at all** — both fall into the generic branch, which already gives
+  a lead-anchored type its "Against which lead?" picker, a Next follow-up date
+  (once a lead is picked) and Notes. Adding them was two entries in
+  `ACTIVITY_TYPES`. The owner will specify further fields for them later, so
+  **don't add any without asking.** The split between them: **Client Meeting
+  is targetable** (it joins Site Visit/Call/RFQ Raised/Architect Meeting in
+  `TARGETABLE_ACTIVITY_VALUES`, so it appears in Set-a-target, Targets vs.
+  actuals and as a heatmap column); **Design Sheet is not** — it's a
+  deliverable that follows from work already done rather than outbound effort
+  a rep gets a number for, the same reasoning that keeps Office Day and
+  Booking Update out. Both are logged and counted identically everywhere else.
+  `Schema/migration_client_meeting_design_sheet.sql` is **live as of
+  2026-08-17** — see Conventions.
+
+  **Verified live** for `sales_executive` and `sales_coordinator` (the two
+  roles with this route) at 1440px and 375px: the tap-select renders 8 buttons
+  4-across at desktop and a clean 2×4 on a phone in the grouped order above,
+  nothing clipped, no page overflow; both new types show "Against which lead?"
+  with Save gated until a lead is picked, then Next follow-up and Notes; the
+  coordinator's "Who is this for?" flow is unaffected. **Saves exercised end to
+  end** — a Client Meeting (with a follow-up date and notes) and a Design Sheet
+  both logged clean against lead #159. Downstream: Set-a-target now offers
+  Client Meeting and correctly omits Design Sheet; `FollowUpForm` offers all 8
+  chips plus Other, and a Design-Sheet-tagged reminder saved and survived a
+  reload; Dashboard's Activity card renders all 8 rows (`Client Meeting 1`,
+  `Design Sheet 1`) at 267px with no overflow. **Live test rows**: two
+  activities on lead #159 and one follow-up due the next day.
+
+  **The architect→firm tree** (`parties.firm_party_id`, same day) — a firm is
+  a real `firm` party now, not a typed label, so it can be walked both ways.
+  `src/lib/partyQueries.js` owns all of it: `PARTY_COLUMNS`, `attachFirms`
+  (resolve `.firm` — never a PostgREST embed, see Conventions) and
+  `setPartyFirm` (the one writer, owning the no-op-when-unchanged and the
+  silent-RLS-rejection warning). Three screens use it — Log Activity's
+  Architect Meeting, New Lead, and Lead Detail's Contacts — so the same fact
+  can't be stored three incompatible ways. **Verified live** for owner,
+  coordinator and exec at 1440px and 375px: search works on all three screens
+  with no errors, the Firm picker auto-fills from the link on each, rows are
+  343px with no page overflow at 375px. **The discriminating test**: the
+  architect's firm was changed through the UI to a *different* firm and saved
+  — afterwards the stored row still read `firm_name: "Qqx Design Partners"`
+  (stale legacy text) while `firm_party_id` pointed at `Qqx Associates LLP`,
+  and every screen displayed the latter. That proves the display reads the
+  link, not the fallback; equal values could not have told them apart.
+  **Known wrinkle, not fixed**: a `PartySearchOrCreate` in its selected state
+  renders no label (long-standing behaviour for every picker in the app), so
+  the architect and firm rows stack as two unlabelled party rows. Legible in
+  context but worth a look if it confuses anyone.
+
+  **Architect Meeting's Firm field verified live the same day** (exec and
+  coordinator, 1440px and 375px): the Type dropdown now appears offering
+  `architect`/`architect firm`; picking an individual architect reveals the
+  Firm box (optional, Save stays enabled) and picking an `architect firm`
+  correctly hides it; a meeting logged with a firm typed saved clean and the
+  value really reached `parties.firm_name` — confirmed by re-searching the
+  architect, whose result row then read `architect · Qqx Design Partners` and
+  which pre-fills the box on re-selection; a firm-anchored meeting also saved
+  clean, with the success card labelling it "Architect firm" and showing no
+  Firm row. At 375px the box is full-width with no page overflow. **Live test
+  rows**: parties *Ar Qqx Testcase* (firm *Qqx Design Partners*) and *Qqx
+  Associates LLP*, plus their two activities. **Worth knowing for testing**: a
+  sales exec can't find an architect created under another employee's lead —
+  `parties` SELECT is team-scoped (see the Sales Coordinator section), so the
+  exec session came back empty for the owner's architect and a new one had to
+  be created in that session.
 
 * **"Against which lead?" is search-first, not a scrollable list.**
   `LeadSearchSelect` shows nothing below the search box until you actually
@@ -1875,14 +1977,19 @@ architect party instead of a lead, and has its own picker (see below).
   keeps Notes last, unchanged.
 * **Architect Meeting** — its own anchor, entirely separate from the
   lead-picker block above: a `PartySearchOrCreate` field
-  (`typeOptions={['architect']}`, the same search-or-create dialog every
+  (`typeOptions={['architect', 'firm']}` — a meeting is as often with the
+  practice as with one person, and `firm` renders as **"architect firm"** via
+  `src/lib/partyTypeOptions.js`. Two options rather than one means the Type
+  dropdown is now *shown* here, where a single-value list used to hide it.
+  Widened 2026-08-17 at the owner's request; the same
+  search-or-create dialog every
   other party field in this app uses — Client name on New Lead, "other
   party" on New Lead, the Party field Call/RFQ Raised/Booking Update used
   to have) labelled "Architect name". Picking an unrecognized name genuinely
-  inserts a new `parties` row with `party_type = 'architect'`, same
+  inserts a new `parties` row with the chosen type, same
   mechanism as everywhere else in the app a party gets created — nothing
-  special-cased for this screen. Fields, in order: Architect name → Next
-  follow-up → Notes. There's no lead involved, so "Next follow-up" can't
+  special-cased for this screen. Fields, in order: Architect name → **Firm**
+  → Next follow-up → Notes. There's no lead involved, so "Next follow-up" can't
   write `leads.next_followup_date` the way it does for every other type —
   instead, filling it creates a real `follow_ups` row via `createFollowUp`
   (`src/lib/followUpQueries.js`; `assignedTo`/`createdBy` both the logging
@@ -1894,7 +2001,17 @@ architect party instead of a lead, and has its own picker (see below).
   This is deliberate reuse of the real Follow-ups feature (see its own
   section) rather than a second reminder mechanism — the reminder shows up
   in Home's "Your reminders" and fires a real push notification exactly
-  like any other follow-up. `activities.party_id` is set to the architect's
+  like any other follow-up.
+  **Firm** (optional, added 2026-08-17) is its own `PartySearchOrCreate`
+  (`typeOptions={['firm']}`) under Architect name, shown **only when the
+  picked party is an individual `architect`** — a `firm` party already *is*
+  the firm, so a second field would just be the name twice. Gated on the
+  selected party's own `party_type` rather than on the picker's dropdown, so
+  it's correct for an existing party too, not only one created here. It writes
+  `parties.firm_party_id` on the architect (not on the activity) via the
+  shared `setPartyFirm`, and is `key`'d on the architect's id with
+  `initialSelected={architect.firm}` so **picking a known architect brings up
+  their firm on its own** — the behaviour this feature exists for. `activities.party_id` is set to the architect's
   id on the activity row itself too (the one case in this file `party_id`
   is ever non-null). **Needs a schema migration before it works live** —
   `activities.activity_type`'s CHECK constraint doesn't include
@@ -2094,7 +2211,9 @@ since it isn't part of the date-range-scoped report data.
   and muted rather than as a green/red trend — it's a second snapshot
   figure, not a change over time.
 * **Activity counts** (`ActivityCountsCard.jsx`) — counts by `activity_type`
-  for the selected range; a fixed 5-row list, always. Used to also render a
+  for the selected range; one row per `ACTIVITY_TYPES` entry (8 since
+  2026-08-17), fixed regardless of headcount — which was the point, see below.
+  Used to also render a
   "by exec" matrix (one column per employee, no cap) — dropped in the
   Dashboard-v2 density pass so this card can't grow past 5 rows regardless
   of headcount; per-exec activity counts are still real and visible on the
@@ -2136,12 +2255,15 @@ since it isn't part of the date-range-scoped report data.
   week/month/quarter check that could drift from it) — the card component
   has no `isTargetPeriod` branch of its own anymore, since it's structurally
   never mounted any other way. `metric_name` is a **closed** list
-  (`src/lib/targetMetrics.js`: `site_visit`/`call`/`rfq_raised`/
-  `architect_meeting` — see `ACTIVITY_METRIC_OPTIONS`, the targetable subset
-  of `ACTIVITY_TYPES` — plus `order_value` and `won_count`), deliberately
+  (`src/lib/targetMetrics.js`: `site_visit`/`call`/`client_meeting`/
+  `rfq_raised`/`architect_meeting` — see `ACTIVITY_METRIC_OPTIONS`, the
+  targetable subset of `ACTIVITY_TYPES` — plus `order_value` and
+  `won_count`), deliberately
   not the "suggested options + Other…" free-text pattern used for
   `current_stage`/`site_stage` — an arbitrary metric would have a target but
-  no computable actual, which defeats the section. **Office Day, Booking
+  no computable actual, which defeats the section. **Design Sheet was added to
+  `ACTIVITY_TYPES` in 2026-08-17 but deliberately kept OUT of this list**, per
+  the owner — same reasoning as the three below. **Office Day, Booking
   Update, and Offers Sent (`quote_sent`) were dropped from this list**
   (2026-08-09, per the owner) — Office Day/Booking Update are process-
   tracking entries rather than something a rep gets a quota for, and Offers
@@ -3316,6 +3438,9 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 - **`Schema/migration_sales_coordinator.sql` was run live on 2026-08-10** and is no longer outstanding — it adds the `sales_coordinator` role, `employees.coordinator_id`, `entered_by_role` on `leads`/`activities`, the `is_my_team_member()` helper, 13 `coordinator_team_*` policies, the narrowed `parties`/`sites` reads, and two new triggers (`validate_employee_role_assignment`, `enforce_coordinator_lock`); it also replaces `enforce_owner_only_stage_change()`, so it **must run after** `migration_backlog_2026_08_10.sql` or the backlog overwrites it back to owner-only. All 9 verification checks returned PASS. One ordering bug was found and fixed by running it live: `is_my_team_member()` is `LANGUAGE sql`, whose body Postgres validates at CREATE time, so defining it before `coordinator_id` existed failed the whole file on its first statement with `42703`. It's now STEP 3, after the column — don't move it back up, and prefer reordering over switching to plpgsql if a similar dependency appears (plpgsql's late binding hides the problem until runtime).
 - **✅ `Schema/migration_lead_edit_rights.sql` was RUN LIVE 2026-08-13** and verified behaviourally, not by introspection — see below. It is the database half of the shared-lead-edit-rights ruling: stage changes open to all three editing roles with a forward-only restriction on `sales_executive`, an `own_lead_insert` policy on `stage_history` so a rep can record the change, and the removal of `enforce_coordinator_lock()`. **If it ever needs re-running, run it after `migration_sales_coordinator.sql`** — that file (and `migration_backlog_2026_08_10.sql` behind it) installs the owner-only version of the same trigger, so running either afterwards silently reverts this. The function/trigger names are deliberately unchanged (`enforce_owner_only_stage_change`/`owner_only_stage_change`) despite now being historical — renaming would let an older file's re-run install a *second*, stricter trigger alongside this one instead of cleanly overwriting it. **Proven live against lead #159**: a sales exec moved `calling → joinery_follow_up` and it succeeded (history row written and attributed); the same exec's direct API attempt at `joinery_follow_up → calling` was refused with `23514` and the trigger's own message; the **On hold laundering route is closed** (`→ on_hold` allowed, then `on_hold → calling` refused, because the trigger resolves the pre-hold stage out of `stage_history`); a coordinator moved the same lead *backward* 3→2 successfully; and a coordinator edited `quote_value` on a lead whose `entered_by_role` was already `'sales_executive'` — the exact write the dropped lock used to refuse.
 - **✅ `Schema/migration_office_territory.sql` was RUN LIVE 2026-08-17** and is no longer outstanding. It adds `leads.office_territory` (nullable TEXT) and its CHECK of the four offices, for the New Lead screen's required territory tap-select (see the LeadQuickCapture section). Verified behaviourally rather than by introspection: two leads (#160, #161) saved through the real form with `Territory · Ludhiana` on the success card and no error — the failure this bullet used to describe (**every** New Lead save failing, every role and source, with `column "office_territory" of relation "leads" does not exist`) is gone. Independent of every other migration here: it touches no policy, trigger or function, so it can run before or after any of them, and it's safe to re-run. A fifth office needs **both** halves changed — the CHECK here *and* `src/lib/territoryOptions.js` — or the app offers a button that fails to save.
+- **✅ `Schema/migration_client_meeting_design_sheet.sql` was RUN LIVE 2026-08-17** and verified both by the file's own introspection query and behaviourally. It widens **two** CHECK constraints for the `client_meeting`/`design_sheet` activity types: `activities.activity_type` (Log Activity's two new buttons) and `follow_ups.activity_type` (`FollowUpForm`'s "Type of follow-up" chip picker reads the same `ACTIVITY_TYPES` list, so it offers both as chips on *any* reminder — a failure with nothing to do with Log Activity, which is exactly why that half is easy to forget). Both constraint definitions now list the two new values. **The need for it was proven before running, not assumed**: submitting a Design Sheet against a real lead returned `new row for relation "activities" violates check constraint "activities_activity_type_check"`, which also confirmed the constraint name section 1 assumes; it failed cleanly as an inline error with no partial write. **Both halves then proven after running**: a Client Meeting and a Design Sheet both saved clean against lead #159, and a reminder tagged Design Sheet saved and survived a real page reload (Home's Tomorrow row). Independent of every other migration (no policy, trigger or function touched), safe to re-run, and it only widens what's allowed — no existing row changed. Adding a ninth activity type needs this same two-constraint treatment.
+- **✅ `Schema/migration_architect_firm_link.sql` was RUN LIVE 2026-08-17.** It adds `parties.firm_party_id` (a self-reference, architect → the `firm` party they work under, `ON DELETE SET NULL` so deleting a firm never deletes its architects), a `parties_firm_not_self` CHECK, an index, and a backfill promoting each distinct `firm_name` to a real `firm` party and linking its architects (case- and trim-insensitive, deliberately not fuzzy — merging `Kapoor & Assoc` with `Kapoor and Assoc` would be a guess about the real world). Verified by its own output: both existing firm names became real firm parties with their architects linked, and a firm party that already existed was **not** duplicated. `firm_name` is deliberately **not** dropped — it stays as a read-only fallback for anything the backfill couldn't match, and nothing writes to it anymore. Safe to re-run.
+- **PostgREST cannot embed a self-referencing FK by column hint — use two queries.** Learned the hard way on `parties.firm_party_id`, and it cost a silent wrong answer, so don't retry the embed. The same FK describes both directions ("the firm I point at" and "the architects pointing at me"), and **`parties!firm_party_id(...)` silently resolves the REVERSE one** — it returned `"firm": []` for an architect whose link was genuinely set, with no error at all. The constraint-name form `parties!parties_firm_party_id_fkey(...)` then failed outright with `PGRST200`. The fix is `attachFirms()` in `src/lib/partyQueries.js`: select `firm_party_id`, then resolve those ids in one bounded follow-up query and merge client-side — the same "two plain queries beat one fragile piece of PostgREST syntax" reasoning `searchQueries.js` already documents for not filtering on embedded relations. **A legacy fallback can hide this class of bug**: `firmLabel()` falls back to `firm_name`, so the stale text made the row look correct while the link was empty. Verifying needed an architect whose `firm_name` and linked firm **differ** — equal values cannot tell the two sources apart. Also note DDL alone isn't enough for a new relationship: PostgREST caches the schema, and the migration ends with `NOTIFY pgrst, 'reload schema'` for exactly that reason.
 - `Schema/DESTRUCTIVE_reset_all_data.sql` empties every table except one owner's `employees` row. **Not a migration** — never include it in a run-everything-in-order list. It exists so a test reset is documented and repeatable. Note it deliberately does *not* touch `auth.users`: deleting employee rows leaves orphaned Supabase Auth logins that must be cleaned up by hand in the dashboard, and scripting that risks removing your own login.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`; **confirmed live** — `current_employee_id()`/`current_employee_role()` and every policy below have been run against the real project and verified: deactivating an employee (`employees.is_active = false` in Manage Employees) now actually revokes their database access, not just the client-side `ProtectedRoute` block): every policy that used to inline `(SELECT id/role FROM employees WHERE auth_user_id = auth.uid())`, or leave a table wide open with `USING (true)`/`WITH CHECK (true)`, now goes through one of two `SECURITY DEFINER` helper functions instead — `current_employee_id()`/`current_employee_role()`, both filtered to `is_active = true` and both resolving to `NULL` for a deactivated employee's row. That single change is what makes deactivating someone in Manage Employees actually revoke their access, not just hide the UI. `activities`/`leads`/`plans`/`targets` use "own data or owner role" (`employee_id`/`owner_employee_id` `= current_employee_id()`, or `current_employee_role() = 'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT requires `current_employee_role() IS NOT NULL` (i.e. "you resolve to some active employee" — this doesn't filter which employee rows come back, so an active owner still sees every row including inactive ones; it only gates whether a deactivated caller can query the table at all), INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`/`areas`/`site_contacts`/`products`/`stage_history`/`lead_owner_history` SELECT/INSERT now require `current_employee_role() IS NOT NULL` too — these used to be unconditionally `true` (open to any authenticated session regardless of `is_active`), which is exactly how a deactivated rep kept full access to the whole party directory even after being switched off. `sites`/`parties` UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts` UPDATE/DELETE stay owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products` UPDATE/DELETE owner-only. `stage_history`/`lead_owner_history` have no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT requires `current_employee_role() = 'owner'`, INSERT requires `current_employee_role() IS NOT NULL`, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it (`employee_id = current_employee_id()`, no `OR` branch); real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely and never calls these functions (`service_role` has no `auth.uid()`). A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.

@@ -9,6 +9,7 @@ import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { todayISO } from '../lib/followupDates'
 import { createFollowUp } from '../lib/followUpQueries'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
+import { setPartyFirm } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
 
 function leadLabel(lead) {
@@ -43,8 +44,15 @@ function ActivityLog() {
   const [changingLead, setChangingLead] = useState(false)
   const [preselectedLead, setPreselectedLead] = useState(null)
   // Architect Meeting's own anchor — an architect party rather than a lead,
-  // since the meeting itself is the point, not a specific deal.
+  // since the meeting itself is the point, not a specific deal. The party can
+  // be an individual architect or an 'firm' ("architect firm") — a meeting is
+  // just as often with the practice as with one person.
   const [selectedArchitect, setSelectedArchitect] = useState(null)
+  // Which firm that individual architect works under — a real 'firm' party,
+  // not a typed name, so architect→firm is a link the app can walk both ways.
+  // Only meaningful when the party is a person; a 'firm' party already IS the
+  // firm, so recording it again would just be the name twice.
+  const [firmParty, setFirmParty] = useState(null)
   const [notes, setNotes] = useState('')
   const [accompaniedBy, setAccompaniedBy] = useState('')
   const [leadsGenerated, setLeadsGenerated] = useState('')
@@ -130,9 +138,24 @@ function ActivityLog() {
     }
   }, [selectedLead])
 
+  // The firm belongs to the architect, not to this activity — so it follows
+  // whoever is selected, pre-filled from their stored link. This is the
+  // "type a known architect and their firm comes up on its own" behaviour;
+  // the Firm picker below is keyed on the architect's id so it re-seeds.
+  // Keyed on the id so re-picking the same architect doesn't wipe an edit in
+  // progress.
+  useEffect(() => {
+    setFirmParty(selectedArchitect?.firm ?? null)
+  }, [selectedArchitect?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const isOfficeDay = activityType === 'office_day'
   const isSiteVisit = activityType === 'site_visit'
   const isArchitectMeeting = activityType === 'architect_meeting'
+  // The Firm box is for an individual architect only — see firmName's own
+  // comment. Reading party_type off the selected party (rather than tracking
+  // the picker's dropdown) means this is right for an existing party too, not
+  // just one created here.
+  const showFirmField = isArchitectMeeting && selectedArchitect?.party_type === 'architect'
   // Every lead-anchored activity requires a Lead — Party as a fallback
   // anchor was removed (2026-08-09) so Next follow-up/Order value/Site
   // stage, which all write onto a lead, are never silently hidden behind a
@@ -154,12 +177,20 @@ function ActivityLog() {
     if (value !== 'site_visit') {
       setAccompaniedBy('')
     }
+    // Leaving Architect Meeting drops its anchor and firm, so a party picked
+    // and then abandoned can't be written by an activity whose form never
+    // showed those fields — same reasoning as LeadQuickCapture's selectSource.
+    if (value !== 'architect_meeting') {
+      setSelectedArchitect(null)
+      setFirmParty(null)
+    }
   }
 
   function resetForm() {
     setActivityType(null)
     setSelectedLead(preselectedLead)
     setSelectedArchitect(null)
+    setFirmParty(null)
     setChangingLead(false)
     setNotes('')
     setAccompaniedBy('')
@@ -237,6 +268,19 @@ function ActivityLog() {
       }
     }
 
+    // The firm is a property of the architect, not of this meeting, so the
+    // link is written onto their party row. setPartyFirm owns the no-op and
+    // silent-RLS-rejection handling — see src/lib/partyQueries.js.
+    if (showFirmField && selectedArchitect) {
+      const firmWarning = await setPartyFirm({
+        partyId: selectedArchitect.id,
+        partyName: selectedArchitect.name,
+        firmId: firmParty?.id ?? null,
+        currentFirmId: selectedArchitect.firm?.id ?? null,
+      })
+      if (firmWarning) warnings.push(`Activity logged, but ${firmWarning}`)
+    }
+
     // Architect Meeting has no lead to write next_followup_date onto, so its
     // "Next follow-up" instead creates a real reminder (same table/helper
     // LeadDetail's On Hold flow already uses) assigned to whoever the meeting
@@ -287,8 +331,16 @@ function ActivityLog() {
           )}
           {isArchitectMeeting && selectedArchitect && (
             <div>
-              <div className="vip-fact-label">Architect</div>
+              <div className="vip-fact-label">
+                {selectedArchitect.party_type === 'firm' ? 'Architect firm' : 'Architect'}
+              </div>
               <div className="vip-fact-value">{selectedArchitect.name}</div>
+            </div>
+          )}
+          {showFirmField && firmParty && (
+            <div>
+              <div className="vip-fact-label">Firm</div>
+              <div className="vip-fact-value">{firmParty.name}</div>
             </div>
           )}
         </div>
@@ -379,13 +431,38 @@ function ActivityLog() {
           <div className="vip-card-head">
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>Architect</div>
           </div>
+          {/* 'firm' renders as "architect firm" (src/lib/partyTypeOptions.js)
+              — a meeting is as often with the practice as with one person.
+              Two options rather than one means PartySearchOrCreate now shows
+              its Type dropdown here, where it used to be hidden. showFirmName
+              is deliberately NOT passed: the create form's own firm box only
+              covers a party being created, and the always-visible field below
+              covers existing architects too, so passing both would put two
+              firm inputs on screen at once. */}
           <PartySearchOrCreate
             label="Architect name"
             defaultPartyType="architect"
-            typeOptions={['architect']}
+            typeOptions={['architect', 'firm']}
             onSelect={setSelectedArchitect}
             createdByEmployeeId={actingForId}
           />
+
+          {/* key on the architect's id so the picker re-seeds when a
+              different architect is chosen — initialSelected is a seed, not a
+              controlled value. This is what makes a known architect's firm
+              appear on its own. */}
+          {showFirmField && (
+            <PartySearchOrCreate
+              key={selectedArchitect.id}
+              label="Firm"
+              hint={`optional, saved against ${selectedArchitect.name}`}
+              defaultPartyType="firm"
+              typeOptions={['firm']}
+              initialSelected={selectedArchitect.firm ?? null}
+              onSelect={setFirmParty}
+              createdByEmployeeId={actingForId}
+            />
+          )}
         </>
       )}
 
