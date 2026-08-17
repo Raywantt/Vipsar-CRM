@@ -888,6 +888,144 @@ buttons, not a dropdown). Validation is exactly `lead_needs_an_anchor`: at
 least one of the three fields filled. `owner` can access this route too,
 deliberately — an owner can personally log leads, not a testing workaround.
 
+**Office territory, client address, and architect firm** were added
+2026-08-13. All three show for **all three roles** — the owner's ruling; a
+role-split would leave coordinator-entered leads with no territory, which is
+exactly the reporting the field exists for.
+
+* **Office territory** (`leads.office_territory`) — a **second required
+  tap-select**, asked for **every** source, in its own row below "Where from"
+  (a lead has both a source and an office; they're independent facts). Four
+  values from `src/lib/territoryOptions.js`: Ludhiana / Amritsar / Jalandhar
+  / Patiala. Renders via `.vip-choice-grid`, **not** `.vip-choice-row` — that
+  row is a no-wrap flex of `flex: 1` children, so a fourth option squeezes
+  "Jalandhar" past its track on a phone; the new class is 2×2 below 1024px
+  and 4-up above. Apply it **alone** — pairing it with `.vip-choice-row` puts
+  two `display` declarations on one element at equal specificity, the same
+  cascade trap `.vip-leads-layout`/`.vip-daycards` already hit.
+  **`Schema/migration_office_territory.sql` is live as of 2026-08-17 — see
+  Conventions.** Nullable at the DB layer, required only in the UI: leads created before
+  this field existed have no honest value, and a territory guessed from the
+  owner's `employees.office_location` would be a fabricated fact sitting in
+  the same column as real ones, indistinguishable from them forever after.
+* **Address** (scanning only) — its own always-visible box under Client name,
+  written to **`parties.address`** on the client (the owner's choice over a
+  site address, which would have needed a new `sites.address` column). It's a
+  **side effect after the lead insert**, warning-not-blocking, the same shape
+  `ActivityLog.jsx` uses. Running it after the insert is **load-bearing**:
+  both policies that can authorise it reach the party *through the lead*
+  (`coordinator_team_update`'s `is_my_team_member` check, and
+  `team_scoped_select` for the `.select()`), so moving it earlier silently
+  fails for a coordinator. **The `.select()` is mandatory** — `parties`
+  UPDATE is "own data (`created_by`) or owner role", so editing a client
+  another rep added matches zero rows, and an RLS-rejected UPDATE without
+  `.select()` returns no error at all. That case, and "address typed but no
+  client on the lead", both surface as warnings on the success card.
+* **Architect firm** (scanning only, at the owner's direction — *"don't add
+  to referral for now, i will take a look at that later"*, so **don't widen
+  it without asking**) — "Other's name" gains the `firm` type, labelled
+  **"architect firm"** via the new `src/lib/partyTypeOptions.js` (`firm` is
+  the one stored value that doesn't read as itself sitting next to
+  "architect" and "builder"), plus a **Firm name** box (`parties.firm_name`)
+  shown only while the type is `architect` — for the `firm` type the party
+  already *is* the firm. **Real bug found and fixed in the browser while
+  building this**: `typeOptions` changes when the source changes, and a
+  `<select>` whose value has no matching `<option>` displays the *first*
+  option while React state keeps the old one — picking "architect firm" on a
+  scanning lead and then switching to Lixil showed "architect" but would have
+  inserted `party_type = 'firm'`, bypassing the gate and lying about it on
+  screen. `PartySearchOrCreate` now clamps the chosen type back into range
+  whenever the offered list changes.
+* **Site stage** (scanning only, added 2026-08-17) — a **required** dropdown
+  directly below Site nickname, offering `SITE_STAGE_OPTIONS` plus the same
+  `Other…`-reveals-a-text-box escape hatch Lead Detail's Site details
+  dropdown has (a blank `Other…` keeps Save disabled, so the escape hatch
+  can't produce an empty stage). All three roles, both widths. The reason
+  it's asked here at all: a rep standing at a site they just scanned can see
+  its stage, rather than it waiting for the first Site Visit.
+  **It writes `sites.site_stage`, and there is deliberately no
+  `leads.site_stage`** — the Dashboard's "Leads by site stage" card, Site
+  Visit's stage update in `ActivityLog.jsx` and `SiteDetailsSection.jsx` all
+  already read and write that one column, so a lead-level copy would fork one
+  fact into two that immediately disagree (the `pipelineValue.js` failure
+  mode). The consequence, and it's the point of the field rather than a side
+  effect: **a scanning lead now always creates its `sites` row**, nickname or
+  not (`sites.nickname` is nullable, and the site's remaining fields get
+  filled from Lead Detail later anyway). The site insert's guard is
+  `siteNickname.trim() || resolvedSiteStage`, and `resolvedSiteStage` is
+  computed once — next to `canSubmit`, not again at submit time — because a
+  required field whose emptiness is decided twice eventually disagrees with
+  its own button. It's gated on `isScanning` so a stage picked and then
+  abandoned by switching source can't be written by a lead that never showed
+  the field. **No migration**: `site_stage` is free text with no CHECK.
+
+**Verified live** at both widths for all three roles (2026-08-13, the same
+three-port setup): territory renders and selects for every role, 4-up at
+1440px and a clean 2×2 at 375px with no overflow and no clipped label; the
+Address box appears only on Scanning and disappears on Lixil; the type
+dropdown gains/loses "architect firm" with the source and the Firm name box
+tracks the chosen type. **Not exercised: an actual save** — the migration
+below hadn't been run, so the insert would fail on the missing column
+(confirmed by probing the live DB directly: `column leads.office_territory
+does not exist`). The address side effect and its two warning paths are
+reasoned-through, not observed.
+
+**The site-stage list itself was replaced in the same 2026-08-17 pass**, at
+the owner's direction: `src/lib/siteStageOptions.js`'s
+`SITE_STAGE_OPTIONS` is now **DPC → FF Slab → SF Slab → Plaster → Flooring**,
+in construction order, replacing the older
+`foundation`/`structure`/`finishing`/`completed`. Values double as their own
+display text (every render site prints them raw), so there's no label map.
+This is a shared list with four consumers — New Lead, `SiteDetailsSection`,
+`ActivityLog`'s Site Visit picker, and Dashboard's "Leads by site stage"
+`categoryOrder` — and **no migration was needed or run**: the column is free
+text, and a site still carrying an old value degrades cleanly everywhere
+(`SiteDetailsSection`/`ActivityLog` fall through to their existing `Other…`
+branch with the stored value intact in the text box, and
+`LeadsByCategoryCard` discovers any category outside `categoryOrder` as its
+own row, so nothing vanishes off the dashboard). Don't "clean up" the old
+values with a bulk UPDATE — they're what those sites were actually at.
+
+**Verified live** (2026-08-17, all three roles at 1280px and 375px, real
+sessions on the three-port setup): the dropdown appears only on Scanning and
+disappears on Lixil along with Address; its options render in order (DPC, FF
+Slab, SF Slab, Plaster, Flooring, Other…) for owner, sales_executive and
+sales_coordinator; field order is Client name → Address → Site nickname →
+Site stage → Other's name (after the coordinator's own "Who is this for?");
+the select is full-width at 375px with no overflow and no horizontal page
+scroll. The required gate was driven through all four states: an anchor
+filled with no stage keeps Save **disabled**, picking a stage enables it,
+switching to `Other…` disables it again until the text box is filled, and
+switching source to Lixil re-enables Save with the stage no longer required.
+Dashboard's "Leads by site stage" card was confirmed to re-render on the new
+buckets with no console errors.
+
+**The save path was then exercised for real** (same day, once
+`migration_office_territory.sql` went live — see Conventions), which is what
+the territory pass above could not do. Both branches of the site-insert guard
+were driven end to end against the live database:
+* **Lead #160** — nickname *and* stage. Saved clean, success card showed
+  `Site stage · Plaster`, and Lead Detail's Site details dropdown read it
+  back as the real `Plaster` preset rather than falling into its `Other…`
+  branch — i.e. the value round-tripped through `sites.site_stage` intact.
+* **Lead #161** — stage with the **nickname box left empty**, the path that
+  had nowhere to save before this change. Saved clean; Lead Detail renders a
+  Site details card at all (which only happens when `site_id` is set), and it
+  carries `DPC`. So the nickname-less site row is really created and really
+  linked, not silently dropped.
+Dashboard's "Leads by site stage" then showed `DPC 1` and `Plaster 1` against
+the pre-existing `Not set 1`, total 3 — the reporting gain this field exists
+for. No console errors anywhere in the flow. **These two leads plus one
+`TEST client 17Aug` party are live test rows** (the database was at its
+Phase 0 baseline with no parties at all, so the second case had to create
+one); they're owner-owned and deletable from the Supabase dashboard —
+there's no in-app lead delete, see the Profile section. **Also worth knowing for the next
+session**: the Browser pane's real mouse clicks were not being delivered at
+any width (the pane wasn't composited — screenshots time out too), so the
+above was driven by dispatching real DOM click/input/change events, which do
+run React's own handlers, rather than by synthetic pointer input. Same class
+of sandbox limitation Phase 9's TODO 1 already records at 375px.
+
 * Quick-select maps to `source_type`/`discovered_via` as
   `scanning`/`lixil`/`referral_architect` only — `referral_other`/
   `showroom_walkin` aren't reachable here.
@@ -3056,6 +3194,7 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 **`Schema/migration_backlog_2026_08_10.sql` bundles all four outstanding items** (architect meeting, the stage taxonomy rename, and both of the above) into one safe-to-re-run file with verification queries — prefer it over running the individual files, because **the order is load-bearing and not obvious**: the owner-only-stage trigger fires even for roles that bypass RLS (triggers aren't part of RLS), and the SQL Editor has no `auth.uid()`, so `current_employee_role()` is NULL there — running the trigger step before the taxonomy `UPDATE`s would make those `UPDATE`s abort with "Only an owner can change a lead's stage". The trigger function carries an `auth.uid() IS NOT NULL` guard so admin SQL keeps working after it's installed (a deactivated employee is still blocked — real `auth.uid()`, NULL role), but the bundled file also sequences the steps so the hazard can't bite.
 - **`Schema/migration_sales_coordinator.sql` was run live on 2026-08-10** and is no longer outstanding — it adds the `sales_coordinator` role, `employees.coordinator_id`, `entered_by_role` on `leads`/`activities`, the `is_my_team_member()` helper, 13 `coordinator_team_*` policies, the narrowed `parties`/`sites` reads, and two new triggers (`validate_employee_role_assignment`, `enforce_coordinator_lock`); it also replaces `enforce_owner_only_stage_change()`, so it **must run after** `migration_backlog_2026_08_10.sql` or the backlog overwrites it back to owner-only. All 9 verification checks returned PASS. One ordering bug was found and fixed by running it live: `is_my_team_member()` is `LANGUAGE sql`, whose body Postgres validates at CREATE time, so defining it before `coordinator_id` existed failed the whole file on its first statement with `42703`. It's now STEP 3, after the column — don't move it back up, and prefer reordering over switching to plpgsql if a similar dependency appears (plpgsql's late binding hides the problem until runtime).
 - **✅ `Schema/migration_lead_edit_rights.sql` was RUN LIVE 2026-08-13** and verified behaviourally, not by introspection — see below. It is the database half of the shared-lead-edit-rights ruling: stage changes open to all three editing roles with a forward-only restriction on `sales_executive`, an `own_lead_insert` policy on `stage_history` so a rep can record the change, and the removal of `enforce_coordinator_lock()`. **If it ever needs re-running, run it after `migration_sales_coordinator.sql`** — that file (and `migration_backlog_2026_08_10.sql` behind it) installs the owner-only version of the same trigger, so running either afterwards silently reverts this. The function/trigger names are deliberately unchanged (`enforce_owner_only_stage_change`/`owner_only_stage_change`) despite now being historical — renaming would let an older file's re-run install a *second*, stricter trigger alongside this one instead of cleanly overwriting it. **Proven live against lead #159**: a sales exec moved `calling → joinery_follow_up` and it succeeded (history row written and attributed); the same exec's direct API attempt at `joinery_follow_up → calling` was refused with `23514` and the trigger's own message; the **On hold laundering route is closed** (`→ on_hold` allowed, then `on_hold → calling` refused, because the trigger resolves the pre-hold stage out of `stage_history`); a coordinator moved the same lead *backward* 3→2 successfully; and a coordinator edited `quote_value` on a lead whose `entered_by_role` was already `'sales_executive'` — the exact write the dropped lock used to refuse.
+- **✅ `Schema/migration_office_territory.sql` was RUN LIVE 2026-08-17** and is no longer outstanding. It adds `leads.office_territory` (nullable TEXT) and its CHECK of the four offices, for the New Lead screen's required territory tap-select (see the LeadQuickCapture section). Verified behaviourally rather than by introspection: two leads (#160, #161) saved through the real form with `Territory · Ludhiana` on the success card and no error — the failure this bullet used to describe (**every** New Lead save failing, every role and source, with `column "office_territory" of relation "leads" does not exist`) is gone. Independent of every other migration here: it touches no policy, trigger or function, so it can run before or after any of them, and it's safe to re-run. A fifth office needs **both** halves changed — the CHECK here *and* `src/lib/territoryOptions.js` — or the app offers a button that fails to save.
 - `Schema/DESTRUCTIVE_reset_all_data.sql` empties every table except one owner's `employees` row. **Not a migration** — never include it in a run-everything-in-order list. It exists so a test reset is documented and repeatable. Note it deliberately does *not* touch `auth.users`: deleting employee rows leaves orphaned Supabase Auth logins that must be cleaned up by hand in the dashboard, and scripting that risks removing your own login.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.
 - Row Level Security (full policies in `Schema/rls_policies.sql`; **confirmed live** — `current_employee_id()`/`current_employee_role()` and every policy below have been run against the real project and verified: deactivating an employee (`employees.is_active = false` in Manage Employees) now actually revokes their database access, not just the client-side `ProtectedRoute` block): every policy that used to inline `(SELECT id/role FROM employees WHERE auth_user_id = auth.uid())`, or leave a table wide open with `USING (true)`/`WITH CHECK (true)`, now goes through one of two `SECURITY DEFINER` helper functions instead — `current_employee_id()`/`current_employee_role()`, both filtered to `is_active = true` and both resolving to `NULL` for a deactivated employee's row. That single change is what makes deactivating someone in Manage Employees actually revoke their access, not just hide the UI. `activities`/`leads`/`plans`/`targets` use "own data or owner role" (`employee_id`/`owner_employee_id` `= current_employee_id()`, or `current_employee_role() = 'owner'`) for SELECT/INSERT/UPDATE, plus **owner-only DELETE** (no "own data" exception — a sales exec can create/edit their own rows but can't delete even those; only an owner can). `employees`: SELECT requires `current_employee_role() IS NOT NULL` (i.e. "you resolve to some active employee" — this doesn't filter which employee rows come back, so an active owner still sees every row including inactive ones; it only gates whether a deactivated caller can query the table at all), INSERT/UPDATE/DELETE owner-only with **no self-update exception** (a sales exec must never set their own `role` to `'owner'`). `sites`/`parties`/`areas`/`site_contacts`/`products`/`stage_history`/`lead_owner_history` SELECT/INSERT now require `current_employee_role() IS NOT NULL` too — these used to be unconditionally `true` (open to any authenticated session regardless of `is_active`), which is exactly how a deactivated rep kept full access to the whole party directory even after being switched off. `sites`/`parties` UPDATE is "own data or owner role" (`discovered_by`/`created_by`), DELETE owner-only. `areas`/`site_contacts` UPDATE/DELETE stay owner-only (shared master data / append-style joins — no per-row "own data" concept applies). `products` UPDATE/DELETE owner-only. `stage_history`/`lead_owner_history` have no UPDATE/DELETE ever, for anyone including owner — permanently append-only by design. `loss_reasons`: SELECT requires `current_employee_role() = 'owner'`, INSERT requires `current_employee_role() IS NOT NULL`, no UPDATE/DELETE ever, same append-only-forever reasoning. `follow_ups` is "own data or owner role" keyed on `assigned_to` (not `created_by`) for SELECT/INSERT/UPDATE plus owner-only DELETE — same shape as activities/leads/plans/targets, see the Follow-ups section. `push_subscriptions` is narrower: SELECT is "own data or owner role" (keyed on `employee_id`), but INSERT/UPDATE/DELETE have **no owner-role exception at all** — a subscription is tied to one specific browser instance, so only the device's own employee can write it (`employee_id = current_employee_id()`, no `OR` branch); real cross-employee cleanup of dead subscriptions happens via the Edge Function's `service_role` key instead, which bypasses RLS entirely and never calls these functions (`service_role` has no `auth.uid()`). A write needs both the table GRANT (Step A of `rls_policies.sql`) and the RLS policy to agree — DELETE is granted on the twelve tables with an `owner_only_delete`/`own_data_delete` policy (`employees`/`areas`/`sites`/`site_contacts`/`parties`/`products`/`leads`/`activities`/`plans`/`targets`/`follow_ups`/`push_subscriptions`); `stage_history`/`lead_owner_history`/`loss_reasons` get no DELETE grant at all.

@@ -511,9 +511,24 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 }
 .vip-choice.vip-active { background: var(--vip-teal); border-color: var(--vip-teal); color: #fff; }
 
+/* A 4-option tap-select (office territory on New Lead). Deliberately its own
+   class rather than .vip-choice-row + an override: that row is a no-wrap flex
+   whose children are `flex: 1`, so a fourth option squeezes 'Jalandhar' past
+   its track at phone width. Applied ALONE — pairing it with .vip-choice-row
+   would put two `display` declarations on one element at equal specificity,
+   the cascade trap noted in section 17. */
+.vip-choice-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+@media (min-width: 1024px) {
+  .vip-choice-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
 /* ---------- 9. Forms ---------------------------------------------------- */
 .vip-form { display: flex; flex-direction: column; gap: 14px; }
 .vip-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--vip-ink); }
+/* The same label treatment as .vip-field, for a group of tap-select buttons
+   that isn't wrapped in a <label> (a <label> would need a single form control
+   to point at). Replaces an inline style repeated per group. */
+.vip-field-label { font-size: 13px; font-weight: 600; color: var(--vip-ink); }
 .vip-field-hint { font-weight: 400; font-size: 12px; color: var(--vip-muted); }
 .vip-input, .vip-select, .vip-textarea {
   min-height: 48px; width: 100%;

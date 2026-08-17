@@ -154,6 +154,14 @@ CREATE TABLE leads (
                         -- referred_by_party_id is.
   external_reference_id TEXT,   -- Lixil's own case/lead number, if given
 
+  -- Which of the dealership's four offices this lead belongs to. Captured on
+  -- the New Lead screen for every source. Nullable because leads predating
+  -- the field have no honest value to backfill — see
+  -- Schema/migration_office_territory.sql, which added this to the live DB.
+  -- Labels live in src/lib/territoryOptions.js; keep them in sync with this list.
+  office_territory     TEXT CHECK (office_territory IS NULL OR office_territory IN
+                          ('ludhiana','amritsar','jalandhar','patiala')),
+
   lead_generated_at    DATE,
   current_stage        TEXT DEFAULT 'new',   -- free text, standardize the list at the app layer
 

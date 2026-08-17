@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
+import { partyTypeLabel } from '../lib/partyTypeOptions'
 import { errorMessage } from '../lib/errorMessage'
 
 const DEFAULT_PARTY_TYPES = ['client', 'architect', 'builder', 'firm', 'other', 'pmc']
@@ -21,11 +22,18 @@ const SEARCH_DEBOUNCE_MS = 350
 // "own data (created_by) or owner role", so if this stayed the coordinator's
 // own id, the exec would have no standing edit rights on a party the
 // coordinator created for them.
+//
+// showFirmName reveals a "Firm name" box (parties.firm_name) in the create
+// form, but only while the chosen Type is 'architect' — an architect is a
+// person who works under a firm, so both are worth having. It stays hidden for
+// the 'firm' type itself, where the party already *is* the firm and a second
+// firm field would just be the name typed twice.
 function PartySearchOrCreate({
   label = 'Party',
   defaultPartyType = 'client',
   allowCreate = true,
   typeOptions = DEFAULT_PARTY_TYPES,
+  showFirmName = false,
   onSelect,
   createdByEmployeeId,
 }) {
@@ -43,8 +51,30 @@ function PartySearchOrCreate({
   const [newName, setNewName] = useState('')
   const [newMobile, setNewMobile] = useState('')
   const [newPartyType, setNewPartyType] = useState(defaultPartyType)
+  const [newFirmName, setNewFirmName] = useState('')
   const [createError, setCreateError] = useState(null)
   const [saving, setSaving] = useState(false)
+
+  // Keep the chosen type inside the offered list. typeOptions can change while
+  // this form is open — New Lead swaps the "Other's name" list when the source
+  // changes, since 'firm' is scanning-only — and a <select> whose value has no
+  // matching <option> displays the FIRST option while React's state keeps the
+  // old value. Verified in the browser: picking "architect firm" on a scanning
+  // lead and then switching to Lixil showed "architect" but would have inserted
+  // party_type = 'firm', bypassing the gate and lying about it on screen.
+  //
+  // Keyed on the joined list, not the array: callers pass array literals
+  // (typeOptions={['client']}), which are a fresh identity every render.
+  const typeOptionsKey = typeOptions.join(',')
+  useEffect(() => {
+    const allowed = typeOptionsKey.split(',')
+    // Functional update so this doesn't need newPartyType as a dependency —
+    // it would re-run on every type change and fight the user's own choice.
+    setNewPartyType((current) => {
+      if (allowed.includes(current)) return current
+      return allowed.includes(defaultPartyType) ? defaultPartyType : allowed[0]
+    })
+  }, [typeOptionsKey, defaultPartyType])
 
   useEffect(() => {
     const nameTerm = name.trim()
@@ -68,7 +98,7 @@ function PartySearchOrCreate({
 
       const { data, error } = await supabase
         .from('parties')
-        .select('id, name, mobile, party_type')
+        .select('id, name, mobile, party_type, firm_name')
         .or(orParts.join(','))
         .order('name')
         .limit(8)
@@ -103,6 +133,7 @@ function PartySearchOrCreate({
     setNewName(name.trim())
     setNewMobile(mobile.trim())
     setNewPartyType(typeOptions.includes(defaultPartyType) ? defaultPartyType : typeOptions[0])
+    setNewFirmName('')
     setCreateError(null)
   }
 
@@ -110,15 +141,19 @@ function PartySearchOrCreate({
     setCreateError(null)
     setSaving(true)
 
+    // firm_name only goes along when the box was actually on screen — a rep
+    // who typed a firm and then switched Type to 'builder' shouldn't have that
+    // stale value silently saved against a party the field never applied to.
     const { data, error } = await supabase
       .from('parties')
       .insert({
         name: newName.trim(),
         mobile: newMobile.trim() || null,
         party_type: newPartyType,
+        firm_name: showFirmName && newPartyType === 'architect' ? newFirmName.trim() || null : null,
         created_by: effectiveCreatedBy,
       })
-      .select('id, name, mobile, party_type')
+      .select('id, name, mobile, party_type, firm_name')
       .single()
 
     setSaving(false)
@@ -147,7 +182,8 @@ function PartySearchOrCreate({
         <div className="vip-row-main">
           <div className="vip-row-title">{selected.name}</div>
           <div className="vip-row-sub">
-            {selected.party_type}
+            {partyTypeLabel(selected.party_type)}
+            {selected.firm_name ? ` · ${selected.firm_name}` : ''}
             {selected.mobile ? ` · ${selected.mobile}` : ''}
           </div>
         </div>
@@ -176,10 +212,16 @@ function PartySearchOrCreate({
             <select className="vip-select" value={newPartyType} onChange={(e) => setNewPartyType(e.target.value)}>
               {typeOptions.map((type) => (
                 <option key={type} value={type}>
-                  {type}
+                  {partyTypeLabel(type)}
                 </option>
               ))}
             </select>
+          </label>
+        )}
+        {showFirmName && newPartyType === 'architect' && (
+          <label className="vip-field">
+            Firm name <span className="vip-field-hint">optional, the firm this architect works under</span>
+            <input className="vip-input" value={newFirmName} onChange={(e) => setNewFirmName(e.target.value)} />
           </label>
         )}
         {createError && <p className="vip-error" role="alert">{createError}</p>}
@@ -235,7 +277,8 @@ function PartySearchOrCreate({
               <div className="vip-row-main">
                 <div className="vip-row-title">{party.name}</div>
                 <div className="vip-row-sub">
-                  {party.party_type}
+                  {partyTypeLabel(party.party_type)}
+                  {party.firm_name ? ` · ${party.firm_name}` : ''}
                   {party.mobile ? ` · ${party.mobile}` : ''}
                 </div>
               </div>
