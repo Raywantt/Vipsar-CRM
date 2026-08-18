@@ -6,6 +6,8 @@ import LeadSearchSelect from '../components/LeadSearchSelect'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
+import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLocationOptions'
+import { formatTimeRange } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
 import { createFollowUp } from '../lib/followUpQueries'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
@@ -55,7 +57,18 @@ function ActivityLog() {
   const [firmParty, setFirmParty] = useState(null)
   const [notes, setNotes] = useState('')
   const [accompaniedBy, setAccompaniedBy] = useState('')
-  const [leadsGenerated, setLeadsGenerated] = useState('')
+  // Office Day's three fields, all required (see canSubmit below). The
+  // summary is deliberately separate from `notes` — that screen asks both
+  // questions, so folding them into one column would silently merge two
+  // things the rep filled in separately. These replaced the old "Leads
+  // generated" input (2026-08-18); activities.leads_generated itself stays,
+  // holding the entries logged while that field existed.
+  const [workSummary, setWorkSummary] = useState('')
+  const [startTime, setStartTime] = useState('')
+  const [endTime, setEndTime] = useState('')
+  // Client Meeting only — 'site' | 'office', required. Closed list, real
+  // CHECK; see src/lib/meetingLocationOptions.js.
+  const [meetingLocation, setMeetingLocation] = useState('')
   const [orderValue, setOrderValue] = useState('')
   const [nextFollowupDate, setNextFollowupDate] = useState('')
   // Site Visit's "change site stage" field — same preset+other shape
@@ -151,6 +164,7 @@ function ActivityLog() {
   const isOfficeDay = activityType === 'office_day'
   const isSiteVisit = activityType === 'site_visit'
   const isArchitectMeeting = activityType === 'architect_meeting'
+  const isClientMeeting = activityType === 'client_meeting'
   // The Firm box is for an individual architect only — see firmName's own
   // comment. Reading party_type off the selected party (rather than tracking
   // the picker's dropdown) means this is right for an existing party too, not
@@ -164,7 +178,26 @@ function ActivityLog() {
   // excluded from this lead-picker block the same way Office Day is.
   const needsAnchor = activityType && !isOfficeDay && !isArchitectMeeting
   const anchorSatisfied = isOfficeDay || (isArchitectMeeting ? Boolean(selectedArchitect) : Boolean(selectedLead))
-  const canSubmit = Boolean(activityType) && anchorSatisfied && (!isCoordinator || Boolean(forExec)) && !submitting
+  // Office Day wants all three of its fields, Client Meeting its location.
+  // Both are UI-level gates only: the columns are nullable, because every
+  // entry logged before these fields existed has no honest value to carry.
+  // A Till at or before the From is a typo, not a night shift — an office day
+  // sits inside one working day. Compared as plain strings: <input type="time">
+  // always yields a zero-padded "HH:MM", so lexical order is clock order and
+  // there is no Date (and no timezone) to get wrong. Deliberately NOT a DB
+  // CHECK — a constraint violation would surface as an opaque Postgres error
+  // on a form the rep can't argue with; this says what's wrong, in place.
+  const timeRangeInvalid = isOfficeDay && Boolean(startTime && endTime) && endTime <= startTime
+  const officeDaySatisfied =
+    !isOfficeDay || Boolean(workSummary.trim() && startTime && endTime && !timeRangeInvalid)
+  const meetingLocationSatisfied = !isClientMeeting || Boolean(meetingLocation)
+  const canSubmit =
+    Boolean(activityType) &&
+    anchorSatisfied &&
+    officeDaySatisfied &&
+    meetingLocationSatisfied &&
+    (!isCoordinator || Boolean(forExec)) &&
+    !submitting
   const leadPreselectedAndLocked =
     Boolean(preselectedLeadId) && selectedLead && String(selectedLead.id) === preselectedLeadId && !changingLead
   // Whose activity this really is — the picked exec for a coordinator
@@ -184,6 +217,17 @@ function ActivityLog() {
       setSelectedArchitect(null)
       setFirmParty(null)
     }
+    // Same reasoning for the two type-specific groups below — a required
+    // field filled and then abandoned by switching type must not be written
+    // by an activity whose form never showed it.
+    if (value !== 'office_day') {
+      setWorkSummary('')
+      setStartTime('')
+      setEndTime('')
+    }
+    if (value !== 'client_meeting') {
+      setMeetingLocation('')
+    }
   }
 
   function resetForm() {
@@ -194,7 +238,10 @@ function ActivityLog() {
     setChangingLead(false)
     setNotes('')
     setAccompaniedBy('')
-    setLeadsGenerated('')
+    setWorkSummary('')
+    setStartTime('')
+    setEndTime('')
+    setMeetingLocation('')
     setOrderValue('')
     setNextFollowupDate('')
     setSubmitError(null)
@@ -215,7 +262,13 @@ function ActivityLog() {
         activity_type: activityType,
         accompanied_by: accompaniedBy || null,
         notes: notes.trim() || null,
-        leads_generated: isOfficeDay && leadsGenerated !== '' ? Number(leadsGenerated) : null,
+        // Each guarded by its own type as well as cleared in
+        // selectActivityType — belt-and-braces, matching how leads_generated
+        // was guarded before it was retired from this form.
+        work_summary: isOfficeDay ? workSummary.trim() || null : null,
+        start_time: isOfficeDay ? startTime || null : null,
+        end_time: isOfficeDay ? endTime || null : null,
+        meeting_location: isClientMeeting ? meetingLocation || null : null,
       })
       .select()
       .single()
@@ -343,7 +396,24 @@ function ActivityLog() {
               <div className="vip-fact-value">{firmParty.name}</div>
             </div>
           )}
+          {isClientMeeting && result.activity.meeting_location && (
+            <div>
+              <div className="vip-fact-label">Meeting location</div>
+              <div className="vip-fact-value">{meetingLocationLabel(result.activity.meeting_location)}</div>
+            </div>
+          )}
+          {isOfficeDay && formatTimeRange(result.activity.start_time, result.activity.end_time) && (
+            <div>
+              <div className="vip-fact-label">Time</div>
+              <div className="vip-fact-value">
+                {formatTimeRange(result.activity.start_time, result.activity.end_time)}
+              </div>
+            </div>
+          )}
         </div>
+        {isOfficeDay && result.activity.work_summary && (
+          <p className="vip-form-note">What you did: {result.activity.work_summary}</p>
+        )}
         {notes && <p className="vip-form-note">Notes: {notes}</p>}
         {result.warnings.map((w) => (
           <p key={w} className="vip-error" role="alert">
@@ -522,6 +592,67 @@ function ActivityLog() {
             </select>
           </label>
         </>
+      ) : isOfficeDay ? (
+        <>
+          {/* Rebuilt 2026-08-18: "Leads generated" is gone, replaced by what
+              the rep actually did and the hours they put in. All three are
+              required — see officeDaySatisfied. Office Day still asks for no
+              lead at all, matching the loosened activity_needs_an_anchor
+              CHECK. */}
+          <label className="vip-field">
+            What did you do? *
+            <textarea
+              className="vip-textarea"
+              value={workSummary}
+              onChange={(e) => setWorkSummary(e.target.value)}
+              rows={3}
+              placeholder="e.g. quote follow-ups, showroom duty, design sheets"
+            />
+          </label>
+
+          {/* Not a <label> — a label needs one control to point at, and this
+              heads a pair. Same treatment as the tap-select groups on New
+              Lead. */}
+          <div className="vip-stack-s">
+            <div className="vip-field-label">Time range *</div>
+            <div className="vip-grid-2">
+              <label className="vip-field">
+                From
+                <input
+                  className="vip-input"
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                />
+              </label>
+              <label className="vip-field">
+                Till
+                <input
+                  className="vip-input"
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                />
+              </label>
+            </div>
+            {timeRangeInvalid && (
+              <p className="vip-error" role="alert">
+                Till has to be after From.
+              </p>
+            )}
+          </div>
+
+          <label className="vip-field">
+            Notes
+            <textarea
+              className="vip-textarea"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Anything else worth recording"
+            />
+          </label>
+        </>
       ) : isArchitectMeeting ? (
         <>
           <label className="vip-field">
@@ -543,9 +674,36 @@ function ActivityLog() {
         <>
           {selectedLead && (
             <>
+              {/* Sits directly under "Against which lead?" — the meeting's
+                  location is a fact about the meeting, asked before the
+                  follow-up/value fields that are really about the deal.
+                  .vip-choice-row, not .vip-choice-grid: two `flex: 1`
+                  children split the track evenly at every width, where the
+                  grid would render them quarter-width at desktop. */}
+              {isClientMeeting && (
+                <div className="vip-stack-s">
+                  <div className="vip-field-label">Meeting location *</div>
+                  <div className="vip-choice-row">
+                    {MEETING_LOCATION_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        className={meetingLocation === opt.value ? 'vip-choice vip-active' : 'vip-choice'}
+                        onClick={() => setMeetingLocation(opt.value)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {activityType === 'booking_update' && (
                 <label className="vip-field">
-                  Order value <span className="vip-field-hint">optional</span>
+                  {/* The column is plain order_value; only the wording says
+                      without-GST, at the owner's direction (2026-08-18) and
+                      deliberately only here — Lead Detail's Sales progress
+                      field and the won-stage prompt still read "Order value". */}
+                  Order value without GST <span className="vip-field-hint">optional</span>
                   <input
                     className="vip-input"
                     type="number"
@@ -565,18 +723,6 @@ function ActivityLog() {
                 />
               </label>
             </>
-          )}
-
-          {isOfficeDay && (
-            <label className="vip-field">
-              Leads generated
-              <input
-                className="vip-input"
-                type="number"
-                value={leadsGenerated}
-                onChange={(e) => setLeadsGenerated(e.target.value)}
-              />
-            </label>
           )}
 
           {activityType && (

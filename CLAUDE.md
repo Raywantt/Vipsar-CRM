@@ -256,6 +256,8 @@ src/
   lib/          integrations & utilities (supabaseClient.js, sanitizeForIlike.js,
                 siteStageOptions.js, leadStageOptions.js, lossReasonOptions.js,
                 statusColors.js, activityTypes.js, sourceTypeOptions.js,
+                meetingLocationOptions.js — Client Meeting's Site/Office list,
+                see the ActivityLog section —
                 dateRanges.js, dashboardQueries.js, searchQueries.js, format.js,
                 targetMetrics.js, targetPeriods.js, targetQueries.js,
                 partyQueries.js — also owns the architect→firm tree
@@ -2024,6 +2026,47 @@ architect party instead of a lead, and has its own picker (see below).
   ones created from this screen. See `Schema/migration_architect_meeting.sql`
   and Conventions below — not yet run against the live DB as of this
   writing.
+* **Office Day was rebuilt 2026-08-18** (owner's direction), and its old
+  **"Leads generated"** input is gone. The screen is now, in order: **What did
+  you do?** (a textarea, required) → **Time range** (From / Till, a
+  `.vip-grid-2` pair of `<input type="time">`, both required) → **Notes**
+  (optional, unchanged). All three are gated by `officeDaySatisfied` in
+  `canSubmit` — Office Day used to save with nothing filled at all.
+  **Till must be strictly after From** (`timeRangeInvalid`), which also blocks
+  the equal case — a zero-length office day is a typo too. Compared as plain
+  strings: `<input type="time">` always yields a zero-padded `"HH:MM"`, so
+  lexical order is clock order and there is no `Date` (and no timezone) to get
+  wrong. Deliberately **not** a DB CHECK — a constraint violation would
+  surface as an opaque Postgres error on a form the rep can't argue with;
+  this disables Save and says "Till has to be after From." in place. The
+  consequence, and it's intended: an office day genuinely spanning midnight
+  can't be logged as one entry.
+  `activities.leads_generated` is **deliberately not dropped**: the entries
+  logged while that field existed are real, and `drilldownBuilders.js`'s log
+  panel still falls back to `N leads generated` for them. That meta line now
+  prefers the new hours (`formatTimeRange`) — without it, every Office Day
+  logged from today on would show no meta where the old ones did.
+  **`work_summary` is its own column, not folded into `notes`** — the screen
+  asks both questions separately, so merging them would make either one
+  unreadable on its own afterwards. See
+  `Schema/migration_activity_office_day_meeting.sql`.
+* **Client Meeting asks where the meeting happened** (2026-08-18) — a
+  **required** Site / Office tap-select (`MEETING_LOCATION_OPTIONS`,
+  `src/lib/meetingLocationOptions.js` → `activities.meeting_location`) sitting
+  directly under "Against which lead?", ahead of the Next follow-up / Order
+  value fields, which are about the deal rather than the meeting. It renders
+  via **`.vip-choice-row`, not `.vip-choice-grid`** — the row's two `flex: 1`
+  children split the track evenly at every width, where the grid's
+  `repeat(4, 1fr)` at ≥1024px would leave two quarter-width buttons. (This is
+  the mirror of the territory case, which needed the grid precisely *because*
+  it has four options.) Gated on `selectedLead`, same as its neighbours, so it
+  doesn't appear above an unfilled lead picker.
+* **Booking Update's Order value reads "Order value without GST"**
+  (2026-08-18) — **wording only, and deliberately only here**, at the owner's
+  direction. It's the same `order_value` column, and `SalesProgressSection`'s
+  own Order value field, `LeadStageSection`'s won-stage prompt, and every
+  dashboard/report label still read plain "Order value". Don't "fix" the
+  others to match without asking.
 * "Accompanied by" (optional, `employees` dropdown excluding yourself) only
   shows for Site Visit — going out to scan/visit a site is the one activity
   where bringing a colleague along is a normal, trackable thing; it doesn't
@@ -2045,6 +2088,42 @@ architect party instead of a lead, and has its own picker (see below).
   being logged.
 * Not in scope for this screen: lead stage changes (`LeadDetail`'s job) or
   a screen listing past activities (still not built anywhere).
+
+**Verified live 2026-08-18** for `sales_executive` (a real session, port
+5183) at 1280px and 375px, once the migration below had been run. Both writes
+were exercised for real and the rows read back out of the database — see that
+migration's bullet in Conventions for the stored values and the CHECK probe.
+Also confirmed live: the field order on all three screens; Save gated
+DISABLED→ENABLED on the last required field and back when one is cleared;
+"Leads generated" absent; the Meeting location block genuinely after the lead
+row in DOM order (`compareDocumentPosition`), and absent entirely until a lead
+is picked; "Order value without GST" with no plain "Order value" left on the
+screen; and the Till/From rule refusing both a backwards range (18:00→09:30)
+and an equal one, then accepting 18:00→18:01. At 375px the From/Till pair
+stays one row of two equal halves with no page overflow. **Live test rows to
+clean up when convenient: activities #1242 (Office Day) and #1243 (Client
+Meeting on lead #159)**, both owned by the test exec (employee 26) — a sales
+exec has no DELETE grant, so they need the Supabase dashboard.
+
+**`sales_coordinator` was NOT verified live** — no coordinator session existed
+on any dev origin in that session. It was verified instead through a
+throwaway Vite harness that mounted the real `ActivityLog` with
+`supabaseClient`/`AuthContext`/`employeeQueries` aliased to stubs — the same
+"build a harness when there's no login" fallback the `.vip-leads-layout` CSS
+bug was caught with. The harness was deleted afterwards; recreate it rather
+than assuming the app can be driven logged-out. It confirmed, at both widths,
+everything listed above plus: "Who is this for?" still sits above the new
+fields, Save stays disabled until an exec is picked even with all three
+Office Day fields filled, and the insert payload is credited to the **exec's**
+`employee_id`, not the coordinator's. What a harness cannot prove is a real
+write under that role's RLS — worth one live Office Day and one Client
+Meeting from a coordinator login before the pilot.
+
+**The pre-migration harness pass** (same day, before the columns existed)
+additionally pinned two behaviours the live pass didn't re-exercise, and
+they're the ones worth keeping in mind when touching this file: **switching activity type clears both new field groups**
+(so a required value typed and then abandoned can't be written by a form that
+never showed it), and **"Log another activity" resets them too**.
 
 `LeadSearchSelect` (`src/components/LeadSearchSelect.jsx`) is select-only
 (no create) — fetches the employee's own leads once (now embedding
@@ -3413,6 +3492,23 @@ manually if needed). `.claude/preview-server.cmd` is a second launch config
 — use this one, not the plain dev server, to test real PWA/service-worker/
 offline behavior (see the PWA installability section above for why).
 
+**Test-account logins live in `.claude/test-logins.local.md`** (git-ignored,
+local to this machine — **this repo is public, so credentials must never go in
+a tracked file**, per the secrets rule in Conventions). That file records which
+test accounts exist, their passwords, and which role port each belongs on.
+
+**Claude cannot type a password into the login form** — entering credentials
+into any field is off-limits for it, so storing them changes nothing about
+that. The working flow is that **the user logs in once per origin** and Claude
+drives the already-authenticated app; sessions persist per origin, which is
+what the three role ports are for. When nothing is logged in, say so and ask
+— don't assume a fresh tab means a fresh session, and don't silently fall back
+to reasoning-only verification. The documented fallback when a login genuinely
+isn't available is a throwaway Vite harness mounting the real component with
+`supabaseClient`/`AuthContext` aliased to stubs (see the ActivityLog section's
+2026-08-18 note); it proves render, ordering and gating, but never a real
+write under RLS.
+
 The Browser-pane dev preview persists its Supabase session in localStorage
 per-origin, shared across every tab — including tabs a human tester and
 Claude open independently. A login for one manual test silently carries over
@@ -3440,6 +3536,7 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 - **✅ `Schema/migration_office_territory.sql` was RUN LIVE 2026-08-17** and is no longer outstanding. It adds `leads.office_territory` (nullable TEXT) and its CHECK of the four offices, for the New Lead screen's required territory tap-select (see the LeadQuickCapture section). Verified behaviourally rather than by introspection: two leads (#160, #161) saved through the real form with `Territory · Ludhiana` on the success card and no error — the failure this bullet used to describe (**every** New Lead save failing, every role and source, with `column "office_territory" of relation "leads" does not exist`) is gone. Independent of every other migration here: it touches no policy, trigger or function, so it can run before or after any of them, and it's safe to re-run. A fifth office needs **both** halves changed — the CHECK here *and* `src/lib/territoryOptions.js` — or the app offers a button that fails to save.
 - **✅ `Schema/migration_client_meeting_design_sheet.sql` was RUN LIVE 2026-08-17** and verified both by the file's own introspection query and behaviourally. It widens **two** CHECK constraints for the `client_meeting`/`design_sheet` activity types: `activities.activity_type` (Log Activity's two new buttons) and `follow_ups.activity_type` (`FollowUpForm`'s "Type of follow-up" chip picker reads the same `ACTIVITY_TYPES` list, so it offers both as chips on *any* reminder — a failure with nothing to do with Log Activity, which is exactly why that half is easy to forget). Both constraint definitions now list the two new values. **The need for it was proven before running, not assumed**: submitting a Design Sheet against a real lead returned `new row for relation "activities" violates check constraint "activities_activity_type_check"`, which also confirmed the constraint name section 1 assumes; it failed cleanly as an inline error with no partial write. **Both halves then proven after running**: a Client Meeting and a Design Sheet both saved clean against lead #159, and a reminder tagged Design Sheet saved and survived a real page reload (Home's Tomorrow row). Independent of every other migration (no policy, trigger or function touched), safe to re-run, and it only widens what's allowed — no existing row changed. Adding a ninth activity type needs this same two-constraint treatment.
 - **✅ `Schema/migration_architect_firm_link.sql` was RUN LIVE 2026-08-17.** It adds `parties.firm_party_id` (a self-reference, architect → the `firm` party they work under, `ON DELETE SET NULL` so deleting a firm never deletes its architects), a `parties_firm_not_self` CHECK, an index, and a backfill promoting each distinct `firm_name` to a real `firm` party and linking its architects (case- and trim-insensitive, deliberately not fuzzy — merging `Kapoor & Assoc` with `Kapoor and Assoc` would be a guess about the real world). Verified by its own output: both existing firm names became real firm parties with their architects linked, and a firm party that already existed was **not** duplicated. `firm_name` is deliberately **not** dropped — it stays as a read-only fallback for anything the backfill couldn't match, and nothing writes to it anymore. Safe to re-run.
+- **✅ `Schema/migration_activity_office_day_meeting.sql` was RUN LIVE 2026-08-18** and verified behaviourally against the real database, not just by its own introspection queries. It adds four nullable columns to `activities` for the Log Activity changes above: `work_summary`, `start_time`/`end_time` (both `TIME`, matching `follow_ups.due_time` — clock times, so none of the naive-`TIMESTAMP` hazard applies), and `meeting_location` plus its `activities_meeting_location_check` CHECK of `('site','office')`. Proven end to end: an Office Day (activity **#1242**) stored `work_summary` plus `start_time`/`end_time` as real `TIME` values (`"09:30:00"`/`"18:00:00"` — the picker emits `"09:30"`, and Postgres widened it), and a Client Meeting (**#1243**, lead #159) stored `meeting_location: 'site'`. **The discriminating test was the CHECK, not the columns**: an UPDATE of #1243 to `'cafe'` was refused with `23514` naming `activities_meeting_location_check`, so section 3's constraint really landed rather than just its column. That probe was deliberately a reversible UPDATE on an own row rather than an INSERT — a sales exec has no DELETE grant, so a junk row from a failed INSERT could not have been cleaned up. A client meeting logged *before* this migration (#1235) reads `meeting_location: null`, confirming old rows degrade cleanly. Independent of every other migration in the folder — it touches no policy, trigger or function, and new columns inherit the table's existing grants and RLS, so nothing in `rls_policies.sql` needs re-running. Safe to re-run. A third meeting location later needs BOTH halves changed — the CHECK here *and* `src/lib/meetingLocationOptions.js` — the same two-sided change `leads.office_territory` documents.
 - **PostgREST cannot embed a self-referencing FK by column hint — use two queries.** Learned the hard way on `parties.firm_party_id`, and it cost a silent wrong answer, so don't retry the embed. The same FK describes both directions ("the firm I point at" and "the architects pointing at me"), and **`parties!firm_party_id(...)` silently resolves the REVERSE one** — it returned `"firm": []` for an architect whose link was genuinely set, with no error at all. The constraint-name form `parties!parties_firm_party_id_fkey(...)` then failed outright with `PGRST200`. The fix is `attachFirms()` in `src/lib/partyQueries.js`: select `firm_party_id`, then resolve those ids in one bounded follow-up query and merge client-side — the same "two plain queries beat one fragile piece of PostgREST syntax" reasoning `searchQueries.js` already documents for not filtering on embedded relations. **A legacy fallback can hide this class of bug**: `firmLabel()` falls back to `firm_name`, so the stale text made the row look correct while the link was empty. Verifying needed an architect whose `firm_name` and linked firm **differ** — equal values cannot tell the two sources apart. Also note DDL alone isn't enough for a new relationship: PostgREST caches the schema, and the migration ends with `NOTIFY pgrst, 'reload schema'` for exactly that reason.
 - `Schema/DESTRUCTIVE_reset_all_data.sql` empties every table except one owner's `employees` row. **Not a migration** — never include it in a run-everything-in-order list. It exists so a test reset is documented and repeatable. Note it deliberately does *not* touch `auth.users`: deleting employee rows leaves orphaned Supabase Auth logins that must be cleaned up by hand in the dashboard, and scripting that risks removing your own login.
 - Employee accounts are created manually in Supabase (Auth → Users), not via self-signup — none planned. Supabase's default email-confirmation requirement can block login for a newly created account before its email is confirmed — worth checking that setting if a freshly created sales-exec login doesn't work.

@@ -103,7 +103,7 @@ export function fetchActivityLogForExec(employeeId, activityType) {
   return supabase
     .from('activities')
     .select(
-      'id, notes, created_at, leads_generated, accompanied_by, leads(current_stage, parties!party_id(name)), parties!party_id(name), employees!accompanied_by(name)'
+      'id, notes, created_at, leads_generated, start_time, end_time, accompanied_by, leads(current_stage, parties!party_id(name)), parties!party_id(name), employees!accompanied_by(name)'
     )
     .eq('employee_id', employeeId)
     .eq('activity_type', activityType)

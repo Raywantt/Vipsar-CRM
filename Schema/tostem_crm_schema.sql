@@ -209,7 +209,22 @@ CREATE TABLE activities (
                      'rfq_raised','design_sheet','office_day','booking_update')),
   accompanied_by  INTEGER REFERENCES employees(id) ON DELETE SET NULL,
   notes           TEXT,
-  leads_generated INTEGER,   -- only used for 'office_day' entries
+  leads_generated INTEGER,   -- only used for 'office_day' entries (retired
+                             -- from the UI 2026-08-18; kept for old rows)
+  -- Office Day's "What did you do?". Its own column rather than folded into
+  -- notes above — that screen asks both questions separately, so merging them
+  -- would make either one unreadable on its own afterwards.
+  work_summary    TEXT,      -- only used for 'office_day' entries
+  -- Office Day's From / Till. TIME, not TIMESTAMP: clock times within the day
+  -- the activity was logged, not instants. Same type as follow_ups.due_time,
+  -- and no naive-timestamp problem to inherit, since there is no zone to lose.
+  start_time      TIME,      -- only used for 'office_day' entries
+  end_time        TIME,      -- only used for 'office_day' entries
+  -- Where a Client Meeting happened. Closed list with a real CHECK, same
+  -- treatment as leads.source_type; labels live in
+  -- src/lib/meetingLocationOptions.js. Only used for 'client_meeting'.
+  meeting_location TEXT CHECK (meeting_location IS NULL OR meeting_location IN
+                     ('site','office')),
   -- Same SC edit lock as leads.entered_by_role above — see that comment.
   entered_by_role TEXT CHECK (entered_by_role IS NULL OR entered_by_role IN
                      ('owner','sales_executive','sales_coordinator')),

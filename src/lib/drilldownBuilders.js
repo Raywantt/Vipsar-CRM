@@ -9,7 +9,7 @@ import { ACTIVITY_METRIC_OPTIONS } from './targetMetrics'
 import { LEAD_STAGE_OPTIONS, stageLabel } from './leadStageOptions'
 import { LOSS_REASON_OPTIONS } from './lossReasonOptions'
 import { stageChipClass, stageFg } from './statusColors'
-import { formatCurrencyCompact } from './format'
+import { formatCurrencyCompact, formatTimeRange } from './format'
 import { parseTimestamp } from './dbTime'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeFunnel } from '../components/SalesFunnelCard'
@@ -290,7 +290,13 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
       const linkedLead = r.leads
       const party = linkedLead?.parties?.name ?? r.parties?.name ?? '(no party)'
       const stage = linkedLead?.current_stage ?? null
-      const meta = r.accompanied_by ? `with ${r.employees?.name ?? 'colleague'}` : r.leads_generated != null ? `${r.leads_generated} leads generated` : null
+      // Office Day's meta is its hours now that "leads generated" is retired
+      // from the form (2026-08-18) — the leads_generated fallback stays for
+      // the entries logged while that field existed.
+      const meta =
+        (r.accompanied_by ? `with ${r.employees?.name ?? 'colleague'}` : null) ??
+        formatTimeRange(r.start_time, r.end_time) ??
+        (r.leads_generated != null ? `${r.leads_generated} leads generated` : null)
       return {
         id: r.id,
         // parseTimestamp, not new Date(): activities.created_at is a naive
