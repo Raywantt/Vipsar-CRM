@@ -99,6 +99,31 @@ export async function setPartyFirm({ partyId, partyName, firmId, currentFirmId }
   return null
 }
 
+// Turns a PartySearchOrCreate draft (deferCreate mode — see that component's
+// header comment) into a real parties row. Call this once, right at a
+// screen's own final commit action (Save lead, Log it, Add contact) — never
+// as a side effect of picking or typing — so a party the user typed and then
+// abandoned never ends up permanently in the database. A party that's
+// already real (selected via search, or deferCreate was never on) passes
+// through unchanged, no write at all.
+export async function materializePartyDraft(party, createdByEmployeeId) {
+  if (!party?._isNewPartyDraft) return { data: party }
+
+  const { data, error } = await supabase
+    .from('parties')
+    .insert({
+      name: party.name,
+      mobile: party.mobile,
+      party_type: party.party_type,
+      created_by: createdByEmployeeId ?? null,
+    })
+    .select(PARTY_COLUMNS)
+    .single()
+
+  if (error) return { error }
+  return { data: { ...data, firm: null } }
+}
+
 // Owner-only in the UI (Profile's Settings section) — RLS's owner_only_delete
 // policy on parties is the actual enforcement. leads.party_id/activities.party_id/
 // site_contacts.party_id have no ON DELETE clause (RESTRICT), so deleting a

@@ -56,6 +56,18 @@ const SEARCH_DEBOUNCE_MS = 350
 // Firms are real 'firm' parties now (see Schema/migration_architect_firm_link
 // .sql), so every caller that wants one renders its own Firm picker beside
 // this field instead, which works for existing architects too.
+//
+// deferCreate: when true, "Create" no longer writes to parties at all — it
+// hands onSelect a local draft object (`_isNewPartyDraft: true`, real name/
+// mobile/party_type, `id: null`) instead of an inserted row. Use this
+// whenever the caller has its own later, explicit commit step (a form's own
+// Save/Add button) — real incident that made this necessary: a party created
+// the instant "Create" was clicked stayed in the database forever even when
+// the surrounding form (e.g. Lead Detail's Add contact) was abandoned right
+// after, with no undo. The caller is then responsible for turning the draft
+// into a real row (materializePartyDraft in src/lib/partyQueries.js) at the
+// moment it actually commits — never earlier. Selecting an EXISTING party via
+// search is unaffected either way; it was never a write.
 function PartySearchOrCreate({
   label = 'Party',
   defaultPartyType = 'client',
@@ -66,6 +78,7 @@ function PartySearchOrCreate({
   initialSelected = null,
   onSelect,
   createdByEmployeeId,
+  deferCreate = false,
 }) {
   const { employee } = useAuth()
   const effectiveCreatedBy = createdByEmployeeId ?? employee?.id ?? null
@@ -162,6 +175,32 @@ function PartySearchOrCreate({
   }
 
   function startCreate() {
+    // deferCreate with only one possible type means there's nothing left to
+    // ask — name/mobile are already typed into the search box above, and
+    // party_type isn't a real choice when typeOptions has just one value. A
+    // second "confirm these same details" screen with its own Continue button
+    // would just be re-asking what's already on screen, so skip straight to
+    // the finalized draft instead (the same shape handleCreate's deferCreate
+    // branch produces). Whenever there IS a real type to pick (typeOptions
+    // has more than one value — e.g. Architect Meeting's architect/firm
+    // choice), the sub-form below still opens to ask it.
+    if (deferCreate && typeOptions.length <= 1) {
+      const draft = {
+        id: null,
+        name: name.trim(),
+        mobile: mobile.trim() || null,
+        party_type: typeOptions[0] ?? defaultPartyType,
+        firm: null,
+        _isNewPartyDraft: true,
+      }
+      setSelected(draft)
+      setResults([])
+      setName('')
+      setMobile('')
+      onSelect?.(draft)
+      return
+    }
+
     setCreating(true)
     setNewName(name.trim())
     setNewMobile(mobile.trim())
@@ -171,6 +210,26 @@ function PartySearchOrCreate({
 
   async function handleCreate() {
     setCreateError(null)
+
+    if (deferCreate) {
+      if (!newName.trim()) return
+      const draft = {
+        id: null,
+        name: newName.trim(),
+        mobile: newMobile.trim() || null,
+        party_type: newPartyType,
+        firm: null,
+        _isNewPartyDraft: true,
+      }
+      setCreating(false)
+      setSelected(draft)
+      setResults([])
+      setName('')
+      setMobile('')
+      onSelect?.(draft)
+      return
+    }
+
     setSaving(true)
 
     // No firm here — a firm is its own party now, linked afterwards by
@@ -260,7 +319,7 @@ function PartySearchOrCreate({
             onClick={handleCreate}
             disabled={saving || !newName.trim()}
           >
-            {saving ? 'Saving…' : 'Create'}
+            {deferCreate ? 'Continue' : saving ? 'Saving…' : 'Create'}
           </button>
           <button
             type="button"

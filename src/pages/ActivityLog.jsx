@@ -11,7 +11,7 @@ import { formatTimeRange } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
 import { createFollowUp } from '../lib/followUpQueries'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
-import { setPartyFirm } from '../lib/partyQueries'
+import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
 
 function leadLabel(lead) {
@@ -253,12 +253,36 @@ function ActivityLog() {
     setSubmitError(null)
     setSubmitting(true)
 
+    // The architect (and, if picked, their firm) may still be an unsaved
+    // draft from PartySearchOrCreate's deferCreate mode — materialized here,
+    // right before the activity that references it, so backing out of this
+    // form before Log it never leaves a real, permanent party behind.
+    const architectResult = isArchitectMeeting
+      ? await materializePartyDraft(selectedArchitect, actingForId)
+      : { data: null }
+    if (architectResult.error) {
+      setSubmitError(`Couldn't save the architect: ${errorMessage(architectResult.error)}`)
+      setSubmitting(false)
+      return
+    }
+    const resolvedArchitect = architectResult.data
+
+    const firmResult = showFirmField
+      ? await materializePartyDraft(firmParty, actingForId)
+      : { data: firmParty }
+    if (firmResult.error) {
+      setSubmitError(`Couldn't save the firm: ${errorMessage(firmResult.error)}`)
+      setSubmitting(false)
+      return
+    }
+    const resolvedFirmParty = firmResult.data
+
     const { data: activity, error: activityError } = await supabase
       .from('activities')
       .insert({
         employee_id: actingForId,
         lead_id: selectedLead?.id ?? null,
-        party_id: isArchitectMeeting ? selectedArchitect?.id ?? null : null,
+        party_id: isArchitectMeeting ? resolvedArchitect?.id ?? null : null,
         activity_type: activityType,
         accompanied_by: accompaniedBy || null,
         notes: notes.trim() || null,
@@ -324,12 +348,12 @@ function ActivityLog() {
     // The firm is a property of the architect, not of this meeting, so the
     // link is written onto their party row. setPartyFirm owns the no-op and
     // silent-RLS-rejection handling — see src/lib/partyQueries.js.
-    if (showFirmField && selectedArchitect) {
+    if (showFirmField && resolvedArchitect) {
       const firmWarning = await setPartyFirm({
-        partyId: selectedArchitect.id,
-        partyName: selectedArchitect.name,
-        firmId: firmParty?.id ?? null,
-        currentFirmId: selectedArchitect.firm?.id ?? null,
+        partyId: resolvedArchitect.id,
+        partyName: resolvedArchitect.name,
+        firmId: resolvedFirmParty?.id ?? null,
+        currentFirmId: resolvedArchitect.firm?.id ?? null,
       })
       if (firmWarning) warnings.push(`Activity logged, but ${firmWarning}`)
     }
@@ -343,13 +367,13 @@ function ActivityLog() {
     // the two differ. activityType: 'other' — the real 'architect_meeting'
     // value isn't in follow_ups' own activity_type CHECK list, same reasoning
     // On Hold's own createFollowUp call uses.
-    if (isArchitectMeeting && selectedArchitect && nextFollowupDate) {
+    if (isArchitectMeeting && resolvedArchitect && nextFollowupDate) {
       const { error: followUpError } = await createFollowUp({
         assignedTo: actingForId,
         createdBy: employee?.id,
-        partyId: selectedArchitect.id,
+        partyId: resolvedArchitect.id,
         activityType: 'other',
-        title: `Follow up with ${selectedArchitect.name}`,
+        title: `Follow up with ${resolvedArchitect.name}`,
         notes: notes.trim() || null,
         dueDate: nextFollowupDate,
       })
@@ -513,21 +537,23 @@ function ActivityLog() {
             label="Architect name"
             defaultPartyType="architect"
             typeOptions={['architect', 'firm']}
+            deferCreate
             onSelect={setSelectedArchitect}
             createdByEmployeeId={actingForId}
           />
 
-          {/* key on the architect's id so the picker re-seeds when a
-              different architect is chosen — initialSelected is a seed, not a
-              controlled value. This is what makes a known architect's firm
-              appear on its own. */}
+          {/* key on the architect's id (or, for one not yet saved, their
+              name) so the picker re-seeds when a different architect is
+              chosen — initialSelected is a seed, not a controlled value. This
+              is what makes a known architect's firm appear on its own. */}
           {showFirmField && (
             <PartySearchOrCreate
-              key={selectedArchitect.id}
+              key={selectedArchitect.id ?? selectedArchitect.name}
               label="Firm"
               hint={`optional, saved against ${selectedArchitect.name}`}
               defaultPartyType="firm"
               typeOptions={['firm']}
+              deferCreate
               initialSelected={selectedArchitect.firm ?? null}
               onSelect={setFirmParty}
               createdByEmployeeId={actingForId}

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
-import { setPartyFirm } from '../lib/partyQueries'
+import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { TERRITORY_OPTIONS, territoryLabel } from '../lib/territoryOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
@@ -221,13 +221,55 @@ function LeadQuickCapture() {
     }
     const siteId = siteRow.id
 
-    const partyId = clientParty?.id ?? resolvedReferralFrom?.id ?? otherParty?.id ?? null
+    // Any party picked via search-or-create above may still be an unsaved
+    // draft (PartySearchOrCreate's deferCreate mode) — materialized here,
+    // right before it's actually needed, so a rep who fills this in and then
+    // navigates away without hitting Save lead never leaves a real, permanent
+    // party behind.
+    const clientResult = await materializePartyDraft(clientParty, ownerEmployeeId)
+    if (clientResult.error) {
+      setSubmitError(`Couldn't save the client: ${errorMessage(clientResult.error)}`)
+      setSubmitting(false)
+      return
+    }
+    const resolvedClientParty = clientResult.data
+
+    const referralResult = await materializePartyDraft(resolvedReferralFrom, ownerEmployeeId)
+    if (referralResult.error) {
+      setSubmitError(`Couldn't save the referrer: ${errorMessage(referralResult.error)}`)
+      setSubmitting(false)
+      return
+    }
+    const resolvedReferralParty = referralResult.data
+
+    const otherResult = await materializePartyDraft(otherParty, ownerEmployeeId)
+    if (otherResult.error) {
+      setSubmitError(`Couldn't save the other party: ${errorMessage(otherResult.error)}`)
+      setSubmitting(false)
+      return
+    }
+    const resolvedOtherParty = otherResult.data
+
+    // Re-derived off the now-materialized parties (see architectParty above)
+    // so the firm link below, if any, points at a real id.
+    const resolvedArchitectParty =
+      [resolvedReferralParty, resolvedOtherParty].find((p) => p?.party_type === 'architect') ?? null
+
+    const firmResult = await materializePartyDraft(firmParty, ownerEmployeeId)
+    if (firmResult.error) {
+      setSubmitError(`Couldn't save the firm: ${errorMessage(firmResult.error)}`)
+      setSubmitting(false)
+      return
+    }
+    const resolvedFirmParty = firmResult.data
+
+    const partyId = resolvedClientParty?.id ?? resolvedReferralParty?.id ?? resolvedOtherParty?.id ?? null
     // The referrer is the referrer on both referral sources, whether or not a
     // client is on the lead yet. This replaces the older rule that only linked
     // one when an architect-referral lead had BOTH a client and an "other"
     // party — that was a workaround for there being no field meaning "who
     // referred this", which is now exactly what this field means.
-    const referredByPartyId = resolvedReferralFrom?.id ?? null
+    const referredByPartyId = resolvedReferralParty?.id ?? null
 
     const { data: lead, error: leadError } = await supabase
       .from('leads')
@@ -238,7 +280,7 @@ function LeadQuickCapture() {
         source_type: sourceType,
         office_territory: officeTerritory,
         referred_by_party_id: referredByPartyId,
-        other_party_id: otherParty?.id ?? null,
+        other_party_id: resolvedOtherParty?.id ?? null,
       })
       .select('id, source_type, office_territory, site_id, party_id, referred_by_party_id, other_party_id')
       .single()
@@ -265,7 +307,7 @@ function LeadQuickCapture() {
     const address = clientAddress.trim()
 
     if (asksAddress && address) {
-      if (!clientParty) {
+      if (!resolvedClientParty) {
         nextWarnings.push(
           "The address wasn't saved — it attaches to the client record, and this lead has no client name on it."
         )
@@ -277,14 +319,14 @@ function LeadQuickCapture() {
         const { data: updatedParty, error: addressError } = await supabase
           .from('parties')
           .update({ address })
-          .eq('id', clientParty.id)
+          .eq('id', resolvedClientParty.id)
           .select('id')
 
         if (addressError) {
           nextWarnings.push(`The lead saved, but the address didn't: ${errorMessage(addressError)}`)
         } else if (!updatedParty?.length) {
           nextWarnings.push(
-            `The lead saved, but the address didn't — ${clientParty.name} was added by someone else, so you can't edit that record.`
+            `The lead saved, but the address didn't — ${resolvedClientParty.name} was added by someone else, so you can't edit that record.`
           )
         }
       }
@@ -293,12 +335,12 @@ function LeadQuickCapture() {
     // The firm is a property of the architect, not of this lead, so the link
     // is written onto their party row. setPartyFirm owns the no-op and
     // silent-RLS-rejection handling — see src/lib/partyQueries.js.
-    if (architectParty) {
+    if (resolvedArchitectParty) {
       const firmWarning = await setPartyFirm({
-        partyId: architectParty.id,
-        partyName: architectParty.name,
-        firmId: firmParty?.id ?? null,
-        currentFirmId: architectParty.firm?.id ?? null,
+        partyId: resolvedArchitectParty.id,
+        partyName: resolvedArchitectParty.name,
+        firmId: resolvedFirmParty?.id ?? null,
+        currentFirmId: resolvedArchitectParty.firm?.id ?? null,
       })
       if (firmWarning) nextWarnings.push(`The lead saved, but ${firmWarning}`)
     }
@@ -387,11 +429,12 @@ function LeadQuickCapture() {
   // own.
   const firmField = architectParty && (
     <PartySearchOrCreate
-      key={architectParty.id}
+      key={architectParty.id ?? architectParty.name}
       label="Firm"
       hint={`optional, saved against ${architectParty.name}`}
       defaultPartyType="firm"
       typeOptions={['firm']}
+      deferCreate
       initialSelected={architectParty.firm ?? null}
       onSelect={setFirmParty}
       createdByEmployeeId={ownerEmployeeId}
@@ -476,6 +519,7 @@ function LeadQuickCapture() {
         required={isWalkIn}
         defaultPartyType="client"
         typeOptions={['client']}
+        deferCreate
         onSelect={setClientParty}
         createdByEmployeeId={ownerEmployeeId}
       />
@@ -509,6 +553,7 @@ function LeadQuickCapture() {
           required
           defaultPartyType={isArchReferral ? 'architect' : 'client'}
           typeOptions={isArchReferral ? REFERRER_TYPES_ARCHITECT : REFERRER_TYPES}
+          deferCreate
           onSelect={setReferralFrom}
           createdByEmployeeId={ownerEmployeeId}
         />
@@ -589,6 +634,7 @@ function LeadQuickCapture() {
                 ? OTHER_PARTY_TYPES_ARCH_REFERRAL
                 : OTHER_PARTY_TYPES
           }
+          deferCreate
           onSelect={setOtherParty}
           createdByEmployeeId={ownerEmployeeId}
         />

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from './PartySearchOrCreate'
-import { setPartyFirm } from '../lib/partyQueries'
+import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
 
 // Only an individual architect belongs to a firm — a 'firm' party already is
@@ -9,7 +10,38 @@ import { errorMessage } from '../lib/errorMessage'
 // Same rule Log Activity and New Lead apply.
 const takesFirm = (party) => party?.party_type === 'architect'
 
+// Role at this site — the one thing the rep is actually being asked here.
+// This form used to also ask for the new contact's party Type (client/
+// architect/builder/firm/other/pmc) as a separate step inside the create
+// dialog, right before this — which read as the same question twice, since
+// the two lists overlap (architect/builder/other appear in both). A brand-new
+// contact's party_type is now derived from the Role picked here instead (see
+// ROLE_TO_PARTY_TYPE), so it's asked exactly once. An existing party found via
+// search keeps whatever type it already has — this mapping only ever applies
+// to a party being created fresh from this form.
 const ROLE_OPTIONS = ['owner', 'architect', 'builder', 'project_manager', 'site_staff', 'other']
+const ROLE_LABELS = {
+  owner: 'Owner',
+  architect: 'Architect',
+  builder: 'Builder',
+  project_manager: 'Project manager',
+  site_staff: 'Site staff',
+  other: 'Other',
+}
+// 'project_manager' has no matching party_type of its own — 'pmc' (project
+// management company) is the closest existing classification, the same one
+// New Lead's "Other's name" field offers for the same kind of contact.
+// 'owner' maps to 'other' rather than 'client' — an owner added as a site
+// contact here is someone beyond the lead's own client party (that party is
+// linked separately, elsewhere), so it shouldn't masquerade as one.
+const ROLE_TO_PARTY_TYPE = {
+  owner: 'other',
+  architect: 'architect',
+  builder: 'builder',
+  project_manager: 'pmc',
+  site_staff: 'other',
+  other: 'other',
+}
 
 // The firm is a link to a real 'firm' party now, not a typed name — see
 // setPartyFirm and Schema/migration_architect_firm_link.sql. It's written
@@ -38,9 +70,11 @@ async function addSiteContact(siteId, party, role, firmParty) {
 }
 
 function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAdded }) {
+  const { employee } = useAuth()
+
   const [addingNew, setAddingNew] = useState(false)
-  const [newContactParty, setNewContactParty] = useState(null)
   const [newContactRole, setNewContactRole] = useState('')
+  const [newContactParty, setNewContactParty] = useState(null)
   const [newContactFirm, setNewContactFirm] = useState(null)
   const [savingNew, setSavingNew] = useState(false)
   const [newError, setNewError] = useState(null)
@@ -55,11 +89,39 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
   const alreadyLinkedPartyIds = new Set(siteContacts.map((c) => c.party_id))
   const showSuggestion = Boolean(otherParty) && !alreadyLinkedPartyIds.has(otherParty.id) && !suggestionDismissed
 
+  function resetNewContact() {
+    setAddingNew(false)
+    setNewContactRole('')
+    setNewContactParty(null)
+    setNewContactFirm(null)
+    setNewError(null)
+  }
+
+  // A party (real or still a draft) picked under the old role isn't
+  // guaranteed to match the new one's derived type — same "clear rather than
+  // leave resolved-away" call New Lead's selectSource makes when its own
+  // typeOptions shift underneath an already-chosen party.
+  function selectNewContactRole(role) {
+    setNewContactRole(role)
+    setNewContactParty(null)
+    setNewContactFirm(null)
+  }
+
   async function handleAddSuggestion() {
     setSavingSuggestion(true)
     setSuggestionError(null)
 
-    const { data, error, warning } = await addSiteContact(site.id, otherParty, suggestionRole, suggestionFirm)
+    // The suggested party already exists — only its firm (if picked) might
+    // still be an unsaved draft from PartySearchOrCreate's deferCreate mode.
+    // Nothing is written to the database until this one Add click.
+    const { data: firm, error: firmError } = await materializePartyDraft(suggestionFirm, employee?.id)
+    if (firmError) {
+      setSavingSuggestion(false)
+      setSuggestionError(errorMessage(firmError))
+      return
+    }
+
+    const { data, error, warning } = await addSiteContact(site.id, otherParty, suggestionRole, firm)
 
     setSavingSuggestion(false)
 
@@ -81,7 +143,27 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
     setSavingNew(true)
     setNewError(null)
 
-    const { data, error, warning } = await addSiteContact(site.id, newContactParty, newContactRole, newContactFirm)
+    // Nothing reaches the database until this click. The contact and (if
+    // picked) their firm may still be unsaved drafts from
+    // PartySearchOrCreate's deferCreate mode, turned into real rows only now
+    // that the whole contact is actually being confirmed — the fix for a real
+    // incident where someone filling this in by mistake still left a real,
+    // permanent party behind after backing out without saving.
+    const { data: contact, error: contactError } = await materializePartyDraft(newContactParty, employee?.id)
+    if (contactError) {
+      setSavingNew(false)
+      setNewError(errorMessage(contactError))
+      return
+    }
+
+    const { data: firm, error: firmError } = await materializePartyDraft(newContactFirm, employee?.id)
+    if (firmError) {
+      setSavingNew(false)
+      setNewError(errorMessage(firmError))
+      return
+    }
+
+    const { data, error, warning } = await addSiteContact(site.id, contact, newContactRole, firm)
 
     setSavingNew(false)
 
@@ -94,12 +176,9 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
 
     onContactAdded({
       ...data,
-      parties: { name: newContactParty.name, party_type: newContactParty.party_type },
+      parties: { name: contact.name, party_type: contact.party_type },
     })
-    setAddingNew(false)
-    setNewContactParty(null)
-    setNewContactRole('')
-    setNewContactFirm(null)
+    resetNewContact()
   }
 
   return (
@@ -128,7 +207,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
             <option value="">— Select role —</option>
             {ROLE_OPTIONS.map((role) => (
               <option key={role} value={role}>
-                {role}
+                {ROLE_LABELS[role]}
               </option>
             ))}
           </select>
@@ -140,6 +219,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
               hint="optional"
               defaultPartyType="firm"
               typeOptions={['firm']}
+              deferCreate
               initialSelected={otherParty.firm ?? null}
               onSelect={setSuggestionFirm}
             />
@@ -168,26 +248,45 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
 
       {addingNew ? (
         <div className="vip-section-split vip-stack-s">
-          <PartySearchOrCreate label="Contact" defaultPartyType="other" onSelect={setNewContactParty} />
-          <select className="vip-select" value={newContactRole} onChange={(e) => setNewContactRole(e.target.value)}>
+          {/* Role first — it's what decides which kind of party gets created
+              below, so "what is this person" is never asked twice. */}
+          <select
+            className="vip-select"
+            value={newContactRole}
+            onChange={(e) => selectNewContactRole(e.target.value)}
+          >
             <option value="">— Select role —</option>
             {ROLE_OPTIONS.map((role) => (
               <option key={role} value={role}>
-                {role}
+                {ROLE_LABELS[role]}
               </option>
             ))}
           </select>
+
+          {newContactRole && (
+            <PartySearchOrCreate
+              key={newContactRole}
+              label="Contact"
+              defaultPartyType={ROLE_TO_PARTY_TYPE[newContactRole]}
+              typeOptions={[ROLE_TO_PARTY_TYPE[newContactRole]]}
+              deferCreate
+              onSelect={setNewContactParty}
+            />
+          )}
+
           {takesFirm(newContactParty) && (
             <PartySearchOrCreate
-              key={newContactParty.id}
+              key={newContactParty.id ?? newContactParty.name}
               label="Firm"
               hint="optional"
               defaultPartyType="firm"
               typeOptions={['firm']}
+              deferCreate
               initialSelected={newContactParty.firm ?? null}
               onSelect={setNewContactFirm}
             />
           )}
+
           {newError && <p className="vip-error" role="alert">{newError}</p>}
           <div className="vip-btn-row">
             <button
@@ -201,7 +300,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
             <button
               type="button"
               className="vip-btn vip-btn-secondary vip-btn-sm"
-              onClick={() => setAddingNew(false)}
+              onClick={resetNewContact}
               disabled={savingNew}
             >
               Cancel
