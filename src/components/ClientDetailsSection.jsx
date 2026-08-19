@@ -4,7 +4,6 @@ import { errorMessage } from '../lib/errorMessage'
 
 function ClientDetailsSection({ party, onSaved }) {
   const [mobile, setMobile] = useState(party.mobile ?? '')
-  const [address, setAddress] = useState(party.address ?? '')
   const [city, setCity] = useState(party.city ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -19,7 +18,6 @@ function ClientDetailsSection({ party, onSaved }) {
       .from('parties')
       .update({
         mobile: mobile.trim() || null,
-        address: address.trim() || null,
         city: city.trim() || null,
       })
       .eq('id', party.id)
@@ -54,11 +52,6 @@ function ClientDetailsSection({ party, onSaved }) {
           <input className="vip-input" value={city} onChange={(e) => setCity(e.target.value)} />
         </label>
       </div>
-
-      <label className="vip-field">
-        Address
-        <input className="vip-input" value={address} onChange={(e) => setAddress(e.target.value)} />
-      </label>
 
       {error && <p className="vip-error" role="alert">{error}</p>}
       {savedAt && !error && <p className="vip-success" role="status" aria-live="polite">Saved.</p>}

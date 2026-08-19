@@ -145,6 +145,12 @@ CREATE TABLE leads (
   source_type          TEXT NOT NULL CHECK (source_type IN
                           ('scanning','lixil','referral_architect','referral_other','showroom_walkin')),
   referred_by_party_id INTEGER REFERENCES parties(id) ON DELETE SET NULL,  -- who gets referral credit
+  referred_by_employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL,
+                        -- referral credit when the referrer is one of our OWN
+                        -- employees, not an outside party (e.g. a sales exec's
+                        -- own contact) — mutually exclusive with
+                        -- referred_by_party_id, never both set on one lead.
+                        -- See Schema/migration_referral_employee.sql.
   other_party_id       INTEGER REFERENCES parties(id) ON DELETE SET NULL,
                         -- the "other" party captured at quick-capture intake,
                         -- if any, regardless of source_type or whether they

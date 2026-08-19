@@ -1,0 +1,57 @@
+-- ============================================================
+-- MIGRATION: leads.referred_by_employee_id  (2026-08-19)
+--
+-- Adds a way to credit a referral to one of our OWN employees, not just an
+-- outside party. Until now "Referral from" on New Lead only ever pointed at
+-- parties.referred_by_party_id — so a rep typing a colleague's name (an
+-- employee who personally referred someone) had no honest match in the
+-- parties table and would end up creating a brand-new, duplicate "party"
+-- for a person who already exists as a real employee record. This column
+-- gives that case a real home instead.
+--
+-- Mutually exclusive with referred_by_party_id: New Lead's "Referral from"
+-- field now offers an "Employee" type alongside Client/Builder/PMC/Other —
+-- picking it searches real employees (select-only, no create) instead of
+-- the usual party search-or-create, and the app writes exactly one of
+-- referred_by_party_id / referred_by_employee_id, never both, on any one
+-- lead. See src/components/PartySearchOrCreate.jsx's employeeOption prop
+-- and src/pages/LeadQuickCapture.jsx.
+--
+-- ON DELETE SET NULL, matching referred_by_party_id's own behavior — an
+-- employee later deactivated/removed shouldn't block deleting their row,
+-- and a lead losing its referral credit that way is an honest "we no
+-- longer know" rather than a hard failure.
+--
+-- No CHECK constraint needed and no RLS change needed: it's a plain
+-- nullable FK, and every leads INSERT/UPDATE policy is row-level, not
+-- column-level, so a policy that already permits writing the row permits
+-- writing this column too.
+--
+-- Run this in the Supabase SQL Editor. Until it runs, picking "Employee" on
+-- New Lead's Referral from and saving fails with:
+--     column "referred_by_employee_id" of relation "leads" does not exist
+-- surfaced as a normal inline error on the form — every other referral
+-- type (Client/Builder/PMC/Other/Architect) is unaffected either way.
+--
+-- Safe to re-run: ADD COLUMN IF NOT EXISTS.
+--
+-- ORDERING: independent of every other migration in this folder — touches
+-- no policy, trigger or function, so it can run before or after any of them.
+-- ============================================================
+
+ALTER TABLE leads
+  ADD COLUMN IF NOT EXISTS referred_by_employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL;
+
+
+-- ============================================================
+-- VERIFICATION — run after; should return one row showing the new column
+-- and its FK target.
+-- ============================================================
+--
+-- SELECT column_name, data_type, is_nullable
+--   FROM information_schema.columns
+--  WHERE table_name = 'leads' AND column_name = 'referred_by_employee_id';
+--
+-- SELECT conname, pg_get_constraintdef(oid)
+--   FROM pg_constraint
+--  WHERE conrelid = 'leads'::regclass AND conname LIKE '%referred_by_employee%';

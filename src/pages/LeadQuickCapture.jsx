@@ -3,11 +3,13 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
+import EmployeeSearchSelect from '../components/EmployeeSearchSelect'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { TERRITORY_OPTIONS, territoryLabel } from '../lib/territoryOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
+import { partyTypeLabel } from '../lib/partyTypeOptions'
 import { errorMessage } from '../lib/errorMessage'
 
 // Which party types the "Other's name" field offers. 'firm' (shown as
@@ -46,11 +48,28 @@ function LeadQuickCapture() {
   const [sourceType, setSourceType] = useState(null)
   const [officeTerritory, setOfficeTerritory] = useState(null)
   const [clientParty, setClientParty] = useState(null)
-  const [clientAddress, setClientAddress] = useState('')
+  // What a rep sees in front of them at Scanning/Walk-in is the SITE's
+  // address, not the client's mailing address — it lands on the site being
+  // created below (sites.locality), not on the party. This used to write
+  // parties.address as a separate field from Site Details' own
+  // locality/house_no, which meant the same real-world fact was captured
+  // twice and never stayed in sync. There's one field now.
+  const [siteAddress, setSiteAddress] = useState('')
   const [siteNickname, setSiteNickname] = useState('')
   const [siteStage, setSiteStage] = useState('')
   const [customSiteStage, setCustomSiteStage] = useState('')
   const [referralFrom, setReferralFrom] = useState(null)
+  // Which TYPE of referrer "Referral from" is currently asking for — one of
+  // REFERRER_TYPES ('client'/'builder'/'pmc'/'other') or the synthetic
+  // 'employee' value. Asked FIRST, via a plain <select> right under the
+  // field's own label, before any name is typed — general referral only;
+  // architect referral has no employee case (its referrer is by definition
+  // an outside architect) and no real choice to make (always 'architect'),
+  // so this state is simply never read there. Two earlier designs were
+  // built and reverted the same day before landing on this one — see
+  // CLAUDE.md's Referral-from history if this shape ever looks worth
+  // "simplifying" again.
+  const [referrerType, setReferrerType] = useState(REFERRER_TYPES[0])
   // A real 'firm' party, not a typed name — see setPartyFirm/the firm link
   // migration. Serves both architect paths on this screen: the referrer on an
   // architect referral, and the "Other's name" party when it's an architect.
@@ -85,7 +104,7 @@ function LeadQuickCapture() {
 
   const ownerEmployeeId = isCoordinator ? forExec?.id ?? null : employee?.id ?? null
 
-  // The architect-firm options, the client address box, the site nickname and
+  // The architect-firm options, the site address box, the site nickname and
   // the site stage dropdown are all scanning-only. Site nickname earns its
   // place there and nowhere else: a rep who just walked past a site can
   // describe it ("in front of the Verka factory"), while a Lixil or referral
@@ -100,8 +119,10 @@ function LeadQuickCapture() {
   // site nickname, referrer or other party offered, it's the only thing that
   // can satisfy the lead_needs_an_anchor CHECK).
   const isWalkIn = sourceType === 'showroom_walkin'
-  // The address box is shared by the two sources that meet the client in
-  // person. One flag read by the field and by the write below, so the question
+  // The address box is shared by the two sources that meet the site in
+  // person — it's the site's address, not the client's, which is why it's
+  // written straight into the sites.insert() below rather than onto the
+  // party. One flag read by the field and by the write, so the question
   // asked and the value saved can't drift apart.
   const asksAddress = isScanning || isWalkIn
 
@@ -145,6 +166,7 @@ function LeadQuickCapture() {
   function selectSource(value) {
     setSourceType(value)
     setReferralFrom(null)
+    setReferrerType(REFERRER_TYPES[0])
     setFirmParty(null)
     // "Other's name" is hidden entirely on a walk-in, so unlike every other
     // field on this form its input can unmount with a party still held here.
@@ -154,6 +176,16 @@ function LeadQuickCapture() {
     // see. Clearing on any source change is the cheap fix; the cost is that
     // switching between two sources that both show the field re-asks for it.
     setOtherParty(null)
+  }
+
+  // Switching the Type dropdown discards whatever was already picked, same
+  // reasoning selectSource clears the referrer on a source change: an
+  // already-selected party or employee isn't valid under a different type,
+  // so leaving it behind would either mismatch the visible dropdown or,
+  // worse, submit silently against the wrong kind.
+  function selectReferrerType(value) {
+    setReferrerType(value)
+    setReferralFrom(null)
   }
 
   // The firm belongs to the architect, not the lead — so it follows whoever is
@@ -168,11 +200,12 @@ function LeadQuickCapture() {
     setSourceType(null)
     setOfficeTerritory(null)
     setClientParty(null)
-    setClientAddress('')
+    setSiteAddress('')
     setSiteNickname('')
     setSiteStage('')
     setCustomSiteStage('')
     setReferralFrom(null)
+    setReferrerType(REFERRER_TYPES[0])
     setFirmParty(null)
     setOtherParty(null)
     setSubmitError(null)
@@ -207,6 +240,7 @@ function LeadQuickCapture() {
       .from('sites')
       .insert({
         nickname: isScanning ? siteNickname.trim() || null : null,
+        locality: asksAddress ? siteAddress.trim() || null : null,
         site_stage: resolvedSiteStage,
         discovered_via: sourceType,
         discovered_by: ownerEmployeeId,
@@ -263,13 +297,27 @@ function LeadQuickCapture() {
     }
     const resolvedFirmParty = firmResult.data
 
-    const partyId = resolvedClientParty?.id ?? resolvedReferralParty?.id ?? resolvedOtherParty?.id ?? null
+    // A referrer picked as "Employee" (see PartySearchOrCreate's
+    // employeeOption) isn't a party at all — it comes back _isEmployee-
+    // shaped, never materialized (materializePartyDraft passes it through
+    // untouched since it has no _isNewPartyDraft flag), and credits
+    // referred_by_employee_id instead of referred_by_party_id. The two are
+    // mutually exclusive on one lead, and an employee referrer must never
+    // be treated as a party.id for the lead's own party_id either.
+    const isEmployeeReferrer = resolvedReferralParty?._isEmployee === true
+
+    const partyId =
+      resolvedClientParty?.id ??
+      (!isEmployeeReferrer ? resolvedReferralParty?.id : null) ??
+      resolvedOtherParty?.id ??
+      null
     // The referrer is the referrer on both referral sources, whether or not a
     // client is on the lead yet. This replaces the older rule that only linked
     // one when an architect-referral lead had BOTH a client and an "other"
     // party — that was a workaround for there being no field meaning "who
     // referred this", which is now exactly what this field means.
-    const referredByPartyId = resolvedReferralParty?.id ?? null
+    const referredByPartyId = !isEmployeeReferrer ? (resolvedReferralParty?.id ?? null) : null
+    const referredByEmployeeId = isEmployeeReferrer ? resolvedReferralParty.id : null
 
     const { data: lead, error: leadError } = await supabase
       .from('leads')
@@ -280,9 +328,12 @@ function LeadQuickCapture() {
         source_type: sourceType,
         office_territory: officeTerritory,
         referred_by_party_id: referredByPartyId,
+        referred_by_employee_id: referredByEmployeeId,
         other_party_id: resolvedOtherParty?.id ?? null,
       })
-      .select('id, source_type, office_territory, site_id, party_id, referred_by_party_id, other_party_id')
+      .select(
+        'id, source_type, office_territory, site_id, party_id, referred_by_party_id, referred_by_employee_id, other_party_id'
+      )
       .single()
 
     if (leadError) {
@@ -294,43 +345,12 @@ function LeadQuickCapture() {
       return
     }
 
-    // The address lands on the client party, so it's a separate write that runs
-    // only once the lead exists — same "side effects after the main insert, a
-    // failure warns instead of blocking" shape ActivityLog.jsx already uses.
-    //
-    // Running it AFTER the insert is load-bearing, not incidental: both of the
-    // parties policies that can authorise this write reach it through the lead
-    // (a coordinator via coordinator_team_update's is_my_team_member check on
-    // the lead's owner, an exec via team_scoped_select for the .select() below).
-    // Moving it earlier would silently fail for a coordinator.
+    // The address is already saved — it went onto the site row in the first
+    // insert above, not as a separate write here. (It used to be a follow-up
+    // UPDATE onto the client party, which needed its own RLS-aware .select()
+    // dance; writing it into the site's own INSERT sidesteps that entirely,
+    // since nothing else can own a brand-new row out from under this write.)
     const nextWarnings = []
-    const address = clientAddress.trim()
-
-    if (asksAddress && address) {
-      if (!resolvedClientParty) {
-        nextWarnings.push(
-          "The address wasn't saved — it attaches to the client record, and this lead has no client name on it."
-        )
-      } else {
-        // .select() is mandatory here. parties UPDATE is "own data (created_by)
-        // or owner role", so editing a client another rep added matches zero
-        // rows — and an RLS-rejected UPDATE with no .select() returns no error
-        // at all, just a silent no-op. See CLAUDE.md's Conventions.
-        const { data: updatedParty, error: addressError } = await supabase
-          .from('parties')
-          .update({ address })
-          .eq('id', resolvedClientParty.id)
-          .select('id')
-
-        if (addressError) {
-          nextWarnings.push(`The lead saved, but the address didn't: ${errorMessage(addressError)}`)
-        } else if (!updatedParty?.length) {
-          nextWarnings.push(
-            `The lead saved, but the address didn't — ${resolvedClientParty.name} was added by someone else, so you can't edit that record.`
-          )
-        }
-      }
-    }
 
     // The firm is a property of the architect, not of this lead, so the link
     // is written onto their party row. setPartyFirm owns the no-op and
@@ -382,7 +402,10 @@ function LeadQuickCapture() {
           {resolvedReferralFrom && (
             <div>
               <div className="vip-fact-label">Referral from</div>
-              <div className="vip-fact-value">{resolvedReferralFrom.name}</div>
+              <div className="vip-fact-value">
+                {resolvedReferralFrom.name}
+                {resolvedReferralFrom._isEmployee ? ' (employee)' : ''}
+              </div>
             </div>
           )}
           {architectParty && firmParty && (
@@ -526,37 +549,79 @@ function LeadQuickCapture() {
 
       {asksAddress && (
         <label className="vip-field">
-          Address <span className="vip-field-hint">optional, saved against the client above</span>
+          Address <span className="vip-field-hint">optional, saved as this site's address</span>
           <input
             className="vip-input"
-            value={clientAddress}
-            onChange={(e) => setClientAddress(e.target.value)}
+            value={siteAddress}
+            onChange={(e) => setSiteAddress(e.target.value)}
             placeholder="e.g. H.No 42, Sarabha Nagar"
           />
         </label>
       )}
 
-      {/* Both referral sources ask who sent the lead. On an architect referral
-          the picker is locked to party_type 'architect' (a single-value
-          typeOptions list hides the Type dropdown), so a name typed here is
-          created as a real architect party — which is what makes it show up
-          as one everywhere else in the app, not just on this lead.
+      {/* Both referral sources ask who sent the lead. On an architect
+          referral there's no real choice to make — the referrer is always
+          an outside architect — so it renders PartySearchOrCreate directly,
+          exactly as it always has, own internal label and all.
 
-          key={sourceType} remounts the picker when the source flips between
-          the two referral kinds: the offered types change, and a party already
-          selected isn't re-validated against the new list. selectSource()
-          clears the parent's own copy for the same reason. */}
-      {isReferral && (
+          A general referral asks the TYPE first: a plain <select> right
+          under the field's own label, offering the same client/builder/
+          pmc/other REFERRER_TYPES as before plus one more value, Employee
+          — before any name is typed, not after. Whatever's chosen decides
+          which picker renders below it: Employee swaps in
+          EmployeeSearchSelect (search-only, no create, no mobile number
+          asked); anything else renders PartySearchOrCreate locked to that
+          one type (typeOptions has a single value, so its own internal
+          Type field never shows) — the familiar name-then-mobile
+          search-or-create flow, unchanged. handleSubmit routes an Employee
+          pick to referred_by_employee_id instead of referred_by_party_id. */}
+      {isReferral && isArchReferral && (
         <PartySearchOrCreate
           key={sourceType}
           label="Referral from"
           required
-          defaultPartyType={isArchReferral ? 'architect' : 'client'}
-          typeOptions={isArchReferral ? REFERRER_TYPES_ARCHITECT : REFERRER_TYPES}
+          defaultPartyType="architect"
+          typeOptions={REFERRER_TYPES_ARCHITECT}
           deferCreate
           onSelect={setReferralFrom}
           createdByEmployeeId={ownerEmployeeId}
         />
+      )}
+      {isReferral && !isArchReferral && (
+        <div className="vip-stack-s">
+          <label className="vip-field">
+            Referral from *
+            <select
+              className="vip-select"
+              value={referrerType}
+              onChange={(e) => selectReferrerType(e.target.value)}
+            >
+              {REFERRER_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {partyTypeLabel(type)}
+                </option>
+              ))}
+              <option value="employee">Employee</option>
+            </select>
+          </label>
+          {/* key={referrerType} remounts whichever picker is showing when
+              the type changes: a party or employee already selected under
+              one type isn't valid under another. selectReferrerType()
+              clears the parent's own copy for the same reason. */}
+          {referrerType === 'employee' ? (
+            <EmployeeSearchSelect key={referrerType} onSelect={setReferralFrom} />
+          ) : (
+            <PartySearchOrCreate
+              key={referrerType}
+              label=""
+              defaultPartyType={referrerType}
+              typeOptions={[referrerType]}
+              deferCreate
+              onSelect={setReferralFrom}
+              createdByEmployeeId={ownerEmployeeId}
+            />
+          )}
+        </div>
       )}
 
       {/* The firm sits directly under whichever field produced the architect

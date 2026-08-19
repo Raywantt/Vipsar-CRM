@@ -57,6 +57,15 @@ const SEARCH_DEBOUNCE_MS = 350
 // .sql), so every caller that wants one renders its own Firm picker beside
 // this field instead, which works for existing architects too.
 //
+// This component is party-only, deliberately — an "employee" isn't a
+// parties row and never should be. New Lead's "Referral from" field, which
+// can point at either a party or an employee, doesn't extend this component
+// to do both; it renders a small Type toggle of its own and switches between
+// this component and the separate EmployeeSearchSelect. See LeadQuickCapture
+// for that composition (an earlier version tried bolting employee search
+// onto this component instead — reverted, see CLAUDE.md's Referral-from
+// history for why).
+//
 // deferCreate: when true, "Create" no longer writes to parties at all — it
 // hands onSelect a local draft object (`_isNewPartyDraft: true`, real name/
 // mobile/party_type, `id: null`) instead of an inserted row. Use this

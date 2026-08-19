@@ -3,10 +3,18 @@ import { supabase } from '../lib/supabaseClient'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { errorMessage } from '../lib/errorMessage'
 
+// Locality and House/Plot No. used to be two separate inputs on top of one
+// address concept — and a THIRD copy of "address" lived on the client party,
+// written once at New Lead intake and never synced with either. All three
+// were the same real-world fact (where the site is), just captured three
+// different ways. Now there's one: the site's own `locality` column holds
+// the whole free-text address, written once at intake (see
+// LeadQuickCapture's Address field) and editable here afterward.
+// `house_no` is folded into it below rather than dropped — old data isn't
+// lost, it just becomes part of the one field on the next save.
 function SiteDetailsSection({ site, areas, onSaved }) {
   const [areaId, setAreaId] = useState(site.area_id ?? '')
-  const [locality, setLocality] = useState(site.locality ?? '')
-  const [houseNo, setHouseNo] = useState(site.house_no ?? '')
+  const [address, setAddress] = useState([site.locality, site.house_no].filter(Boolean).join(', '))
   const [pincode, setPincode] = useState(site.pincode ?? '')
   const [siteStage, setSiteStage] = useState(
     site.site_stage && SITE_STAGE_OPTIONS.includes(site.site_stage) ? site.site_stage : site.site_stage ? 'other' : ''
@@ -29,8 +37,8 @@ function SiteDetailsSection({ site, areas, onSaved }) {
       .from('sites')
       .update({
         area_id: areaId || null,
-        locality: locality.trim() || null,
-        house_no: houseNo.trim() || null,
+        locality: address.trim() || null,
+        house_no: null,
         pincode: pincode.trim() || null,
         site_stage: resolvedStage,
       })
@@ -66,16 +74,10 @@ function SiteDetailsSection({ site, areas, onSaved }) {
         </select>
       </label>
 
-      <div className="vip-grid-2">
-        <label className="vip-field">
-          Locality
-          <input className="vip-input" value={locality} onChange={(e) => setLocality(e.target.value)} />
-        </label>
-        <label className="vip-field">
-          House / Plot No.
-          <input className="vip-input" value={houseNo} onChange={(e) => setHouseNo(e.target.value)} />
-        </label>
-      </div>
+      <label className="vip-field">
+        Address
+        <input className="vip-input" value={address} onChange={(e) => setAddress(e.target.value)} />
+      </label>
 
       <label className="vip-field">
         Pincode

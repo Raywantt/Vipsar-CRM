@@ -225,6 +225,9 @@ needs before touching anything:
 src/
   components/   reusable UI pieces (ProtectedRoute, AppNav, BottomNav,
                 PartySearchOrCreate, SiteSearchOrCreate, LeadSearchSelect,
+                EmployeeSearchSelect — a search-only, no-create picker over
+                real employees, used by New Lead's "Referral from" Employee
+                branch (see the LeadQuickCapture section),
                 the four remaining LeadDetail *Section components (Sales
                 progress/Site details/Client details/Contacts — Stage moved
                 into LeadQuickActions, see the Lead Profile section) plus
@@ -807,7 +810,15 @@ HTML.
   than appending an asterisk to `label`**, because `label` is also spoken in
   two places an asterisk reads as a typo: the create form's "New {label}"
   heading and the "+ Add new {label.toLowerCase()} …" button. It's a marker
-  only; the caller's own Save gate still does the enforcing.
+  only; the caller's own Save gate still does the enforcing. **Party-only,
+  deliberately** — an "employee" is never a `parties` row, and this
+  component doesn't know employees exist. New Lead's "Referral from" field,
+  which can point at either, doesn't extend this component to do both; it
+  renders its own small Type toggle and switches between this component and
+  the separate `EmployeeSearchSelect.jsx` (search-only, no-create, over real
+  `employees` rows — see the LeadQuickCapture section's "Referral from" bullet,
+  including the two rejected designs that *did* try teaching this component
+  about employees before the toggle approach shipped).
 * `SiteSearchOrCreate` — Area picked first (from `areas`), then debounced
   search on `sites.locality`/`house_no` scoped to that `area_id`; site_stage
   is a preset dropdown + "Other…" free text (deliberately not a CHECK enum).
@@ -939,22 +950,27 @@ exactly the reporting the field exists for.
   this field existed have no honest value, and a territory guessed from the
   owner's `employees.office_location` would be a fabricated fact sitting in
   the same column as real ones, indistinguishable from them forever after.
-* **Address** (scanning and walk-in — the two sources that meet the client
-  in person; one `asksAddress` flag drives both the field and the write, so the
+* **Address** (scanning and walk-in — the two sources that meet the site in
+  person; one `asksAddress` flag drives both the field and the write, so the
   question asked and the value saved can't drift apart) — its own
-  always-visible box under Client name,
-  written to **`parties.address`** on the client (the owner's choice over a
-  site address, which would have needed a new `sites.address` column). It's a
-  **side effect after the lead insert**, warning-not-blocking, the same shape
-  `ActivityLog.jsx` uses. Running it after the insert is **load-bearing**:
-  both policies that can authorise it reach the party *through the lead*
-  (`coordinator_team_update`'s `is_my_team_member` check, and
-  `team_scoped_select` for the `.select()`), so moving it earlier silently
-  fails for a coordinator. **The `.select()` is mandatory** — `parties`
-  UPDATE is "own data (`created_by`) or owner role", so editing a client
-  another rep added matches zero rows, and an RLS-rejected UPDATE without
-  `.select()` returns no error at all. That case, and "address typed but no
-  client on the lead", both surface as warnings on the success card.
+  always-visible box under Client name. **Superseded 2026-08-19**: it used
+  to write `parties.address` — the owner's original call, over adding a
+  `sites.address` column — but that address is the *site's*, not the
+  client's ("the address in scanning is that of the site"), and having it
+  live on the party meant it never matched Site Details' own
+  Locality/House No fields even though all three described the same fact.
+  It's now written straight into the `sites` row's `locality` column, in
+  the same `.insert()` that creates the site (see the EVERY-lead-creates-
+  a-site bullet just below) — simpler than the old flow too, since writing
+  into a brand-new row needs none of the RLS-`.select()` care an `UPDATE`
+  onto a party someone else might own does. See the Lead Profile section's
+  Site details bullet for the other half of this — Locality and House/Plot
+  No. are gone as separate inputs, replaced by this same one `locality`
+  field, so intake and Lead Detail read and write the identical column. No
+  migration: `locality`/`house_no` were already free text with no CHECK.
+  `parties.address` is left in the schema, just unused going forward
+  (nothing else reads it) — same as `firm_name` after the firm-link
+  migration.
 * **Architect firm** (scanning only, at the owner's direction — *"don't add
   to referral for now, i will take a look at that later"*, so **don't widen
   it without asking**) — "Other's name" gains the `firm` type, labelled
@@ -1102,6 +1118,61 @@ of sandbox limitation Phase 9's TODO 1 already records at 375px.
   *selected* party isn't re-validated — so a `client` referrer could otherwise
   survive onto an architect referral. `selectSource()` clears the parent's copy
   for the same reason. Verified live: switching sources empties the field.
+* **"Referral from" can also be one of our own employees** (general referral
+  only, added 2026-08-19) — the field asks the TYPE first: a plain `<select>`
+  directly under the "Referral from \*" label, offering the same
+  `REFERRER_TYPES` (client/builder/pmc/other) as before plus one more value,
+  **Employee**, defaulting to `client`. Whichever is picked decides what
+  renders below it, before any name is typed: Employee swaps in
+  `EmployeeSearchSelect` (`src/components/EmployeeSearchSelect.jsx`, new) —
+  search-only, no mobile number asked, over real `employees` rows (every
+  active employee, any role, excluding whoever is logged in right now — see
+  its own header comment) — no create escape hatch, so a rep typing a
+  colleague's name can't accidentally spawn a duplicate `parties` row for
+  someone who already exists as a real employee. Any other value renders
+  `PartySearchOrCreate` locked to that one type (`typeOptions={[referrerType]}`,
+  a single-value list, so its own internal Type field never shows) — the
+  familiar name-then-mobile search-or-create flow, unchanged, just with the
+  type already decided instead of asked again inside the create sub-form.
+  Writes `leads.referred_by_employee_id` instead of `referred_by_party_id`
+  on an Employee pick — the two are mutually exclusive on one lead, and an
+  employee referrer is never treated as the lead's `party_id` either (see
+  `handleSubmit`'s `isEmployeeReferrer` branch). Switching the dropdown
+  clears whatever was already picked (`selectReferrerType`), same reasoning
+  `selectSource` clears the referrer on a source change. **Architect
+  referral doesn't get this dropdown at all** — there's no real choice to
+  make (its referrer is always an outside architect), so it renders
+  `PartySearchOrCreate` directly with its own "Referral from" label, exactly
+  as it always has.
+  **Three designs were tried in one day, in this order, each from direct
+  user feedback — worth knowing so none of the first two gets re-tried:**
+  (1) "Employee" as a fifth choice buried inside `PartySearchOrCreate`'s own
+  create-sub-form Type `<select>` — reachable only by typing a throwaway
+  name into the party search box, getting no match, and clicking "+ Add
+  new", i.e. exactly backwards for something with nothing to do with
+  creating a party. (2) A direct "Referred by one of our own instead?" link
+  below the main search box, reachable with zero typing — better, but still
+  bolted employee-search logic onto a component that's supposed to be
+  party-only. (3, shipped) asks the type up front via a plain dropdown,
+  before any name — the simplest of the three and the one actually asked
+  for. `PartySearchOrCreate` itself is back to exactly its pre-2026-08-19
+  shape, no employee awareness at all; `EmployeeSearchSelect` is the one
+  place that logic lives.
+  **`Schema/migration_referral_employee.sql` was RUN LIVE 2026-08-19** — adds
+  the nullable `leads.referred_by_employee_id` column, no longer outstanding.
+  Verified live (render only, owner session, desktop): the Type dropdown
+  shows exactly client/builder/pmc/other/Employee on general Referral, and
+  nothing at all (still a plain `PartySearchOrCreate`) on Architect referral;
+  picking Employee swaps to the search box with zero typing needed and no
+  mobile field; typing matched active employees of every role while
+  correctly excluding the logged-in owner; picking one landed in the normal
+  selected-row state ("Vishal Kumar — Employee · Sales Executive — Change");
+  switching back to a party type restored the plain name/mobile search box
+  with the selection cleared; and picking "+ Add new" under a fixed
+  non-employee type skipped straight to the selected-draft state with that
+  type attached (e.g. "Zzxq Builder Test — builder"), no separate Type-
+  confirmation step, since the type was already decided by the dropdown.
+  Not yet exercised: an actual save through this exact path, or mobile width.
 * **Walk-in** (`showroom_walkin`, added 2026-08-19 at the owner's request) — the
   fifth source, and the narrowest: it asks **Client name (required) and Address,
   and nothing else**. No site nickname, no site stage, no "Referral from", no
@@ -3586,6 +3657,7 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 - **✅ `Schema/migration_lead_edit_rights.sql` was RUN LIVE 2026-08-13** and verified behaviourally, not by introspection — see below. It is the database half of the shared-lead-edit-rights ruling: stage changes open to all three editing roles with a forward-only restriction on `sales_executive`, an `own_lead_insert` policy on `stage_history` so a rep can record the change, and the removal of `enforce_coordinator_lock()`. **If it ever needs re-running, run it after `migration_sales_coordinator.sql`** — that file (and `migration_backlog_2026_08_10.sql` behind it) installs the owner-only version of the same trigger, so running either afterwards silently reverts this. The function/trigger names are deliberately unchanged (`enforce_owner_only_stage_change`/`owner_only_stage_change`) despite now being historical — renaming would let an older file's re-run install a *second*, stricter trigger alongside this one instead of cleanly overwriting it. **Proven live against lead #159**: a sales exec moved `calling → joinery_follow_up` and it succeeded (history row written and attributed); the same exec's direct API attempt at `joinery_follow_up → calling` was refused with `23514` and the trigger's own message; the **On hold laundering route is closed** (`→ on_hold` allowed, then `on_hold → calling` refused, because the trigger resolves the pre-hold stage out of `stage_history`); a coordinator moved the same lead *backward* 3→2 successfully; and a coordinator edited `quote_value` on a lead whose `entered_by_role` was already `'sales_executive'` — the exact write the dropped lock used to refuse.
 - **✅ `Schema/migration_office_territory.sql` was RUN LIVE 2026-08-17** and is no longer outstanding. It adds `leads.office_territory` (nullable TEXT) and its CHECK of the four offices, for the New Lead screen's required territory tap-select (see the LeadQuickCapture section). Verified behaviourally rather than by introspection: two leads (#160, #161) saved through the real form with `Territory · Ludhiana` on the success card and no error — the failure this bullet used to describe (**every** New Lead save failing, every role and source, with `column "office_territory" of relation "leads" does not exist`) is gone. Independent of every other migration here: it touches no policy, trigger or function, so it can run before or after any of them, and it's safe to re-run. A fifth office needs **both** halves changed — the CHECK here *and* `src/lib/territoryOptions.js` — or the app offers a button that fails to save.
 - **⚠️ `Schema/migration_territory_others.sql` is OUTSTANDING (written 2026-08-19, not yet run against the live database)** — it widens `leads_office_territory_check` to add a fifth value, `others`, alongside the four named offices, for the "Others" button added to New Lead's territory tap-select the same day. Until it runs, picking "Others" and saving fails with `new row for relation "leads" violates check constraint "leads_office_territory_check"`, surfaced inline on the form like any other save error — every other office keeps working, and nothing else in the app reads this column differently. Safe to re-run (`DROP CONSTRAINT IF EXISTS` before the `ADD CONSTRAINT`), independent of every other migration in the folder. **Confirm this has actually been run before relying on "Others" saving** — same "don't trust the file's presence" rule as every other migration in this file.
+- **✅ `Schema/migration_referral_employee.sql` was RUN LIVE 2026-08-19** and is no longer outstanding — it adds the nullable `leads.referred_by_employee_id` column for New Lead's "Referral from" field, which as of the same day can credit a referral to one of our own employees instead of an outside party (see the LeadQuickCapture section's own bullet — that bullet also covers the field's final UI shape, a type-first dropdown, after two earlier designs were tried and reverted the same day). Independent of every other migration in the folder — no policy, trigger or function touched, and no CHECK needed (plain nullable FK, `ON DELETE SET NULL`). Safe to re-run (`ADD COLUMN IF NOT EXISTS`).
 - **✅ `Schema/migration_client_meeting_design_sheet.sql` was RUN LIVE 2026-08-17** and verified both by the file's own introspection query and behaviourally. It widens **two** CHECK constraints for the `client_meeting`/`design_sheet` activity types: `activities.activity_type` (Log Activity's two new buttons) and `follow_ups.activity_type` (`FollowUpForm`'s "Type of follow-up" chip picker reads the same `ACTIVITY_TYPES` list, so it offers both as chips on *any* reminder — a failure with nothing to do with Log Activity, which is exactly why that half is easy to forget). Both constraint definitions now list the two new values. **The need for it was proven before running, not assumed**: submitting a Design Sheet against a real lead returned `new row for relation "activities" violates check constraint "activities_activity_type_check"`, which also confirmed the constraint name section 1 assumes; it failed cleanly as an inline error with no partial write. **Both halves then proven after running**: a Client Meeting and a Design Sheet both saved clean against lead #159, and a reminder tagged Design Sheet saved and survived a real page reload (Home's Tomorrow row). Independent of every other migration (no policy, trigger or function touched), safe to re-run, and it only widens what's allowed — no existing row changed. Adding a ninth activity type needs this same two-constraint treatment.
 - **✅ `Schema/migration_architect_firm_link.sql` was RUN LIVE 2026-08-17.** It adds `parties.firm_party_id` (a self-reference, architect → the `firm` party they work under, `ON DELETE SET NULL` so deleting a firm never deletes its architects), a `parties_firm_not_self` CHECK, an index, and a backfill promoting each distinct `firm_name` to a real `firm` party and linking its architects (case- and trim-insensitive, deliberately not fuzzy — merging `Kapoor & Assoc` with `Kapoor and Assoc` would be a guess about the real world). Verified by its own output: both existing firm names became real firm parties with their architects linked, and a firm party that already existed was **not** duplicated. `firm_name` is deliberately **not** dropped — it stays as a read-only fallback for anything the backfill couldn't match, and nothing writes to it anymore. Safe to re-run.
 - **✅ `Schema/migration_activity_office_day_meeting.sql` was RUN LIVE 2026-08-18** and verified behaviourally against the real database, not just by its own introspection queries. It adds four nullable columns to `activities` for the Log Activity changes above: `work_summary`, `start_time`/`end_time` (both `TIME`, matching `follow_ups.due_time` — clock times, so none of the naive-`TIMESTAMP` hazard applies), and `meeting_location` plus its `activities_meeting_location_check` CHECK of `('site','office')`. Proven end to end: an Office Day (activity **#1242**) stored `work_summary` plus `start_time`/`end_time` as real `TIME` values (`"09:30:00"`/`"18:00:00"` — the picker emits `"09:30"`, and Postgres widened it), and a Client Meeting (**#1243**, lead #159) stored `meeting_location: 'site'`. **The discriminating test was the CHECK, not the columns**: an UPDATE of #1243 to `'cafe'` was refused with `23514` naming `activities_meeting_location_check`, so section 3's constraint really landed rather than just its column. That probe was deliberately a reversible UPDATE on an own row rather than an INSERT — a sales exec has no DELETE grant, so a junk row from a failed INSERT could not have been cleaned up. A client meeting logged *before* this migration (#1235) reads `meeting_location: null`, confirming old rows degrade cleanly. Independent of every other migration in the folder — it touches no policy, trigger or function, and new columns inherit the table's existing grants and RLS, so nothing in `rls_policies.sql` needs re-running. Safe to re-run. A third meeting location later needs BOTH halves changed — the CHECK here *and* `src/lib/meetingLocationOptions.js` — the same two-sided change `leads.office_territory` documents.
