@@ -79,7 +79,7 @@ ALTER TABLE leads
 -- ============================================================
 -- ADDING A TERRITORY LATER
 -- ============================================================
--- A fifth office needs BOTH halves changed, or the app offers a button that
+-- A new office needs BOTH halves changed, or the app offers a button that
 -- fails to save:
 --
 --   1. src/lib/territoryOptions.js — add { value: 'x', label: 'X' }
@@ -87,3 +87,7 @@ ALTER TABLE leads
 --
 -- Same two-sided change parties.party_type needed when 'pmc' was added; see
 -- Schema/migration_pilot_outstanding.sql for that precedent.
+--
+-- DONE ONCE ALREADY: Schema/migration_territory_others.sql (2026-08-19) added
+-- a fifth value, 'others', following exactly this recipe — see that file
+-- rather than re-running STEP 2 here with a stale four-value list.

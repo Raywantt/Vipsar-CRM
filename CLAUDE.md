@@ -915,20 +915,34 @@ exactly the reporting the field exists for.
 
 * **Office territory** (`leads.office_territory`) — a **second required
   tap-select**, asked for **every** source, in its own row below "Where from"
-  (a lead has both a source and an office; they're independent facts). Four
+  (a lead has both a source and an office; they're independent facts). Five
   values from `src/lib/territoryOptions.js`: Ludhiana / Amritsar / Jalandhar
-  / Patiala. Renders via `.vip-choice-grid`, **not** `.vip-choice-row` — that
+  / Patiala / **Others** (the fifth added 2026-08-19, for a lead that doesn't
+  belong to any of the four named offices — see Conventions'
+  `migration_territory_others.sql` bullet). Renders via `.vip-choice-grid-5`
+  (originally `.vip-choice-grid`, **not** `.vip-choice-row` — that
   row is a no-wrap flex of `flex: 1` children, so a fourth option squeezes
-  "Jalandhar" past its track on a phone; the new class is 2×2 below 1024px
-  and 4-up above. Apply it **alone** — pairing it with `.vip-choice-row` puts
+  "Jalandhar" past its track on a phone; moved to the 5-option class once
+  Others made it five, the same class the Walk-in source uses for the same
+  reason). Apply it **alone** — pairing it with `.vip-choice-row` puts
   two `display` declarations on one element at equal specificity, the same
   cascade trap `.vip-leads-layout`/`.vip-daycards` already hit.
+  **There are now three classes in this family, and the number of options picks
+  which** — `.vip-choice-row` (2, split evenly at every width),
+  `.vip-choice-grid` (4, as here) and `.vip-choice-grid-5` (5, added for the
+  Walk-in source: 2 columns with the last button spanning the full row on a
+  phone, 5 equal columns on desktop, so an odd count never leaves an orphan
+  half- or quarter-width button). The same rule governs all three — apply
+  exactly one.
   **`Schema/migration_office_territory.sql` is live as of 2026-08-17 — see
   Conventions.** Nullable at the DB layer, required only in the UI: leads created before
   this field existed have no honest value, and a territory guessed from the
   owner's `employees.office_location` would be a fabricated fact sitting in
   the same column as real ones, indistinguishable from them forever after.
-* **Address** (scanning only) — its own always-visible box under Client name,
+* **Address** (scanning and walk-in — the two sources that meet the client
+  in person; one `asksAddress` flag drives both the field and the write, so the
+  question asked and the value saved can't drift apart) — its own
+  always-visible box under Client name,
   written to **`parties.address`** on the client (the owner's choice over a
   site address, which would have needed a new `sites.address` column). It's a
   **side effect after the lead insert**, warning-not-blocking, the same shape
@@ -1061,9 +1075,12 @@ of sandbox limitation Phase 9's TODO 1 already records at 375px.
   CHECK; only the UI changed. The pre-split test leads all sit at
   `referral_architect` and the owner's ruling was to leave them ("old database
   is just test db"), so **a referral lead created before this date is not
-  evidence it came from an architect**. `showroom_walkin` still isn't reachable
-  here (4 of the 5 values are). The tap-select uses `.vip-choice-grid`, not
-  `.vip-choice-row`, for the same fourth-option reason territory does.
+  evidence it came from an architect**. `showroom_walkin` was still unreachable
+  here at that point (4 of the 5 values were); it became the fifth button on
+  2026-08-19 — see the Walk-in bullet below. The tap-select moved to
+  `.vip-choice-grid-5` with it, having used `.vip-choice-grid` (not
+  `.vip-choice-row`) until then for the same fourth-option reason territory
+  does.
 * **"Referral from"** — a required `PartySearchOrCreate` on both referral
   sources, writing `leads.referred_by_party_id`. On an **architect referral**
   it's locked to `typeOptions={['architect']}`, so a name typed here is created
@@ -1085,6 +1102,40 @@ of sandbox limitation Phase 9's TODO 1 already records at 375px.
   *selected* party isn't re-validated — so a `client` referrer could otherwise
   survive onto an architect referral. `selectSource()` clears the parent's copy
   for the same reason. Verified live: switching sources empties the field.
+* **Walk-in** (`showroom_walkin`, added 2026-08-19 at the owner's request) — the
+  fifth source, and the narrowest: it asks **Client name (required) and Address,
+  and nothing else**. No site nickname, no site stage, no "Referral from", no
+  firm, and — uniquely on this form — no "Other's name" either. All three
+  roles, both widths.
+  **No migration was needed and none should be added**: `showroom_walkin` was
+  already in `leads.source_type`'s CHECK *and* `sites.discovered_via`'s, having
+  existed in the original schema — it was only ever filtered out of this
+  screen. A sixth value would have meant the same thing and split walk-ins
+  across two buckets in every report. The shared label changed
+  `Showroom Walk-in` → `Walk-in` in `sourceTypeOptions.js`, the one place
+  source text is defined, so Lead Detail and the dashboard followed
+  automatically; `SALES_EXEC_SOURCES` already listed the value, so a rep sees
+  the row on "New leads by source" with no change there either.
+  **Client name is required only here**, via its own `canSubmit` clause and
+  `PartySearchOrCreate`'s `required` marker. That isn't a preference: with no
+  site nickname, referrer or other party offered, the client is the only thing
+  left that can satisfy the `lead_needs_an_anchor` CHECK, so a walk-in without
+  one couldn't save at all — better to grey Save out than to surface a
+  Postgres constraint error at the end.
+  **`selectSource()` now clears `otherParty` too.** "Other's name" is the first
+  field on this form that can *unmount* while its value is still held in the
+  parent, and `PartySearchOrCreate` is uncontrolled (`initialSelected` is a
+  seed, not a value) — so on remount it would come back blank while state
+  still carried the old party, writing an `other_party_id` the rep can't see.
+  The accepted cost is that switching between two sources that both show the
+  field re-asks for it. Note this is the opposite treatment from `siteStage`,
+  which is safe to merely resolve away because its `<select>` is controlled and
+  so re-renders consistent with the retained state.
+  **A walk-in still creates its `sites` row**, like every other source — the
+  unconditional insert above is load-bearing, and Site details was confirmed
+  live to render on a walk-in lead so it can be filled in after the first
+  visit. The row is honestly empty (nickname and stage both null), so these
+  leads count under **"Not set"** on "Leads by site stage".
 * **"Other's name" stays on both referral sources**, but drops `architect` from
   its type list (and its label) on architect referral only — the architect is
   the referrer above, so offering the type again is a second place to record
@@ -2651,9 +2702,11 @@ since it isn't part of the date-range-scoped report data.
   `ActivityLog.jsx` imports from there instead of defining its own copy.
   `src/lib/sourceTypeOptions.js` is the equivalent for the full 5-value
   `source_type` CHECK list, and since 2026-08-17 it's the **only** place a
-  source's display text is defined: `LeadQuickCapture` derives its 4-value
-  capture subset by filtering that list (`showroom_walkin` isn't loggable from
-  the app), and `LeadDetail` imports `SOURCE_TYPE_LABELS` rather than keeping
+  source's display text is defined: `LeadQuickCapture` filters that list
+  through its own `CAPTURE_SOURCES`, which since 2026-08-19 names all five —
+  the filter is kept as the seam a future capture-only exclusion would go back
+  through, not because anything is excluded today — and `LeadDetail` imports
+  `SOURCE_TYPE_LABELS` rather than keeping
   the fourth hand-rolled copy it used to — which had already drifted ("Other
   referral" against the shared list's own wording). Add or rename a source in
   one file. `formatCurrency` (INR,
@@ -3532,6 +3585,7 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 - **`Schema/migration_sales_coordinator.sql` was run live on 2026-08-10** and is no longer outstanding — it adds the `sales_coordinator` role, `employees.coordinator_id`, `entered_by_role` on `leads`/`activities`, the `is_my_team_member()` helper, 13 `coordinator_team_*` policies, the narrowed `parties`/`sites` reads, and two new triggers (`validate_employee_role_assignment`, `enforce_coordinator_lock`); it also replaces `enforce_owner_only_stage_change()`, so it **must run after** `migration_backlog_2026_08_10.sql` or the backlog overwrites it back to owner-only. All 9 verification checks returned PASS. One ordering bug was found and fixed by running it live: `is_my_team_member()` is `LANGUAGE sql`, whose body Postgres validates at CREATE time, so defining it before `coordinator_id` existed failed the whole file on its first statement with `42703`. It's now STEP 3, after the column — don't move it back up, and prefer reordering over switching to plpgsql if a similar dependency appears (plpgsql's late binding hides the problem until runtime).
 - **✅ `Schema/migration_lead_edit_rights.sql` was RUN LIVE 2026-08-13** and verified behaviourally, not by introspection — see below. It is the database half of the shared-lead-edit-rights ruling: stage changes open to all three editing roles with a forward-only restriction on `sales_executive`, an `own_lead_insert` policy on `stage_history` so a rep can record the change, and the removal of `enforce_coordinator_lock()`. **If it ever needs re-running, run it after `migration_sales_coordinator.sql`** — that file (and `migration_backlog_2026_08_10.sql` behind it) installs the owner-only version of the same trigger, so running either afterwards silently reverts this. The function/trigger names are deliberately unchanged (`enforce_owner_only_stage_change`/`owner_only_stage_change`) despite now being historical — renaming would let an older file's re-run install a *second*, stricter trigger alongside this one instead of cleanly overwriting it. **Proven live against lead #159**: a sales exec moved `calling → joinery_follow_up` and it succeeded (history row written and attributed); the same exec's direct API attempt at `joinery_follow_up → calling` was refused with `23514` and the trigger's own message; the **On hold laundering route is closed** (`→ on_hold` allowed, then `on_hold → calling` refused, because the trigger resolves the pre-hold stage out of `stage_history`); a coordinator moved the same lead *backward* 3→2 successfully; and a coordinator edited `quote_value` on a lead whose `entered_by_role` was already `'sales_executive'` — the exact write the dropped lock used to refuse.
 - **✅ `Schema/migration_office_territory.sql` was RUN LIVE 2026-08-17** and is no longer outstanding. It adds `leads.office_territory` (nullable TEXT) and its CHECK of the four offices, for the New Lead screen's required territory tap-select (see the LeadQuickCapture section). Verified behaviourally rather than by introspection: two leads (#160, #161) saved through the real form with `Territory · Ludhiana` on the success card and no error — the failure this bullet used to describe (**every** New Lead save failing, every role and source, with `column "office_territory" of relation "leads" does not exist`) is gone. Independent of every other migration here: it touches no policy, trigger or function, so it can run before or after any of them, and it's safe to re-run. A fifth office needs **both** halves changed — the CHECK here *and* `src/lib/territoryOptions.js` — or the app offers a button that fails to save.
+- **⚠️ `Schema/migration_territory_others.sql` is OUTSTANDING (written 2026-08-19, not yet run against the live database)** — it widens `leads_office_territory_check` to add a fifth value, `others`, alongside the four named offices, for the "Others" button added to New Lead's territory tap-select the same day. Until it runs, picking "Others" and saving fails with `new row for relation "leads" violates check constraint "leads_office_territory_check"`, surfaced inline on the form like any other save error — every other office keeps working, and nothing else in the app reads this column differently. Safe to re-run (`DROP CONSTRAINT IF EXISTS` before the `ADD CONSTRAINT`), independent of every other migration in the folder. **Confirm this has actually been run before relying on "Others" saving** — same "don't trust the file's presence" rule as every other migration in this file.
 - **✅ `Schema/migration_client_meeting_design_sheet.sql` was RUN LIVE 2026-08-17** and verified both by the file's own introspection query and behaviourally. It widens **two** CHECK constraints for the `client_meeting`/`design_sheet` activity types: `activities.activity_type` (Log Activity's two new buttons) and `follow_ups.activity_type` (`FollowUpForm`'s "Type of follow-up" chip picker reads the same `ACTIVITY_TYPES` list, so it offers both as chips on *any* reminder — a failure with nothing to do with Log Activity, which is exactly why that half is easy to forget). Both constraint definitions now list the two new values. **The need for it was proven before running, not assumed**: submitting a Design Sheet against a real lead returned `new row for relation "activities" violates check constraint "activities_activity_type_check"`, which also confirmed the constraint name section 1 assumes; it failed cleanly as an inline error with no partial write. **Both halves then proven after running**: a Client Meeting and a Design Sheet both saved clean against lead #159, and a reminder tagged Design Sheet saved and survived a real page reload (Home's Tomorrow row). Independent of every other migration (no policy, trigger or function touched), safe to re-run, and it only widens what's allowed — no existing row changed. Adding a ninth activity type needs this same two-constraint treatment.
 - **✅ `Schema/migration_architect_firm_link.sql` was RUN LIVE 2026-08-17.** It adds `parties.firm_party_id` (a self-reference, architect → the `firm` party they work under, `ON DELETE SET NULL` so deleting a firm never deletes its architects), a `parties_firm_not_self` CHECK, an index, and a backfill promoting each distinct `firm_name` to a real `firm` party and linking its architects (case- and trim-insensitive, deliberately not fuzzy — merging `Kapoor & Assoc` with `Kapoor and Assoc` would be a guess about the real world). Verified by its own output: both existing firm names became real firm parties with their architects linked, and a firm party that already existed was **not** duplicated. `firm_name` is deliberately **not** dropped — it stays as a read-only fallback for anything the backfill couldn't match, and nothing writes to it anymore. Safe to re-run.
 - **✅ `Schema/migration_activity_office_day_meeting.sql` was RUN LIVE 2026-08-18** and verified behaviourally against the real database, not just by its own introspection queries. It adds four nullable columns to `activities` for the Log Activity changes above: `work_summary`, `start_time`/`end_time` (both `TIME`, matching `follow_ups.due_time` — clock times, so none of the naive-`TIMESTAMP` hazard applies), and `meeting_location` plus its `activities_meeting_location_check` CHECK of `('site','office')`. Proven end to end: an Office Day (activity **#1242**) stored `work_summary` plus `start_time`/`end_time` as real `TIME` values (`"09:30:00"`/`"18:00:00"` — the picker emits `"09:30"`, and Postgres widened it), and a Client Meeting (**#1243**, lead #159) stored `meeting_location: 'site'`. **The discriminating test was the CHECK, not the columns**: an UPDATE of #1243 to `'cafe'` was refused with `23514` naming `activities_meeting_location_check`, so section 3's constraint really landed rather than just its column. That probe was deliberately a reversible UPDATE on an own row rather than an INSERT — a sales exec has no DELETE grant, so a junk row from a failed INSERT could not have been cleaned up. A client meeting logged *before* this migration (#1235) reads `meeting_location: null`, confirming old rows degrade cleanly. Independent of every other migration in the folder — it touches no policy, trigger or function, and new columns inherit the table's existing grants and RLS, so nothing in `rls_policies.sql` needs re-running. Safe to re-run. A third meeting location later needs BOTH halves changed — the CHECK here *and* `src/lib/meetingLocationOptions.js` — the same two-sided change `leads.office_territory` documents.

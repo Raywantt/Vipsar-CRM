@@ -30,10 +30,13 @@ const OTHER_PARTY_TYPES_ARCH_REFERRAL = ['builder', 'pmc', 'other']
 const REFERRER_TYPES = ['client', 'builder', 'pmc', 'other']
 const REFERRER_TYPES_ARCHITECT = ['architect']
 
-// The subset of SOURCE_TYPE_OPTIONS a rep can pick at capture — showroom_walkin
-// exists in the data and on the dashboard, but isn't something a rep logs from
-// this screen. Order matters: it's the on-screen order of the tap-select.
-const CAPTURE_SOURCES = ['scanning', 'lixil', 'referral_other', 'referral_architect']
+// Which sources a rep can pick at capture. Currently that's all of them:
+// showroom_walkin used to be excluded here (it existed in older data but
+// nothing wrote it) and came back as "Walk-in" at the owner's request. The
+// filter is kept rather than reading SOURCE_TYPE_OPTIONS directly, because it
+// stays the one seam a future capture-only exclusion goes through — the
+// canonical list has to serve the dashboard, which needs every value.
+const CAPTURE_SOURCES = ['scanning', 'lixil', 'referral_other', 'referral_architect', 'showroom_walkin']
 const SOURCE_OPTIONS = SOURCE_TYPE_OPTIONS.filter((o) => CAPTURE_SOURCES.includes(o.value))
 
 function LeadQuickCapture() {
@@ -90,6 +93,17 @@ function LeadQuickCapture() {
   const isScanning = sourceType === 'scanning'
   const isArchReferral = sourceType === 'referral_architect'
   const isReferral = isArchReferral || sourceType === 'referral_other'
+  // A walk-in is the narrowest source on this form: someone standing in the
+  // showroom, so there is no site to describe, nobody who referred them and no
+  // third party involved. It asks for the client and their address, and every
+  // other field is hidden — hence the required client name below (with no
+  // site nickname, referrer or other party offered, it's the only thing that
+  // can satisfy the lead_needs_an_anchor CHECK).
+  const isWalkIn = sourceType === 'showroom_walkin'
+  // The address box is shared by the two sources that meet the client in
+  // person. One flag read by the field and by the write below, so the question
+  // asked and the value saved can't drift apart.
+  const asksAddress = isScanning || isWalkIn
 
   // Resolved here rather than at submit time so the same value gates the Save
   // button and gets written — a required field whose emptiness is computed
@@ -118,6 +132,7 @@ function LeadQuickCapture() {
     Boolean(clientParty || (isScanning && siteNickname.trim()) || resolvedReferralFrom || otherParty) &&
     (!isScanning || Boolean(resolvedSiteStage)) &&
     (!isReferral || Boolean(resolvedReferralFrom)) &&
+    (!isWalkIn || Boolean(clientParty)) &&
     (!isCoordinator || Boolean(forExec)) &&
     !submitting
 
@@ -131,6 +146,14 @@ function LeadQuickCapture() {
     setSourceType(value)
     setReferralFrom(null)
     setFirmParty(null)
+    // "Other's name" is hidden entirely on a walk-in, so unlike every other
+    // field on this form its input can unmount with a party still held here.
+    // PartySearchOrCreate is uncontrolled (initialSelected is a seed, not a
+    // value), so it would come back blank on remount while this state still
+    // carried the old party — a lead writing an other_party_id the rep can't
+    // see. Clearing on any source change is the cheap fix; the cost is that
+    // switching between two sources that both show the field re-asks for it.
+    setOtherParty(null)
   }
 
   // The firm belongs to the architect, not the lead — so it follows whoever is
@@ -241,7 +264,7 @@ function LeadQuickCapture() {
     const nextWarnings = []
     const address = clientAddress.trim()
 
-    if (isScanning && address) {
+    if (asksAddress && address) {
       if (!clientParty) {
         nextWarnings.push(
           "The address wasn't saved — it attaches to the client record, and this lead has no client name on it."
@@ -403,11 +426,12 @@ function LeadQuickCapture() {
           reordering rationale (README's New Lead section). */}
       <div className="vip-stack-s">
         <div className="vip-field-label">Where from *</div>
-        {/* .vip-choice-grid, NOT .vip-choice-row — that row is a no-wrap flex
-            of `flex: 1` children, so a fourth option squeezes past its track
-            on a phone. Applied alone: pairing the two classes puts two
+        {/* .vip-choice-grid-5, NOT .vip-choice-grid — five options don't
+            divide the latter's 2- and 4-column tracks, so the fifth would sit
+            as an orphan half (phone) or quarter (desktop) button. Applied
+            alone, like every grid in this family: pairing two of them puts two
             `display` declarations on one element at equal specificity. */}
-        <div className="vip-choice-grid">
+        <div className="vip-choice-grid-5">
           {SOURCE_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -423,10 +447,15 @@ function LeadQuickCapture() {
 
       {/* Territory is asked for every source, not just scanning — a lead has
           both a source and an office, and they're independent facts. Its own
-          row rather than folded into "Where from" for that reason. */}
+          row rather than folded into "Where from" for that reason.
+
+          .vip-choice-grid-5, NOT .vip-choice-grid — TERRITORY_OPTIONS grew a
+          fifth value ('others') alongside the four named offices, the same
+          5-option case the source tap-select above already needed its own
+          class for. Applied alone, same cascade-trap reasoning as always. */}
       <div className="vip-stack-s">
         <div className="vip-field-label">Office territory *</div>
-        <div className="vip-choice-grid">
+        <div className="vip-choice-grid-5">
           {TERRITORY_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -440,15 +469,18 @@ function LeadQuickCapture() {
         </div>
       </div>
 
+      {/* Required only on a walk-in, where it's the lead's one anchor. The
+          marker is a marker: canSubmit above does the enforcing. */}
       <PartySearchOrCreate
         label="Client name"
+        required={isWalkIn}
         defaultPartyType="client"
         typeOptions={['client']}
         onSelect={setClientParty}
         createdByEmployeeId={ownerEmployeeId}
       />
 
-      {isScanning && (
+      {asksAddress && (
         <label className="vip-field">
           Address <span className="vip-field-hint">optional, saved against the client above</span>
           <input
@@ -542,24 +574,28 @@ function LeadQuickCapture() {
           offering them here would read as a second place to put the same
           person. PartySearchOrCreate clamps defaultPartyType into whatever
           list is offered, so 'architect' falling out of range is handled. */}
-      <PartySearchOrCreate
-        label={
-          isArchReferral
-            ? "Other's name (builder / PMC / anyone else)"
-            : "Other's name (architect / PMC / anyone else)"
-        }
-        defaultPartyType="architect"
-        typeOptions={
-          isScanning
-            ? OTHER_PARTY_TYPES_SCANNING
-            : isArchReferral
-              ? OTHER_PARTY_TYPES_ARCH_REFERRAL
-              : OTHER_PARTY_TYPES
-        }
-        onSelect={setOtherParty}
-        createdByEmployeeId={ownerEmployeeId}
-      />
+      {!isWalkIn && (
+        <PartySearchOrCreate
+          label={
+            isArchReferral
+              ? "Other's name (builder / PMC / anyone else)"
+              : "Other's name (architect / PMC / anyone else)"
+          }
+          defaultPartyType="architect"
+          typeOptions={
+            isScanning
+              ? OTHER_PARTY_TYPES_SCANNING
+              : isArchReferral
+                ? OTHER_PARTY_TYPES_ARCH_REFERRAL
+                : OTHER_PARTY_TYPES
+          }
+          onSelect={setOtherParty}
+          createdByEmployeeId={ownerEmployeeId}
+        />
+      )}
 
+      {/* firmField is already null on a walk-in (it needs an architect, and
+          neither field that can produce one renders), so this needs no gate. */}
       {!isArchReferral && firmField}
 
       {submitError && <p className="vip-error" role="alert">{submitError}</p>}

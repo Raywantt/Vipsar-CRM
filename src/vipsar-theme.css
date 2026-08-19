@@ -522,6 +522,23 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
   .vip-choice-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
+/* A 5-option tap-select (lead source on New Lead, once Walk-in joined it).
+   Its own class for the same reason .vip-choice-grid is, and applied ALONE for
+   the same reason too — two `display` declarations on one element at equal
+   specificity is the cascade trap noted in section 17.
+
+   Five divides neither the 2-column phone grid nor the 4-column desktop one,
+   so on a phone the last button spans the full row rather than sitting as an
+   orphan half; at desktop all five share one row instead, which keeps every
+   option the same size (the longest label wraps to two lines inside the 56px
+   button rather than overflowing). */
+.vip-choice-grid-5 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.vip-choice-grid-5 > :last-child { grid-column: 1 / -1; }
+@media (min-width: 1024px) {
+  .vip-choice-grid-5 { grid-template-columns: repeat(5, 1fr); }
+  .vip-choice-grid-5 > :last-child { grid-column: auto; }
+}
+
 /* ---------- 9. Forms ---------------------------------------------------- */
 .vip-form { display: flex; flex-direction: column; gap: 14px; }
 .vip-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--vip-ink); }
