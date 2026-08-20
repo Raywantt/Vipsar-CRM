@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { errorMessage } from '../lib/errorMessage'
+import { fetchAccountTheme, setTheme } from '../lib/theme'
 
 const AuthContext = createContext(undefined)
 
@@ -27,6 +28,16 @@ export function AuthProvider({ children }) {
       } else {
         setEmployee(data)
         setEmployeeError(null)
+        // Fire-and-forget: pulls this employee's saved appearance choice
+        // in from their account and applies it (syncing localStorage too,
+        // so the next load's pre-paint script in index.html already has
+        // it). Not awaited — a slow/failed request should never delay
+        // login, and fetchAccountTheme already swallows its own errors
+        // (including the migration not having been run yet), returning
+        // null rather than throwing.
+        fetchAccountTheme(data.id).then((theme) => {
+          if (active && theme) setTheme(theme)
+        })
       }
     }
 

@@ -8,7 +8,7 @@ import ManageEmployeesSection from '../components/ManageEmployeesSection'
 import DeletePartySection from '../components/DeletePartySection'
 import ChangePasswordForm from '../components/ChangePasswordForm'
 import { errorMessage } from '../lib/errorMessage'
-import { getStoredTheme, setTheme } from '../lib/theme'
+import { getStoredTheme, setTheme, fetchAccountTheme, saveAccountTheme } from '../lib/theme'
 
 const THEME_OPTIONS = [
   { value: 'light', label: 'Light' },
@@ -33,16 +33,40 @@ function Profile() {
   const [changingPassword, setChangingPassword] = useState(false)
 
   const [theme, setThemeChoice] = useState(getStoredTheme)
+  const [themeSaveWarning, setThemeSaveWarning] = useState(null)
 
   function handleThemeChange(value) {
     setTheme(value)
     setThemeChoice(value)
+    setThemeSaveWarning(null)
+    if (!employee) return
+    saveAccountTheme(employee.id, value).then(({ error }) => {
+      if (error) setThemeSaveWarning("Saved on this device, but couldn't sync to your account.")
+    })
   }
 
   useEffect(() => {
     setPermission(getPushPermissionState())
     hasActiveSubscription().then(setSubscribed)
   }, [])
+
+  // Converges to whatever's actually saved on the account, in case this
+  // page rendered before AuthContext's own post-login sync (see
+  // AuthContext.jsx) had a chance to resolve — e.g. the very first visit to
+  // Profile right after logging in on a new device. A no-op re-application
+  // if the two already agree.
+  useEffect(() => {
+    if (!employee) return
+    let active = true
+    fetchAccountTheme(employee.id).then((accountTheme) => {
+      if (!active || !accountTheme) return
+      setTheme(accountTheme)
+      setThemeChoice(accountTheme)
+    })
+    return () => {
+      active = false
+    }
+  }, [employee])
 
   useEffect(() => {
     if (!isOwner) return
@@ -158,6 +182,7 @@ function Profile() {
           ))}
         </div>
         <p className="vip-form-note">System matches your phone or browser's own light/dark setting.</p>
+        {themeSaveWarning && <p className="vip-error" role="alert">{themeSaveWarning}</p>}
       </div>
 
       {/* Owner-only admin tooling. Add employee and Delete a party stay
