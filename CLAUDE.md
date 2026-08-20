@@ -244,7 +244,8 @@ src/
                 DeletePartySection, ChangePasswordForm, InstallPrompt,
                 NotificationPrompt, OfflineIndicator, FollowUpForm, FollowUpList,
                 FabSheet — the mobile shell's FAB bottom sheet, see the
-                Mobile redesign section)
+                Mobile redesign section, NumPadInput — the mobile-only
+                on-screen numeric keypad, see the Numeric keypad section)
   pages/        top-level views (Login, Home [renders Today, see the Mobile
                 redesign section], CoordinatorToday [the sales_coordinator's
                 own `/` — see the Sales Coordinator section], Profile, Search,
@@ -255,7 +256,9 @@ src/
                 push a dynamic {title, sub} override into AppNav's header
                 (see Design system below)
   hooks/        custom React hooks (useOnlineStatus.js — added for the
-                Mobile redesign's SYNCED/OFFLINE pill + offline notes)
+                Mobile redesign's SYNCED/OFFLINE pill + offline notes;
+                useIsMobile.js — ≥1024px breakpoint as a JS boolean, see
+                the Numeric keypad section)
   lib/          integrations & utilities (supabaseClient.js, sanitizeForIlike.js,
                 siteStageOptions.js, leadStageOptions.js, lossReasonOptions.js,
                 statusColors.js, activityTypes.js, sourceTypeOptions.js,
@@ -3271,6 +3274,100 @@ function.
 * **Sales Exec Profile** — needed no direct changes; its 6-tile
   `.vip-dd-kpi-grid` metric grid automatically picked up the 2-column
   mobile layout from the shared CSS fix above.
+
+### Numeric keypad (`src/components/NumPadInput.jsx`, mobile-only)
+
+A custom on-screen numeric keypad, at the user's explicit request (after
+confirming, via `AskUserQuestion`, that they wanted a CRM-styled keypad —
+not just triggering the phone's native numeric keyboard — and that it
+should cover mobile numbers too, not only money/percentage fields).
+**Mobile-only, as asked** — desktop renders the exact original `<input>`
+untouched, verified live (see below) to be byte-identical in attributes
+and behavior to what shipped before this feature.
+
+* **Two variants**, both digits + backspace: `decimal` adds a "." key,
+  `integer` doesn't. `decimal` is for money/target fields (Quote value,
+  Order value — `SalesProgressSection`, `LeadStageSection`'s won-stage
+  prompt, `ActivityLog`'s Booking Update, `SetTargetForm`'s Target value —
+  plus `LeadsListCard`'s Min/Max quote-value filter). `integer` is for
+  Probability (0–100, no fractional percent asked anywhere in this app)
+  and **mobile-number fields** (`PartySearchOrCreate`, `AddEmployeeForm`,
+  `ManageEmployeesSection`'s per-row mobile edit) — a phone number has no
+  decimal point either, so it reuses the same variant rather than adding a
+  third. Mobile-number fields were plain `type="text"` before this pass
+  (deliberately, to allow a leading zero) and stay `type="text"`; only
+  money/probability/target fields were ever `type="number"`.
+* **A drop-in swap, not a rewrite** — `NumPadInput` takes the same
+  `value`/`onChange` props a plain `<input>` does, and its keypad calls
+  `onChange({target:{value}})` on every keystroke, so every call site's
+  existing state and save-time `Number(x)` conversion needed zero changes;
+  only the JSX tag itself was swapped at all 11 call sites (8 money/%/
+  target fields across 5 files, 3 mobile-number fields across 3 files).
+* **How mobile is detected**: `src/hooks/useIsMobile.js`, a `matchMedia`
+  hook mirroring the same `(max-width: 1023.98px)` breakpoint
+  `vipsar-theme.css` uses everywhere, kept as one source so the two can't
+  drift. Needed in JS, not just CSS, because desktop and mobile render
+  genuinely different `<input>` behavior (native keyboard vs. the custom
+  keypad) — a CSS-only switch can hide markup but can't change which
+  keyboard the OS brings up.
+* **How the OS keyboard is suppressed**: `inputMode="none"` on the
+  underlying `<input>` at mobile widths only — the standard technique for
+  a custom-keypad field (used by banking/POS apps): the field stays a real,
+  focusable, screen-reader-visible control, a hardware/bluetooth keyboard
+  or paste still reaches it through the normal `onChange` prop, only the
+  on-screen virtual keyboard is suppressed. This component only ever ADDS
+  the tap keypad as another way to type into the field, never removes one.
+* **Visual language**: reuses section 9's `.vip-sheet`/`.vip-sheet-backdrop`
+  bottom-sheet pattern (`FabSheet.jsx`'s own chrome) rather than inventing
+  a new one, at a higher z-index (60/61) than every other overlay in the
+  app — the FAB sheet is 50/51, the drill-down panel is 40/41 — since a
+  numpad field can be nested inside either (Lead Detail's mobile edit
+  sections render inside a `.vip-dd-panel`, confirmed live to still
+  correctly position `position: fixed` relative to the true viewport, not
+  clipped to the panel). A readout (field label + large mono value) sits in
+  the sheet's own header so the value stays legible even when the
+  underlying field itself has scrolled out of view behind the sheet, with a
+  **Done** button beside it; tapping the backdrop also closes it. Every new
+  class is built from existing design tokens only (`--vip-surface`,
+  `--vip-canvas`, `--vip-mono`, etc.) — no new dark-mode overrides were
+  needed, confirmed live in both themes.
+* One small input-shaping touch a real keypad does that a plain field
+  wouldn't: pressing a digit on a lone `"0"` replaces it rather than
+  producing `"05"`.
+
+**Verified live** (real sessions, all three roles, both themes): at
+desktop widths every converted field is byte-for-byte the original
+`type="number"`/`type="text"` `<input>` with no `inputMode` and the keypad
+never opens on click. At mobile widths (375px), for `sales_executive`,
+`sales_coordinator` and `owner`: the decimal variant (Lead Detail's Quote
+value) correctly builds `"125.50"` digit-by-digit, rejects a second
+decimal point, backspaces correctly, and the committed value lands in the
+real underlying field; the integer variant (Probability) correctly omits
+the "." key and shows the leading-zero-replace behavior; the mobile-number
+field (New Lead's Client name → Mobile number) correctly shows the integer
+variant and a full 10-digit number round-trips into the real field for
+both `sales_executive` and `sales_coordinator`. Both light and dark theme
+render correctly with full contrast. **One thing worth flagging for a real
+device before relying on it**: backdrop-tap-to-dismiss was unreliable
+specifically when testing via synthetic `dispatchEvent` calls nested three
+overlays deep (Lead Detail's mobile edit panel); triangulated as a test-
+harness/CDP synthetic-click-delivery quirk rather than a real bug — calling
+the close handler directly always worked, the identical backdrop pattern
+closed correctly via the same synthetic-dispatch method in a shallower
+context (the Leads filter panel), and the **Done** button (an always-
+visible, unambiguous affordance) closed the sheet reliably in every context
+including the nested one — but it was never exercised with an actual touch
+on real hardware, so treat backdrop-dismiss specifically as unconfirmed
+until someone taps it on a phone.
+* **Two of the 11 wired fields are effectively desktop-only in practice**:
+  `AddEmployeeForm`'s and `ManageEmployeesSection`'s mobile-number fields
+  live inside Profile's owner-only admin block, which the Mobile redesign
+  pass already made `.vip-only-desktop` (see that section above) — so
+  those two never actually show the mobile keypad today, since the block
+  they're in doesn't render on a phone at all. Wiring them was still
+  correct/harmless (consistent with every other money/mobile field, no
+  special-casing needed) and means nothing has to change here if that
+  block is ever reopened to mobile later.
 
 ### Sales Coordinator (Phase 8 — role 3 of 3)
 

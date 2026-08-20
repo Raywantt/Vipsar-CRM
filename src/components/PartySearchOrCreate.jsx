@@ -5,6 +5,7 @@ import { sanitizeForIlike } from '../lib/sanitizeForIlike'
 import { partyTypeLabel } from '../lib/partyTypeOptions'
 import { PARTY_COLUMNS, attachFirms } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
+import NumPadInput from './NumPadInput'
 
 const DEFAULT_PARTY_TYPES = ['client', 'architect', 'builder', 'firm', 'other', 'pmc']
 
@@ -360,7 +361,7 @@ function PartySearchOrCreate({
       {name.trim().length > 0 && (
         <label className="vip-field">
           Mobile number <span className="vip-field-hint">optional, helps confirm the right match</span>
-          <input className="vip-input" type="text" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <NumPadInput variant="integer" label="Mobile number" type="text" value={mobile} onChange={(e) => setMobile(e.target.value)} />
         </label>
       )}
 

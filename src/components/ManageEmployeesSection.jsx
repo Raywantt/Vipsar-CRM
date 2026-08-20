@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import NumPadInput from './NumPadInput'
 import {
   updateEmployeeRole,
   updateEmployeeActive,
@@ -110,8 +111,10 @@ function EmployeeRow({ emp, isSelf, coordinators, onUpdated }) {
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input
-          className="vip-input"
+        <NumPadInput
+          variant="integer"
+          label={`Mobile number for ${emp.name}`}
+          type="text"
           style={{ flex: 1 }}
           value={mobile}
           onChange={(e) => setMobile(e.target.value)}

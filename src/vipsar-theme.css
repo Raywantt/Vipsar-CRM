@@ -2166,3 +2166,42 @@ a.vip-day-log-party:hover { text-decoration: underline; }
 /* The 190px + 9-column grid can't survive a phone; the mobile card list
    above replaces it entirely rather than being a squashed version of it. */
 
+
+/* ---------- 24. Numeric keypad (mobile-only custom numpad) --------------
+   NumPadInput.jsx's on-screen digit pad for money/probability/target/
+   mobile-number fields. Reuses section 9's .vip-sheet bottom-sheet visual
+   language, at a higher z-index (60/61) than every other overlay in the
+   app — the FAB sheet is 50/51, the drill-down panel is 40/41 — since a
+   numpad field can be nested inside either (Lead Detail's mobile edit
+   sections render inside a .vip-dd-panel) and must always win that stack.
+   Only ever mounted below 1024px: NumPadInput itself renders the original,
+   untouched <input> at desktop widths, so there's no CSS breakpoint guard
+   needed here — the component is the gate, not a media query. */
+.vip-numpad-backdrop {
+  position: fixed; inset: 0; background: rgba(16, 22, 23, .5); z-index: 60;
+}
+.vip-numpad-sheet {
+  position: fixed; left: 50%; bottom: 0; transform: translateX(-50%);
+  width: 100%; max-width: var(--vip-app-max); z-index: 61;
+  background: var(--vip-surface); border-radius: 22px 22px 0 0;
+  box-shadow: 0 -20px 50px rgba(16, 22, 23, .28);
+  padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 14px;
+}
+.vip-numpad-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.vip-numpad-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vip-numpad-label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--vip-muted); }
+.vip-numpad-value {
+  font-family: var(--vip-mono); font-size: 24px; font-weight: 600; color: var(--vip-ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-numpad-value-empty { color: var(--vip-faint); font-weight: 400; }
+.vip-numpad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.vip-numpad-key {
+  min-height: 56px; border: 0; border-radius: var(--vip-r-field);
+  background: var(--vip-canvas); color: var(--vip-ink);
+  font-family: var(--vip-mono); font-size: 20px; font-weight: 600;
+  display: grid; place-items: center; cursor: pointer;
+}
+.vip-numpad-key:active { background: var(--vip-track); }
+.vip-numpad-key-muted { color: var(--vip-muted); font-family: var(--vip-sans); font-size: 18px; }

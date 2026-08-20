@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import LeadSearchSelect from '../components/LeadSearchSelect'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
+import NumPadInput from '../components/NumPadInput'
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLocationOptions'
@@ -730,8 +731,9 @@ function ActivityLog() {
                       deliberately only here — Lead Detail's Sales progress
                       field and the won-stage prompt still read "Order value". */}
                   Order value without GST <span className="vip-field-hint">optional</span>
-                  <input
-                    className="vip-input"
+                  <NumPadInput
+                    variant="decimal"
+                    label="Order value without GST"
                     type="number"
                     step="0.01"
                     value={orderValue}

@@ -3,6 +3,7 @@ import { METRIC_OPTIONS } from '../lib/targetMetrics'
 import { periodForPreset } from '../lib/targetPeriods'
 import { insertTarget } from '../lib/targetQueries'
 import { errorMessage } from '../lib/errorMessage'
+import NumPadInput from './NumPadInput'
 
 const PERIOD_TYPES = [
   { value: 'week', label: 'Week' },
@@ -95,8 +96,9 @@ function SetTargetForm({ employees, onCreated, onCancel }) {
             </option>
           ))}
         </select>
-        <input
-          className="vip-input"
+        <NumPadInput
+          variant="decimal"
+          label="Target value"
           type="number"
           step="0.01"
           value={targetValue}

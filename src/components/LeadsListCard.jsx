@@ -6,6 +6,7 @@ import { STALE_DAYS } from '../lib/attention'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
 import { formatCurrencyCompact } from '../lib/format'
+import NumPadInput from './NumPadInput'
 import { dealValueFor, dealValueOrNull } from '../lib/pipelineValue'
 import EmployeeLink from './EmployeeLink'
 import { errorMessage } from '../lib/errorMessage'
@@ -316,16 +317,18 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
       <div className="vip-stack-s" style={{ gap: 6 }}>
         <div className="vip-fact-label">Quote value (₹)</div>
         <div className="vip-grid-2">
-          <input
-            className="vip-input"
+          <NumPadInput
+            variant="decimal"
+            label="Min quote value"
             type="number"
             min="0"
             placeholder="Min"
             value={minValueInput}
             onChange={(e) => setMinValueInput(e.target.value)}
           />
-          <input
-            className="vip-input"
+          <NumPadInput
+            variant="decimal"
+            label="Max quote value"
             type="number"
             min="0"
             placeholder="Max"

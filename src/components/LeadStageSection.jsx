@@ -6,6 +6,7 @@ import { LOSS_REASON_OPTIONS } from '../lib/lossReasonOptions'
 import { createFollowUp } from '../lib/followUpQueries'
 import { stageFg } from '../lib/statusColors'
 import { isBackwardStageMove } from '../lib/stageProgress'
+import NumPadInput from './NumPadInput'
 import { errorMessage } from '../lib/errorMessage'
 
 // canMoveStageBackward is false for a sales executive: they may move a lead
@@ -384,8 +385,9 @@ function LeadStageSection({ lead, leadTitle, canMoveStageBackward = true, paused
             Marking this lead <strong>won</strong> — what was the deal worth? An order value is required before the
             stage is saved.
           </p>
-          <input
-            className="vip-input"
+          <NumPadInput
+            variant="decimal"
+            label="Order value"
             type="number"
             step="0.01"
             min="0"

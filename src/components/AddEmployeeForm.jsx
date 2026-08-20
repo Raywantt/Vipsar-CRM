@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { insertEmployee } from '../lib/employeeQueries'
 import { ROLE_OPTIONS } from '../lib/roles'
 import { errorMessage } from '../lib/errorMessage'
+import NumPadInput from './NumPadInput'
 
 function AddEmployeeForm({ onCreated, onCancel }) {
   const [name, setName] = useState('')
@@ -62,7 +63,7 @@ function AddEmployeeForm({ onCreated, onCancel }) {
         <div className="vip-grid-2">
           <label className="vip-field">
             Mobile
-            <input className="vip-input" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+            <NumPadInput variant="integer" label="Mobile" type="text" value={mobile} onChange={(e) => setMobile(e.target.value)} />
           </label>
           <label className="vip-field">
             Role

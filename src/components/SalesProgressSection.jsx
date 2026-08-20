@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { errorMessage } from '../lib/errorMessage'
+import NumPadInput from './NumPadInput'
 
 function SalesProgressSection({ lead, products, onSaved }) {
   const [productId, setProductId] = useState(lead.product_id ?? '')
@@ -69,8 +70,9 @@ function SalesProgressSection({ lead, products, onSaved }) {
       <div className="vip-grid-2">
         <label className="vip-field">
           Quote value
-          <input
-            className="vip-input"
+          <NumPadInput
+            variant="decimal"
+            label="Quote value"
             type="number"
             step="0.01"
             value={quoteValue}
@@ -79,8 +81,9 @@ function SalesProgressSection({ lead, products, onSaved }) {
         </label>
         <label className="vip-field">
           Probability
-          <input
-            className="vip-input"
+          <NumPadInput
+            variant="integer"
+            label="Probability"
             type="number"
             min="0"
             max="100"
@@ -93,8 +96,9 @@ function SalesProgressSection({ lead, products, onSaved }) {
 
       <label className="vip-field">
         Order value
-        <input
-          className="vip-input"
+        <NumPadInput
+          variant="decimal"
+          label="Order value"
           type="number"
           step="0.01"
           value={orderValue}
