@@ -15,6 +15,11 @@ dev-dist
 .env.*
 !.env.example
 
+# Data migration working files — frozen CRM exports, import/rollback scripts
+# and audit spreadsheets. These carry REAL customer records (names, mobiles,
+# addresses) and this repository is public, so they must never be committed.
+backup/
+
 # Supabase CLI local state (which project is linked, etc.) — machine-specific
 supabase/.temp/
 supabase/.branches/

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
+import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
 import DateRangeSelector from '../components/DateRangeSelector'
 import ActivityCountsCard from '../components/ActivityCountsCard'
 import LeadsBySourceCard, { SALES_EXEC_SOURCES } from '../components/LeadsBySourceCard'
@@ -104,9 +105,12 @@ function Dashboard() {
     const tab = searchParams.get('tab')
     setActiveTab(tab === 'leads' ? 'leads' : 'reports')
   }, [searchParams])
-  const [preset, setPreset] = useState('week')
-  const [customStart, setCustomStart] = useState(todayISO())
-  const [customEnd, setCustomEnd] = useState(todayISO())
+  // Persisted across a "click into a lead/exec, then Back" round trip, reset
+  // on a fresh nav-link visit — see usePersistedFilterState's own header
+  // comment.
+  const [preset, setPreset] = usePersistedFilterState('vip-filters:dashboard', 'preset', 'week')
+  const [customStart, setCustomStart] = usePersistedFilterState('vip-filters:dashboard', 'customStart', todayISO())
+  const [customEnd, setCustomEnd] = usePersistedFilterState('vip-filters:dashboard', 'customEnd', todayISO())
 
   const [activities, setActivities] = useState([])
   const [leads, setLeads] = useState([])

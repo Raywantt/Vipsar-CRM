@@ -12,8 +12,11 @@ const DIGIT_ROWS = [
 ]
 
 // Mobile-only on-screen keypad for numeric fields (money, probability,
-// targets, mobile numbers) — desktop renders the plain original <input> with
-// zero changes, see the isMobile branch below.
+// targets, mobile numbers) — desktop renders the plain original <input>,
+// see the isMobile branch below. The one addition on that branch is
+// onWheel blurring the field: a focused type="number" input changes value
+// on trackpad/mouse-wheel scroll by default, which reads as the field
+// editing itself while the rep is just scrolling the page.
 //
 // The underlying <input> stays a real, focusable, screen-reader-visible
 // control at every width; the only thing that changes on mobile is
@@ -51,6 +54,7 @@ function NumPadInput({
         className={`vip-input ${className}`.trim()}
         value={value}
         onChange={onChange}
+        onWheel={(e) => e.currentTarget.blur()}
         disabled={disabled}
         {...rest}
       />

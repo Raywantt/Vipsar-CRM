@@ -124,6 +124,69 @@ export async function materializePartyDraft(party, createdByEmployeeId) {
   return { data: { ...data, firm: null } }
 }
 
+// A party captured on the New Lead form — the "Other's name" contact, or the
+// referrer — is by definition someone connected to this lead, so it gets
+// linked as a site contact outright instead of being offered as a "want to add
+// them?" prompt on Lead Detail. The rep already answered that question by
+// typing the person in and picking their type; asking again on the lead page
+// is the same question twice. That's the exact duplication
+// AdditionalContactsSection already removed from its own "+ Add contact" form
+// (see ROLE_TO_PARTY_TYPE there, which runs this mapping in the other
+// direction) — the intake path just kept asking until now.
+//
+// site_contacts.role is a CHECK list of six values, narrower than party_type,
+// so this mapping is lossy on purpose: 'other' is the honest landing place for
+// a type that names no particular role at a site. A firm is an organisation
+// rather than a person on site, and a 'client' arriving here is never the
+// lead's own client (that party is leads.party_id, shown in its own card) —
+// both land there rather than being invented into something more specific.
+const PARTY_TYPE_TO_CONTACT_ROLE = {
+  architect: 'architect',
+  builder: 'builder',
+  pmc: 'project_manager',
+  firm: 'other',
+  client: 'other',
+  other: 'other',
+}
+
+export function contactRoleForPartyType(partyType) {
+  return PARTY_TYPE_TO_CONTACT_ROLE[partyType] ?? 'other'
+}
+
+// Links intake parties to a site as contacts, skipping any already linked.
+// Safe to call repeatedly — Lead Detail runs it on load to heal leads captured
+// before this was automatic, so it must never duplicate or overwrite.
+//
+// Skipping is by party_id alone, NOT (party_id, role): once someone is on the
+// site the rep owns their role, and a role they corrected by hand must not be
+// re-added under the derived one. (site_contacts is UNIQUE on
+// (site_id, party_id, role), so re-adding would land a second row rather than
+// fail — a silent duplicate, which is worse than a rejected write.)
+//
+// Unlike parties UPDATE, site_contacts INSERT has no "own data" narrowing —
+// its policy is `current_employee_role() IS NOT NULL` — so there's no
+// silent-RLS-rejection trap here and a real failure comes back as a real
+// error. Returns { data, error }; data carries the embedded party so callers
+// can merge straight into their own contact list without refetching.
+export async function linkPartiesAsSiteContacts({ siteId, parties, alreadyLinkedPartyIds }) {
+  const linked = alreadyLinkedPartyIds ?? new Set()
+  const seen = new Set()
+  const rows = []
+
+  parties.forEach((party) => {
+    // _isEmployee: a referrer picked as one of our own staff is not a party
+    // at all (see LeadQuickCapture's isEmployeeReferrer) and has no place in
+    // a table of site contacts.
+    if (!party?.id || party._isEmployee || linked.has(party.id) || seen.has(party.id)) return
+    seen.add(party.id)
+    rows.push({ site_id: siteId, party_id: party.id, role: contactRoleForPartyType(party.party_type) })
+  })
+
+  if (rows.length === 0) return { data: [], error: null }
+
+  return supabase.from('site_contacts').insert(rows).select('id, role, party_id, parties(name, party_type)')
+}
+
 // Owner-only in the UI (Profile's Settings section) — RLS's owner_only_delete
 // policy on parties is the actual enforcement. leads.party_id/activities.party_id/
 // site_contacts.party_id have no ON DELETE clause (RESTRICT), so deleting a

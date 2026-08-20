@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import EmployeeSearchSelect from '../components/EmployeeSearchSelect'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
-import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
+import { materializePartyDraft, setPartyFirm, linkPartiesAsSiteContacts } from '../lib/partyQueries'
 import { TERRITORY_OPTIONS, territoryLabel } from '../lib/territoryOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
@@ -363,6 +363,20 @@ function LeadQuickCapture() {
         currentFirmId: resolvedArchitectParty.firm?.id ?? null,
       })
       if (firmWarning) nextWarnings.push(`The lead saved, but ${firmWarning}`)
+    }
+
+    // Anyone the rep named beyond the client is a contact on this lead, so
+    // they're linked now rather than surfaced later as a "want to add them?"
+    // prompt on Lead Detail — see linkPartiesAsSiteContacts. The client is
+    // deliberately not included: they're leads.party_id with their own card,
+    // not an additional contact, and listing them twice is the duplication
+    // this whole change is removing.
+    const { error: contactsError } = await linkPartiesAsSiteContacts({
+      siteId,
+      parties: [resolvedOtherParty, resolvedReferralParty],
+    })
+    if (contactsError) {
+      nextWarnings.push(`The lead saved, but the contacts weren't linked: ${errorMessage(contactsError)}`)
     }
 
     setWarnings(nextWarnings)

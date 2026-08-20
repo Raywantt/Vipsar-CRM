@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
 import { fetchLeadsList, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { stageChipClass, stageFg } from '../lib/statusColors'
 import { STALE_DAYS } from '../lib/attention'
@@ -61,17 +62,21 @@ function formatLeadValue(lead) {
   return v == null ? '—' : formatCurrencyCompact(v)
 }
 
+// Persisted across a "click into a lead, then Back" round trip, reset on a
+// fresh nav-link visit — see usePersistedFilterState's own header comment.
+const FILTERS_STORAGE_KEY = 'vip-filters:leads-list'
+
 function LeadsListCard({ showOwnerFilter, employees, title }) {
-  const [employeeFilter, setEmployeeFilter] = useState('')
-  const [stageFilter, setStageFilter] = useState('')
-  const [sourceFilter, setSourceFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [minValueInput, setMinValueInput] = useState('')
-  const [maxValueInput, setMaxValueInput] = useState('')
-  const [minValue, setMinValue] = useState('')
-  const [maxValue, setMaxValue] = useState('')
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const [search, setSearch] = useState('')
+  const [employeeFilter, setEmployeeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'employeeFilter', '')
+  const [stageFilter, setStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'stageFilter', '')
+  const [sourceFilter, setSourceFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'sourceFilter', '')
+  const [statusFilter, setStatusFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'statusFilter', '')
+  const [minValueInput, setMinValueInput] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'minValueInput', '')
+  const [maxValueInput, setMaxValueInput] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'maxValueInput', '')
+  const [minValue, setMinValue] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'minValue', '')
+  const [maxValue, setMaxValue] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'maxValue', '')
+  const [filtersOpen, setFiltersOpen] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'filtersOpen', false)
+  const [search, setSearch] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'search', '')
 
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
@@ -86,7 +91,10 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
       setMaxValue(maxValueInput)
     }, VALUE_DEBOUNCE_MS)
     return () => clearTimeout(timeout)
-  }, [minValueInput, maxValueInput])
+    // setMinValue/setMaxValue come from usePersistedFilterState, which wraps
+    // useState — stable across renders same as any useState setter, so
+    // listing them is just satisfying the linter, not a behavior change.
+  }, [minValueInput, maxValueInput, setMinValue, setMaxValue])
 
   useEffect(() => {
     let active = true
@@ -206,7 +214,24 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
       })
     }
     return chips
-  }, [showOwnerFilter, employeeFilter, employees, stageFilter, sourceFilter, statusFilter, minValueInput, maxValueInput])
+    // The setters come from usePersistedFilterState (wraps useState) — stable
+    // across renders same as any useState setter, listed only for the linter.
+  }, [
+    showOwnerFilter,
+    employeeFilter,
+    employees,
+    stageFilter,
+    sourceFilter,
+    statusFilter,
+    minValueInput,
+    maxValueInput,
+    setEmployeeFilter,
+    setStageFilter,
+    setSourceFilter,
+    setStatusFilter,
+    setMinValueInput,
+    setMaxValueInput,
+  ])
 
   // The five facets, shared verbatim between mobile's disclosure panel and
   // desktop's persistent rail (see the two render blocks below) — one set

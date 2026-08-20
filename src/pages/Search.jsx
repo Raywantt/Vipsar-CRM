@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
 import { searchAll, MIN_QUERY_LENGTH } from '../lib/searchQueries'
 import { stageChipClass } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
@@ -38,8 +39,12 @@ function leadTitle(lead) {
   return lead.parties?.name ?? (lead.sites?.nickname || lead.sites?.locality) ?? `Lead #${lead.id}`
 }
 
+// Persisted across a "click into a result, then Back" round trip, reset on
+// a fresh nav-link visit — see usePersistedFilterState's own header comment.
+const FILTERS_STORAGE_KEY = 'vip-filters:search'
+
 function Search() {
-  const [term, setTerm] = useState('')
+  const [term, setTerm] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'term', '')
   const [results, setResults] = useState({ sites: [], leads: [] })
   const [searching, setSearching] = useState(false)
 
@@ -55,11 +60,11 @@ function Search() {
   // full-table fetches (fetchPartyEmployeeLinks/fetchLeadsByParty) that only
   // differed in selected columns.
   const [leadsDirectory, setLeadsDirectory] = useState([])
-  const [typeFilter, setTypeFilter] = useState('')
-  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [typeFilter, setTypeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'typeFilter', '')
+  const [filtersOpen, setFiltersOpen] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'filtersOpen', false)
   // Mobile-only — desktop always stacks all three sections (see
   // .vip-search-hide-mobile, only active below 1024px).
-  const [mobileTab, setMobileTab] = useState('parties')
+  const [mobileTab, setMobileTab] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'mobileTab', 'parties')
 
   useEffect(() => {
     let active = true

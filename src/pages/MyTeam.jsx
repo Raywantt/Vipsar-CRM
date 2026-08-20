@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
 import { fetchTeamMembers } from '../lib/employeeQueries'
 import { fetchLeadsForBreakdown, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { computeAttentionBuckets, countDistinctLeads } from '../lib/attention'
@@ -19,14 +20,19 @@ const OK = '#7a6413'
 // label (and as their filter chip). The role filter below is built from the
 // data, so they appear as their own chip automatically.
 
+// Persisted across a "click into an exec's profile, then Back" round trip,
+// reset on a fresh nav-link visit — see usePersistedFilterState's own
+// header comment.
+const FILTERS_STORAGE_KEY = 'vip-filters:my-team'
+
 function MyTeam() {
   const [employees, setEmployees] = useState([])
   const [leads, setLeads] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [roleFilter, setRoleFilter] = useState('')
-  const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'roleFilter', '')
+  const [search, setSearch] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'search', '')
 
   useEffect(() => {
     let active = true

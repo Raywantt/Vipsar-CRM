@@ -20,7 +20,7 @@ import { STALE_DAYS, ATTENTION_DAYS } from '../lib/attention'
 import { formatCurrency, formatCurrencyCompact } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
 import { SOURCE_TYPE_LABELS as SOURCE_LABELS } from '../lib/sourceTypeOptions'
-import { attachFirms } from '../lib/partyQueries'
+import { attachFirms, linkPartiesAsSiteContacts } from '../lib/partyQueries'
 
 // Was a fourth hand-rolled copy of the source labels, which had already
 // drifted ('Other referral' vs the shared list's own wording). One list now —
@@ -64,7 +64,9 @@ function LeadDetail() {
 
   const [lead, setLead] = useState(null)
   const [party, setParty] = useState(null)
-  const [otherParty, setOtherParty] = useState(null)
+  // The "other" party and the referrer are read during load only, to link them
+  // as site contacts (see the loader below) — nothing renders them directly
+  // any more, so they're locals in the effect rather than state.
   const [site, setSite] = useState(null)
   const [siteContacts, setSiteContacts] = useState([])
   const [stageHistory, setStageHistory] = useState([])
@@ -114,6 +116,7 @@ function LeadDetail() {
       const [
         partyResult,
         otherPartyResult,
+        referrerPartyResult,
         siteResult,
         contactsResult,
         stageHistoryResult,
@@ -129,6 +132,13 @@ function LeadDetail() {
           : Promise.resolve(EMPTY),
         leadRow.other_party_id
           ? supabase.from('parties').select('*').eq('id', leadRow.other_party_id).single()
+          : Promise.resolve(EMPTY),
+        // The referrer (New Lead's "Referral from", general or architect) is
+        // just as much a party captured at intake as other_party_id — it was
+        // invisible to Contacts entirely before this, since only otherParty
+        // fed the "mentioned during intake" suggestion below.
+        leadRow.referred_by_party_id
+          ? supabase.from('parties').select('*').eq('id', leadRow.referred_by_party_id).single()
           : Promise.resolve(EMPTY),
         leadRow.site_id
           ? supabase.from('sites').select('*').eq('id', leadRow.site_id).single()
@@ -164,9 +174,45 @@ function LeadDetail() {
       setParty(partyResult.data ?? null)
       // .firm is resolved separately, not embedded — see attachFirms. The
       // Contacts card reads it to pre-fill an architect's existing firm.
-      setOtherParty(otherPartyResult.data ? (await attachFirms([otherPartyResult.data]))[0] : null)
+      const resolvedOtherParty = otherPartyResult.data ? (await attachFirms([otherPartyResult.data]))[0] : null
+      const resolvedReferrerParty = referrerPartyResult.data
+        ? (await attachFirms([referrerPartyResult.data]))[0]
+        : null
       setSite(siteResult.data ?? null)
-      setSiteContacts(contactsResult.data ?? [])
+
+      // Leads captured before intake started linking these itself (see
+      // LeadQuickCapture) still have an "other" party or referrer that never
+      // reached site_contacts. Heal them on sight rather than asking the rep
+      // to re-classify someone they already described at intake — that prompt
+      // is exactly what this change removes. linkPartiesAsSiteContacts skips
+      // anyone already linked, so this is a no-op on every subsequent visit
+      // and on leads captured after the change.
+      //
+      // Gated on being able to edit the lead: a rep viewing a colleague's lead
+      // is a reader, and site_contacts INSERT would otherwise let a read-only
+      // page write. A failure here is left silent on purpose — nothing the
+      // reader did caused it, and the contacts simply stay unlinked until
+      // someone who can edit opens the lead.
+      const existingContacts = contactsResult.data ?? []
+      const viewerCanEdit =
+        employee?.role === 'owner' ||
+        employee?.role === 'sales_coordinator' ||
+        leadRow.owner_employee_id === employee?.id
+      const unlinked = [resolvedOtherParty, resolvedReferrerParty].filter(
+        (p) => p && !existingContacts.some((c) => c.party_id === p.id)
+      )
+
+      if (leadRow.site_id && viewerCanEdit && unlinked.length > 0) {
+        const { data: healed } = await linkPartiesAsSiteContacts({
+          siteId: leadRow.site_id,
+          parties: unlinked,
+          alreadyLinkedPartyIds: new Set(existingContacts.map((c) => c.party_id)),
+        })
+        if (!active) return
+        setSiteContacts([...existingContacts, ...(healed ?? [])])
+      } else {
+        setSiteContacts(existingContacts)
+      }
       setStageHistory(stageHistoryResult.data ?? [])
       setActivities(activitiesResult.data ?? [])
       setOwnerHistory(ownerHistoryResult.data ?? [])
@@ -184,7 +230,10 @@ function LeadDetail() {
     return () => {
       active = false
     }
-  }, [id])
+    // employee.id/role are read by the contact-healing branch above, to decide
+    // whether this viewer may write. Both are stable for a session, so listing
+    // them doesn't cause a refetch in practice.
+  }, [id, employee?.id, employee?.role])
 
   const leadTitle = party?.name ?? site?.nickname ?? site?.locality ?? (lead ? `Lead #${lead.id}` : '')
 
@@ -756,7 +805,6 @@ function LeadDetail() {
   const contactsEditor = site && (
     <AdditionalContactsSection
       site={site}
-      otherParty={otherParty}
       siteContacts={siteContacts}
       onContactAdded={(contact) => setSiteContacts((prev) => [...prev, contact])}
     />

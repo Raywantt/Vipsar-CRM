@@ -69,7 +69,15 @@ async function addSiteContact(siteId, party, role, firmParty) {
   return { data, warning }
 }
 
-function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAdded }) {
+// There is deliberately NO "this party was mentioned at intake — add them?"
+// prompt here any more. A party the rep named on the New Lead form is a
+// contact on the lead, full stop, and is linked as one at capture time (see
+// linkPartiesAsSiteContacts, called from LeadQuickCapture, and the same call
+// in LeadDetail's loader that heals leads captured before that). Asking again
+// here re-posed a question the rep had already answered at intake — the same
+// duplication ROLE_TO_PARTY_TYPE above removed from the "+ Add contact" form.
+// This card now just lists what's on the site and lets a rep add someone new.
+function AdditionalContactsSection({ site, siteContacts, onContactAdded }) {
   const { employee } = useAuth()
 
   const [addingNew, setAddingNew] = useState(false)
@@ -79,15 +87,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
   const [savingNew, setSavingNew] = useState(false)
   const [newError, setNewError] = useState(null)
 
-  const [suggestionRole, setSuggestionRole] = useState('')
-  const [suggestionFirm, setSuggestionFirm] = useState(otherParty?.firm ?? null)
-  const [savingSuggestion, setSavingSuggestion] = useState(false)
-  const [suggestionError, setSuggestionError] = useState(null)
-  const [suggestionDismissed, setSuggestionDismissed] = useState(false)
   const [firmWarning, setFirmWarning] = useState(null)
-
-  const alreadyLinkedPartyIds = new Set(siteContacts.map((c) => c.party_id))
-  const showSuggestion = Boolean(otherParty) && !alreadyLinkedPartyIds.has(otherParty.id) && !suggestionDismissed
 
   function resetNewContact() {
     setAddingNew(false)
@@ -105,38 +105,6 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
     setNewContactRole(role)
     setNewContactParty(null)
     setNewContactFirm(null)
-  }
-
-  async function handleAddSuggestion() {
-    setSavingSuggestion(true)
-    setSuggestionError(null)
-
-    // The suggested party already exists — only its firm (if picked) might
-    // still be an unsaved draft from PartySearchOrCreate's deferCreate mode.
-    // Nothing is written to the database until this one Add click.
-    const { data: firm, error: firmError } = await materializePartyDraft(suggestionFirm, employee?.id)
-    if (firmError) {
-      setSavingSuggestion(false)
-      setSuggestionError(errorMessage(firmError))
-      return
-    }
-
-    const { data, error, warning } = await addSiteContact(site.id, otherParty, suggestionRole, firm)
-
-    setSavingSuggestion(false)
-
-    if (error) {
-      setSuggestionError(errorMessage(error))
-      return
-    }
-
-    setFirmWarning(warning ? `Contact added, but ${warning}` : null)
-
-    onContactAdded({
-      ...data,
-      parties: { name: otherParty.name, party_type: otherParty.party_type },
-    })
-    setSuggestionDismissed(true)
   }
 
   async function handleAddNew() {
@@ -198,53 +166,7 @@ function AdditionalContactsSection({ site, otherParty, siteContacts, onContactAd
         </div>
       ))}
 
-      {showSuggestion && (
-        <div className="vip-section-split vip-stack-s">
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--vip-body)' }}>
-            <strong>{otherParty.name}</strong> was mentioned during intake — add as a site contact?
-          </p>
-          <select className="vip-select" value={suggestionRole} onChange={(e) => setSuggestionRole(e.target.value)}>
-            <option value="">— Select role —</option>
-            {ROLE_OPTIONS.map((role) => (
-              <option key={role} value={role}>
-                {ROLE_LABELS[role]}
-              </option>
-            ))}
-          </select>
-          {/* Only for an individual architect — see takesFirm. */}
-          {takesFirm(otherParty) && (
-            <PartySearchOrCreate
-              key={otherParty.id}
-              label="Firm"
-              hint="optional"
-              defaultPartyType="firm"
-              typeOptions={['firm']}
-              deferCreate
-              initialSelected={otherParty.firm ?? null}
-              onSelect={setSuggestionFirm}
-            />
-          )}
-          {suggestionError && <p className="vip-error" role="alert">{suggestionError}</p>}
-          <div className="vip-btn-row">
-            <button
-              type="button"
-              className="vip-btn vip-btn-secondary vip-btn-sm"
-              onClick={handleAddSuggestion}
-              disabled={!suggestionRole || savingSuggestion}
-            >
-              {savingSuggestion ? 'Adding…' : 'Add'}
-            </button>
-            <button
-              type="button"
-              className="vip-btn vip-btn-secondary vip-btn-sm"
-              onClick={() => setSuggestionDismissed(true)}
-              disabled={savingSuggestion}
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
+      {siteContacts.length === 0 && !addingNew && <p className="vip-empty">No contacts on this site yet.</p>}
 
       {addingNew ? (
         <div className="vip-section-split vip-stack-s">
