@@ -5,10 +5,12 @@ import { errorMessage } from '../lib/errorMessage'
 
 const DISMISS_KEY = 'notificationPromptDismissed'
 
-// Same shape as InstallPrompt.jsx (sessionStorage dismiss flag, .vip-install
-// classes) — necessary for push to be discoverable at all: without this
-// banner, push never fires for anyone who doesn't independently find the
-// toggle buried in Account. Only shown when permission has never been asked
+// Same shape as InstallPrompt.jsx (localStorage dismiss flag, set the moment
+// it's shown rather than only on explicit dismiss, so it appears once ever
+// on a device — not once per browser session — and .vip-install classes) —
+// necessary for push to be discoverable at all: without this banner, push
+// never fires for anyone who doesn't independently find the toggle buried in
+// Account. Only shown when permission has never been asked
 // (Notification.permission === 'default') and this device isn't already
 // subscribed — a "denied" or already-subscribed state never shows it.
 // Requires SW support, so this stays effectively inert under `npm run dev`
@@ -22,12 +24,15 @@ function NotificationPrompt() {
 
   useEffect(() => {
     if (!employee) return
-    if (sessionStorage.getItem(DISMISS_KEY) === '1') return
+    if (localStorage.getItem(DISMISS_KEY) === '1') return
     if (getPushPermissionState() !== 'default') return
 
     let active = true
     hasActiveSubscription().then((subscribed) => {
-      if (active && !subscribed) setShow(true)
+      if (active && !subscribed) {
+        localStorage.setItem(DISMISS_KEY, '1')
+        setShow(true)
+      }
     })
     return () => {
       active = false
@@ -47,7 +52,9 @@ function NotificationPrompt() {
   }
 
   function dismiss() {
-    sessionStorage.setItem(DISMISS_KEY, '1')
+    // The localStorage flag is already set from the moment this was shown
+    // (see the effect above) — dismiss just hides it for the rest of this
+    // visit.
     setShow(false)
   }
 

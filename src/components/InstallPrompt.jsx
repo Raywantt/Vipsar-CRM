@@ -30,7 +30,11 @@ function InstallPrompt() {
     if (isStandalone()) return
 
     if (isIosSafari()) {
-      if (sessionStorage.getItem(IOS_DISMISS_KEY) !== '1') {
+      // localStorage, not sessionStorage — this should show once ever on a
+      // device, not once per browser session (a PWA gets closed and reopened
+      // constantly, which is a new "session" every time).
+      if (localStorage.getItem(IOS_DISMISS_KEY) !== '1') {
+        localStorage.setItem(IOS_DISMISS_KEY, '1')
         setShowIosHint(true)
       }
       return
@@ -38,7 +42,8 @@ function InstallPrompt() {
 
     function handleBeforeInstallPrompt(event) {
       event.preventDefault()
-      if (sessionStorage.getItem(ANDROID_DISMISS_KEY) === '1') return
+      if (localStorage.getItem(ANDROID_DISMISS_KEY) === '1') return
+      localStorage.setItem(ANDROID_DISMISS_KEY, '1')
       setDeferredPrompt(event)
       setShowAndroidBanner(true)
     }
@@ -65,12 +70,13 @@ function InstallPrompt() {
   }
 
   function dismissAndroid() {
-    sessionStorage.setItem(ANDROID_DISMISS_KEY, '1')
+    // The localStorage flag is already set from the moment this was shown
+    // (see the effect above) — dismiss just hides it for the rest of this
+    // visit.
     setShowAndroidBanner(false)
   }
 
   function dismissIos() {
-    sessionStorage.setItem(IOS_DISMISS_KEY, '1')
     setShowIosHint(false)
   }
 

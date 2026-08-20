@@ -1932,8 +1932,9 @@ activity-type tag once a party's linked, and an always-optional notes field.
   the checkbox style already used elsewhere.
 * **`NotificationPrompt.jsx`** (`src/components/`, mounted globally in
   `App.jsx` next to `InstallPrompt`/`OfflineIndicator`) — a one-time
-  dismissible banner (same `sessionStorage`-flag/`.vip-install`-class shape
-  as `InstallPrompt.jsx`) prompting to enable notifications, shown only when
+  dismissible banner (same `localStorage`-flag/`.vip-install`-class shape
+  as `InstallPrompt.jsx` — see that bullet below for why `localStorage`, not
+  `sessionStorage`) prompting to enable notifications, shown only when
   permission has never been asked and this device isn't already subscribed.
   Necessary for discoverability, not polish — without it, push never fires
   for anyone who doesn't independently find the toggle buried in Profile.
@@ -3694,10 +3695,16 @@ than no SW in dev. **Test real PWA/offline behavior via
   `CriOS`/`FxiOS`/`EdgiOS` in the UA; handles iPadOS 13+'s Mac-spoofed UA via
   a `platform === 'MacIntel' && maxTouchPoints > 1` fallback), shows a "Tap
   Share, then Add to Home Screen" hint since `beforeinstallprompt` never
-  fires there. Both dismissals are `sessionStorage`-backed (key per
-  platform), not shown again for the rest of the session; the whole
-  component renders nothing if already running standalone
-  (`display-mode: standalone` or `navigator.standalone`).
+  fires there. Both dismiss flags are `localStorage`-backed (key per
+  platform, one per device rather than one per browser session — changed
+  2026-08-20, at the owner's request: `sessionStorage` reset on every fresh
+  app open, which on an installed PWA is constantly, so the banner kept
+  reappearing instead of showing once), and the flag is set the moment the
+  banner is actually shown, not only on an explicit "Later" tap — so it
+  still shows just once even if a rep never interacts with it at all.
+  `NotificationPrompt.jsx` follows the identical pattern, see its own
+  bullet above. The whole component renders nothing if already running
+  standalone (`display-mode: standalone` or `navigator.standalone`).
 * `OfflineIndicator.jsx` — sticky banner driven by `window`'s `online`/
   `offline` events, warns that submissions won't save until reconnected.
   Deliberately no background sync / auto-retry of failed submissions once
