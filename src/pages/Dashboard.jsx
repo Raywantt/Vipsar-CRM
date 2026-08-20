@@ -28,7 +28,7 @@ import { SOURCE_TYPE_OPTIONS } from '../lib/sourceTypeOptions'
 import { stageChipClass } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
 import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
-import { dealValueFor, sumOpenPipelineValue } from '../lib/pipelineValue'
+import { dealValueFor, sumOpenPipelineValue, sumOnHoldValue } from '../lib/pipelineValue'
 import {
   buildOrderValueAttainPanel,
   buildActivitiesAttainPanel,
@@ -427,6 +427,8 @@ function Dashboard() {
   }
 
   const openPipelineValue = sumOpenPipelineValue(breakdownLeads)
+  const onHoldValue = sumOnHoldValue(breakdownLeads)
+  const onHoldLeadCount = breakdownLeads.filter((l) => (l.current_stage ?? 'calling') === 'on_hold').length
   const wonThisRange = range ? computeOrderValueActuals(wonStageHistory, range, false) : 0
 
   const stageRows = LEAD_STAGE_OPTIONS.map((stage) => {
@@ -438,7 +440,11 @@ function Dashboard() {
     }
   })
   const maxStageCount = Math.max(1, ...stageRows.map((r) => r.count))
-  const openLeadCount = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling')).length
+  // Excludes on_hold too, not just won/lost — this count sits beside
+  // openPipelineValue in the KPI tile, and that figure now excludes on-hold
+  // leads (see sumOpenPipelineValue), so the count must match what it's
+  // describing rather than tallying a broader set than the value it labels.
+  const openLeadCount = breakdownLeads.filter((l) => !['won', 'lost', 'on_hold'].includes(l.current_stage ?? 'calling')).length
 
   const rangeLabel = RANGE_LABELS[preset]
   const attentionBuckets = computeAttentionBuckets(breakdownLeads, lastActivityByLead)
@@ -544,6 +550,8 @@ function Dashboard() {
                 activitiesCount={activities.length}
                 openPipelineValue={openPipelineValue}
                 openLeadCount={openLeadCount}
+                onHoldValue={onHoldValue}
+                onHoldLeadCount={onHoldLeadCount}
                 winRatePct={winRatePct}
                 staleCount={staleBucket.count}
                 weightedForecast={weightedForecastValue}

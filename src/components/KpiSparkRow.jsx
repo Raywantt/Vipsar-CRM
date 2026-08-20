@@ -167,6 +167,8 @@ function KpiSparkRow({
   activitiesCount,
   openPipelineValue,
   openLeadCount,
+  onHoldValue,
+  onHoldLeadCount,
   winRatePct,
   staleCount,
   weightedForecast,
@@ -211,6 +213,13 @@ function KpiSparkRow({
       // the count sits inline beside the value rather than needing its own
       // row. Point-in-time like the value itself, not a trend.
       delta: openLeadCount != null ? { label: `${openLeadCount} lead${openLeadCount === 1 ? '' : 's'}`, up: null } : null,
+      // On-hold leads are paused, not actively worked, so their value is no
+      // longer folded into the figure above (owner's call, 2026-08-20) —
+      // shown as its own line instead, only when at least one lead is
+      // actually on hold. Reuses .vip-dd-kpi-sub (normally a tile's
+      // no-delta fallback caption) since it's the same "small, faint,
+      // descriptive" treatment this needs.
+      sub: onHoldLeadCount > 0 ? `On hold · ${formatCurrencyCompact(onHoldValue)} (${onHoldLeadCount})` : null,
       onOpen: onOpenPipeline,
     },
     {
@@ -241,6 +250,7 @@ function KpiSparkRow({
               </span>
             )}
           </div>
+          {t.sub && <div className="vip-dd-kpi-sub">{t.sub}</div>}
           <Sparkline series={t.series} />
         </button>
       ))}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isOpenLead, dealValueFor, sumOpenPipelineValue } from './pipelineValue'
+import { isOpenLead, dealValueFor, sumOpenPipelineValue, sumOnHoldValue } from './pipelineValue'
 
 describe('isOpenLead', () => {
   it('treats won and lost as closed', () => {
@@ -61,7 +61,32 @@ describe('sumOpenPipelineValue', () => {
     expect(sumOpenPipelineValue(leads)).toBe(100000)
   })
 
+  it('excludes on_hold leads — they are reported separately via sumOnHoldValue', () => {
+    const leads = [
+      { current_stage: 'negotiation', quote_value: 100000, order_value: null },
+      { current_stage: 'on_hold', quote_value: 40000, order_value: null },
+    ]
+    expect(sumOpenPipelineValue(leads)).toBe(100000)
+  })
+
   it('returns 0 for an empty list', () => {
     expect(sumOpenPipelineValue([])).toBe(0)
+  })
+})
+
+describe('sumOnHoldValue', () => {
+  it('sums only on_hold leads, using each one\'s dealValueFor', () => {
+    const leads = [
+      { current_stage: 'negotiation', quote_value: 100000, order_value: null },
+      { current_stage: 'on_hold', quote_value: 40000, order_value: null },
+      { current_stage: 'on_hold', quote_value: null, order_value: null },
+      { current_stage: 'lost', quote_value: 20000, order_value: null },
+    ]
+    // Only the two on_hold leads count: 40000 + 0
+    expect(sumOnHoldValue(leads)).toBe(40000)
+  })
+
+  it('returns 0 when no lead is on hold', () => {
+    expect(sumOnHoldValue([{ current_stage: 'negotiation', quote_value: 100000 }])).toBe(0)
   })
 })

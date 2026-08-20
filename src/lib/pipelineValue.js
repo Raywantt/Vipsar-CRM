@@ -12,6 +12,10 @@ export function isOpenLead(lead) {
   return !CLOSED_STAGES.includes(lead.current_stage ?? 'calling')
 }
 
+export function isOnHoldLead(lead) {
+  return (lead.current_stage ?? 'calling') === 'on_hold'
+}
+
 // The raw figure a lead contributes to a SUM. Coerces an unknown value to 0,
 // which is correct for adding up — a lead nobody has quoted contributes
 // nothing to the pipeline total.
@@ -41,6 +45,18 @@ export function dealValueOrNull(lead) {
   return raw == null || raw === '' ? null : Number(raw)
 }
 
+// Dashboard's "Open pipeline" KPI tile means leads actively being worked —
+// an on-hold lead is paused, so its value is reported separately via
+// sumOnHoldValue rather than folded into this total (owner's call,
+// 2026-08-20). This function has exactly one caller today (that tile), so
+// narrowing it here is deliberately scoped to that one figure — every stage
+// breakdown/drill-down that sums leads via dealValueFor() directly still
+// counts an on-hold lead as open pipeline, unchanged, per the Lead stage
+// taxonomy section's "still open, just paused" rule in CLAUDE.md.
 export function sumOpenPipelineValue(leads) {
-  return leads.filter(isOpenLead).reduce((s, l) => s + dealValueFor(l), 0)
+  return leads.filter((l) => isOpenLead(l) && !isOnHoldLead(l)).reduce((s, l) => s + dealValueFor(l), 0)
+}
+
+export function sumOnHoldValue(leads) {
+  return leads.filter(isOnHoldLead).reduce((s, l) => s + dealValueFor(l), 0)
 }
