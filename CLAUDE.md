@@ -1489,9 +1489,36 @@ columns don't crowd into illegible truncated labels:
   paused.
 
 Plus 4 deal stats (Deal value = `max(order_value,
-quote_value)`, Probability = `closure_probability` or a stage-keyed
-default table, Expected close = `estimated_close_date` rendering
+quote_value)`, Probability = `closure_probability` **and nothing else**,
+Expected close = `estimated_close_date` rendering
 `slipped` when past and open, Last touch).
+
+**Probability is never inferred from stage** (owner's ruling, 2026-08-19).
+There used to be a `STAGE_PROBABILITY_DEFAULTS` map in `LeadDetail.jsx`
+(from `design_handoff_detail_pages`' `DATA_CONTRACT.md` §4) filling an unset
+`closure_probability` in from the lead's current stage — `negotiation` read
+70%, `won` read 100%, `lost` read 0%. It's deleted. A guessed number
+rendered identically to one an exec actually typed, so a lead nobody had
+assessed showed a confident "70%" purely for sitting at negotiation, and
+there was no way to tell the two apart on screen. An unset probability now
+renders `—` in `TONE_NEUTRAL` with the sub-line `not set` — the same
+"blank means blank" rule `pipelineValue.js`'s `dealValueOrNull` already
+applies to an unquoted lead's value (see the Conventions bullet on
+`dealValueFor` vs `dealValueOrNull`). **This includes `won`**: a won lead
+with no probability on file shows `—`, not 100%. `SalesProgressSection`'s
+Probability field is the only thing that ever sets this column, and it
+already saved `null` for an empty box — only the *display* was inventing a
+value. The same "unset is not low" rule was applied to the forecast
+drill-down's per-lead rows (`buildForecastPanel` in `drilldownBuilders.js`),
+which already printed `—` but painted it the same red as a genuine sub-45%
+lead; it's `TONE_NEUTRAL` now, pinned by `drilldownBuilders.test.js`.
+**Deliberately NOT changed** — flagged for the owner rather than altered,
+since both move dashboard figures: the weighted-forecast totals
+(`Dashboard.jsx`'s `weightedForecast`, `buildForecastPanel`'s `weighted`)
+still treat a null probability as 0, i.e. an unassessed lead contributes
+nothing to the weighted number; and `buildForecastPanel`'s **"At risk"**
+summary tile still counts `(closure_probability ?? 0) < 40`, so
+unassessed leads are pooled in with genuinely at-risk ones there.
 
 Main column below that: **Quotes & orders** (at most 2 real rows — one
 from `quote_value`/`quote_sent_at` if `quote_sent`, one from `order_value`

@@ -27,24 +27,14 @@ import { attachFirms } from '../lib/partyQueries'
 // src/lib/sourceTypeOptions.js — so splitting or renaming a source can't leave
 // this page saying something different from the dashboard.
 
-// Stage-default probability when closure_probability hasn't been set
-// explicitly on the lead (DATA_CONTRACT.md §4) — adapted to this app's own
-// 11-value LEAD_STAGE_OPTIONS rather than the handoff's generic 6-stage set.
-// on_hold gets a low default (paused, not progressing) rather than
-// inheriting whatever stage preceded it.
-const STAGE_PROBABILITY_DEFAULTS = {
-  calling: 10,
-  presentation: 15,
-  joinery_follow_up: 20,
-  measurements: 25,
-  design_discussion: 35,
-  rfq: 45,
-  quote_submission: 55,
-  negotiation: 70,
-  on_hold: 15,
-  won: 100,
-  lost: 0,
-}
+// Probability is whatever the exec actually typed into Sales progress, or
+// nothing at all. There used to be a STAGE_PROBABILITY_DEFAULTS map here
+// (DATA_CONTRACT.md §4) filling an unset closure_probability in from the
+// lead's stage — removed at the owner's direction: a guessed number renders
+// identically to a real one, so a lead nobody has assessed read as "70%
+// likely" purely for sitting at negotiation. An unset probability now shows
+// —, the same way an unquoted lead shows — rather than ₹0 (see
+// pipelineValue.js's dealValueOrNull for the same rule on deal value).
 
 // The stepper's fixed backbone — the 8 real funnel stages, always shown in
 // this order. 'won'/'lost' are deliberately not part of this fixed list:
@@ -340,15 +330,22 @@ function LeadDetail() {
   const daysInPipeline = daysBetween(lead.created_at, Date.now())
 
   const dealValue = Math.max(Number(lead.order_value ?? 0), Number(lead.quote_value ?? 0))
-  const probability = lead.closure_probability ?? STAGE_PROBABILITY_DEFAULTS[stage] ?? 0
-  const probColor = probability >= 60 ? TONE_GOOD : probability >= 35 ? TONE_WARN : TONE_BAD
+  const probability = lead.closure_probability
+  const hasProbability = probability != null
+  const probColor = !hasProbability
+    ? TONE_NEUTRAL
+    : probability >= 60
+      ? TONE_GOOD
+      : probability >= 35
+        ? TONE_WARN
+        : TONE_BAD
   // Calendar comparison on a DATE column — see attention.js's note. A close
   // date of TODAY is not yet slipped; the old instant comparison said it was,
   // from 05:30 IST onwards.
   const closeSlipped = lead.estimated_close_date && isOpen && lead.estimated_close_date < todayISO()
   const dealStats = [
     { label: 'Deal value', value: formatCurrency(dealValue), sub: isWon ? 'booked' : 'quoted scope', color: 'var(--vip-ink)' },
-    { label: 'Probability', value: `${probability}%`, sub: isWon ? 'closed' : 'stage-weighted', color: probColor },
+    { label: 'Probability', value: hasProbability ? `${probability}%` : '—', sub: hasProbability ? (isWon ? 'closed' : 'set by owner') : 'not set', color: probColor },
     { label: 'Expected close', value: closeSlipped ? 'slipped' : shortDate(lead.estimated_close_date) ?? '—', sub: isWon ? 'order booked' : 'target date', color: closeSlipped ? TONE_BAD : 'var(--vip-ink)' },
     { label: 'Last touch', value: `${touchDays}d`, sub: `ago · by ${(lead.employees?.name ?? 'unassigned').split(' ')[0]}`, color: touchColor },
   ]

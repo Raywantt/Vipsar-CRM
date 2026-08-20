@@ -6,7 +6,9 @@ import {
   buildLossPanel,
   buildWinRatePanel,
   buildPipelinePanel,
+  buildForecastPanel,
 } from './drilldownBuilders'
+import { TONE_NEUTRAL } from './statusColors'
 
 const range = { start: new Date(2026, 7, 1), end: new Date(2026, 7, 31, 23, 59, 59) }
 
@@ -145,5 +147,33 @@ describe('buildPipelinePanel', () => {
     ]
     const panel = buildPipelinePanel({ breakdownLeads, funnelStageHistory: [] })
     expect(panel.stats.find((s) => s.label === 'Open value').sub).toBe('1 leads')
+  })
+})
+
+describe('buildForecastPanel', () => {
+  // An unset closure_probability is a lead nobody has assessed, not a lead
+  // judged unlikely. It renders as an em-dash, so the colour is the only
+  // thing left that could still assert a number the exec never typed.
+  const forecast = [
+    { id: 'L1', closure_probability: null, quote_value: 100000, current_stage: 'negotiation' },
+    { id: 'L2', closure_probability: 20, quote_value: 100000, current_stage: 'negotiation' },
+    { id: 'L3', closure_probability: 80, quote_value: 100000, current_stage: 'negotiation' },
+  ]
+
+  it('renders an unset probability as an em-dash in a neutral tone, not red', () => {
+    const [unset] = buildForecastPanel({ forecast }).fcRows
+    expect(unset.prob).toBe('—')
+    expect(unset.probColor).toBe(TONE_NEUTRAL)
+  })
+
+  it('still colours a genuinely low probability red', () => {
+    const low = buildForecastPanel({ forecast }).fcRows[1]
+    expect(low.prob).toBe('20%')
+    expect(low.probColor).toBe('#b4232a')
+  })
+
+  it('still colours a high probability green', () => {
+    const high = buildForecastPanel({ forecast }).fcRows[2]
+    expect(high.probColor).toBe('#1f6f4a')
   })
 })

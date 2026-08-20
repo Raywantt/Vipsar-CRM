@@ -8,7 +8,7 @@ import { ACTIVITY_TYPES, ACTIVITY_LABELS } from './activityTypes'
 import { ACTIVITY_METRIC_OPTIONS } from './targetMetrics'
 import { LEAD_STAGE_OPTIONS, stageLabel } from './leadStageOptions'
 import { LOSS_REASON_OPTIONS } from './lossReasonOptions'
-import { stageChipClass, stageFg } from './statusColors'
+import { stageChipClass, stageFg, TONE_NEUTRAL } from './statusColors'
 import { formatCurrencyCompact, formatTimeRange } from './format'
 import { parseTimestamp } from './dbTime'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
@@ -521,7 +521,17 @@ export function buildForecastPanel({ forecast, scopeLabel = 'Company' }) {
       sub: stageLabel(l.current_stage ?? 'calling'),
       owner: l.employees?.name ?? 'Unassigned',
       prob: l.closure_probability != null ? `${l.closure_probability}%` : '—',
-      probColor: (l.closure_probability ?? 0) >= 70 ? '#1f6f4a' : (l.closure_probability ?? 0) >= 45 ? '#7a6413' : '#b4232a',
+      // An unset probability renders as an em-dash — paint it neutral, not
+      // the red the old `?? 0` gave it. "Nobody has assessed this lead" is
+      // not the same claim as "this lead is unlikely to close".
+      probColor:
+        l.closure_probability == null
+          ? TONE_NEUTRAL
+          : l.closure_probability >= 70
+            ? '#1f6f4a'
+            : l.closure_probability >= 45
+              ? '#7a6413'
+              : '#b4232a',
       value: formatCurrencyCompact(l.quote_value),
       close: l.estimated_close_date ? new Date(l.estimated_close_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—',
     })),
