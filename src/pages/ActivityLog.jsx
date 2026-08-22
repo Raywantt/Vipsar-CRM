@@ -10,7 +10,7 @@ import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLocationOptions'
 import { formatTimeRange } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
-import { createFollowUp, fetchFollowUpsForLead, markFollowUpDone, FOLLOW_UP_OPEN } from '../lib/followUpQueries'
+import { createFollowUp } from '../lib/followUpQueries'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
@@ -87,10 +87,6 @@ function ActivityLog() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const [result, setResult] = useState(null)
-  // Which of the offered reminders (Rule 4.5) the rep actually closed on this
-  // success card — local to the card, cleared by resetForm.
-  const [closedFollowUpIds, setClosedFollowUpIds] = useState(new Set())
-  const [closeFollowUpError, setCloseFollowUpError] = useState(null)
 
   useEffect(() => {
     supabase
@@ -261,19 +257,8 @@ function ActivityLog() {
     setFollowupNote('')
   }
 
-  // Rule 4.2 — passes the activity that was just logged, so the follow-up
-  // records WHAT closed it rather than only that someone said it was done.
-  async function handleCloseFollowUp(followUpId) {
-    const { error } = await markFollowUpDone(followUpId, result?.activity?.id ?? null)
-    if (error) { setCloseFollowUpError(errorMessage(error)); return }
-    setCloseFollowUpError(null)
-    setClosedFollowUpIds((prev) => new Set(prev).add(followUpId))
-  }
-
   function resetForm() {
     setActivityType(null)
-    setClosedFollowUpIds(new Set())
-    setCloseFollowUpError(null)
     setSelectedLead(preselectedLead)
     setSelectedArchitect(null)
     setFirmParty(null)
@@ -433,10 +418,10 @@ function ActivityLog() {
       }
     }
 
-    // Rule 4.6 — a lead-anchored "Next follow-up" now creates a REAL reminder
-    // rather than the bare date stamp it used to write onto the lead. Same
-    // table, same helper, same push pipeline as every other reminder in the
-    // app: one mechanism, not two that look identical and behave oppositely.
+    // A lead-anchored "Next follow-up" creates a real reminder — same table,
+    // same helper, same push pipeline as every other reminder in the app.
+    // Its own due date is what drives the push notification later; nothing
+    // here needs to react to it beyond saving it.
     //
     // Guarded on `needsAnchor` as well as `selectedLead` for the same reason
     // rfq_raised and order_value are type-guarded above: selectActivityType
@@ -459,19 +444,8 @@ function ActivityLog() {
       }
     }
 
-    // Rule 4.5 — logging an activity OFFERS to close open follow-ups on this
-    // lead. Deliberately an offer, not an auto-close: a rep may log a call and
-    // still owe the site visit they were reminded about. The offer is rendered
-    // on the success card; `completed_by_activity_id` is stamped when they
-    // accept, which is what makes "did they actually do it?" answerable.
-    let openOnLead = []
-    if (selectedLead) {
-      const { data: leadFollowUps } = await fetchFollowUpsForLead(selectedLead.id)
-      openOnLead = (leadFollowUps ?? []).filter((f) => f.status === FOLLOW_UP_OPEN)
-    }
-
     setSubmitting(false)
-    setResult({ activity, warnings, openFollowUps: openOnLead })
+    setResult({ activity, warnings })
   }
 
   if (result) {
@@ -531,38 +505,6 @@ function ActivityLog() {
             {w}
           </p>
         ))}
-
-        {/* Rule 4.5 — an OFFER, never a silent auto-close. A rep may log a
-            call and still owe the site visit they were reminded about, so
-            each open reminder on this lead is closed individually and only
-            if they say so. Accepting stamps completed_by_activity_id with the
-            activity just logged, which is what turns "done" from unverifiable
-            self-report into something the Day Review can stand behind. */}
-        {result.openFollowUps?.length > 0 && (
-          <div className="vip-section-split">
-            <div className="vip-card-title">Close a reminder with this?</div>
-            {result.openFollowUps.map((f) => (
-              <div key={f.id} className="vip-fu-close-offer">
-                <span className="vip-fu-close-offer-main">
-                  <span className="vip-fu-title">{f.title}</span>
-                  {f.notes && <span className="vip-fu-meta">{f.notes}</span>}
-                </span>
-                {closedFollowUpIds.has(f.id) ? (
-                  <span className="vip-fu-close-done">Closed</span>
-                ) : (
-                  <button
-                    type="button"
-                    className="vip-btn vip-btn-sm"
-                    onClick={() => handleCloseFollowUp(f.id)}
-                  >
-                    Mark done
-                  </button>
-                )}
-              </div>
-            ))}
-            {closeFollowUpError && <p className="vip-error" role="alert">{closeFollowUpError}</p>}
-          </div>
-        )}
 
         <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={resetForm}>
           Log another activity

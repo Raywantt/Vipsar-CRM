@@ -135,9 +135,36 @@ the follow-up with no activity attached.
 > done-without) in the oversight view so the owner can see if it's being abused.
 > Revisit after the pilot.
 
-**RULE 4.5 — Logging an activity offers to close open follow-ups on that lead.**
-The reverse direction. Offer, not silent auto-close — a rep may log a call and still
-owe the site visit they were reminded about.
+**RULE 4.5 — REVERSED 2026-08-22, at the owner's direction. Do not rebuild this.**
+This rule was implemented (Log Activity's success card listed every open reminder
+on the lead just logged against, each with its own "Mark done" button) and then
+removed. Two problems surfaced in real use:
+
+1. **A reminder created by the same save could be offered back for closing.**
+   Rule 4.6's "Next follow-up" box creates a real reminder *before* this rule's own
+   fetch of "open reminders on this lead" ran, with nothing excluding the row just
+   inserted — so setting a *future* follow-up date and logging an activity in one
+   go surfaced that brand-new reminder asking to be marked done, before its due
+   date had even arrived. Confusing on its own terms: the exec was being asked to
+   close something they had just scheduled for later.
+2. **The feature added a decision on a screen that didn't need one.** Every
+   reminder already carries its own due date and already gets its own push
+   notification on that date (the existing `send-followup-reminders` cron job —
+   unaffected by this reversal), and already has a "Mark done" button on Home's
+   "Still to do today" list and on the Sales Exec Profile. Asking again,
+   mid-activity-log, for a lead that might carry several old reminders, was one
+   more judgment call layered onto the highest-traffic screen in the app, for a
+   need the Home screen already covered.
+
+Log Activity's success card no longer fetches or lists a lead's open reminders at
+all — see `src/pages/ActivityLog.jsx`'s `handleSubmit`/success-card render, which
+now stops at `warnings` after Rule 4.6's `createFollowUp` call. `completed_by_activity_id`
+(Rule 4.2) is real and still gets stamped whenever *any* path calls
+`markFollowUpDone(id, activityId)` with an activity id — it was never exclusive to
+this rule — but nothing in the app currently passes one; every existing "Mark done"
+button (Home, Sales Exec Profile) calls `markFollowUpDone(id)` with no activity
+attached. If Rule 4.2's "close is provably backed by a real activity" goal is
+revisited, it needs a different entry point than this one.
 
 **RULE 4.6 — Log Activity's own "Next follow-up" field creates a real reminder.**
 It asks a date plus an optional note; the title is generated from the activity

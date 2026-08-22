@@ -2310,17 +2310,6 @@ a.vip-day-log-party:hover { text-decoration: underline; }
   .vip-fu-history-toggle { margin-left: 0; }
 }
 
-/* The "close a reminder with this?" offer on Log Activity's success card
-   (FOLLOWUPS.md Rule 4.5). Reuses .vip-fu-title/.vip-fu-meta from above so
-   a reminder reads the same here as it does in a list. */
-.vip-fu-close-offer {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 9px 0; border-bottom: 1px solid var(--vip-line-soft);
-}
-.vip-fu-close-offer:last-of-type { border-bottom: 0; }
-.vip-fu-close-offer-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.vip-fu-close-done { font-size: 12px; font-weight: 600; color: var(--vip-won); white-space: nowrap; }
-
 /* Followups category (Dashboard ?tab=followups) — the per-exec counts table
    and the bucket switcher. Column widths match .vip-fu-exec-head to its rows
    from one place so the header can't drift from the data, the same fix
