@@ -1863,6 +1863,17 @@ redesign section) so the owner can reach it on a phone too.
 
 ### Follow-ups (personal + owner-assigned reminders, with real push notifications)
 
+> ⚠️ **This section is SUPERSEDED by `FOLLOWUPS.md` (repo root, 2026-08-21).**
+> Read that file before touching anything that creates, shows, completes or counts
+> a reminder — it holds the agreed rules, the audited state of the current code,
+> and the build plan. Three parallel audits found the feature is materially
+> different from what this section describes: **six different create-flows exist
+> and three create no reminder at all**; 78% of leads carrying a
+> `next_followup_date` have no `follow_ups` row (measured live); rescheduling a
+> notified reminder permanently kills its push; and at least four specific claims
+> below are false (see `FOLLOWUPS.md` §6.8). The text below is kept as the record
+> of what was *intended*, not as a description of what is.
+
 New `follow_ups` table (self-service reminders, not tied to logging an
 activity — see Conventions for its RLS shape) plus `push_subscriptions`
 (one row per subscribed browser/device). Fills the gap the "Current state"

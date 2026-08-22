@@ -135,9 +135,9 @@ describe('buildDayRows', () => {
   describe('the pending vs missed rule', () => {
     const data = emptyData({
       followUps: [
-        { id: 1, assigned_to: 1, is_done: true, done_at: '2026-08-10T04:34:00', title: 'a' },
-        { id: 2, assigned_to: 1, is_done: false, title: 'b' },
-        { id: 3, assigned_to: 1, is_done: false, title: 'c' },
+        { id: 1, assigned_to: 1, status: 'done', done_at: '2026-08-10T04:34:00', title: 'a' },
+        { id: 2, assigned_to: 1, status: 'open', title: 'b' },
+        { id: 3, assigned_to: 1, status: 'open', title: 'c' },
       ],
     })
 
@@ -206,8 +206,8 @@ describe('buildDayKpis', () => {
   it('says "still open" today and "were due" for a past day', () => {
     const withFollowUps = emptyData({
       followUps: [
-        { id: 1, assigned_to: 1, is_done: true, title: 'a' },
-        { id: 2, assigned_to: 1, is_done: false, title: 'b' },
+        { id: 1, assigned_to: 1, status: 'done', title: 'a' },
+        { id: 2, assigned_to: 1, status: 'open', title: 'b' },
       ],
     })
     const live = buildDayKpis(withFollowUps, buildDayRows(EMPLOYEES, withFollowUps, false), false).find((k) => k.key === 'followups')
@@ -279,8 +279,8 @@ describe('buildDaySheetPanel', () => {
   it('splits missed from completed only for a past day', () => {
     const data = emptyData({
       followUps: [
-        { id: 1, assigned_to: 1, is_done: true, done_at: '2026-08-10T04:34:00', title: 'a', leads: lead(10, 'Gill Infra') },
-        { id: 2, assigned_to: 1, is_done: false, title: 'b', leads: lead(11, 'Sandhu Steels') },
+        { id: 1, assigned_to: 1, status: 'done', done_at: '2026-08-10T04:34:00', title: 'a', leads: lead(10, 'Gill Infra') },
+        { id: 2, assigned_to: 1, status: 'open', title: 'b', leads: lead(11, 'Sandhu Steels') },
       ],
     })
     const past = buildDaySheetPanel({ ...base, data })

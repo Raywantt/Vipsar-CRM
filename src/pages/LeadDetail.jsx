@@ -11,7 +11,7 @@ import LeadQuickActions from '../components/LeadQuickActions'
 import LeadActivityTimeline from '../components/LeadActivityTimeline'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchLeadOwnerHistory } from '../lib/leadOwnerHistory'
-import { fetchLatestFollowUpForLead } from '../lib/followUpQueries'
+import { fetchFollowUpsForLead, FOLLOW_UP_OPEN } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { stageFg, TONE_GOOD, TONE_WARN, TONE_BAD, TONE_MID, TONE_GOOD_SOFT, TONE_WARN_SOFT, TONE_BAD_SOFT, TONE_NEUTRAL, TONE_NEUTRAL_SOFT } from '../lib/statusColors'
@@ -72,7 +72,7 @@ function LeadDetail() {
   const [stageHistory, setStageHistory] = useState([])
   const [activities, setActivities] = useState([])
   const [ownerHistory, setOwnerHistory] = useState([])
-  const [onHoldFollowUp, setOnHoldFollowUp] = useState(null)
+  const [leadFollowUps, setLeadFollowUps] = useState([])
   const [activeSalesExecs, setActiveSalesExecs] = useState([])
   const [areas, setAreas] = useState([])
   const [products, setProducts] = useState([])
@@ -125,7 +125,7 @@ function LeadDetail() {
         activeExecsResult,
         areasResult,
         productsResult,
-        onHoldFollowUpResult,
+        followUpsResult,
       ] = await Promise.all([
         leadRow.party_id
           ? supabase.from('parties').select('*').eq('id', leadRow.party_id).single()
@@ -165,7 +165,12 @@ function LeadDetail() {
         fetchActiveSalesExecs(),
         supabase.from('areas').select('id, area_name, city').order('area_name'),
         supabase.from('products').select('id, name, category').order('name'),
-        leadRow.current_stage === 'on_hold' ? fetchLatestFollowUpForLead(leadRow.id) : Promise.resolve(EMPTY),
+        // Every follow-up on this lead, any status — not just the on-hold one,
+        // and no longer filtered to not-done. A lead may carry several open
+        // reminders now (FOLLOWUPS.md Rule 3.1), and the old not-done filter
+        // is why completing the on-hold reminder used to erase the lead's
+        // hold reason from this screen.
+        fetchFollowUpsForLead(leadRow.id),
       ])
 
       if (!active) return
@@ -219,7 +224,7 @@ function LeadDetail() {
       setActiveSalesExecs(activeExecsResult.data ?? [])
       setAreas(areasResult.data ?? [])
       setProducts(productsResult.data ?? [])
-      setOnHoldFollowUp(onHoldFollowUpResult.data ?? null)
+      setLeadFollowUps(followUpsResult.data ?? [])
       const mostRecent = [...(stageHistoryResult.data ?? []).map((h) => h.changed_at), ...(activitiesResult.data ?? []).map((a) => a.created_at)].sort().pop()
       setLastActivityAt(mostRecent ?? leadRow.created_at)
       setLoading(false)
@@ -279,6 +284,26 @@ function LeadDetail() {
   const stage = lead.current_stage ?? 'calling'
   const isWon = stage === 'won'
   const isOnHold = stage === 'on_hold'
+
+  // FOLLOWUPS.md Rule 8.1 — the "hold review" is the reminder that holds this
+  // lead paused, and the one that drives the "resumes …" line above. A lead
+  // can carry several open reminders now (Rule 3.1), so it has to be picked
+  // out rather than assumed to be the only one.
+  //
+  // Identified as: the earliest-due OPEN follow-up created by the On Hold
+  // flow. That flow is the only writer that pairs activity_type 'other' with
+  // a title starting "On hold", so both are checked — the title alone would
+  // match a reminder a rep happened to name that way, and activity_type
+  // 'other' alone also covers Architect Meeting reminders.
+  const holdReview = isOnHold
+    ? leadFollowUps.find((f) => f.status === FOLLOW_UP_OPEN && f.activity_type === 'other' && f.title?.startsWith('On hold')) ?? null
+    : null
+
+  // Rule 8.4 — the reason belongs to the lead, not to a reminder. Reading the
+  // column first means completing the hold reminder no longer erases the
+  // record of why the lead was paused. The reminder's notes stay as a
+  // fallback for leads paused before migration_followups_rebuild.sql ran.
+  const holdReason = lead?.on_hold_reason ?? holdReview?.notes ?? null
   const isOpen = !['won', 'lost'].includes(stage)
   const touchDays = daysBetween(lastActivityAt, Date.now())
   // Thresholds come from attention.js so this page can't drift from the
@@ -527,22 +552,27 @@ function LeadDetail() {
   function handleStageChanged(updatedLead, historyRow) {
     setLead((prev) => ({ ...prev, ...updatedLead }))
     if (historyRow) setStageHistory((prev) => [...prev, historyRow])
-    if (updatedLead.current_stage === 'on_hold') {
-      fetchLatestFollowUpForLead(updatedLead.id).then(({ data }) => setOnHoldFollowUp(data ?? null))
-    } else {
-      setOnHoldFollowUp(null)
-    }
+    fetchFollowUpsForLead(updatedLead.id).then(({ data }) => setLeadFollowUps(data ?? []))
   }
 
-  // Set follow-up now creates a real follow_ups row (FollowUpForm, the same
-  // flow Home's "Add reminder" uses) rather than only stamping the lead's own
-  // next_followup_date — so this receives the follow-up row, not a lead row.
-  // FollowUpForm has already written next_followup_date on the lead itself;
-  // mirroring it into local state here keeps the Deal-progress "resumes"
-  // line and the deal stats in step without a refetch.
+  // Set follow-up creates a real follow_ups row (FollowUpForm, the same flow
+  // Home's "Add reminder" uses), so this receives the follow-up, not a lead.
+  //
+  // The lead's own next_followup_date is DERIVED by a database trigger now
+  // (FOLLOWUPS.md Rule 1.2) — the earliest due date among its open follow-ups.
+  // This mirrors that rule locally rather than assuming the new reminder is
+  // the soonest one: a lead can carry several at once (Rule 3.1), so blindly
+  // taking the newly-saved date would make this screen disagree with the
+  // database whenever an earlier reminder already existed.
   function handleFollowUpSaved(followUp) {
-    setLead((prev) => ({ ...prev, next_followup_date: followUp.due_date }))
-    if (lead?.current_stage === 'on_hold') setOnHoldFollowUp(followUp)
+    setLeadFollowUps((prev) => [...prev, followUp])
+    setLead((prev) => {
+      const earliest = [...leadFollowUps, followUp]
+        .filter((f) => f.status === FOLLOW_UP_OPEN)
+        .map((f) => f.due_date)
+        .sort()[0] ?? null
+      return { ...prev, next_followup_date: earliest }
+    })
   }
 
   // ONE props object, spread into BOTH LeadQuickActions mounts (the desktop
@@ -627,9 +657,9 @@ function LeadDetail() {
                 : `stage ${currentIdx + 1} of ${displayStages.length} · ${daysInPipeline}d in pipeline`}
           </span>
         </div>
-        {isOnHold && onHoldFollowUp?.notes && (
+        {isOnHold && holdReason && (
           <p className="vip-empty vip-flush">
-            On hold — {onHoldFollowUp.notes}
+            On hold — {holdReason}
           </p>
         )}
         <div className="vip-stepper">

@@ -10,7 +10,7 @@ import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLocationOptions'
 import { formatTimeRange } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
-import { createFollowUp } from '../lib/followUpQueries'
+import { createFollowUp, fetchFollowUpsForLead, markFollowUpDone, FOLLOW_UP_OPEN } from '../lib/followUpQueries'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
@@ -72,6 +72,10 @@ function ActivityLog() {
   const [meetingLocation, setMeetingLocation] = useState('')
   const [orderValue, setOrderValue] = useState('')
   const [nextFollowupDate, setNextFollowupDate] = useState('')
+  // Rule 4.6 — the optional note that turns a bare date into a reminder that
+  // actually says what to do. Its absence on every other reminder surface is
+  // why notes were unreadable app-wide (FOLLOWUPS.md §6.5).
+  const [followupNote, setFollowupNote] = useState('')
   // Site Visit's "change site stage" field — same preset+other shape
   // SiteDetailsSection already uses, synced to whichever lead/site is
   // currently selected by the effect below.
@@ -83,6 +87,10 @@ function ActivityLog() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const [result, setResult] = useState(null)
+  // Which of the offered reminders (Rule 4.5) the rep actually closed on this
+  // success card — local to the card, cleared by resetForm.
+  const [closedFollowUpIds, setClosedFollowUpIds] = useState(new Set())
+  const [closeFollowUpError, setCloseFollowUpError] = useState(null)
 
   useEffect(() => {
     supabase
@@ -229,10 +237,43 @@ function ActivityLog() {
     if (value !== 'client_meeting') {
       setMeetingLocation('')
     }
+    // The same rule, finally applied to the follow-up fields and the lead.
+    // It wasn't, and that was a real reachable bug: a date typed under Site
+    // Visit survived a switch to Office Day or Architect Meeting — both of
+    // which hide the lead picker AND the date field — and was then written
+    // against a lead the form was no longer showing. Arriving from Lead
+    // Detail's "Log activity" link (?lead=) made it reachable with zero
+    // switching, since the lead is preselected on mount.
+    //
+    // `needsAnchor` is recomputed from `value`, not read from the render-scope
+    // constant, which still holds the OUTGOING type at this point.
+    const nextNeedsAnchor = value && value !== 'office_day' && value !== 'architect_meeting'
+    if (!nextNeedsAnchor) {
+      setSelectedLead(null)
+      setChangingLead(false)
+    } else if (preselectedLead) {
+      // Coming back to a lead-anchored type restores the lead this screen was
+      // opened with, rather than making a rep who arrived from Lead Detail
+      // find it again — same reasoning resetForm already uses.
+      setSelectedLead(preselectedLead)
+    }
+    setNextFollowupDate('')
+    setFollowupNote('')
+  }
+
+  // Rule 4.2 — passes the activity that was just logged, so the follow-up
+  // records WHAT closed it rather than only that someone said it was done.
+  async function handleCloseFollowUp(followUpId) {
+    const { error } = await markFollowUpDone(followUpId, result?.activity?.id ?? null)
+    if (error) { setCloseFollowUpError(errorMessage(error)); return }
+    setCloseFollowUpError(null)
+    setClosedFollowUpIds((prev) => new Set(prev).add(followUpId))
   }
 
   function resetForm() {
     setActivityType(null)
+    setClosedFollowUpIds(new Set())
+    setCloseFollowUpError(null)
     setSelectedLead(preselectedLead)
     setSelectedArchitect(null)
     setFirmParty(null)
@@ -245,6 +286,7 @@ function ActivityLog() {
     setMeetingLocation('')
     setOrderValue('')
     setNextFollowupDate('')
+    setFollowupNote('')
     setSubmitError(null)
     setResult(null)
   }
@@ -316,9 +358,16 @@ function ActivityLog() {
       if (activityType === 'booking_update' && orderValue !== '') {
         leadUpdates.order_value = Number(orderValue)
       }
-      if (nextFollowupDate) {
-        leadUpdates.next_followup_date = nextFollowupDate
-      }
+      // next_followup_date is NOT written here anymore. It used to be — a bare
+      // date stamp with no title, no notes, no push and no row in follow_ups,
+      // which made it invisible in every reminder list while still rendering
+      // on Lead Detail as though a follow-up were scheduled. This was the
+      // single biggest source of the measured 78% orphan rate (21 of 27 leads
+      // showing a follow-up date had no reminder behind them).
+      //
+      // The field now creates a REAL follow-up below (FOLLOWUPS.md Rule 4.6),
+      // and the lead's own column is derived from it by a database trigger
+      // (Rule 1.2). Writing it by hand here would recreate the orphan.
 
       if (Object.keys(leadUpdates).length > 0) {
         const { error: leadUpdateError } = await supabase
@@ -375,7 +424,7 @@ function ActivityLog() {
         partyId: resolvedArchitect.id,
         activityType: 'other',
         title: `Follow up with ${resolvedArchitect.name}`,
-        notes: notes.trim() || null,
+        notes: followupNote.trim() || notes.trim() || null,
         dueDate: nextFollowupDate,
       })
 
@@ -384,8 +433,45 @@ function ActivityLog() {
       }
     }
 
+    // Rule 4.6 — a lead-anchored "Next follow-up" now creates a REAL reminder
+    // rather than the bare date stamp it used to write onto the lead. Same
+    // table, same helper, same push pipeline as every other reminder in the
+    // app: one mechanism, not two that look identical and behave oppositely.
+    //
+    // Guarded on `needsAnchor` as well as `selectedLead` for the same reason
+    // rfq_raised and order_value are type-guarded above: selectActivityType
+    // clears these fields on a type change, but the guard is what makes it
+    // impossible for a date to be written by a form that never showed it.
+    if (needsAnchor && selectedLead && nextFollowupDate) {
+      const { error: followUpError } = await createFollowUp({
+        assignedTo: actingForId,
+        createdBy: employee?.id,
+        partyId: selectedLead.party_id ?? null,
+        leadId: selectedLead.id,
+        activityType,
+        title: `Follow up after ${ACTIVITY_LABELS[activityType] ?? 'activity'}`,
+        notes: followupNote.trim() || null,
+        dueDate: nextFollowupDate,
+      })
+
+      if (followUpError) {
+        warnings.push(`Activity logged, but the follow-up reminder wasn't saved: ${errorMessage(followUpError)}`)
+      }
+    }
+
+    // Rule 4.5 — logging an activity OFFERS to close open follow-ups on this
+    // lead. Deliberately an offer, not an auto-close: a rep may log a call and
+    // still owe the site visit they were reminded about. The offer is rendered
+    // on the success card; `completed_by_activity_id` is stamped when they
+    // accept, which is what makes "did they actually do it?" answerable.
+    let openOnLead = []
+    if (selectedLead) {
+      const { data: leadFollowUps } = await fetchFollowUpsForLead(selectedLead.id)
+      openOnLead = (leadFollowUps ?? []).filter((f) => f.status === FOLLOW_UP_OPEN)
+    }
+
     setSubmitting(false)
-    setResult({ activity, warnings })
+    setResult({ activity, warnings, openFollowUps: openOnLead })
   }
 
   if (result) {
@@ -445,6 +531,39 @@ function ActivityLog() {
             {w}
           </p>
         ))}
+
+        {/* Rule 4.5 — an OFFER, never a silent auto-close. A rep may log a
+            call and still owe the site visit they were reminded about, so
+            each open reminder on this lead is closed individually and only
+            if they say so. Accepting stamps completed_by_activity_id with the
+            activity just logged, which is what turns "done" from unverifiable
+            self-report into something the Day Review can stand behind. */}
+        {result.openFollowUps?.length > 0 && (
+          <div className="vip-section-split">
+            <div className="vip-card-title">Close a reminder with this?</div>
+            {result.openFollowUps.map((f) => (
+              <div key={f.id} className="vip-fu-close-offer">
+                <span className="vip-fu-close-offer-main">
+                  <span className="vip-fu-title">{f.title}</span>
+                  {f.notes && <span className="vip-fu-meta">{f.notes}</span>}
+                </span>
+                {closedFollowUpIds.has(f.id) ? (
+                  <span className="vip-fu-close-done">Closed</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="vip-btn vip-btn-sm"
+                    onClick={() => handleCloseFollowUp(f.id)}
+                  >
+                    Mark done
+                  </button>
+                )}
+              </div>
+            ))}
+            {closeFollowUpError && <p className="vip-error" role="alert">{closeFollowUpError}</p>}
+          </div>
+        )}
+
         <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={resetForm}>
           Log another activity
         </button>
@@ -594,15 +713,29 @@ function ActivityLog() {
           )}
 
           {selectedLead && (
-            <label className="vip-field">
-              Next follow-up <span className="vip-field-hint">optional</span>
-              <input
-                className="vip-input"
-                type="date"
-                value={nextFollowupDate}
-                onChange={(e) => setNextFollowupDate(e.target.value)}
-              />
-            </label>
+            <>
+              <label className="vip-field">
+                Next follow-up <span className="vip-field-hint">optional</span>
+                <input
+                  className="vip-input"
+                  type="date"
+                  value={nextFollowupDate}
+                  onChange={(e) => setNextFollowupDate(e.target.value)}
+                />
+              </label>
+              {nextFollowupDate && (
+                <label className="vip-field">
+                  What's the follow-up for? <span className="vip-field-hint">optional</span>
+                  <input
+                    className="vip-input"
+                    type="text"
+                    value={followupNote}
+                    onChange={(e) => setFollowupNote(e.target.value)}
+                    placeholder="Chase the revised quote, client wants laminated glass"
+                  />
+                </label>
+              )}
+            </>
           )}
 
           <label className="vip-field">
@@ -692,6 +825,19 @@ function ActivityLog() {
             />
           </label>
 
+          {nextFollowupDate && (
+                <label className="vip-field">
+                  What's the follow-up for? <span className="vip-field-hint">optional</span>
+                  <input
+                    className="vip-input"
+                    type="text"
+                    value={followupNote}
+                    onChange={(e) => setFollowupNote(e.target.value)}
+                    placeholder="Chase the revised quote, client wants laminated glass"
+                  />
+                </label>
+              )}
+
           <label className="vip-field">
             Notes
             <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Short note" />
@@ -750,6 +896,18 @@ function ActivityLog() {
                   onChange={(e) => setNextFollowupDate(e.target.value)}
                 />
               </label>
+              {nextFollowupDate && (
+                <label className="vip-field">
+                  What's the follow-up for? <span className="vip-field-hint">optional</span>
+                  <input
+                    className="vip-input"
+                    type="text"
+                    value={followupNote}
+                    onChange={(e) => setFollowupNote(e.target.value)}
+                    placeholder="Chase the revised quote, client wants laminated glass"
+                  />
+                </label>
+              )}
             </>
           )}
 

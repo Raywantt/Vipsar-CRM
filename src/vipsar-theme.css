@@ -2205,3 +2205,153 @@ a.vip-day-log-party:hover { text-decoration: underline; }
 }
 .vip-numpad-key:active { background: var(--vip-track); }
 .vip-numpad-key-muted { color: var(--vip-muted); font-family: var(--vip-sans); font-size: 18px; }
+
+/* ---------- 24. Follow-ups (FOLLOWUPS.md)
+   The expandable reminder row. Every colour comes from an existing token, so
+   section 22's dark-mode block repaints all of this for free — nothing here
+   needs a dark variant of its own.
+
+   Deliberately NOT reusing .vip-row-sub for the note preview: that class is
+   shared with Search results, Closure forecast and other list cards, and its
+   `white-space: nowrap` is exactly what made a reminder's notes unreadable
+   (FOLLOWUPS.md §6.5). Relaxing it there would change truncation app-wide. */
+
+.vip-fu-list { display: flex; flex-direction: column; gap: 8px; }
+
+.vip-fu-row {
+  border: 1px solid var(--vip-line-soft); border-radius: var(--vip-r-field);
+  background: var(--vip-surface); overflow: hidden;
+}
+.vip-fu-row-open { border-color: var(--vip-line); }
+
+.vip-fu-head {
+  width: 100%; display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 13px; background: none; border: 0; text-align: left;
+  font-family: inherit; cursor: pointer;
+}
+.vip-fu-head:hover { background: var(--vip-surface-soft); }
+.vip-fu-head-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.vip-fu-head-side { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+
+.vip-fu-title { font-size: 14px; font-weight: 600; color: var(--vip-ink); line-height: 1.3; }
+.vip-fu-title-closed { color: var(--vip-muted); }
+.vip-fu-meta { font-size: 12px; color: var(--vip-faint); }
+
+/* One clipped line when collapsed — the caret is the "there's more" cue. */
+.vip-fu-note-preview {
+  font-size: 12px; color: var(--vip-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.vip-fu-due { font-size: 13px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
+.vip-fu-duetime { font-size: 11px; color: var(--vip-faint); }
+
+.vip-fu-caret {
+  flex: 0 0 auto; font-size: 17px; color: var(--vip-faint); line-height: 1;
+  transition: transform .12s ease; align-self: center;
+}
+.vip-fu-caret-open { transform: rotate(90deg); }
+
+.vip-fu-chip {
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: var(--vip-r-pill); white-space: nowrap;
+}
+.vip-fu-chip-open      { background: var(--vip-status-neutral-soft); color: var(--vip-status-neutral); }
+.vip-fu-chip-today     { background: var(--vip-status-warn-soft);    color: var(--vip-status-warn); }
+.vip-fu-chip-missed    { background: var(--vip-status-bad-soft);     color: var(--vip-lost); }
+.vip-fu-chip-done      { background: var(--vip-status-good-soft);    color: var(--vip-won); }
+/* Rule 2.2 — cancelled must never read as completed. Neutral, not green. */
+.vip-fu-chip-cancelled { background: var(--vip-track);               color: var(--vip-muted); }
+
+.vip-fu-body {
+  padding: 0 13px 12px; display: flex; flex-direction: column; gap: 10px;
+  border-top: 1px solid var(--vip-line-soft);
+}
+.vip-fu-body > :first-child { margin-top: 10px; }
+
+/* The whole reason this component was rebuilt: full text, wrapped, no clip. */
+.vip-fu-notes {
+  margin: 0; font-size: 13px; line-height: 1.5; color: var(--vip-ink);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.vip-fu-notes-empty { color: var(--vip-faint); font-style: italic; }
+
+.vip-fu-warn {
+  margin: 0; font-size: 12px; line-height: 1.45; color: var(--vip-status-warn);
+  background: var(--vip-status-warn-soft); padding: 7px 9px; border-radius: var(--vip-r-control);
+}
+
+.vip-fu-facts { margin: 0; display: flex; flex-direction: column; gap: 5px; }
+.vip-fu-facts > div { display: flex; gap: 8px; font-size: 12px; }
+.vip-fu-facts dt {
+  flex: 0 0 84px; color: var(--vip-faint);
+  text-transform: uppercase; letter-spacing: .05em; font-size: 10px; padding-top: 1px;
+}
+.vip-fu-facts dd { margin: 0; color: var(--vip-ink); min-width: 0; overflow-wrap: anywhere; }
+
+.vip-fu-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vip-fu-action-primary { padding: 7px 13px; font-size: 13px; }
+.vip-fu-locked-note { font-size: 11px; color: var(--vip-faint); }
+.vip-fu-history-toggle { margin-left: auto; }
+
+.vip-fu-cancel-panel .vip-input-inline { flex: 1; min-width: 150px; }
+
+.vip-fu-history { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.vip-fu-history li { font-size: 11px; color: var(--vip-muted); font-family: var(--vip-mono); }
+.vip-fu-hist-field { color: var(--vip-ink); font-weight: 600; }
+.vip-fu-hist-who { color: var(--vip-faint); }
+.vip-fu-hist-empty { margin: 0; font-size: 11px; color: var(--vip-faint); }
+
+@media (max-width: 1023.98px) {
+  /* A phone can't spare 84px of label gutter next to a wrapped value. */
+  .vip-fu-facts > div { flex-direction: column; gap: 1px; }
+  .vip-fu-facts dt { flex: none; }
+  .vip-fu-actions { gap: 10px; }
+  .vip-fu-history-toggle { margin-left: 0; }
+}
+
+/* The "close a reminder with this?" offer on Log Activity's success card
+   (FOLLOWUPS.md Rule 4.5). Reuses .vip-fu-title/.vip-fu-meta from above so
+   a reminder reads the same here as it does in a list. */
+.vip-fu-close-offer {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 0; border-bottom: 1px solid var(--vip-line-soft);
+}
+.vip-fu-close-offer:last-of-type { border-bottom: 0; }
+.vip-fu-close-offer-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vip-fu-close-done { font-size: 12px; font-weight: 600; color: var(--vip-won); white-space: nowrap; }
+
+/* Followups category (Dashboard ?tab=followups) — the per-exec counts table
+   and the bucket switcher. Column widths match .vip-fu-exec-head to its rows
+   from one place so the header can't drift from the data, the same fix
+   DrilldownPanel's forecast header needed. */
+.vip-fu-exec-head,
+.vip-fu-exec-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px 60px;
+  gap: 8px; align-items: center; text-align: right;
+}
+.vip-fu-exec-head {
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--vip-faint); padding-bottom: 6px; border-bottom: 1px solid var(--vip-line-soft);
+}
+.vip-fu-exec-head > span:first-child { text-align: left; }
+.vip-fu-exec-row {
+  width: 100%; padding: 9px 0; background: none; border: 0;
+  border-bottom: 1px solid var(--vip-line-soft); cursor: pointer;
+  font-family: inherit; font-size: 13px; font-variant-numeric: tabular-nums;
+  color: var(--vip-ink);
+}
+.vip-fu-exec-row:hover { background: var(--vip-surface-soft); }
+.vip-fu-exec-row.vip-active { background: var(--vip-surface-soft); box-shadow: inset 2px 0 0 var(--vip-teal); }
+.vip-fu-exec-name { text-align: left; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.vip-fu-bucket-count {
+  margin-left: 5px; font-size: 10px; font-weight: 700;
+  opacity: .65; font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1023.98px) {
+  /* Five buckets don't fit one phone row — let the switcher scroll instead of
+     squeezing each label past legibility. */
+  .vip-card > .vip-seg { overflow-x: auto; }
+}

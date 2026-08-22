@@ -3,7 +3,7 @@ import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getInitials } from '../lib/initials'
 import { roleLabel } from '../lib/roles'
-import { IconActivity, IconGrid, IconHome, IconList, IconPlus, IconSearch, IconTeam } from './NavIcons'
+import { IconActivity, IconBell, IconGrid, IconHome, IconList, IconPlus, IconSearch, IconTeam } from './NavIcons'
 import FabSheet from './FabSheet'
 
 function tabClass({ isActive }) {
@@ -57,11 +57,15 @@ function BottomNav() {
     employee?.role === 'sales_coordinator'
   const showFab = canLogActivity || canCreateLead
 
-  const onLeadsTab = location.pathname === '/dashboard' && new URLSearchParams(location.search).get('tab') === 'leads'
-  const dashboardClass = !onLeadsTab && location.pathname === '/dashboard' ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
+  const dashTab = location.pathname === '/dashboard' ? new URLSearchParams(location.search).get('tab') : null
+  const onLeadsTab = dashTab === 'leads'
+  const onFollowupsTab = dashTab === 'followups'
+  const onReportsTab = location.pathname === '/dashboard' && !onLeadsTab && !onFollowupsTab
+  const dashboardClass = onReportsTab ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
   const leadsClass = onLeadsTab ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
+  const followupsClass = onFollowupsTab ? 'vip-nav-extra vip-active' : 'vip-nav-extra'
   const leadsMobileClass = onLeadsTab ? 'vip-mobile-tab vip-active' : 'vip-mobile-tab'
-  const dashboardMobileClass = !onLeadsTab && location.pathname === '/dashboard' ? 'vip-mobile-tab vip-active' : 'vip-mobile-tab'
+  const dashboardMobileClass = onReportsTab ? 'vip-mobile-tab vip-active' : 'vip-mobile-tab'
 
   return (
     <>
@@ -128,6 +132,14 @@ function BottomNav() {
         <Link to="/dashboard?tab=leads" className={leadsClass} title="All Leads">
           <IconList />
           <span className="vip-nav-label">All Leads</span>
+        </Link>
+        {/* Follow-ups is a Dashboard category (?tab=followups), same shape as
+            All Leads. Its mobile path is the tile at the top of Dashboard —
+            only four tabs fit the FAB layout, so a fifth tab isn't available.
+            Every role gets it: RLS decides whose reminders come back. */}
+        <Link to="/dashboard?tab=followups" className={followupsClass} title="Follow-ups">
+          <IconBell />
+          <span className="vip-nav-label">Follow-ups</span>
         </Link>
         {employee?.role === 'owner' && (
           <NavLink to="/team" className={extraTabClass} title="My Team">

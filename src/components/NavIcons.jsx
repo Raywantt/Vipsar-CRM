@@ -88,3 +88,15 @@ export function IconTeam({ className = 'vip-nav-icon', ...rest }) {
     </svg>
   )
 }
+
+// Follow-ups (Dashboard's ?tab=followups sidebar link). A bell rather than a
+// clock or calendar: those already read as "date" elsewhere in this app, and a
+// reminder is something that goes off at you, not a date you look up.
+export function IconBell({ className = 'vip-nav-icon', ...rest }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...rest}>
+      <path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7" />
+      <path d="M10.3 20a2 2 0 0 0 3.4 0" />
+    </svg>
+  )
+}

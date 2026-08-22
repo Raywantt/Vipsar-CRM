@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getInitials } from '../lib/initials'
 import { useOnlineStatus } from '../hooks/useOnlineStatus'
@@ -7,14 +7,16 @@ import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { fetchWonStageHistory, fetchTargetsForPeriod } from '../lib/targetQueries'
-import { fetchDueFollowUpsForEmployee, markFollowUpDone } from '../lib/followUpQueries'
-import { fetchDayReview, rescheduleFollowUp } from '../lib/dayReviewQueries'
-import { buildDayRows, buildSignificantEntries, buildDaySheetPanel, leadName, formatTimeOfDay } from '../lib/dayReview'
-import { todayISO, addDays } from '../lib/followupDates'
+import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp } from '../lib/followUpQueries'
+import { fetchDayReview } from '../lib/dayReviewQueries'
+import { buildDayRows, buildSignificantEntries, buildDaySheetPanel } from '../lib/dayReview'
+import { todayISO } from '../lib/followupDates'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
 import { formatCurrencyCompact } from '../lib/format'
 import FollowUpForm from '../components/FollowUpForm'
+import FollowUpList from '../components/FollowUpList'
+import { errorMessage } from '../lib/errorMessage'
 import DrilldownPanel from '../components/DrilldownPanel'
 import CoordinatorToday from './CoordinatorToday'
 
@@ -78,22 +80,9 @@ function followUpPanel(title, rows, onMarkDone) {
   }
 }
 
-// "was due 11:00 am" / "3 days late" — an open reminder's own urgency line.
-function overdueLine(f) {
-  const kind = f.activity_type ? f.activity_type.replace(/_/g, ' ') : 'follow-up'
-  if (f.due_date < todayISO()) {
-    const days = Math.floor((Date.now() - new Date(`${f.due_date}T00:00:00`).getTime()) / 86400000)
-    return `${kind} · ${days} day${days === 1 ? '' : 's'} late`
-  }
-  return f.due_time ? `${kind} · due ${formatTimeOfDay(f.due_time)}` : `${kind} · due today`
-}
-
-function mobileFor(f) {
-  return f.leads?.parties?.mobile ?? f.parties?.mobile ?? null
-}
-
 function Home() {
   const { employee } = useAuth()
+  const navigate = useNavigate()
   const isOnline = useOnlineStatus()
   const firstName = employee?.name?.trim().split(/\s+/)[0] ?? ''
   const now = new Date()
@@ -106,8 +95,7 @@ function Home() {
   const [followUps, setFollowUps] = useState([])
   const [addingFollowUp, setAddingFollowUp] = useState(false)
   const [panel, setPanel] = useState(null)
-  const [moving, setMoving] = useState(null) // follow-up id being rescheduled
-  const [moveDate, setMoveDate] = useState('')
+  const [followUpError, setFollowUpError] = useState(null)
 
   // One day-scoped fetch powering the whole "Done today" half — the same
   // queries the Dashboard's Day Review runs, scoped by RLS to this employee.
@@ -180,7 +168,8 @@ function Home() {
 
   async function handleMarkDone(id) {
     const { data, error } = await markFollowUpDone(id)
-    if (error) return
+    if (error) { setFollowUpError(errorMessage(error)); return }
+    setFollowUpError(null)
     setFollowUps((prev) => prev.filter((f) => f.id !== data.id))
     // Keep an already-open follow-up drill-down (if this row's bucket is the
     // one on screen) in sync rather than leaving a stale, already-done row.
@@ -193,11 +182,28 @@ function Home() {
 
   async function handleMove(id, dueDate) {
     const { error } = await rescheduleFollowUp(id, dueDate)
-    if (error) return
+    if (error) { setFollowUpError(errorMessage(error)); return }
+    setFollowUpError(null)
     // It's no longer due today or earlier, so it leaves this list.
     setFollowUps((prev) => prev.filter((f) => f.id !== id))
-    setMoving(null)
-    setMoveDate('')
+  }
+
+  // Rule 2.1 — cancelled is a real third outcome, kept in history, and never
+  // counted as done. It leaves this queue either way.
+  async function handleCancelFollowUp(id, reason) {
+    const { error } = await cancelFollowUp(id, reason)
+    if (error) { setFollowUpError(errorMessage(error)); return }
+    setFollowUpError(null)
+    setFollowUps((prev) => prev.filter((f) => f.id !== id))
+  }
+
+  // Rule 4.1 — the primary way a lead-anchored reminder is completed: hand
+  // off to Log Activity with the lead and type pre-filled. ActivityLog closes
+  // the follow-up when the activity saves, so nothing is marked done here.
+  function handleLogActivityFor(f) {
+    const params = new URLSearchParams({ lead: String(f.lead_id), followup: String(f.id) })
+    if (f.activity_type && f.activity_type !== 'other') params.set('type', f.activity_type)
+    navigate(`/activity?${params.toString()}`)
   }
 
   useEffect(() => {
@@ -382,60 +388,29 @@ function Home() {
         </div>
       ) : (
         <>
-          {shownFollowUps.map((f, i) => {
-            const mobile = mobileFor(f)
-            return (
-              <div key={f.id} className="vip-todo-card">
-                <span className="vip-todo-bar" />
-                <span className="vip-todo-main">
-                  {f.lead_id ? (
-                    <Link to={`/leads/${f.lead_id}`} className="vip-todo-party">
-                      {leadName(f.leads, f.parties) || f.title}
-                    </Link>
-                  ) : (
-                    <span className="vip-todo-party">{leadName(f.leads, f.parties) || f.title}</span>
-                  )}
-                  <span className="vip-todo-sub">{overdueLine(f)}</span>
-                </span>
-                {/* One action per card: Call on the most urgent, Move on the
-                    rest — the design's own rule, and it keeps a field screen
-                    from turning into a row of buttons. */}
-                {i === 0 && mobile ? (
-                  <a href={`tel:${mobile}`} className="vip-todo-call">
-                    Call
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    className="vip-todo-move"
-                    onClick={() => {
-                      setMoving(moving === f.id ? null : f.id)
-                      setMoveDate('')
-                    }}
-                  >
-                    Move
-                  </button>
-                )}
-                {moving === f.id && (
-                  <div className="vip-action-panel">
-                    <button type="button" className="vip-action-opt" onClick={() => handleMove(f.id, addDays(1))}>
-                      Tomorrow
-                    </button>
-                    <button type="button" className="vip-action-opt" onClick={() => handleMove(f.id, addDays(3))}>
-                      In 3 days
-                    </button>
-                    <input type="date" className="vip-input vip-input-inline" value={moveDate} onChange={(e) => setMoveDate(e.target.value)} />
-                    <button type="button" className="vip-action-opt vip-active" disabled={!moveDate} onClick={() => handleMove(f.id, moveDate)}>
-                      Save
-                    </button>
-                    <button type="button" className="vip-action-close" onClick={() => setMoving(null)}>
-                      Cancel
-                    </button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          {/* Was a bespoke .vip-todo-card per row with ONE action each (Call
+              on the first, Move on the rest) and neither the reminder's title
+              nor its notes rendered at all — so an instruction like "chase the
+              revised quote, client wants laminated glass" showed on this
+              screen as just the client's name and "2 days late".
+              (FOLLOWUPS.md §6.5, Rules 5.6–5.8.)
+
+              Mark-done was also unreachable here unless you happened to have
+              4+ open reminders: the handler's only call site was the "+N more"
+              button below, which renders only when the list overflows 3.
+              (§6.4.) FollowUpList carries every action on every row now. */}
+          {followUpError && <p className="vip-error" role="alert">{followUpError}</p>}
+          <div className="vip-card">
+            <FollowUpList
+              followUps={shownFollowUps}
+              viewerId={employee.id}
+              onMarkDone={handleMarkDone}
+              onCancel={handleCancelFollowUp}
+              onReschedule={handleMove}
+              onLogActivity={handleLogActivityFor}
+              emptyLabel="Nothing outstanding."
+            />
+          </div>
           {openFollowUps.length > shownFollowUps.length && (
             <button
               type="button"

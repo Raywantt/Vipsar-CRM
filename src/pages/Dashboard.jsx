@@ -9,6 +9,7 @@ import LeadsBySourceCard, { SALES_EXEC_SOURCES } from '../components/LeadsBySour
 import ClosureForecastCard from '../components/ClosureForecastCard'
 import TargetsVsActualsCard, { computeOrderValueActuals } from '../components/TargetsVsActualsCard'
 import LeadsListCard from '../components/LeadsListCard'
+import FollowUpsCard from '../components/FollowUpsCard'
 import LeadsByCategoryCard from '../components/LeadsByCategoryCard'
 import SalesFunnelCard from '../components/SalesFunnelCard'
 import LossReasonsCard from '../components/LossReasonsCard'
@@ -17,7 +18,8 @@ import KpiSparkRow from '../components/KpiSparkRow'
 import DrilldownPanel from '../components/DrilldownPanel'
 import DayReviewCard from '../components/DayReviewCard'
 import { DayDateBar, DayKpiStrip } from '../components/DayReviewHeader'
-import { fetchDayReview, fetchChangeLogStart, rescheduleFollowUp } from '../lib/dayReviewQueries'
+import { fetchDayReview, fetchChangeLogStart } from '../lib/dayReviewQueries'
+import { rescheduleFollowUp } from '../lib/followUpQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
 import { formatClockTime } from '../lib/dbTime'
 import { rangeForPreset } from '../lib/dateRanges'
@@ -103,7 +105,7 @@ function Dashboard() {
   const [activeTab, setActiveTab] = useState('reports')
   useEffect(() => {
     const tab = searchParams.get('tab')
-    setActiveTab(tab === 'leads' ? 'leads' : 'reports')
+    setActiveTab(tab === 'leads' ? 'leads' : tab === 'followups' ? 'followups' : 'reports')
   }, [searchParams])
   // Persisted across a "click into a lead/exec, then Back" round trip, reset
   // on a fresh nav-link visit — see usePersistedFilterState's own header
@@ -154,7 +156,12 @@ function Dashboard() {
   // from breakdownLeads (already fetched unbounded for the category-breakdown
   // cards below) rather than a second query.
   useEffect(() => {
-    if (activeTab === 'leads') {
+    if (activeTab === 'followups') {
+      setOverride({
+        title: seesOthersData ? 'Team follow-ups' : 'My follow-ups',
+        sub: `Reminders · ${RANGE_LABELS[preset]}`,
+      })
+    } else if (activeTab === 'leads') {
       const openLeads = breakdownLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
       const value = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
       setOverride({
@@ -492,6 +499,18 @@ function Dashboard() {
               Desktop keeps the sidebar link it already had, unaffected.
               Reports-only — it used to render outside this branch entirely,
               so it also showed on ?tab=leads above the lead list. */}
+          {/* Follow-ups' only mobile path — the 4-tab bar is full (a fifth tab
+              doesn't fit around the FAB), so this tile is to ?tab=followups
+              what the My Team tile below is to /team. Every role, unlike My
+              Team, since everyone has their own reminders. */}
+          <Link to="/dashboard?tab=followups" className="vip-tile vip-only-mobile" style={{ textDecoration: 'none' }}>
+            <div>
+              <div className="vip-tile-label">{seesOthersData ? 'Team follow-ups' : 'My follow-ups'}</div>
+              <div className="vip-tile-desc">Overdue, today and upcoming reminders</div>
+            </div>
+            <div className="vip-tile-chevron">›</div>
+          </Link>
+
           {isOwner && (
             <Link to="/team" className="vip-tile vip-only-mobile" style={{ textDecoration: 'none' }}>
               <div>
@@ -733,6 +752,14 @@ function Dashboard() {
       )}
 
       {activeTab === 'leads' && <LeadsListCard showOwnerFilter={seesOthersData} employees={employees} title={leadsTitle} />}
+
+      {/* FOLLOWUPS.md Rule 5 / Rule 8 — the app's first view of every reminder
+          rather than only the handful due today. Scoping is RLS's job, so the
+          same component serves all three roles; `showTeam` only decides
+          whether the per-exec counts table renders above the list. */}
+      {activeTab === 'followups' && (
+        <FollowUpsCard range={range} rangeLabel={rangeLabel} viewer={employee} showTeam={seesOthersData} />
+      )}
     </div>
   )
 }

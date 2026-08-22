@@ -7,7 +7,7 @@ import { periodForPreset } from '../lib/targetPeriods'
 import { fetchActivityCounts, fetchDecidedStageHistory, fetchLastActivityPerLead, fetchLeadsForBreakdown } from '../lib/dashboardQueries'
 import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
 import { fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
-import { fetchFollowUpsForEmployee, markFollowUpDone } from '../lib/followUpQueries'
+import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp } from '../lib/followUpQueries'
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeAttentionBuckets, STALE_DAYS, ATTENTION_DAYS } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
@@ -179,6 +179,7 @@ function EmployeeProfile() {
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
   const [activityLog, setActivityLog] = useState([])
   const [followUps, setFollowUps] = useState([])
+  const [followUpError, setFollowUpError] = useState(null)
   const [addingFollowUp, setAddingFollowUp] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -234,9 +235,38 @@ function EmployeeProfile() {
     }
   }, [execId, viewer, allowed])
 
+  // This card reviews the full history (Rule 5.4), so a closed follow-up
+  // stays visible with its new status rather than being removed — unlike
+  // Today's list, which is a "what do I still owe" queue and drops it.
+  //
+  // The errors are surfaced now. Both handlers used to `if (error) return`
+  // with no message, which made a rejected write indistinguishable from the
+  // reported "it didn't disappear after marking it done".
   async function handleMarkDone(id) {
     const { data, error } = await markFollowUpDone(id)
-    if (error) return
+    if (error) { setFollowUpError(errorMessage(error)); return }
+    setFollowUpError(null)
+    setFollowUps((prev) => prev.map((f) => (f.id === data.id ? data : f)))
+  }
+
+  async function handleCancelFollowUp(id, reason) {
+    const { data, error } = await cancelFollowUp(id, reason)
+    if (error) { setFollowUpError(errorMessage(error)); return }
+    setFollowUpError(null)
+    setFollowUps((prev) => prev.map((f) => (f.id === data.id ? data : f)))
+  }
+
+  async function handleRescheduleFollowUp(id, dueDate) {
+    const { data, error } = await rescheduleFollowUp(id, dueDate)
+    if (error) { setFollowUpError(errorMessage(error)); return }
+    setFollowUpError(null)
+    setFollowUps((prev) => prev.map((f) => (f.id === data.id ? data : f)))
+  }
+
+  async function handleReopenFollowUp(id) {
+    const { data, error } = await reopenFollowUp(id)
+    if (error) { setFollowUpError(errorMessage(error)); return }
+    setFollowUpError(null)
     setFollowUps((prev) => prev.map((f) => (f.id === data.id ? data : f)))
   }
 
@@ -397,7 +427,7 @@ function EmployeeProfile() {
       // instant marked a follow-up due TODAY as overdue for most of the day.
       const overdueFollowup = l.next_followup_date && l.next_followup_date < todayISO()
       const nextStep = l.next_followup_date && !overdueFollowup
-        ? `Follow-up ${new Date(l.next_followup_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`
+        ? `Follow-up ${new Date(`${l.next_followup_date}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`
         : overdueFollowup
         ? 'Follow-up overdue'
         : STAGE_NEXT_ACTION[l.current_stage ?? 'calling'] ?? 'No next step'
@@ -703,7 +733,16 @@ function EmployeeProfile() {
                     onCancel={() => setAddingFollowUp(false)}
                   />
                 )}
-                <FollowUpList followUps={followUps} onMarkDone={handleMarkDone} emptyLabel="No follow-ups set." />
+                {followUpError && <p className="vip-error" role="alert">{followUpError}</p>}
+                <FollowUpList
+                  followUps={followUps}
+                  viewerId={viewer.id}
+                  onMarkDone={handleMarkDone}
+                  onCancel={handleCancelFollowUp}
+                  onReschedule={handleRescheduleFollowUp}
+                  onReopen={handleReopenFollowUp}
+                  emptyLabel="No follow-ups set."
+                />
               </div>
             </div>
           </div>

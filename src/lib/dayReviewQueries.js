@@ -106,7 +106,7 @@ export function fetchFollowUpsDueOn(dateISO) {
   return supabase
     .from('follow_ups')
     .select(
-      `id, assigned_to, created_by, party_id, lead_id, activity_type, title, notes, due_date, due_time, is_done, done_at, parties(name), ${LEAD_NAME_EMBED}`
+      `id, assigned_to, created_by, party_id, lead_id, activity_type, title, notes, due_date, due_time, status, is_done, done_at, cancelled_at, cancel_reason, completed_by_activity_id, parties(name), ${LEAD_NAME_EMBED}`
     )
     .eq('due_date', dateISO)
     .order('due_time', { ascending: true, nullsFirst: false })
@@ -166,13 +166,13 @@ export async function fetchDayReview(dateISO) {
   }
 }
 
-// The manager's one action inside a day sheet (decision #16 of the handoff —
-// no commenting, no reassigning, no flagging). RLS on follow_ups is "own data
-// or owner role", so an owner can move a rep's follow-up and a rep can move
-// their own; nothing extra is needed here.
-export function rescheduleFollowUp(id, dueDate) {
-  return supabase.from('follow_ups').update({ due_date: dueDate }).eq('id', id).select('id, due_date').single()
-}
+// rescheduleFollowUp used to live here. It moved to followUpQueries.js in the
+// 2026-08-21 rebuild — a reschedule is a follow-up operation, and keeping it
+// beside the Day Review's fetches is precisely how it ended up as the one
+// write path nobody kept in step with anything else: it updated due_date
+// alone, never re-syncing the lead's own date and never clearing notified_at,
+// which silently removed a rescheduled reminder from push forever.
+// Import it from '../lib/followUpQueries' instead.
 
 // The stage each of these leads was at BEFORE the day started. stage_history
 // only records the destination of a change, so a row saying "moved to

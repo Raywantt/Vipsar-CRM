@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { FOLLOWUP_OPTIONS, followupDateFor } from '../lib/followupDates'
 import { createFollowUp } from '../lib/followUpQueries'
@@ -73,13 +72,13 @@ function FollowUpForm({ assignedTo, createdBy, lead = null, onSaved, onCancel })
       return
     }
 
-    // Keep the lead's own next_followup_date in step with the reminder, so
-    // this doesn't create a second, out-of-sync "when's the next touch" field
-    // (same plain overwrite LeadQuickActions' old inline picker did).
-    if (linkedLead?.id) {
-      await supabase.from('leads').update({ next_followup_date: dueDate }).eq('id', linkedLead.id)
-    }
-
+    // NOTE: this used to also stamp leads.next_followup_date here, as a
+    // blind unchecked overwrite. It doesn't anymore, and nothing else may
+    // either — that column is derived by a database trigger now
+    // (FOLLOWUPS.md Rule 1.2). Hand-syncing it was what produced the 78%
+    // orphan rate: creation kept the two in step, every reschedule broke
+    // them apart again, and a lead carrying two reminders ended up showing
+    // whichever was saved last rather than the soonest.
     setSaving(false)
     onSaved(data)
   }

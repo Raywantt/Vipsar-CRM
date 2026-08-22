@@ -34,9 +34,16 @@ function siteName(lead) {
 // calling that a miss at 10 am would be a lie the manager acts on. There's no
 // configured end-of-working-day in this app, so the boundary is midnight:
 // pending all of D, missed from D+1 onward. (§4.4 of the design handoff.)
-function splitFollowUps(rows, isPast) {
-  const done = rows.filter((f) => f.is_done)
-  const open = rows.filter((f) => !f.is_done)
+//
+// Reads `status`, not the legacy is_done boolean, so a CANCELLED follow-up is
+// counted as neither done nor missed (FOLLOWUPS.md Rule 2.2 — cancelled never
+// counts as done). It drops out of `due` as well: a reminder that was
+// deliberately called off was not work the rep failed to do, and leaving it in
+// the denominator would quietly penalise them for cancelling it.
+function splitFollowUps(allRows, isPast) {
+  const rows = allRows.filter((f) => f.status !== 'cancelled')
+  const done = rows.filter((f) => f.status === 'done')
+  const open = rows.filter((f) => f.status === 'open')
   return {
     due: rows.length,
     done: done.length,
@@ -44,6 +51,7 @@ function splitFollowUps(rows, isPast) {
     pending: isPast ? 0 : open.length,
     doneRows: done,
     openRows: open,
+    cancelled: allRows.length - rows.length,
   }
 }
 

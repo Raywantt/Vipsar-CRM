@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import DonutChart from './DonutChart'
 import FollowUpList from './FollowUpList'
+import { createFollowUp } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { todayISO, toISODate } from '../lib/followupDates'
 
@@ -226,16 +227,48 @@ function AgeingBody({ panel }) {
     setMessages((m) => ({ ...m, [r.leadId]: error ? `Couldn't log call: ${errorMessage(error)}` : 'Call logged.' }))
   }
 
+  // This used to write leads.next_followup_date directly — a bare date with no
+  // reminder, no push and no row in follow_ups, on one lead or on every lead in
+  // the bucket at once. The one control in the app whose label literally reads
+  // "Set a follow-up" created no follow-up at all, and it reported success
+  // regardless because the result was discarded entirely.
+  //
+  // It creates real reminders now (FOLLOWUPS.md Rule 1.1), and the lead's own
+  // date is derived from them by a database trigger (Rule 1.2). Errors are
+  // surfaced per row rather than swallowed, and the bulk branch only empties
+  // the list for the rows that actually succeeded.
   async function handleSaveDate() {
     if (!dateValue || !dateSheet) return
-    const targets = dateSheet === 'bulk' ? rows.map((r) => r.leadId) : [dateSheet]
-    await Promise.all(targets.map((leadId) => supabase.from('leads').update({ next_followup_date: dateValue }).eq('id', leadId)))
+    const targets = dateSheet === 'bulk' ? rows : rows.filter((r) => r.leadId === dateSheet)
+    const assignee = panel.viewerEmployeeId
+
+    const results = await Promise.all(
+      targets.map(async (r) => {
+        const { error } = await createFollowUp({
+          assignedTo: r.ownerId ?? assignee,
+          createdBy: assignee,
+          leadId: r.leadId,
+          title: 'Follow up',
+          notes: r.title ? `Set from the ${panel.title ?? 'work queue'} — ${r.title}` : null,
+          dueDate: dateValue,
+        })
+        return { leadId: r.leadId, error }
+      })
+    )
+
+    const failed = results.filter((x) => x.error)
     if (dateSheet === 'bulk') {
-      // Optimistically empties the bucket (README's interaction table) —
-      // this drill-down's own snapshot, not a full bucket recomputation.
-      setRows([])
+      const failedIds = new Set(failed.map((x) => x.leadId))
+      setRows((prev) => prev.filter((r) => failedIds.has(r.leadId)))
+      if (failed.length) {
+        setMessages((m) => ({ ...m, bulk: `${failed.length} of ${targets.length} couldn't be set.` }))
+      }
     } else {
-      setMessages((m) => ({ ...m, [dateSheet]: `Follow-up set for ${dateValue}.` }))
+      const err = failed[0]?.error
+      setMessages((m) => ({
+        ...m,
+        [dateSheet]: err ? `Couldn't set the follow-up: ${errorMessage(err)}` : `Reminder set for ${dateValue}.`,
+      }))
     }
     setDateSheet(null)
     setDateValue('')
@@ -639,7 +672,16 @@ function FollowUpBody({ panel }) {
   return (
     <div className="vip-dd-section-stack">
       <div className="vip-dd-section">
-        <FollowUpList followUps={panel.followUps} onMarkDone={panel.onMarkDone} emptyLabel="Nothing here." />
+        <FollowUpList
+          followUps={panel.followUps}
+          viewerId={panel.viewerId}
+          onMarkDone={panel.onMarkDone}
+          onCancel={panel.onCancel}
+          onReschedule={panel.onReschedule}
+          onLogActivity={panel.onLogActivity}
+          lockedIds={panel.lockedIds}
+          emptyLabel="Nothing here."
+        />
       </div>
     </div>
   )

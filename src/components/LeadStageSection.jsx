@@ -229,7 +229,17 @@ function LeadStageSection({ lead, leadTitle, canMoveStageBackward = true, paused
       return
     }
 
-    await applyStage('on_hold', { next_followup_date: onHoldDueDate })
+    // Rule 8.4 — the reason belongs to the LEAD, not to a reminder. It used
+    // to live only in the follow-up's notes, which Lead Detail read through a
+    // not-done filter, so completing the hold reminder erased the record of
+    // why the lead was ever paused. It's written into both now: the column is
+    // what the screen reads, the notes are what the push notification says.
+    //
+    // next_followup_date is deliberately NOT passed anymore — it's derived
+    // from the reminder above by a database trigger (Rule 1.2). Passing it
+    // here would be a second, hand-maintained copy of the same fact, which is
+    // exactly the drift this rebuild removed.
+    await applyStage('on_hold', { on_hold_reason: onHoldReason.trim() })
 
     setSavingOnHold(false)
     setOnHoldPromptOpen(false)
