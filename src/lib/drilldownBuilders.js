@@ -161,9 +161,14 @@ export function buildActivitiesAttainPanel({ activities, targets, employees, ran
   const contrib = ACTIVITY_TYPES.map((t) => {
     const typeActual = activities.filter((a) => a.activity_type === t.value).length
     const rawTypeTarget = companyTargetFor(targets, employees, t.value)
-    return { label: t.label, actual: typeActual, target: rawTypeTarget != null ? Math.round(rawTypeTarget) : null }
+    return { value: t.value, label: t.label, actual: typeActual, target: rawTypeTarget != null ? Math.round(rawTypeTarget) : null }
   })
   const maxContrib = Math.max(1, ...contrib.map((c) => c.actual))
+  // Looked up by value, not position — ACTIVITY_TYPES has grown twice since
+  // this stats row was written (client_meeting/architect_meeting were
+  // inserted ahead of rfq_raised), and a positional contrib[2] silently
+  // started reading Client Meeting's numbers under the "RFQ raised" label.
+  const contribFor = (value) => contrib.find((c) => c.value === value)
 
   return {
     kind: 'attain',
@@ -174,9 +179,9 @@ export function buildActivitiesAttainPanel({ activities, targets, employees, ran
     note: `${rangeLabel}. Every logged site visit, call, RFQ, office day and booking update${scopeLabel === 'Company' ? ', across every exec' : ''}.`,
     stats: [
       { label: 'Total logged', value: String(actual), sub: target != null ? `of ${target} target` : rangeLabel, color: '#101617' },
-      { label: 'Site visit', value: String(contrib[0]?.actual ?? 0), sub: contrib[0]?.target != null ? `of ${contrib[0].target}` : 'no target set', color: '#101617' },
-      { label: 'Call', value: String(contrib[1]?.actual ?? 0), sub: contrib[1]?.target != null ? `of ${contrib[1].target}` : 'no target set', color: '#101617' },
-      { label: 'RFQ raised', value: String(contrib[2]?.actual ?? 0), sub: contrib[2]?.target != null ? `of ${contrib[2].target}` : 'no target set', color: '#101617' },
+      { label: 'Site visit', value: String(contribFor('site_visit')?.actual ?? 0), sub: contribFor('site_visit')?.target != null ? `of ${contribFor('site_visit').target}` : 'no target set', color: '#101617' },
+      { label: 'Call', value: String(contribFor('call')?.actual ?? 0), sub: contribFor('call')?.target != null ? `of ${contribFor('call').target}` : 'no target set', color: '#101617' },
+      { label: 'RFQ raised', value: String(contribFor('rfq_raised')?.actual ?? 0), sub: contribFor('rfq_raised')?.target != null ? `of ${contribFor('rfq_raised').target}` : 'no target set', color: '#101617' },
     ],
     pace,
     contribTitle: 'By activity type · actual vs target',

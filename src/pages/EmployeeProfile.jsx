@@ -26,6 +26,9 @@ const GOOD = '#0f6b6b'
 const OK = '#b8791f'
 const BAD = '#b4232a'
 const BLUE = '#3f7d9e'
+// Same muted grey attention.js's ownerRows use for "not enough to alarm
+// over" — reused here for "no data to judge at all", not a new token.
+const NEUTRAL = '#9aa5a6'
 
 const PERIOD_OPTIONS = ['week', 'month', 'quarter']
 
@@ -66,7 +69,13 @@ function pctColor(p) {
 // numbers are identical today, so nothing renders differently — but retuning
 // STALE_DAYS or ATTENTION_DAYS would otherwise have left this one screen
 // confidently colouring by the old thresholds.
+//
+// `days == null` real bug fix: a lead with no activity and no created_at
+// (see leadsAssigned below) used to reach here as a fake ~20687 (epoch
+// fallback from new Date(null)) and render solid red. Genuinely unknown now
+// renders as neutral grey instead of the worst possible color.
 function touchColor(days) {
+  if (days == null) return NEUTRAL
   return days >= ATTENTION_DAYS ? BAD : days >= STALE_DAYS ? OK : GOOD
 }
 
@@ -163,6 +172,7 @@ function EmployeeProfile() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const isOwner = viewer?.role === 'owner'
+  const isCoordinator = viewer?.role === 'sales_coordinator'
   const isSelf = viewer?.id === execId
   const preset = PERIOD_OPTIONS.includes(searchParams.get('period')) ? searchParams.get('period') : 'month'
   const range = rangeForPreset(preset)
@@ -183,23 +193,39 @@ function EmployeeProfile() {
   const [addingFollowUp, setAddingFollowUp] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  // Role guard — a sales exec may only open their own page (FLOW.md §4).
-  // RLS on activities/leads/targets already returns empty for anyone else's
-  // data, but `employees` itself is openly readable by any active employee
-  // (see Schema/rls_policies.sql), so without this the fetch effects below
-  // would still successfully pull a colleague's profile row before the
-  // redirect below ever fires — React runs every effect scheduled on the
-  // initial mount in the same pass, `navigate()` doesn't preempt them. Every
-  // data-fetch effect below is gated on `allowed` for exactly that reason,
-  // not just this redirect.
-  const allowed = isOwner || isSelf
-  useEffect(() => {
-    if (!viewer) return
-    if (!allowed) navigate('/dashboard', { replace: true })
-  }, [viewer, allowed, navigate])
+  // Role guard — a sales exec may only open their own page (FLOW.md §4); a
+  // sales_coordinator may open any exec who reports to them, same amount of
+  // detail as the owner gets, nobody else's. RLS on activities/leads/targets
+  // already returns empty for anyone else's data, but `employees` itself is
+  // openly readable by any active employee (see Schema/rls_policies.sql), so
+  // without this the fetch effects below would still successfully pull a
+  // colleague's profile row before the redirect below ever fires — React
+  // runs every effect scheduled on the initial mount in the same pass,
+  // `navigate()` doesn't preempt them. Every data-fetch effect below is
+  // gated on `allowed` for exactly that reason, not just this redirect.
+  //
+  // A coordinator's answer isn't knowable from role + id alone the way
+  // owner/self are — it depends on this exec's own coordinator_id, which
+  // only arrives once fetchEmployeeProfile resolves. `pendingCoordinatorCheck`
+  // marks that "still finding out" window so the redirect (and the final
+  // render guard below) wait for it instead of bouncing a legitimate
+  // coordinator before their own team-membership check has even run.
+  const canOpenDirectly = isOwner || isSelf
+  const pendingCoordinatorCheck = isCoordinator && !canOpenDirectly && profileEmployee == null && profileError == null
+  const isMyTeamMember = isCoordinator && profileEmployee != null && profileEmployee.coordinator_id === viewer?.id
+  const allowed = canOpenDirectly || isMyTeamMember
+  // Anyone whose access *could* end up true — used only to gate the initial
+  // profile-row fetch, since that's the one fetch a coordinator needs before
+  // `allowed` itself can be computed.
+  const mayAttempt = canOpenDirectly || isCoordinator
 
   useEffect(() => {
-    if (!viewer || !allowed) return
+    if (!viewer || pendingCoordinatorCheck) return
+    if (!allowed) navigate('/dashboard', { replace: true })
+  }, [viewer, pendingCoordinatorCheck, allowed, navigate])
+
+  useEffect(() => {
+    if (!viewer || !mayAttempt) return
     let active = true
     fetchEmployeeProfile(execId).then(({ data, error }) => {
       if (!active) return
@@ -209,19 +235,28 @@ function EmployeeProfile() {
     return () => {
       active = false
     }
-  }, [execId, viewer, allowed])
+  }, [execId, viewer, mayAttempt])
 
   useEffect(() => {
     if (!viewer || !allowed) return
     let active = true
     fetchActiveSalesExecs().then(({ data, error }) => {
       if (!active) return
-      if (!error) setActiveSalesExecs(data ?? [])
+      if (error) return
+      const all = data ?? []
+      // The rank pill compares this exec against a real peer group. For the
+      // owner that's every active exec; for a coordinator it must be their
+      // own team only — activities/leads/targets below are already
+      // RLS-scoped to that same team (coordinator_team_select), so comparing
+      // against a company-wide list here would score every exec outside the
+      // team as if they had zero activity and no targets, not because they
+      // do, but because this session simply can't see their data.
+      setActiveSalesExecs(isCoordinator ? all.filter((e) => e.coordinator_id === viewer.id) : all)
     })
     return () => {
       active = false
     }
-  }, [viewer, allowed])
+  }, [viewer, allowed, isCoordinator])
 
   useEffect(() => {
     if (!viewer || !allowed) return
@@ -311,7 +346,8 @@ function EmployeeProfile() {
     return () => setOverride(null)
   }, [execName, setOverride])
 
-  if (!viewer || (!isOwner && !isSelf)) return null
+  if (!viewer || pendingCoordinatorCheck) return null
+  if (!allowed) return null
   if (profileError) return <div className="vip-wide"><p className="vip-error" role="alert">{profileError}</p></div>
   if (!profileEmployee) return <div className="vip-wide"><p className="vip-empty">Loading…</p></div>
 
@@ -344,11 +380,15 @@ function EmployeeProfile() {
     quote_sent: actuals.quote_sent,
     won_count: actuals.won_count,
   }
-  const att = isOwner ? blendedAttainment({ ...targetActuals, site_visit: { get: (e) => activityCountFor(e, 'site_visit') }, call: { get: (e) => activityCountFor(e, 'call') }, rfq_raised: { get: (e) => activityCountFor(e, 'rfq_raised') } }, targets, execId) : null
+  // Same "as much detail as the owner sees" rule as the access guard above —
+  // a coordinator viewing their own team member gets the real peer-relative
+  // view too, not the plain self-view a sales exec sees on their own page.
+  const canSeeOwnerView = isOwner || isMyTeamMember
+  const att = canSeeOwnerView ? blendedAttainment({ ...targetActuals, site_visit: { get: (e) => activityCountFor(e, 'site_visit') }, call: { get: (e) => activityCountFor(e, 'call') }, rfq_raised: { get: (e) => activityCountFor(e, 'rfq_raised') } }, targets, execId) : null
 
   let rank = null
   let teamSize = 0
-  if (isOwner) {
+  if (canSeeOwnerView) {
     const scored = activeSalesExecs.map((e) => ({
       id: e.id,
       score:
@@ -421,7 +461,11 @@ function EmployeeProfile() {
   const leadsAssigned = myOpenLeads
     .map((l) => {
       const lastAt = lastActivityByLead.get(l.id) ?? l.created_at
-      const days = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000)
+      // Real bug fixed here: a lead with no activity and a null created_at
+      // (see LeadDetail.jsx/LeadsListCard.jsx's own fixes for the same root
+      // cause) used to fall through to new Date(null) — epoch — and sort to
+      // the very top of this list as if it were 56 years overdue.
+      const days = lastAt ? Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000) : null
       // Calendar comparison on a DATE column — see attention.js's note. Parsing
       // a date-only string gives UTC midnight (05:30 IST), so comparing it to an
       // instant marked a follow-up due TODAY as overdue for most of the day.
@@ -433,7 +477,9 @@ function EmployeeProfile() {
         : STAGE_NEXT_ACTION[l.current_stage ?? 'calling'] ?? 'No next step'
       return { lead: l, days, nextStep }
     })
-    .sort((a, b) => b.days - a.days)
+    // Unknown (days: null) sorts last, not first — treated as -1 so it
+    // never outranks a real, known age. See the null-guard above.
+    .sort((a, b) => (b.days ?? -1) - (a.days ?? -1))
 
   // Conversion funnel (bottom-up, period-scoped — matches DATA_CONTRACT.md §3)
   const won = actualFor(execId, 'won_count')
@@ -441,7 +487,18 @@ function EmployeeProfile() {
   const visited = Math.max(actualFor(execId, 'site_visit'), quoted + 1)
   const contactedLeadIds = new Set(activities.filter((a) => a.employee_id === execId && a.lead_id).map((a) => a.lead_id))
   const contacted = Math.max(contactedLeadIds.size, visited + 1)
-  const receivedCount = range ? myLeads.filter((l) => { const c = new Date(l.created_at); return c >= range.start && c <= range.end }).length : 0
+  // l.created_at guarded here too — defensive, not an active bug (0 leads
+  // have a null created_at other than the one anomalous test row this whole
+  // audit was triggered by, and that row isn't open/assigned to anyone's
+  // funnel), but new Date(null) silently miscounting into "received" is the
+  // same class of gap as every other fix in this file.
+  const receivedCount = range
+    ? myLeads.filter((l) => {
+        if (!l.created_at) return false
+        const c = new Date(l.created_at)
+        return c >= range.start && c <= range.end
+      }).length
+    : 0
   const received = Math.max(receivedCount, contacted + 1)
   const funnelSteps = [
     { label: 'Leads received', count: received },
@@ -486,7 +543,17 @@ function EmployeeProfile() {
               )}
             </div>
             <span className="vip-profile-sub">
-              {[profileEmployee.role === 'owner' ? 'Owner' : 'Sales Executive', profileEmployee.office_location, `with VIPSAR since ${new Date(profileEmployee.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`]
+              {[
+                profileEmployee.role === 'owner' ? 'Owner' : 'Sales Executive',
+                profileEmployee.office_location,
+                // Guarded defensively — no employee has a null created_at
+                // today, but this is the exact same unguarded new Date(x)
+                // shape as every other fix in this file, and an employee
+                // row created outside the normal signup path could hit it.
+                profileEmployee.created_at
+                  ? `with VIPSAR since ${new Date(profileEmployee.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`
+                  : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </span>
@@ -633,7 +700,9 @@ function EmployeeProfile() {
                         <span className="vip-dd-age-last">{[lead.sites?.nickname || lead.sites?.locality, stageLabel(lead.current_stage ?? 'calling')].filter(Boolean).join(' · ')} · {nextStep}</span>
                       </span>
                       <span className="vip-dd-age-side">
-                        <span className="vip-dd-age-days" style={{ color: touchColor(days) }}>{days}d ago</span>
+                        <span className="vip-dd-age-days" style={{ color: touchColor(days) }}>
+                          {days != null ? `${days}d ago` : 'no activity'}
+                        </span>
                         <span className="vip-dd-age-value">{formatCurrencyCompact(dealValueFor(lead))}</span>
                       </span>
                     </Link>

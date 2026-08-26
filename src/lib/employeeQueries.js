@@ -44,10 +44,13 @@ export async function fetchEmployeeDataCounts(employeeId) {
 // stands in for "territory" and created_at for "with VIPSAR since" (this app
 // doesn't track a real hire date; both are noted as approximations on the
 // page itself, not presented as exact).
+// coordinator_id is selected so EmployeeProfile.jsx can decide whether a
+// viewing sales_coordinator may see this page at all — a coordinator may
+// open any exec who reports to them, same as the owner, but nobody else's.
 export function fetchEmployeeProfile(id) {
   return supabase
     .from('employees')
-    .select('id, name, role, office_location, is_active, created_at')
+    .select('id, name, role, office_location, is_active, created_at, coordinator_id')
     .eq('id', id)
     .single()
 }

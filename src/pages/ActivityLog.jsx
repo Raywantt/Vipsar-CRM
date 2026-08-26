@@ -10,7 +10,7 @@ import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLocationOptions'
 import { formatTimeRange } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
-import { createFollowUp } from '../lib/followUpQueries'
+import { createFollowUp, markFollowUpDone } from '../lib/followUpQueries'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
@@ -25,6 +25,14 @@ function ActivityLog() {
   const isCoordinator = employee?.role === 'sales_coordinator'
   const [searchParams] = useSearchParams()
   const preselectedLeadId = searchParams.get('lead')
+  // Home's "Log call"/"Log visit" button on a due follow-up (Rule 4.1) hands
+  // off here with the activity type and the follow-up's own id, so saving the
+  // activity can preselect the type and close the follow-up that sent us here
+  // — see the effect below and the end of handleSubmit. Read once; neither is
+  // meant to change if the URL doesn't.
+  const preselectedType = searchParams.get('type')
+  const followUpId = searchParams.get('followup')
+  const [followUpClosed, setFollowUpClosed] = useState(false)
 
   // A coordinator owns no leads/activities of their own — this picks who the
   // activity is actually for, and that exec's id is what activities.employee_id
@@ -138,6 +146,18 @@ function ActivityLog() {
       active = false
     }
   }, [preselectedLeadId, isCoordinator])
+
+  // Preselects the activity type from Home's follow-up hand-off (?type=) —
+  // previously read nowhere, so "Log call"/"Log visit" landed on the plain
+  // 8-button grid with nothing chosen despite Home's own comment promising
+  // "the lead and type pre-filled". Runs once on mount; selectActivityType
+  // handles the rest of the type-switch bookkeeping itself.
+  useEffect(() => {
+    if (preselectedType && ACTIVITY_TYPES.some((t) => t.value === preselectedType)) {
+      selectActivityType(preselectedType)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Keeps the Site stage field in sync with whichever lead is currently
   // selected (search pick, preselected-from-Lead-Detail, or reset back to
@@ -332,6 +352,20 @@ function ActivityLog() {
     }
 
     const warnings = []
+
+    // Rule 4.1/4.2 (FOLLOWUPS.md) — arriving here from Home's "Log call"/"Log
+    // visit" on a due follow-up is what's supposed to close it, with this
+    // activity recorded as the proof. Previously nothing here read `?followup=`
+    // at all, so the reminder stayed open forever no matter what got logged.
+    // Guarded on followUpClosed so "Log another activity" (which keeps the
+    // same URL) doesn't try to re-close an already-closed reminder.
+    if (followUpId && !followUpClosed) {
+      const { error: followUpCloseError } = await markFollowUpDone(followUpId, activity.id)
+      setFollowUpClosed(true)
+      if (followUpCloseError) {
+        warnings.push(`Activity logged, but the follow-up couldn't be marked done: ${errorMessage(followUpCloseError)}`)
+      }
+    }
 
     if (selectedLead) {
       const leadUpdates = {}
