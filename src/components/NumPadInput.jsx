@@ -70,6 +70,25 @@ function NumPadInput({
     inputRef.current?.blur()
   }
 
+  // The input can lose focus for reasons our own Done/backdrop handlers
+  // never see — most notably the device's own keyboard dismissing itself
+  // (inputMode="none" isn't honored by every OS keyboard in practice), but
+  // also tapping straight into another field. Any of those left the sheet
+  // stuck open before, since nothing but our own explicit close call ever
+  // toggled it. Closing on blur covers all of them generically.
+  function handleBlur() {
+    setOpen(false)
+  }
+
+  // Tapping a key must not steal focus from the input — if it did, the
+  // blur above would close the sheet mid-keystroke (or unmount the very
+  // button being pressed before its click fires). preventDefault on
+  // pointerdown stops the browser's default focus-shift while leaving the
+  // subsequent click untouched.
+  function keepFocus(e) {
+    e.preventDefault()
+  }
+
   function commit(next) {
     onChange({ target: { value: next } })
   }
@@ -102,6 +121,7 @@ function NumPadInput({
         onChange={onChange}
         onFocus={openPad}
         onClick={openPad}
+        onBlur={handleBlur}
         disabled={disabled}
         {...rest}
       />
@@ -123,24 +143,41 @@ function NumPadInput({
             <div className="vip-numpad-grid">
               {DIGIT_ROWS.flatMap((row) =>
                 row.map((d) => (
-                  <button key={d} type="button" className="vip-numpad-key" onClick={() => pressDigit(d)}>
+                  <button
+                    key={d}
+                    type="button"
+                    className="vip-numpad-key"
+                    onMouseDown={keepFocus}
+                    onClick={() => pressDigit(d)}
+                  >
                     {d}
                   </button>
                 ))
               )}
               {variant === 'decimal' ? (
-                <button type="button" className="vip-numpad-key vip-numpad-key-muted" onClick={pressDecimal}>
+                <button
+                  type="button"
+                  className="vip-numpad-key vip-numpad-key-muted"
+                  onMouseDown={keepFocus}
+                  onClick={pressDecimal}
+                >
                   .
                 </button>
               ) : (
                 <span />
               )}
-              <button type="button" className="vip-numpad-key" onClick={() => pressDigit('0')}>
+              <button
+                type="button"
+                className="vip-numpad-key"
+                onMouseDown={keepFocus}
+                onClick={() => pressDigit('0')}
+              >
                 0
               </button>
               <button
                 type="button"
                 className="vip-numpad-key vip-numpad-key-muted"
+                onMouseDown={keepFocus}
                 onClick={pressBackspace}
                 aria-label="Backspace"
               >
