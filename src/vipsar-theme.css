@@ -2085,11 +2085,15 @@ a.vip-todo-party:hover { text-decoration: underline; }
    front, the title block has to grow or it drifts away from the avatar. */
 .vip-dd-head-avatar ~ .vip-dd-head-text { flex: 1; }
 
-/* "+N more completed / activities / changes" — each block caps its list. */
+/* "+N more completed / activities / changes" — each block caps its list.
+   A real button now (was a plain non-interactive <div>), so the reset
+   mirrors .vip-dd-more-row's. */
 .vip-dd-more-line {
+  width: 100%; border: 0; background: none; cursor: pointer; text-align: left;
   padding-top: 9px; border-top: 1px dashed var(--vip-line);
-  font-size: 12px; font-weight: 600; color: var(--vip-teal);
+  font: 600 12px var(--vip-sans); color: var(--vip-teal);
 }
+.vip-dd-more-line:hover { color: var(--vip-teal-dark); }
 
 /* Compact inline action — .vip-btn is a full-width 52px block, wrong for a
    button sitting at the end of a follow-up row. */

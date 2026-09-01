@@ -705,13 +705,150 @@ function addDaysTo(dateISO, n) {
 
 // Caps, then a "+N more" line — the panel summarises a day, it isn't a full
 // log viewer. Each block has its own cap because they have different natural
-// lengths (§5.3–5.5).
-function MoreLine({ shown, total, noun }) {
+// lengths (§5.3–5.5). A real button, not a static caption: tapping it opens
+// the full list as its own sub-panel via onExpand (see DaySheetBody's onDrill
+// calls below) — same "‹ Back" stack DrilldownPanel already uses for
+// Pipeline's stage → lead-list drill. It does NOT inline-expand in place:
+// a busy exec's day can carry 60+ activities, and dumping all of them into
+// this same scroll would defeat the point of a day *summary* — this was a
+// real, reported problem with the first version of this fix, not a
+// hypothetical one. This button was a plain non-interactive <div> before
+// either version — styled identically to .vip-dd-more-row elsewhere in this
+// app (ClosureForecastCard/LeadsByCategoryCard/NeedsAttentionCard), so it
+// looked clickable and never was.
+function MoreLine({ shown, total, noun, onExpand }) {
   if (total <= shown) return null
-  return <div className="vip-dd-more-line">+{total - shown} more {noun}</div>
+  return (
+    <button type="button" className="vip-dd-more-line" onClick={onExpand}>
+      +{total - shown} more {noun}
+    </button>
+  )
 }
 
-function DaySheetBody({ panel }) {
+// The three day-sheet row shapes, each used both in DaySheetBody's own
+// capped preview and in DayItemsBody's full list below — one definition per
+// shape so the preview and the "+N more" destination can't drift apart.
+function CompletedFollowUpRow({ r }) {
+  return (
+    <div className="vip-day-fu-row">
+      <span className="vip-day-fu-dot" />
+      {r.leadId ? (
+        <Link to={`/leads/${r.leadId}`} className="vip-day-fu-party">
+          {r.party}
+        </Link>
+      ) : (
+        <span className="vip-day-fu-party">{r.party}</span>
+      )}
+      <span className="vip-day-fu-when">{r.closed}</span>
+    </div>
+  )
+}
+
+function ActivityLogRow({ a, expanded, onExpandNotes }) {
+  return (
+    <div className="vip-day-log-row">
+      <span className="vip-day-log-time">{a.time}</span>
+      <span className="vip-day-log-main">
+        <span className="vip-day-log-head">
+          <span className={a.tag.className}>{a.tag.label}</span>
+          {a.leadId ? (
+            <Link to={`/leads/${a.leadId}`} className="vip-day-log-party">
+              {a.party}
+            </Link>
+          ) : (
+            <span className="vip-day-log-party">{a.party}</span>
+          )}
+        </span>
+        {a.notes && (
+          <span className="vip-day-log-notes">
+            {expanded && a.more ? `${a.notes} ${a.more}` : a.notes}
+            {a.more && !expanded && (
+              <button type="button" className="vip-day-more" onClick={onExpandNotes}>
+                more
+              </button>
+            )}
+          </span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+function ChangeRow({ c }) {
+  return (
+    <div className="vip-day-change-row">
+      <span className="vip-day-log-time">{c.time}</span>
+      <span className="vip-day-log-main">
+        {c.leadId ? (
+          <Link to={`/leads/${c.leadId}`} className="vip-day-log-party">
+            {c.party}
+          </Link>
+        ) : (
+          <span className="vip-day-log-party">{c.party}</span>
+        )}
+        <span className="vip-day-diff">
+          <span className="vip-day-diff-label">{c.label}</span>
+          {c.type === 'stage' ? (
+            <>
+              {c.oldStage && (
+                <>
+                  <span className={c.oldStage.chipClass}>{c.oldStage.label}</span>
+                  <span className="vip-day-diff-arrow">→</span>
+                </>
+              )}
+              <span className={c.newStage.chipClass}>{c.newStage.label}</span>
+            </>
+          ) : c.type === 'created' ? (
+            <span className="vip-day-diff-new">{c.detail ?? 'New lead'}</span>
+          ) : (
+            <>
+              {c.oldText && (
+                <>
+                  <span className="vip-day-diff-old">{c.oldText}</span>
+                  <span className="vip-day-diff-arrow">→</span>
+                </>
+              )}
+              <span className="vip-day-diff-new" style={{ color: c.newColor }}>
+                {c.newText ?? '—'}
+              </span>
+            </>
+          )}
+        </span>
+      </span>
+    </div>
+  )
+}
+
+// A capped block's "+N more" opens this — the full list, on its own,
+// pushed onto DrilldownPanel's stack rather than grown in place. Reuses
+// the exact same row components DaySheetBody's preview uses.
+function DayItemsBody({ panel }) {
+  const [expanded, setExpanded] = useState({})
+  return (
+    <div className="vip-dd-section-stack">
+      <div className="vip-dd-section">
+        {panel.items.length === 0 ? (
+          <p className="vip-empty">Nothing here.</p>
+        ) : panel.variant === 'completed' ? (
+          panel.items.map((r) => <CompletedFollowUpRow key={r.id} r={r} />)
+        ) : panel.variant === 'changes' ? (
+          panel.items.map((c) => <ChangeRow key={c.id} c={c} />)
+        ) : (
+          panel.items.map((a) => (
+            <ActivityLogRow
+              key={a.id}
+              a={a}
+              expanded={!!expanded[a.id]}
+              onExpandNotes={() => setExpanded((e) => ({ ...e, [a.id]: true }))}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DaySheetBody({ panel, onDrill }) {
   const [rescheduling, setRescheduling] = useState(null) // follow-up id
   const [dateValue, setDateValue] = useState('')
   const [moved, setMoved] = useState({}) // id -> new date, for rows that left
@@ -816,19 +953,23 @@ function DaySheetBody({ panel }) {
             )}
 
             {completed.map((r) => (
-              <div key={r.id} className="vip-day-fu-row">
-                <span className="vip-day-fu-dot" />
-                {r.leadId ? (
-                  <Link to={`/leads/${r.leadId}`} className="vip-day-fu-party">
-                    {r.party}
-                  </Link>
-                ) : (
-                  <span className="vip-day-fu-party">{r.party}</span>
-                )}
-                <span className="vip-day-fu-when">{r.closed}</span>
-              </div>
+              <CompletedFollowUpRow key={r.id} r={r} />
             ))}
-            <MoreLine shown={3} total={fu.completedRows.length} noun="completed" />
+            <MoreLine
+              shown={completed.length}
+              total={fu.completedRows.length}
+              noun="completed"
+              onExpand={() =>
+                onDrill({
+                  kind: 'dayItems',
+                  variant: 'completed',
+                  avatar: panel.avatar,
+                  eyebrow: panel.title,
+                  title: 'Follow-ups completed',
+                  items: fu.completedRows,
+                })
+              }
+            />
           </>
         )}
       </div>
@@ -844,33 +985,28 @@ function DaySheetBody({ panel }) {
         ) : (
           <>
             {activities.map((a) => (
-              <div key={a.id} className="vip-day-log-row">
-                <span className="vip-day-log-time">{a.time}</span>
-                <span className="vip-day-log-main">
-                  <span className="vip-day-log-head">
-                    <span className={a.tag.className}>{a.tag.label}</span>
-                    {a.leadId ? (
-                      <Link to={`/leads/${a.leadId}`} className="vip-day-log-party">
-                        {a.party}
-                      </Link>
-                    ) : (
-                      <span className="vip-day-log-party">{a.party}</span>
-                    )}
-                  </span>
-                  {a.notes && (
-                    <span className="vip-day-log-notes">
-                      {expanded[a.id] && a.more ? `${a.notes} ${a.more}` : a.notes}
-                      {a.more && !expanded[a.id] && (
-                        <button type="button" className="vip-day-more" onClick={() => setExpanded((e) => ({ ...e, [a.id]: true }))}>
-                          more
-                        </button>
-                      )}
-                    </span>
-                  )}
-                </span>
-              </div>
+              <ActivityLogRow
+                key={a.id}
+                a={a}
+                expanded={!!expanded[a.id]}
+                onExpandNotes={() => setExpanded((e) => ({ ...e, [a.id]: true }))}
+              />
             ))}
-            <MoreLine shown={4} total={panel.activities.length} noun="activities" />
+            <MoreLine
+              shown={activities.length}
+              total={panel.activities.length}
+              noun="activities"
+              onExpand={() =>
+                onDrill({
+                  kind: 'dayItems',
+                  variant: 'activities',
+                  avatar: panel.avatar,
+                  eyebrow: panel.title,
+                  title: 'Activities logged',
+                  items: panel.activities,
+                })
+              }
+            />
           </>
         )}
       </div>
@@ -898,48 +1034,23 @@ function DaySheetBody({ panel }) {
         ) : (
           <>
             {changes.map((c) => (
-              <div key={c.id} className="vip-day-change-row">
-                <span className="vip-day-log-time">{c.time}</span>
-                <span className="vip-day-log-main">
-                  {c.leadId ? (
-                    <Link to={`/leads/${c.leadId}`} className="vip-day-log-party">
-                      {c.party}
-                    </Link>
-                  ) : (
-                    <span className="vip-day-log-party">{c.party}</span>
-                  )}
-                  <span className="vip-day-diff">
-                    <span className="vip-day-diff-label">{c.label}</span>
-                    {c.type === 'stage' ? (
-                      <>
-                        {c.oldStage && (
-                          <>
-                            <span className={c.oldStage.chipClass}>{c.oldStage.label}</span>
-                            <span className="vip-day-diff-arrow">→</span>
-                          </>
-                        )}
-                        <span className={c.newStage.chipClass}>{c.newStage.label}</span>
-                      </>
-                    ) : c.type === 'created' ? (
-                      <span className="vip-day-diff-new">{c.detail ?? 'New lead'}</span>
-                    ) : (
-                      <>
-                        {c.oldText && (
-                          <>
-                            <span className="vip-day-diff-old">{c.oldText}</span>
-                            <span className="vip-day-diff-arrow">→</span>
-                          </>
-                        )}
-                        <span className="vip-day-diff-new" style={{ color: c.newColor }}>
-                          {c.newText ?? '—'}
-                        </span>
-                      </>
-                    )}
-                  </span>
-                </span>
-              </div>
+              <ChangeRow key={c.id} c={c} />
             ))}
-            <MoreLine shown={5} total={panel.changeRows.length} noun="changes" />
+            <MoreLine
+              shown={changes.length}
+              total={panel.changeRows.length}
+              noun="changes"
+              onExpand={() =>
+                onDrill({
+                  kind: 'dayItems',
+                  variant: 'changes',
+                  avatar: panel.avatar,
+                  eyebrow: panel.title,
+                  title: 'Changes made to leads',
+                  items: panel.changeRows,
+                })
+              }
+            />
           </>
         )}
       </div>
@@ -966,6 +1077,7 @@ const BODIES = {
   ageing: AgeingBody,
   followup: FollowUpBody,
   daySheet: DaySheetBody,
+  dayItems: DayItemsBody,
   attain: AttainBody,
   pipeline: PipelineBody,
   stageLeads: StageLeadsBody,
@@ -976,10 +1088,11 @@ const BODIES = {
 }
 
 // `panel` (the prop) is always the root of the drill-down; `stack` holds any
-// deeper panels a body pushed via onDrill (today only PipelineBody's
-// stage rows → that stage's lead list). The deepest one renders, "‹ Back"
-// pops one level, ✕ closes the whole thing. Resets whenever the caller
-// opens a different root panel.
+// deeper panels a body pushed via onDrill — PipelineBody's stage rows → that
+// stage's lead list, and DaySheetBody's "+N more" lines → the full list for
+// that one block (dayItems). The deepest one renders, "‹ Back" pops one
+// level, ✕ closes the whole thing. Resets whenever the caller opens a
+// different root panel.
 function DrilldownPanel({ panel, onClose }) {
   const [stack, setStack] = useState([])
 
