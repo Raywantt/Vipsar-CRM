@@ -2348,3 +2348,44 @@ a.vip-day-log-party:hover { text-decoration: underline; }
      squeezing each label past legibility. */
   .vip-card > .vip-seg { overflow-x: auto; }
 }
+
+/* ===========================================================================
+   25. Today Briefing — the redesigned Home.jsx / CoordinatorToday.jsx grammar
+   (Hero → Act now → Recap/Overview → Outlook, both roles). Every rule here
+   reads existing tokens only (--vip-teal, --vip-display, --vip-faint, etc.),
+   so dark mode repaints for free with no override block needed. None of these
+   classes shares an element with .vip-only-mobile/.vip-only-desktop, so the
+   display-cascade gotcha documented near section 21 doesn't apply here.
+   =========================================================================== */
+
+/* The page's single focal point — a .vip-card-shaped shell with a colored
+   left accent, the same "colored bar as accent" idiom .vip-queue-bar/
+   .vip-todo-tomorrow already use elsewhere, not a new visual language. */
+.vip-today-hero {
+  background: var(--vip-surface); border: 1px solid var(--vip-line);
+  border-left: 4px solid var(--vip-teal); border-radius: var(--vip-r-card);
+  padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.vip-today-hero-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vip-today-hero-value { font-family: var(--vip-display); font-weight: 700; font-size: 34px; line-height: 1.1; color: var(--vip-ink); }
+.vip-today-hero-sub { font-size: 13px; color: var(--vip-faint); }
+.vip-today-hero-kpis { margin-top: 4px; }
+
+/* Small uppercase divider label introducing the Cold-leads sub-group inside
+   Home's merged "Needs your attention today" card — same weight/size as
+   .vip-card-title, muted instead of ink so it reads as a sub-heading rather
+   than a second card title. */
+.vip-attend-subhead {
+  font-family: var(--vip-display); font-size: 10px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--vip-faint);
+  margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--vip-line-soft);
+}
+
+/* The two-column children of .vip-featured-row (mirrors .vip-cols' own
+   column treatment) — a plain flex column at every width; .vip-featured-row
+   itself is what switches to a grid at >=1024px. */
+.vip-today-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+@media (min-width: 1024px) {
+  .vip-today-hero-value { font-size: 40px; }
+}

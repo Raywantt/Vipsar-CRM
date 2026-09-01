@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { getInitials } from '../lib/initials'
-import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead } from '../lib/dashboardQueries'
@@ -18,19 +16,14 @@ import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
 import { errorMessage } from '../lib/errorMessage'
 import DrilldownPanel from '../components/DrilldownPanel'
+import { DayKpiStrip } from '../components/DayReviewHeader'
+import TodayGreetingHeader from '../components/TodayGreetingHeader'
 import CoordinatorToday from './CoordinatorToday'
+import OwnerToday from './OwnerToday'
 
 function formatDate(value) {
   if (!value) return '—'
   return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-}
-
-function greetingForTime(hour, minute) {
-  const minutesSinceMidnight = hour * 60 + minute
-  if (minutesSinceMidnight >= 5 * 60 && minutesSinceMidnight < 12 * 60) return 'Good morning'
-  if (minutesSinceMidnight >= 12 * 60 && minutesSinceMidnight < 17 * 60) return 'Good afternoon'
-  if (minutesSinceMidnight >= 17 * 60 && minutesSinceMidnight < 19 * 60 + 30) return 'Good evening'
-  return 'Hello'
 }
 
 const PERIOD_OPTIONS = [
@@ -83,11 +76,6 @@ function followUpPanel(title, rows, onMarkDone) {
 function Home() {
   const { employee } = useAuth()
   const navigate = useNavigate()
-  const isOnline = useOnlineStatus()
-  const firstName = employee?.name?.trim().split(/\s+/)[0] ?? ''
-  const now = new Date()
-  const greeting = greetingForTime(now.getHours(), now.getMinutes())
-  const longDate = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const [period, setPeriod] = useState('week')
   const [target, setTarget] = useState(undefined) // undefined = loading, null = no target for this period
@@ -276,241 +264,244 @@ function Home() {
     : []
   const queueTotal = queueRows.reduce((s, r) => s + r.count, 0)
 
+  // Shaped for DayKpiStrip (src/components/DayReviewHeader.jsx), the same
+  // tile component the Day Review's team table already uses — swapped in
+  // during the Today Briefing redesign to stop this screen hand-rolling its
+  // own copy of the same grid. The Follow-ups tile gets DayKpiStrip's
+  // built-in done/pending rendering (`value: null` + done/missed/
+  // missedIsPending) instead of a plain string, which is also a real fix:
+  // "N still open" used to always paint in --vip-lost (red) even though a
+  // follow-up that isn't yet due is amber-pending, not a miss, everywhere
+  // else this app shows the same fact (DoneMissCell, splitFollowUps).
   const doneTiles = myDay
     ? [
-        { label: 'Activities', value: myDay.total, sub: `${myDay.calls} calls · ${myDay.visits} visits` },
+        { key: 'activities', label: 'Activities', value: String(myDay.total), sub: `${myDay.calls} calls · ${myDay.visits} visits` },
         {
+          key: 'followups',
           label: 'Follow-ups',
-          value: `${myDay.done} / ${myDay.done + myDay.pending}`,
+          value: null,
+          done: myDay.done,
+          missed: myDay.pending,
+          missedIsPending: true,
           sub: myDay.pending > 0 ? `${myDay.pending} still open` : 'all clear',
-          subColor: myDay.pending > 0 ? 'var(--vip-lost)' : undefined,
         },
-        { label: 'Leads touched', value: myDay.touched, sub: `${myDay.newLeads} new · ${myDay.changes} changes` },
-        { label: 'Quotes sent', value: myDay.quotes, sub: myDay.quotesValue > 0 ? formatCurrencyCompact(myDay.quotesValue) : 'none today' },
+        { key: 'touched', label: 'Leads touched', value: String(myDay.touched), sub: `${myDay.newLeads} new · ${myDay.changes} changes` },
+        {
+          key: 'quotes',
+          label: 'Quotes sent',
+          value: String(myDay.quotes),
+          sub: myDay.quotesValue > 0 ? formatCurrencyCompact(myDay.quotesValue) : 'none today',
+        },
       ]
     : []
 
+  const attendCount = openFollowUps.length + queueTotal
+
   return (
     <div className="vip-wide vip-pad-fab-overhang">
-      <div className="vip-today-head">
-        <div>
-          <div className="vip-greeting">
-            {greeting}
-            {firstName ? `, ${firstName}` : ''}
+      <TodayGreetingHeader employee={employee} />
+
+      {/* ---------- Hero: today's headline number, promoted from a buried
+          card lower on the old page to the first thing seen. Everything
+          below still reads/writes the exact same state as before the
+          redesign — this is a re-presentation, not a rebuild. ---------- */}
+      <TodayHero target={target} period={period} onPeriodChange={setPeriod} doneTiles={doneTiles} />
+
+      <div className="vip-featured-row">
+        <div className="vip-today-col">
+          {/* ---------- Act now: follow-ups + cold leads, merged into one
+              zone. These used to be two separate cards ("Still to do
+              today" and "Work queue") with no visual link between two
+              things that both answer "what needs me right now". ---------- */}
+          <div className="vip-card">
+            <div className="vip-card-head">
+              <div className="vip-card-title">Needs your attention today</div>
+              <div className="vip-day-head-actions">
+                {attendCount > 0 && <span className="vip-day-head-count">{attendCount}</span>}
+                <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
+                  {addingFollowUp ? 'Cancel' : '+ Add reminder'}
+                </button>
+              </div>
+            </div>
+
+            {addingFollowUp && (
+              <FollowUpForm
+                assignedTo={employee.id}
+                createdBy={employee.id}
+                onSaved={(row) => {
+                  if (row.due_date <= todayISO()) setFollowUps((prev) => [...prev, row])
+                  setAddingFollowUp(false)
+                }}
+                onCancel={() => setAddingFollowUp(false)}
+              />
+            )}
+
+            {followUpError && <p className="vip-error" role="alert">{followUpError}</p>}
+
+            {openFollowUps.length === 0 ? (
+              <p className="vip-empty">Nothing outstanding. Set a reminder and it shows up here on the day it's due.</p>
+            ) : (
+              <>
+                {/* Was a bespoke .vip-todo-card per row with ONE action each
+                    (Call on the first, Move on the rest) and neither the
+                    reminder's title nor its notes rendered at all — so an
+                    instruction like "chase the revised quote, client wants
+                    laminated glass" showed on this screen as just the
+                    client's name and "2 days late". (FOLLOWUPS.md §6.5,
+                    Rules 5.6–5.8.) FollowUpList carries every action on
+                    every row now. */}
+                <FollowUpList
+                  followUps={shownFollowUps}
+                  viewerId={employee.id}
+                  onMarkDone={handleMarkDone}
+                  onCancel={handleCancelFollowUp}
+                  onReschedule={handleMove}
+                  onLogActivity={handleLogActivityFor}
+                  emptyLabel="Nothing outstanding."
+                />
+                {openFollowUps.length > shownFollowUps.length && (
+                  <button
+                    type="button"
+                    className="vip-day-entry-link"
+                    onClick={() => setPanel(followUpPanel('Still to do', openFollowUps, handleMarkDone))}
+                  >
+                    +{openFollowUps.length - shownFollowUps.length} more · see all
+                  </button>
+                )}
+              </>
+            )}
+
+            <div className="vip-attend-subhead">Stale leads</div>
+
+            {!attentionBuckets ? (
+              <p className="vip-empty">Loading…</p>
+            ) : queueTotal === 0 ? (
+              <p className="vip-empty">No leads are going cold right now.</p>
+            ) : (
+              queueRows
+                .filter((r) => r.count > 0)
+                .map((row) => (
+                  <button key={row.key} type="button" className="vip-queue-row" onClick={row.onOpen}>
+                    <span className="vip-queue-bar" style={{ background: row.color }} />
+                    <span className="vip-queue-main">
+                      <span className="vip-queue-title">{row.title}</span>
+                      <span className="vip-queue-sub">{row.sub}</span>
+                    </span>
+                    <span className="vip-queue-count-num">{row.count}</span>
+                    <span className="vip-queue-chevron">›</span>
+                  </button>
+                ))
+            )}
           </div>
-          <div className="vip-today-date">{longDate}</div>
-        </div>
-        <div className="vip-today-head-actions">
-          <span className={isOnline ? 'vip-sync-pill' : 'vip-sync-pill vip-sync-pill-offline'}>
-            <span className="vip-sync-dot" />
-            {isOnline ? 'Synced' : 'Offline'}
-          </span>
-          <Link to="/profile" className="vip-avatar" aria-label="Profile">
-            {getInitials(employee?.name)}
-          </Link>
-        </div>
-      </div>
 
-      {/* ---------- half 1: what's been done ---------- */}
-      <div className="vip-day-head">
-        <span className="vip-day-head-title">Done today</span>
-        {myDay?.firstActivityAt && <span className="vip-day-head-note">since {myDay.firstActivityAt}</span>}
-      </div>
-
-      {/* vip-dd-kpi-grid-4 is required: the base class is repeat(6) above
-          1024px for the Dashboard's six-tile KPI row, and this strip has four.
-          Without it the row ended a third empty. DayReviewHeader's own four-tile
-          strip already carried the modifier; this one, added in the same pass,
-          did not. (Phase 9 finding F-P3-1.) */}
-      {myDay && (
-        <div className="vip-dd-kpi-grid vip-dd-kpi-grid-4">
-          {doneTiles.map((t) => (
-            <div key={t.label} className="vip-dd-kpi-tile vip-dd-kpi-static">
-              <span className="vip-dd-kpi-label">{t.label}</span>
-              <span className="vip-dd-kpi-value">{t.value}</span>
-              <span className="vip-dd-kpi-sub" style={{ color: t.subColor }}>
-                {t.sub}
+          {myDay && myDay.tomorrow > 0 && (
+            <div className="vip-card vip-todo-tomorrow">
+              <span>
+                <span className="vip-day-foot-label">Tomorrow</span>
+                <span className="vip-todo-tomorrow-text">
+                  {myDay.tomorrow} follow-up{myDay.tomorrow === 1 ? '' : 's'} · {myDay.tomorrowVisits} site visit
+                  {myDay.tomorrowVisits === 1 ? '' : 's'}
+                </span>
               </span>
             </div>
-          ))}
-        </div>
-      )}
-
-      {entries.length > 0 && (
-        <div className="vip-card">
-          {entries.map((e) => (
-            <div key={e.id} className="vip-day-entry">
-              <span className="vip-day-entry-dot" style={{ background: e.color }} />
-              {e.leadId ? (
-                <Link to={`/leads/${e.leadId}`} className="vip-day-entry-text">
-                  {e.text}
-                </Link>
-              ) : (
-                <span className="vip-day-entry-text">{e.text}</span>
-              )}
-              <span className="vip-day-entry-time">{e.time}</span>
-            </div>
-          ))}
-          <button type="button" className="vip-day-entry-link" onClick={openMyDaySheet}>
-            See everything I logged today
-          </button>
-        </div>
-      )}
-
-      {/* ---------- half 2: what's still open ---------- */}
-      <div className="vip-day-head">
-        <span className="vip-day-head-title">Still to do today</span>
-        <span className="vip-day-head-actions">
-          {openFollowUps.length > 0 && <span className="vip-day-head-count">{openFollowUps.length} left</span>}
-          <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
-            {addingFollowUp ? 'Cancel' : '+ Add reminder'}
-          </button>
-        </span>
-      </div>
-
-      {addingFollowUp && (
-        <div className="vip-card">
-          <FollowUpForm
-            assignedTo={employee.id}
-            createdBy={employee.id}
-            onSaved={(row) => {
-              if (row.due_date <= todayISO()) setFollowUps((prev) => [...prev, row])
-              setAddingFollowUp(false)
-            }}
-            onCancel={() => setAddingFollowUp(false)}
-          />
-        </div>
-      )}
-
-      {openFollowUps.length === 0 ? (
-        <div className="vip-card">
-          <p className="vip-empty">Nothing outstanding. Set a reminder and it shows up here on the day it's due.</p>
-        </div>
-      ) : (
-        <>
-          {/* Was a bespoke .vip-todo-card per row with ONE action each (Call
-              on the first, Move on the rest) and neither the reminder's title
-              nor its notes rendered at all — so an instruction like "chase the
-              revised quote, client wants laminated glass" showed on this
-              screen as just the client's name and "2 days late".
-              (FOLLOWUPS.md §6.5, Rules 5.6–5.8.)
-
-              Mark-done was also unreachable here unless you happened to have
-              4+ open reminders: the handler's only call site was the "+N more"
-              button below, which renders only when the list overflows 3.
-              (§6.4.) FollowUpList carries every action on every row now. */}
-          {followUpError && <p className="vip-error" role="alert">{followUpError}</p>}
-          <div className="vip-card">
-            <FollowUpList
-              followUps={shownFollowUps}
-              viewerId={employee.id}
-              onMarkDone={handleMarkDone}
-              onCancel={handleCancelFollowUp}
-              onReschedule={handleMove}
-              onLogActivity={handleLogActivityFor}
-              emptyLabel="Nothing outstanding."
-            />
-          </div>
-          {openFollowUps.length > shownFollowUps.length && (
-            <button
-              type="button"
-              className="vip-day-entry-link"
-              onClick={() => setPanel(followUpPanel('Still to do', openFollowUps, handleMarkDone))}
-            >
-              +{openFollowUps.length - shownFollowUps.length} more · see all
-            </button>
           )}
-        </>
-      )}
 
-      {myDay && myDay.tomorrow > 0 && (
-        <div className="vip-card vip-todo-tomorrow">
-          <span>
-            <span className="vip-day-foot-label">Tomorrow</span>
-            <span className="vip-todo-tomorrow-text">
-              {myDay.tomorrow} follow-up{myDay.tomorrow === 1 ? '' : 's'} · {myDay.tomorrowVisits} site visit
-              {myDay.tomorrowVisits === 1 ? '' : 's'}
-            </span>
-          </span>
+          {/* ---------- Recap: what's already been logged today, the
+              quietest section — sits between "act now" and "outlook". ---------- */}
+          {entries.length > 0 && (
+            <div className="vip-card">
+              <div className="vip-card-head">
+                <div className="vip-card-title">Today's activity</div>
+                {myDay?.firstActivityAt && <span className="vip-card-note">since {myDay.firstActivityAt}</span>}
+              </div>
+              {entries.map((e) => (
+                <div key={e.id} className="vip-day-entry">
+                  <span className="vip-day-entry-dot" style={{ background: e.color }} />
+                  {e.leadId ? (
+                    <Link to={`/leads/${e.leadId}`} className="vip-day-entry-text">
+                      {e.text}
+                    </Link>
+                  ) : (
+                    <span className="vip-day-entry-text">{e.text}</span>
+                  )}
+                  <span className="vip-day-entry-time">{e.time}</span>
+                </div>
+              ))}
+              <button type="button" className="vip-day-entry-link" onClick={openMyDaySheet}>
+                See everything I logged today
+              </button>
+            </div>
+          )}
         </div>
-      )}
 
-      {/* ---------- the standing work buckets, unchanged ---------- */}
-      <div className="vip-card-head">
-        <div className="vip-card-title">Work queue</div>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--vip-lost)' }}>
-          {queueTotal} item{queueTotal === 1 ? '' : 's'}
-        </span>
+        <div className="vip-today-col">
+          {/* ---------- Outlook: what's coming, unchanged. ---------- */}
+          {closing.length > 0 && (
+            <div className="vip-card">
+              <div className="vip-card-title">Closing next</div>
+              {closing.map((lead) => (
+                <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
+                  <div className="vip-row-main">
+                    <div className="vip-row-title">{lead.parties?.name ?? '(no party)'}</div>
+                  </div>
+                  <div className="vip-row-side">
+                    <div className="vip-row-value">{formatCurrencyCompact(lead.quote_value)}</div>
+                    <div className="vip-row-meta">
+                      {formatDate(lead.estimated_close_date)}
+                      {lead.closure_probability != null ? ` · ${lead.closure_probability}%` : ''}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="vip-card vip-queue-card">
-        {!attentionBuckets ? (
-          <p className="vip-empty">Loading…</p>
-        ) : queueTotal === 0 ? (
-          <p className="vip-empty">No leads are going cold right now.</p>
-        ) : (
-          queueRows
-            .filter((r) => r.count > 0)
-            .map((row) => (
-              <button key={row.key} type="button" className="vip-queue-row" onClick={row.onOpen}>
-                <span className="vip-queue-bar" style={{ background: row.color }} />
-                <span className="vip-queue-main">
-                  <span className="vip-queue-title">{row.title}</span>
-                  <span className="vip-queue-sub">{row.sub}</span>
-                </span>
-                <span className="vip-queue-count-num">{row.count}</span>
-                <span className="vip-queue-chevron">›</span>
+      <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
+    </div>
+  )
+}
+
+// The page's single focal point — was "Order value vs target", a plain card
+// two-thirds of the way down the old page. Same TargetBar math and the same
+// Done-today KPI tiles, just given hero billing: full width, above the
+// column split, first thing seen after the greeting.
+function TodayHero({ target, period, onPeriodChange, doneTiles }) {
+  return (
+    <div className="vip-today-hero">
+      <div className="vip-today-hero-head">
+        <span className="vip-day-head-title">Today's pace</span>
+        {target !== null && (
+          <div className="vip-seg-mini" role="group" aria-label="Target period">
+            {PERIOD_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                title={opt.label}
+                className={period === opt.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => onPeriodChange(opt.value)}
+              >
+                {opt.short}
               </button>
-            ))
+            ))}
+          </div>
         )}
       </div>
 
-      {target !== null && (
-        <div className="vip-card">
-          <div className="vip-card-head">
-            <div className="vip-card-title">Order value vs target</div>
-            {/* The W/M/Q/Y switch used to head the "My numbers" KPI grid; that
-                grid is now "Done today" (a single day, no period to pick), so
-                the control moved to the one block that still has a period. */}
-            <div className="vip-seg-mini" role="group" aria-label="Target period">
-              {PERIOD_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  title={opt.label}
-                  className={period === opt.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                  onClick={() => setPeriod(opt.value)}
-                >
-                  {opt.short}
-                </button>
-              ))}
-            </div>
-          </div>
-          {target === undefined ? <p className="vip-empty">Loading…</p> : <TargetBar target={target} period={period} />}
-        </div>
+      {target === undefined ? (
+        <p className="vip-empty">Loading…</p>
+      ) : target === null ? (
+        <p className="vip-empty">No target set for this period.</p>
+      ) : (
+        <TargetBar target={target} period={period} />
       )}
 
-      {closing.length > 0 && (
-        <div className="vip-card">
-          <div className="vip-card-title">Closing next</div>
-          {closing.map((lead) => (
-            <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
-              <div className="vip-row-main">
-                <div className="vip-row-title">{lead.parties?.name ?? '(no party)'}</div>
-              </div>
-              <div className="vip-row-side">
-                <div className="vip-row-value">{formatCurrencyCompact(lead.quote_value)}</div>
-                <div className="vip-row-meta">
-                  {formatDate(lead.estimated_close_date)}
-                  {lead.closure_probability != null ? ` · ${lead.closure_probability}%` : ''}
-                </div>
-              </div>
-            </Link>
-          ))}
+      {doneTiles.length > 0 && (
+        <div className="vip-today-hero-kpis">
+          <DayKpiStrip kpis={doneTiles} />
         </div>
       )}
-
-      <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
     </div>
   )
 }
@@ -525,10 +516,8 @@ function TargetBar({ target, period }) {
     <>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
         <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <span style={{ fontFamily: 'var(--vip-display)', fontWeight: 600, fontSize: 25, color: 'var(--vip-ink)' }}>
-            {formatCurrencyCompact(target.actual)}
-          </span>
-          <span style={{ fontSize: 13, color: 'var(--vip-faint)' }}>of {formatCurrencyCompact(target.value)}</span>
+          <span className="vip-today-hero-value">{formatCurrencyCompact(target.actual)}</span>
+          <span className="vip-today-hero-sub">of {formatCurrencyCompact(target.value)}</span>
         </span>
         <span style={{ fontFamily: 'var(--vip-display)', fontWeight: 600, fontSize: 16, color: pctColor }}>{pct}%</span>
       </div>
@@ -543,16 +532,23 @@ function TargetBar({ target, period }) {
   )
 }
 
-// `/` is one route serving different screens per role. The switch lives in a
-// wrapper rather than an early return inside Home, because Home runs a dozen
-// hooks and fires several fetches before it renders anything — a coordinator
-// hitting an early return would still pay for every one of those queries, all
-// of which are scoped to leads and activities they don't own.
+// `/` is one route serving a different screen per role. The switch lives in
+// a wrapper rather than an early return inside Home, because Home runs a
+// dozen hooks and fires several fetches before it renders anything — a
+// coordinator or owner hitting an early return would still pay for every one
+// of those queries, all of which are scoped to leads and activities neither
+// role owns.
 //
-// Owner and sales_executive both keep Home exactly as it was.
+// Home itself is now sales_executive-only. It used to also serve owner, but
+// real feedback (2026-09-01) is that a rep-shaped "Done today" hero and
+// personal work queue read as a wall of zeros for an owner — they don't log
+// activities, rarely have follow-ups of their own, and don't touch leads or
+// send quotes themselves. OwnerToday is the bird's-eye replacement: the
+// whole sales team's day, not one person's.
 function Today() {
   const { employee } = useAuth()
   if (employee?.role === 'sales_coordinator') return <CoordinatorToday />
+  if (employee?.role === 'owner') return <OwnerToday />
   return <Home />
 }
 

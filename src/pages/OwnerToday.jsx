@@ -1,37 +1,40 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { fetchMyTeamExecs } from '../lib/employeeQueries'
+import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
 import { fetchLeadsForBreakdown, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
-import { rescheduleFollowUp } from '../lib/followUpQueries'
+import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import DayReviewCard from '../components/DayReviewCard'
 import { DayKpiStrip } from '../components/DayReviewHeader'
 import FollowUpForm from '../components/FollowUpForm'
+import FollowUpList from '../components/FollowUpList'
 import DrilldownPanel from '../components/DrilldownPanel'
 import TodayGreetingHeader from '../components/TodayGreetingHeader'
 import { errorMessage } from '../lib/errorMessage'
 
-// The sales coordinator's Today screen — a real build now, not the Phase 3
-// placeholder this file used to be. Every piece of data here is the exact
-// same Day Review plumbing Dashboard's own "Today" period already runs for
-// the owner (fetchDayReview, buildDayRows/buildDayTotals/buildDayKpis,
-// DayReviewCard, computeAttentionBuckets/buildAgeingPanel) — it's RLS-driven
-// and role-agnostic, and every table it touches already has live
-// coordinator_team_* policies, so scoping "my team" instead of "the company"
-// only ever means passing a smaller `employees` array in, never new queries
-// or new RLS. Same "Hero → Act now → Recap/Overview → Outlook" grammar
-// Home.jsx uses, with team-shaped content in place of personal content —
-// see the Today Briefing redesign notes in CLAUDE.md.
+// The owner's Today screen — a bird's-eye view of the whole sales team's
+// day, not a personal activity tracker. An owner doesn't log activities,
+// rarely has follow-ups of their own, and doesn't touch leads or send
+// quotes themselves, so Home.jsx's rep-shaped "Done today" hero and
+// personal work queue read as a wall of zeros for this role (real feedback,
+// 2026-09-01 — every tile on the original shared Home screen was blank for
+// the owner). This is structurally the same screen as CoordinatorToday.jsx
+// — same Day Review plumbing, same Hero → Overview → Act-now grammar — just
+// scoped to *every* active sales exec (fetchActiveSalesExecs, unfiltered)
+// instead of one coordinator's team. Kept as its own file rather than a
+// shared component with CoordinatorToday: the two differ in roster source,
+// in how many attention categories they surface, and in carrying a personal
+// reminders card here that CoordinatorToday has no equivalent of — three
+// real differences, not one abstraction away from being the same screen.
 //
-// Deliberately NOT here, matching CLAUDE.md's own Phase 4 scope: a date
-// picker (Home has none either; Dashboard already owns past-day review,
-// already coordinator-scoped) and a team target/attainment card (a
-// coordinator carries no personal quota; Dashboard's Targets vs. Actuals is
-// already coordinator-team-scoped).
-function CoordinatorToday() {
+// Two-only attention categories (stale leads, overdue follow-ups) rather
+// than all 5 computeAttentionBuckets produces, and personal reminders kept
+// as a small secondary card rather than full Home.jsx billing — both
+// deliberate choices, confirmed with the owner rather than assumed.
+function OwnerToday() {
   const { employee } = useAuth()
 
   const [employees, setEmployees] = useState([])
@@ -45,13 +48,14 @@ function CoordinatorToday() {
   const [panel, setPanel] = useState(null)
   const [selectedExecId, setSelectedExecId] = useState(null)
 
+  const [followUps, setFollowUps] = useState([])
   const [addingFollowUp, setAddingFollowUp] = useState(false)
-  const [pickedExec, setPickedExec] = useState(null)
+  const [followUpError, setFollowUpError] = useState(null)
 
   useEffect(() => {
     if (!employee?.id) return
     let active = true
-    fetchMyTeamExecs(employee.id).then(({ data, error }) => {
+    fetchActiveSalesExecs().then(({ data, error }) => {
       if (!active) return
       if (error) setLoadError(errorMessage(error))
       setEmployees(data ?? [])
@@ -62,9 +66,6 @@ function CoordinatorToday() {
     }
   }, [employee?.id])
 
-  // Same day-scoped fetch Home.jsx's own "Done today" runs — RLS alone
-  // decides whose rows come back (a coordinator's team here, via
-  // coordinator_team_select), so this call is byte-identical either way.
   useEffect(() => {
     if (!employee?.id) return
     let active = true
@@ -77,10 +78,6 @@ function CoordinatorToday() {
     }
   }, [employee?.id])
 
-  // Same pipeline-snapshot pair Home.jsx fetches once for its own work
-  // queue — fetchLeadsForBreakdown() is already RLS-scoped to the
-  // coordinator's team, so the red-flags queue below needs no owner filter
-  // the way Home's personal one does.
   useEffect(() => {
     if (!employee?.id) return
     let active = true
@@ -99,16 +96,31 @@ function CoordinatorToday() {
     }
   }, [employee?.id])
 
+  // The owner's own occasional reminders — a real but small use case
+  // ("a few times which they want to remember themselves"), so this stays
+  // its own personal fetch rather than folded into the org-wide data above.
+  useEffect(() => {
+    if (!employee?.id) return
+    let active = true
+    fetchDueFollowUpsForEmployee(employee.id).then(({ data, error }) => {
+      if (!active) return
+      if (!error) setFollowUps(data ?? [])
+    })
+    return () => {
+      active = false
+    }
+  }, [employee?.id])
+
   const dayRows = dayData ? buildDayRows(employees, dayData, false) : []
   const dayTotals = buildDayTotals(dayRows)
   const dayKpis = dayData ? buildDayKpis(dayData, dayRows, false) : []
 
   const attentionBuckets = breakdownLeads ? computeAttentionBuckets(breakdownLeads, lastActivityByLead) : null
 
-  // Only the two reasons CLAUDE.md's own Phase 4 spec names — not all 5
-  // computeAttentionBuckets buckets Home's personal queue shows, since this
-  // is an oversight view of the whole team, not one rep's actionable list.
-  const redFlagRows = attentionBuckets
+  // Just the 2 most urgent categories, matching CoordinatorToday's own
+  // scope — confirmed with the owner rather than defaulting to all 5, to
+  // keep a screen billed as "brief" actually brief.
+  const attentionRows = attentionBuckets
     ? ['stale', 'followups_overdue'].map((key) => {
         const bucket = attentionBuckets.find((b) => b.key === key)
         return {
@@ -121,7 +133,7 @@ function CoordinatorToday() {
         }
       })
     : []
-  const redFlagTotal = redFlagRows.reduce((s, r) => s + r.count, 0)
+  const attentionTotal = attentionRows.reduce((s, r) => s + r.count, 0)
 
   function openDaySheet(employeeId) {
     if (!dayData) return
@@ -141,9 +153,25 @@ function CoordinatorToday() {
     )
   }
 
-  function closeAssignForm() {
-    setAddingFollowUp(false)
-    setPickedExec(null)
+  async function handleMarkDone(id) {
+    const { data, error } = await markFollowUpDone(id)
+    if (error) { setFollowUpError(errorMessage(error)); return }
+    setFollowUpError(null)
+    setFollowUps((prev) => prev.filter((f) => f.id !== data.id))
+  }
+
+  async function handleReschedule(id, dueDate) {
+    const { error } = await rescheduleFollowUp(id, dueDate)
+    if (error) { setFollowUpError(errorMessage(error)); return }
+    setFollowUpError(null)
+    setFollowUps((prev) => prev.filter((f) => f.id !== id))
+  }
+
+  async function handleCancelFollowUp(id, reason) {
+    const { error } = await cancelFollowUp(id, reason)
+    if (error) { setFollowUpError(errorMessage(error)); return }
+    setFollowUpError(null)
+    setFollowUps((prev) => prev.filter((f) => f.id !== id))
   }
 
   return (
@@ -154,20 +182,9 @@ function CoordinatorToday() {
         <p className="vip-empty">Loading your team…</p>
       ) : loadError ? (
         <p className="vip-error" role="alert">{loadError}</p>
-      ) : employees.length === 0 ? (
-        <div className="vip-card">
-          <div className="vip-card-title">No sales executives are assigned to you yet</div>
-          <p className="vip-form-note" style={{ marginTop: 0 }}>
-            Ask the owner to set up your team in Profile → Manage employees, then check back here.
-          </p>
-        </div>
       ) : (
         <>
-          {/* ---------- Hero: the team's headline pace — same shell as
-              Home's personal hero, team-shaped content: no target/period
-              switch (a coordinator carries no personal quota), just team
-              size and today's total, with the same supporting KPI strip
-              Dashboard's own Today period already renders for the owner. ---------- */}
+          {/* ---------- Hero: the org's headline pace for today. ---------- */}
           <div className="vip-today-hero">
             <div className="vip-today-hero-head">
               <span className="vip-day-head-title">Your team today</span>
@@ -187,61 +204,26 @@ function CoordinatorToday() {
 
           <div className="vip-featured-row">
             <div className="vip-today-col">
-              {/* ---------- Overview: this literally is the "team overview
-                  rows (last activity, open leads, follow-ups due/overdue)"
-                  the old placeholder card described wanting — reused
-                  verbatim from Dashboard's own Today period. ---------- */}
+              {/* ---------- Overview: what every sales exec has done today,
+                  the exact same team table Dashboard's own Today period
+                  already renders. ---------- */}
               <DayReviewCard rows={dayRows} totals={dayTotals} isPast={false} onOpenExec={openDaySheet} selectedExecId={selectedExecId} />
             </div>
 
             <div className="vip-today-col">
-              {/* ---------- Act now: team red flags + the genuinely new
-                  piece this screen adds — assigning a follow-up to a team
-                  member, the same "+ Assign follow-up" pattern
-                  EmployeeProfile.jsx already establishes for owner→exec. ---------- */}
+              {/* ---------- Act now: what sales execs are supposed to do
+                  today, org-wide. ---------- */}
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Needs your team's attention</div>
-                  <div className="vip-day-head-actions">
-                    {redFlagTotal > 0 && <span className="vip-day-head-count">{redFlagTotal}</span>}
-                    <button
-                      type="button"
-                      className="vip-btn-link"
-                      onClick={() => (addingFollowUp ? closeAssignForm() : setAddingFollowUp(true))}
-                    >
-                      {addingFollowUp ? 'Cancel' : '+ Assign follow-up'}
-                    </button>
-                  </div>
+                  <div className="vip-card-title">Needs attention today</div>
+                  {attentionTotal > 0 && <span className="vip-day-head-count">{attentionTotal}</span>}
                 </div>
-
-                {addingFollowUp && (
-                  <label className="vip-field">
-                    Who is this for? *
-                    <select
-                      className="vip-select"
-                      value={pickedExec?.id ?? ''}
-                      onChange={(e) => setPickedExec(employees.find((emp) => String(emp.id) === e.target.value) ?? null)}
-                    >
-                      <option value="">— Choose a sales exec —</option>
-                      {employees.map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                {addingFollowUp && pickedExec && (
-                  <FollowUpForm assignedTo={pickedExec.id} createdBy={employee.id} onSaved={closeAssignForm} onCancel={closeAssignForm} />
-                )}
-
                 {!attentionBuckets ? (
                   <p className="vip-empty">Loading…</p>
-                ) : redFlagTotal === 0 ? (
-                  <p className="vip-empty">Nothing needs your attention right now.</p>
+                ) : attentionTotal === 0 ? (
+                  <p className="vip-empty">Nothing needs attention right now.</p>
                 ) : (
-                  redFlagRows
+                  attentionRows
                     .filter((r) => r.count > 0)
                     .map((row) => (
                       <button key={row.key} type="button" className="vip-queue-row" onClick={row.onOpen}>
@@ -256,6 +238,41 @@ function CoordinatorToday() {
                     ))
                 )}
               </div>
+
+              {/* ---------- A small, secondary card — a few personal
+                  reminders, kept out of the owner's way but not gone. ---------- */}
+              <div className="vip-card">
+                <div className="vip-card-head">
+                  <div className="vip-card-title">Your reminders</div>
+                  <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
+                    {addingFollowUp ? 'Cancel' : '+ Add reminder'}
+                  </button>
+                </div>
+                {addingFollowUp && (
+                  <FollowUpForm
+                    assignedTo={employee.id}
+                    createdBy={employee.id}
+                    onSaved={(row) => {
+                      if (row.due_date <= todayISO()) setFollowUps((prev) => [...prev, row])
+                      setAddingFollowUp(false)
+                    }}
+                    onCancel={() => setAddingFollowUp(false)}
+                  />
+                )}
+                {followUpError && <p className="vip-error" role="alert">{followUpError}</p>}
+                {followUps.length === 0 ? (
+                  <p className="vip-empty">Nothing set.</p>
+                ) : (
+                  <FollowUpList
+                    followUps={followUps}
+                    viewerId={employee.id}
+                    onMarkDone={handleMarkDone}
+                    onCancel={handleCancelFollowUp}
+                    onReschedule={handleReschedule}
+                    emptyLabel="Nothing set."
+                  />
+                )}
+              </div>
             </div>
           </div>
         </>
@@ -266,4 +283,4 @@ function CoordinatorToday() {
   )
 }
 
-export default CoordinatorToday
+export default OwnerToday
