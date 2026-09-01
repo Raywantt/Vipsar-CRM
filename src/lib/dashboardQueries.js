@@ -1,4 +1,6 @@
 import { supabase } from './supabaseClient'
+import { sanitizeForIlike } from './sanitizeForIlike'
+import { MIN_QUERY_LENGTH } from './searchQueries'
 
 // RLS scopes both tables to "own data or owner role" already, so these same
 // queries serve both the owner (sees everyone) and a sales exec (sees only
@@ -20,24 +22,94 @@ export function fetchNewLeadsBySource(range) {
     .lte('created_at', range.end.toISOString())
 }
 
+// Page size for fetchLeadsList's server-side pagination — 262 leads today,
+// ~1,186 projected in 12 months (see ROW-COUNTS.md): 50 keeps a page's
+// payload/render trivial (~9KB at today's ~175B/row) while keeping the page
+// count sane at either volume (6 pages today, ~24 projected).
+export const LEADS_PAGE_SIZE = 50
+
+// Per-lookup cap on resolveLeadsSearchFilter below. Measured live against
+// production data before picking this number: a single common letter
+// ("a") resolves to 520 ids (288 parties + 225 sites + 7 employees) with no
+// cap — a 2,121-char .or() string, ~3,474-char request URL. Even at the
+// enforced MIN_QUERY_LENGTH of 2, a real common substring ("an") still
+// resolves to 292 ids — and at ROW-COUNTS.md's 12-month projection
+// (~1,603 parties, ~1,195 sites), the same match RATE projects to roughly
+// 1,380 ids and an ~8.7KB URL, right at the edge of what typical proxy/
+// server infra accepts by default. 50 per table (parties/sites/employees
+// independently) keeps the worst case small (≤150 ids total, a few hundred
+// characters) regardless of how the underlying tables grow.
+const LEADS_SEARCH_LOOKUP_CAP = 50
+
+// Resolves a free-text search term into a `.or()` filter string scoped to
+// leads' own columns (party_id/site_id/owner_employee_id), by first finding
+// which parties/sites/employees match the term — the same multi-step
+// pattern searchQueries.js's searchAll() already uses, not embedded-relation
+// ILIKE filtering (see that file's own comment: "no precedent anywhere else
+// in this codebase"). Returns null for a too-short term, meaning "don't
+// filter by search at all" — the caller should skip calling .or() entirely
+// in that case, not pass an all-matching or all-rejecting string.
+//
+// Each lookup is capped at LEADS_SEARCH_LOOKUP_CAP and requests an exact
+// count in the same request, so a term that matches more than the cap is
+// detected (`capped: true`) without a second round trip — the caller is
+// expected to tell the user results may be incomplete rather than silently
+// showing a partial list as if it were the whole answer (the same "don't
+// silently truncate" principle the 100-row leads cap fix above was for).
+export async function resolveLeadsSearchFilter(term) {
+  const clean = sanitizeForIlike((term ?? '').trim())
+  if (clean.length < MIN_QUERY_LENGTH) return null
+
+  const [partiesRes, sitesRes, employeesRes] = await Promise.all([
+    supabase.from('parties').select('id', { count: 'exact' }).ilike('name', `%${clean}%`).limit(LEADS_SEARCH_LOOKUP_CAP),
+    supabase
+      .from('sites')
+      .select('id', { count: 'exact' })
+      .or(`nickname.ilike.%${clean}%,locality.ilike.%${clean}%`)
+      .limit(LEADS_SEARCH_LOOKUP_CAP),
+    supabase.from('employees').select('id', { count: 'exact' }).ilike('name', `%${clean}%`).limit(LEADS_SEARCH_LOOKUP_CAP),
+  ])
+
+  const partyIds = (partiesRes.data ?? []).map((p) => p.id)
+  const siteIds = (sitesRes.data ?? []).map((s) => s.id)
+  const employeeIds = (employeesRes.data ?? []).map((e) => e.id)
+
+  const capped =
+    (partiesRes.count ?? 0) > LEADS_SEARCH_LOOKUP_CAP ||
+    (sitesRes.count ?? 0) > LEADS_SEARCH_LOOKUP_CAP ||
+    (employeesRes.count ?? 0) > LEADS_SEARCH_LOOKUP_CAP
+
+  const orParts = []
+  if (partyIds.length) orParts.push(`party_id.in.(${partyIds.join(',')})`)
+  if (siteIds.length) orParts.push(`site_id.in.(${siteIds.join(',')})`)
+  if (employeeIds.length) orParts.push(`owner_employee_id.in.(${employeeIds.join(',')})`)
+
+  // Term matched nothing anywhere — force zero rows rather than sending an
+  // empty .or(), which PostgREST rejects outright.
+  return { or: orParts.length ? orParts.join(',') : 'id.eq.-1', capped }
+}
+
 // Not scoped to a date range — a browsable list for the Leads tab, not an
 // aggregate report. RLS already narrows this to "own leads" for a sales
 // exec; the owner passes filters to narrow further, or omits them for
-// everyone. All five facets are plain top-level `leads` columns, so they're
-// applied server-side (before the 100-row cap) rather than client-side —
-// unlike the free-text party/site search in LeadsListCard.jsx, which stays
-// client-side over the fetched page, same precedent as Search.jsx's own
-// "no embedded-relation ILIKE filtering" rule.
+// everyone. All five facets plus `searchOr` (from resolveLeadsSearchFilter
+// above) are applied server-side, before both `count` and `.range()` are
+// computed — filters and search narrow the whole table first, pagination
+// only ever slices what's left, never the reverse. `count: 'exact'` returns
+// the true total matching everything except the range, in the same request
+// (no second COUNT query). Sort is `created_at desc, id desc` — the `id`
+// tiebreaker makes it fully deterministic, since two leads can share a
+// `created_at` down to the second and a non-deterministic sort would
+// silently duplicate or drop rows across pages.
 export function fetchLeadsList(filters = {}) {
-  const { employeeId, stage, source, status, minValue, maxValue } = filters
+  const { employeeId, stage, source, status, minValue, maxValue, searchOr, page = 0 } = filters
 
   let query = supabase
     .from('leads')
     .select(
-      'id, current_stage, source_type, order_value, quote_value, created_at, owner_employee_id, parties!party_id(name), sites(nickname, locality), employees!owner_employee_id(name)'
+      'id, current_stage, source_type, order_value, quote_value, created_at, owner_employee_id, parties!party_id(name), sites(nickname, locality), employees!owner_employee_id(name)',
+      { count: 'exact' }
     )
-    .order('created_at', { ascending: false })
-    .limit(100)
 
   if (employeeId) query = query.eq('owner_employee_id', employeeId)
   if (stage) query = query.eq('current_stage', stage)
@@ -49,8 +121,12 @@ export function fetchLeadsList(filters = {}) {
   if (status === 'inactive') query = query.in('current_stage', ['won', 'lost'])
   if (minValue != null) query = query.gte('quote_value', minValue)
   if (maxValue != null) query = query.lte('quote_value', maxValue)
+  if (searchOr) query = query.or(searchOr)
 
   return query
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(page * LEADS_PAGE_SIZE, page * LEADS_PAGE_SIZE + LEADS_PAGE_SIZE - 1)
 }
 
 // Not scoped to a date range — this is a snapshot of the current pipeline,

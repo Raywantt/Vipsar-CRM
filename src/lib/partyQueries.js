@@ -1,26 +1,86 @@
 import { supabase } from './supabaseClient'
+import { sanitizeForIlike } from './sanitizeForIlike'
 
 // parties SELECT is open to everyone (needed for search-before-create
 // across reps), so this returns the full directory regardless of role.
+// Kept only for DeletePartySection.jsx's owner-only "Delete a party" tool,
+// which still downloads the whole table on mount — a smaller, rarer,
+// desktop-only, owner-only admin screen than Search.jsx, and out of scope
+// for this pass, but it has the exact same "full table on every mount"
+// shape and is worth the same fix later. Search.jsx no longer uses this —
+// see fetchRecentParties/searchParties below instead.
 export function fetchAllParties() {
   return supabase.from('parties').select('id, name, party_type, mobile, city, firm_name').order('name')
 }
 
-// Powers both of Search's party-directory derivations off one leads scan
-// instead of two that only differed in selected columns: "which sales
-// exec(s) has this party worked with" (party_id/other_party_id/
+// Columns Search.jsx's party rows need — both fetchRecentParties and
+// searchParties below select exactly this, so a row from either path
+// renders identically.
+const SEARCH_PARTY_COLUMNS = 'id, name, party_type, mobile, city, firm_name, created_at'
+
+// Search.jsx's default view, before any search term is typed — the
+// most-recently-added parties, not the whole directory. Bounded regardless
+// of how large `parties` grows. typeFilter (optional) narrows this the same
+// server-side way searchParties does, so switching the Type filter with no
+// search term active still shows the right slice instead of client-filtering
+// an already-tiny 20-row window down to near-nothing.
+export function fetchRecentParties(typeFilter, limit = 20) {
+  let query = supabase.from('parties').select(SEARCH_PARTY_COLUMNS).order('created_at', { ascending: false }).limit(limit)
+  if (typeFilter) query = query.eq('party_type', typeFilter)
+  return query
+}
+
+// Per-search cap — same reasoning and same number as
+// dashboardQueries.js's LEADS_SEARCH_LOOKUP_CAP (see that file's comment for
+// the measured URL-length numbers this is sized against). A term matching
+// more than this many parties is common (see RECOMMENDATIONS.md #1 — a
+// common surname alone can exceed it), so the caller must check `capped`
+// and tell the user rather than let a partial list look complete.
+export const PARTY_SEARCH_CAP = 50
+
+// Server-side replacement for the old "download all 300+ parties, filter
+// client-side" approach — name or mobile, optionally narrowed by type, both
+// applied before the cap (never after — a type filter over an
+// already-truncated set would silently miss matches, the same mistake
+// LeadsListCard's fix avoided). Caller is expected to gate the minimum
+// query length itself (same MIN_QUERY_LENGTH convention searchQueries.js's
+// searchAll and dashboardQueries.js's resolveLeadsSearchFilter both use) —
+// this function assumes it's already been called with a real term.
+export async function searchParties(term, typeFilter) {
+  const clean = sanitizeForIlike(term.trim())
+  let query = supabase
+    .from('parties')
+    .select(SEARCH_PARTY_COLUMNS, { count: 'exact' })
+    .or(`name.ilike.%${clean}%,mobile.ilike.%${clean}%`)
+    .order('name')
+    .limit(PARTY_SEARCH_CAP)
+  if (typeFilter) query = query.eq('party_type', typeFilter)
+
+  const { data, error, count } = await query
+  return { data: data ?? [], error, capped: (count ?? 0) > PARTY_SEARCH_CAP }
+}
+
+// Powers both of Search's party-directory derivations off one leads scan:
+// "which sales exec(s) has this party worked with" (party_id/other_party_id/
 // referred_by_party_id + owner_employee_id/employees(name), see
 // buildEmployeeMap in Search.jsx) and "which lead is this party's most
 // recent" (id/party_id/created_at, pre-sorted, see mostRecentLeadByParty
-// below). RLS scopes leads to "own data or owner role" — a sales exec's
-// query only ever returns their own leads, so they'll only ever see
-// themselves in the resulting employee association, even if another rep has
-// also worked with that party. Full multi-employee associations are only
-// visible to the owner.
-export function fetchLeadsForPartyDirectory() {
+// below). Replaces fetchLeadsForPartyDirectory, which scanned the entire
+// `leads` table on every mount regardless of what was actually on screen —
+// this is scoped to whichever party ids are currently displayed (≤20 recent,
+// ≤PARTY_SEARCH_CAP search results), so its cost tracks what's rendered
+// instead of the whole company's lead history. RLS scopes leads to "own data
+// or owner role" — a sales exec's query only ever returns their own leads,
+// so they'll only ever see themselves in the resulting employee association,
+// even if another rep has also worked with that party. Full multi-employee
+// associations are only visible to the owner.
+export function fetchLeadsForParties(partyIds) {
+  if (!partyIds.length) return Promise.resolve({ data: [], error: null })
+  const ids = partyIds.join(',')
   return supabase
     .from('leads')
     .select('id, party_id, other_party_id, referred_by_party_id, owner_employee_id, created_at, employees!owner_employee_id(name)')
+    .or(`party_id.in.(${ids}),other_party_id.in.(${ids}),referred_by_party_id.in.(${ids})`)
     .order('created_at', { ascending: false })
 }
 
@@ -30,7 +90,7 @@ export function fetchLeadsForPartyDirectory() {
 // party_id counts here. Reduces a pre-sorted leads list to one row per party
 // (its most recent lead) — same shape as fetchLastActivityPerLead's
 // reduction. Sole consumer is Search's party directory, fed by
-// fetchLeadsForPartyDirectory above. (It had a dedicated `fetchLeadsByParty`
+// fetchLeadsForParties above. (It had a dedicated `fetchLeadsByParty`
 // fetch of its own for FollowUpForm's old silent party-to-lead resolution;
 // that form asks for a lead outright now, so the query went with it.)
 export function mostRecentLeadByParty(leadsByPartyRows) {

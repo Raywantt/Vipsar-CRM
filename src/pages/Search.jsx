@@ -4,7 +4,8 @@ import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
 import { searchAll, MIN_QUERY_LENGTH } from '../lib/searchQueries'
 import { stageChipClass } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
-import { fetchAllParties, fetchLeadsForPartyDirectory, mostRecentLeadByParty } from '../lib/partyQueries'
+import { fetchRecentParties, searchParties, fetchLeadsForParties, mostRecentLeadByParty } from '../lib/partyQueries'
+import { errorMessage } from '../lib/errorMessage'
 import EmployeeLink from '../components/EmployeeLink'
 
 const SEARCH_DEBOUNCE_MS = 350
@@ -17,6 +18,11 @@ const PARTY_TYPE_LABELS = {
   other: 'Other',
   pmc: 'PMC',
 }
+
+// party_type is a fixed 6-value DB CHECK constraint (see
+// Schema/tostem_crm_schema.sql) — a static list now that the filter no
+// longer has a full downloaded directory to discover values from.
+const PARTY_TYPE_OPTIONS = Object.keys(PARTY_TYPE_LABELS)
 
 // Map<partyId, Map<employeeId, employeeName>> — keyed by id (not just a Set
 // of names) so the "Worked with" list can link each name to /employees/:id.
@@ -48,17 +54,16 @@ function Search() {
   const [results, setResults] = useState({ sites: [], leads: [] })
   const [searching, setSearching] = useState(false)
 
-  // The party directory is loaded once, in full, and filtered client-side —
-  // same "own data or owner role" un-gated shape PartiesCard used to fetch
-  // for the Dashboard's Parties tab, now living here since that tab is gone
-  // (this screen is the one place to find/browse a party). Leads/Sites stay
-  // a debounced DB round-trip via searchAll, unlike Parties there's no
-  // existing directory page for either of those to fold in.
+  // Server-side now — see fetchRecentParties/searchParties in
+  // partyQueries.js. `parties` holds whichever of the two is currently
+  // showing (recent, below MIN_QUERY_LENGTH; search results, at or above
+  // it) — there's no more client-side filtering over a fully-downloaded
+  // directory. `leadsDirectory` is scoped to just those parties' ids
+  // (fetchLeadsForParties), not a full unbounded `leads` scan.
   const [parties, setParties] = useState([])
-  // One leads scan powers both "who has this party worked with" and "which
-  // lead is this party's most recent" — these used to be two separate
-  // full-table fetches (fetchPartyEmployeeLinks/fetchLeadsByParty) that only
-  // differed in selected columns.
+  const [partiesLoading, setPartiesLoading] = useState(true)
+  const [partiesError, setPartiesError] = useState(null)
+  const [partiesCapped, setPartiesCapped] = useState(false)
   const [leadsDirectory, setLeadsDirectory] = useState([])
   const [typeFilter, setTypeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'typeFilter', '')
   const [filtersOpen, setFiltersOpen] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'filtersOpen', false)
@@ -66,28 +71,66 @@ function Search() {
   // .vip-search-hide-mobile, only active below 1024px).
   const [mobileTab, setMobileTab] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'mobileTab', 'parties')
 
+  // Not persisted — derived from `term` via the debounce effect below.
+  // Seeded from term's own restored value so a POP-navigation round trip
+  // doesn't wait out a debounce delay before showing the right results
+  // again. Same pattern LeadsListCard.jsx uses for its own search box.
+  const [debouncedTerm, setDebouncedTerm] = useState(term)
+
+  useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedTerm(term), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timeout)
+  }, [term])
+
+  const hasPartySearch = debouncedTerm.trim().length >= MIN_QUERY_LENGTH
+
+  // Parties: recent-or-search, then the leads scoped to whichever parties
+  // came back — one combined effect (not two separate ones) so the leads
+  // fetch is never a beat behind which parties are actually on screen.
   useEffect(() => {
     let active = true
-    fetchAllParties().then(({ data, error }) => {
+    setPartiesLoading(true)
+    setPartiesError(null)
+
+    async function run() {
+      const partiesResult = hasPartySearch
+        ? await searchParties(debouncedTerm, typeFilter || null)
+        : await fetchRecentParties(typeFilter || null).then(({ data, error }) => ({
+            data: data ?? [],
+            error,
+            capped: false,
+          }))
       if (!active) return
-      if (!error) setParties(data ?? [])
-    })
+
+      if (partiesResult.error) {
+        setPartiesError(errorMessage(partiesResult.error))
+        setParties([])
+        setPartiesCapped(false)
+        setLeadsDirectory([])
+        setPartiesLoading(false)
+        return
+      }
+
+      setParties(partiesResult.data)
+      setPartiesCapped(partiesResult.capped)
+
+      const partyIds = partiesResult.data.map((p) => p.id)
+      const { data: leadsData, error: leadsError } = await fetchLeadsForParties(partyIds)
+      if (!active) return
+      setLeadsDirectory(leadsError ? [] : leadsData ?? [])
+      setPartiesLoading(false)
+    }
+
+    run()
+
     return () => {
       active = false
     }
-  }, [])
+  }, [debouncedTerm, typeFilter, hasPartySearch])
 
-  useEffect(() => {
-    let active = true
-    fetchLeadsForPartyDirectory().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setLeadsDirectory(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [])
-
+  // Leads/Sites results — unchanged: still its own debounced DB round-trip
+  // via searchAll, gated on the raw (not debounced) term with its own
+  // internal 350ms timer, same as before this pass.
   useEffect(() => {
     if (term.trim().length < MIN_QUERY_LENGTH) {
       setResults({ sites: [], leads: [] })
@@ -114,14 +157,6 @@ function Search() {
 
   const employeeMap = useMemo(() => buildEmployeeMap(leadsDirectory), [leadsDirectory])
   const partyLeadMap = useMemo(() => mostRecentLeadByParty(leadsDirectory), [leadsDirectory])
-  const partyTypes = useMemo(() => [...new Set(parties.map((p) => p.party_type))].sort(), [parties])
-
-  const termLower = term.trim().toLowerCase()
-  const filteredParties = parties.filter((p) => {
-    if (typeFilter && p.party_type !== typeFilter) return false
-    if (termLower && !p.name.toLowerCase().includes(termLower) && !(p.mobile ?? '').includes(term.trim())) return false
-    return true
-  })
 
   const hasQuery = term.trim().length >= MIN_QUERY_LENGTH
   const noLeadsOrSites = hasQuery && !searching && results.leads.length === 0 && results.sites.length === 0
@@ -216,7 +251,7 @@ function Search() {
                 >
                   All
                 </button>
-                {partyTypes.map((t) => (
+                {PARTY_TYPE_OPTIONS.map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -232,16 +267,26 @@ function Search() {
           </div>
         )}
 
-        {parties.length > 0 && (
+        {!partiesLoading && !partiesError && (
           <p className="vip-card-note">
-            {filteredParties.length} of {parties.length} part{parties.length === 1 ? 'y' : 'ies'}
+            {hasPartySearch
+              ? `${parties.length} matching part${parties.length === 1 ? 'y' : 'ies'}`
+              : `${parties.length} most recently added`}
           </p>
         )}
+        {partiesCapped && (
+          <p className="vip-form-note">
+            Showing the first 50 matching parties — refine your search for a complete list.
+          </p>
+        )}
+        {partiesError && <p className="vip-error" role="alert">{partiesError}</p>}
 
-        {filteredParties.length === 0 ? (
-          <p className="vip-empty">No parties found.</p>
+        {partiesLoading ? (
+          <p className="vip-empty">{hasPartySearch ? 'Searching…' : 'Loading…'}</p>
+        ) : partiesError ? null : parties.length === 0 ? (
+          <p className="vip-empty">{hasPartySearch ? 'No parties found.' : 'No parties yet.'}</p>
         ) : (
-          filteredParties.map((party) => {
+          parties.map((party) => {
             const leadId = partyLeadMap.get(party.id)
             const employees = employeeMap.has(party.id) ? [...employeeMap.get(party.id).entries()] : []
             const rowContent = (

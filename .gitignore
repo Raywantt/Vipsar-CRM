@@ -24,6 +24,12 @@ backup/
 supabase/.temp/
 supabase/.branches/
 
+# Playwright screenshot tooling (scripts/shoot.mjs) — .auth holds real Supabase
+# session tokens per role, screenshots capture real lead/employee data from the
+# live DB. This repo is public, so neither belongs in a tracked commit.
+scripts/.auth/
+scripts/screenshots/
+
 # Logs
 logs
 *.log

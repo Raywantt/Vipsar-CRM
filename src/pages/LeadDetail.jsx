@@ -53,7 +53,17 @@ function shortDate(value) {
   return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 }
 
+// Real bug found and fixed: with no guard here, a null `a` (e.g. a lead
+// whose created_at is itself null, and which has no activity/stage history
+// to fall back to either — confirmed live on lead #402/"VINAY", the source
+// of the "20687d ago" figure this fix addresses) fed straight into
+// `new Date(null)`, which JS parses as epoch (1970-01-01) — every caller
+// below then computed a "days since" figure of ~20687 and rendered it as if
+// it meant something. Same null-in-null-out shape attention.js's daysSince
+// already uses; every caller here now has to handle a null result instead
+// of silently getting a huge fake number.
 function daysBetween(a, b) {
+  if (!a) return null
   return Math.floor((new Date(b).getTime() - new Date(a).getTime()) / 86400000)
 }
 
@@ -306,13 +316,24 @@ function LeadDetail() {
   const holdReason = lead?.on_hold_reason ?? holdReview?.notes ?? null
   const isOpen = !['won', 'lost'].includes(stage)
   const touchDays = daysBetween(lastActivityAt, Date.now())
+  // hasTouch: whether there's any real "last touched" fact to report at all
+  // (real bug fixed here — see daysBetween's own comment). A lead with
+  // neither activity nor a created_at can't honestly be called stale OR
+  // active; it renders as unknown (TONE_NEUTRAL), not as either extreme.
+  const hasTouch = touchDays != null
   // Thresholds come from attention.js so this page can't drift from the
   // Needs Attention queue. They were hardcoded 14/7 here, and the labels
   // disagreed with the rest of the app: 7 days read as "Cooling" here but was
   // what the queue itself called stale. Settled 2026-08-10 — 7 days is stale,
   // 14 is when it needs attention.
-  const touchColor = touchDays >= ATTENTION_DAYS ? TONE_BAD : touchDays >= STALE_DAYS ? TONE_WARN : TONE_GOOD
-  const isAtRisk = isOpen && !isOnHold && touchDays >= ATTENTION_DAYS
+  const touchColor = !hasTouch
+    ? TONE_NEUTRAL
+    : touchDays >= ATTENTION_DAYS
+      ? TONE_BAD
+      : touchDays >= STALE_DAYS
+        ? TONE_WARN
+        : TONE_GOOD
+  const isAtRisk = isOpen && !isOnHold && hasTouch && touchDays >= ATTENTION_DAYS
 
   const statusLabel = isWon ? 'Customer' : isOnHold ? 'On hold' : isAtRisk ? 'At risk' : 'Open lead'
   const statusStyle = isWon
@@ -322,14 +343,16 @@ function LeadDetail() {
       : isAtRisk
         ? { bg: TONE_BAD_SOFT, fg: TONE_BAD }
         : { bg: 'var(--vip-canvas-2)', fg: 'var(--vip-body)' }
-  const healthLabel =
-    touchDays >= ATTENTION_DAYS
+  const healthLabel = !hasTouch
+    ? 'No activity on record'
+    : touchDays >= ATTENTION_DAYS
       ? `Needs attention · ${touchDays}d no touch`
       : touchDays >= STALE_DAYS
         ? `Stale · ${touchDays}d`
         : `Active · ${touchDays}d ago`
-  const healthStyle =
-    touchDays >= ATTENTION_DAYS
+  const healthStyle = !hasTouch
+    ? { bg: TONE_NEUTRAL_SOFT, fg: TONE_NEUTRAL }
+    : touchDays >= ATTENTION_DAYS
       ? { bg: TONE_BAD_SOFT, fg: TONE_BAD }
       : touchDays >= STALE_DAYS
         ? { bg: TONE_WARN_SOFT, fg: TONE_WARN }
@@ -339,7 +362,12 @@ function LeadDetail() {
     party?.party_type,
     [site?.nickname || site?.locality, site?.house_no].filter(Boolean).join(', ') || null,
     SOURCE_LABELS[lead.source_type] ?? lead.source_type,
-    `created ${shortDate(lead.created_at)}`,
+    // Real bug fixed here: shortDate(null) returns null, and interpolating
+    // that straight into the template literal below produced the literal
+    // text "created null" (confirmed live on lead #402/"VINAY", whose
+    // created_at is genuinely null in the DB). Guard first so a missing
+    // created_at just drops this segment instead of printing it.
+    lead.created_at ? `created ${shortDate(lead.created_at)}` : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -421,7 +449,16 @@ function LeadDetail() {
     { label: 'Deal value', value: formatCurrency(dealValue), sub: isWon ? 'booked' : 'quoted scope', color: 'var(--vip-ink)' },
     { label: 'Probability', value: hasProbability ? `${probability}%` : '—', sub: hasProbability ? (isWon ? 'closed' : 'set by owner') : 'not set', color: probColor },
     { label: 'Expected close', value: closeSlipped ? 'slipped' : shortDate(lead.estimated_close_date) ?? '—', sub: isWon ? 'order booked' : 'target date', color: closeSlipped ? TONE_BAD : 'var(--vip-ink)' },
-    { label: 'Last touch', value: `${touchDays}d`, sub: `ago · by ${(lead.employees?.name ?? 'unassigned').split(' ')[0]}`, color: touchColor },
+    {
+      label: 'Last touch',
+      // Real bug fixed here: this used to read `${touchDays}d` unguarded —
+      // on a lead with no activity and no created_at, touchDays was a fake
+      // ~20687 (days since the Unix epoch, from new Date(null)). See
+      // daysBetween's own comment.
+      value: hasTouch ? `${touchDays}d` : '—',
+      sub: hasTouch ? `ago · by ${(lead.employees?.name ?? 'unassigned').split(' ')[0]}` : 'no activity on record',
+      color: touchColor,
+    },
   ]
 
   // Quotes & orders — at most 2 real rows from this app's actual fields
@@ -654,7 +691,7 @@ function LeadDetail() {
               ? `closed won · ${shortDate(wonAt) ?? ''}`
               : isOnHold
                 ? `on hold · resumes ${shortDate(lead.next_followup_date) ?? 'no date set'}`
-                : `stage ${currentIdx + 1} of ${displayStages.length} · ${daysInPipeline}d in pipeline`}
+                : `stage ${currentIdx + 1} of ${displayStages.length}${daysInPipeline != null ? ` · ${daysInPipeline}d in pipeline` : ''}`}
           </span>
         </div>
         {isOnHold && holdReason && (

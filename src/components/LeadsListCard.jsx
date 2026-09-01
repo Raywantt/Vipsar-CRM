@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
-import { fetchLeadsList, fetchLastActivityPerLead } from '../lib/dashboardQueries'
+import { fetchLeadsList, fetchLastActivityPerLead, resolveLeadsSearchFilter, LEADS_PAGE_SIZE } from '../lib/dashboardQueries'
+import { MIN_QUERY_LENGTH } from '../lib/searchQueries'
 import { stageChipClass, stageFg } from '../lib/statusColors'
 import { STALE_DAYS } from '../lib/attention'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
@@ -15,17 +16,29 @@ import { errorMessage } from '../lib/errorMessage'
 // "touched today" / "Nd ago", turning "Nd silent" + red past STALE_DAYS —
 // same threshold attention.js already uses elsewhere, not a second
 // definition of staleness.
+//
+// Real bug fixed here: a lead with no logged activity AND a null
+// created_at (confirmed live on lead #402/"VINAY") used to fall through to
+// new Date(null) — epoch, 1970 — rendering as "20687d silent". lastAt can
+// genuinely be null now that both sources of it can be missing, so it's
+// checked before doing date math instead of assumed present the way
+// attention.js's daysSince already treats the same fallback chain.
 function recencyInfo(lead, lastActivityByLead) {
   const lastAt = lastActivityByLead.get(lead.id) ?? lead.created_at
+  if (!lastAt) return { label: 'no activity on record', isStale: false }
   const days = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000)
   const isStale = days >= STALE_DAYS
   return { label: isStale ? `${days}d silent` : days <= 0 ? 'touched today' : `${days}d ago`, isStale }
 }
 
-// Debounce only the two free-typed value inputs — a select/chip/segmented
-// click should refetch instantly, same split PartySearchOrCreate already
-// draws between debounced text search and immediate controls.
+// Debounce the two free-typed value inputs and the search box — a
+// select/chip/segmented click should refetch instantly, same split
+// PartySearchOrCreate already draws between debounced text search and
+// immediate controls. Search now hits the database (resolveLeadsSearchFilter
+// below), so it needs the same debounce discipline the value inputs already
+// have — same 350ms searchQueries.js/PartySearchOrCreate use elsewhere.
 const VALUE_DEBOUNCE_MS = 400
+const SEARCH_DEBOUNCE_MS = 350
 
 function partyLabel(lead) {
   return lead.parties?.name ?? (lead.sites?.nickname || lead.sites?.locality) ?? '(no party)'
@@ -77,11 +90,24 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
   const [maxValue, setMaxValue] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'maxValue', '')
   const [filtersOpen, setFiltersOpen] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'filtersOpen', false)
   const [search, setSearch] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'search', '')
+  const [page, setPage] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'page', 0)
+
+  // Not persisted — derived from `search` (which is) via the debounce effect
+  // below. Seeded from search's own restored value so a POP-navigation
+  // round trip doesn't wait out a debounce delay before showing the right
+  // page again.
+  const [debouncedSearch, setDebouncedSearch] = useState(search)
 
   const [leads, setLeads] = useState([])
+  const [totalCount, setTotalCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
+  // True when the current search term matched more parties/sites/employees
+  // than resolveLeadsSearchFilter's per-table cap (50) — the results below
+  // are then only a subset of everything that actually matches, and saying
+  // so beats letting a partial list look like the complete answer.
+  const [searchCapped, setSearchCapped] = useState(false)
 
   // Only the value inputs are debounced — everything else here is a
   // click/select, not free typing, so it can refetch immediately.
@@ -97,17 +123,61 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
   }, [minValueInput, maxValueInput, setMinValue, setMaxValue])
 
   useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timeout)
+  }, [search])
+
+  // Any real change to a filter or the search term invalidates whatever page
+  // we were on — a page number that made sense against the old result set
+  // can easily be past the end of (or just wrong for) the new one. This is
+  // computed and used INLINE in the same effect that fetches, not as a
+  // separate effect that calls setPage(0) — two effects both reacting to a
+  // filter change is a real race: the fetch effect could still run once with
+  // the OLD page number against the NEW (smaller) filtered set, requesting a
+  // .range() past the end and getting a PostgREST 416 (reproduced live while
+  // building this — going to page 2, then applying a filter, occasionally
+  // sent `range=50-99` against an 11-row result). Comparing a `filtersKey`
+  // inside this one effect means the corrected page is used for the very
+  // fetch that detects the change, not a follow-up one. `null` on the first
+  // run (not "the empty-string combination") is what makes a POP-restored
+  // page survive a Back navigation instead of being reset to 0 the instant
+  // this mounts.
+  const lastFiltersKeyRef = useRef(null)
+
+  useEffect(() => {
     let active = true
     setLoading(true)
 
-    fetchLeadsList({
-      employeeId: employeeFilter || null,
-      stage: stageFilter || null,
-      source: sourceFilter || null,
-      status: statusFilter || null,
-      minValue: minValue !== '' ? Number(minValue) : null,
-      maxValue: maxValue !== '' ? Number(maxValue) : null,
-    }).then(({ data, error }) => {
+    const filtersKey = JSON.stringify([
+      employeeFilter,
+      stageFilter,
+      sourceFilter,
+      statusFilter,
+      minValue,
+      maxValue,
+      debouncedSearch,
+    ])
+    const filtersChanged = lastFiltersKeyRef.current !== null && lastFiltersKeyRef.current !== filtersKey
+    lastFiltersKeyRef.current = filtersKey
+    const effectivePage = filtersChanged ? 0 : page
+    if (filtersChanged && page !== 0) setPage(0)
+
+    async function run() {
+      const searchResult =
+        debouncedSearch.trim().length >= MIN_QUERY_LENGTH ? await resolveLeadsSearchFilter(debouncedSearch) : null
+      if (!active) return
+      setSearchCapped(searchResult?.capped ?? false)
+
+      const { data, error, count } = await fetchLeadsList({
+        employeeId: employeeFilter || null,
+        stage: stageFilter || null,
+        source: sourceFilter || null,
+        status: statusFilter || null,
+        minValue: minValue !== '' ? Number(minValue) : null,
+        maxValue: maxValue !== '' ? Number(maxValue) : null,
+        searchOr: searchResult?.or ?? null,
+        page: effectivePage,
+      })
       if (!active) return
       setLoading(false)
       if (error) {
@@ -115,13 +185,19 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
       } else {
         setError(null)
         setLeads(data ?? [])
+        setTotalCount(count ?? 0)
       }
-    })
+    }
+
+    run()
 
     return () => {
       active = false
     }
-  }, [employeeFilter, stageFilter, sourceFilter, statusFilter, minValue, maxValue])
+    // setPage comes from usePersistedFilterState, which wraps useState —
+    // stable across renders same as any useState setter, listed for the
+    // linter only.
+  }, [employeeFilter, stageFilter, sourceFilter, statusFilter, minValue, maxValue, debouncedSearch, page, setPage])
 
   // Powers the mobile grouped view's recency line ("touched today"/"Nd
   // silent") — independent of the filters above (last-activity data doesn't
@@ -143,22 +219,16 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
     }
   }, [])
 
-  const term = search.trim().toLowerCase()
-  const filtered = term
-    ? leads.filter((lead) => {
-        const party = lead.parties?.name?.toLowerCase() ?? ''
-        const site = `${lead.sites?.nickname ?? ''} ${lead.sites?.locality ?? ''}`.toLowerCase()
-        const owner = lead.employees?.name?.toLowerCase() ?? ''
-        return party.includes(term) || site.includes(term) || owner.includes(term)
-      })
-    : leads
+  // `leads` is already server-filtered, server-searched (resolveLeadsSearchFilter)
+  // and server-paginated by the fetch effect above — no client-side
+  // re-filtering needed or done here anymore.
 
   // Mobile's grouped-by-stage default (LEAD_STAGE_OPTIONS order first, then
-  // any free-text "Other…" stage present in the data) — desktop keeps the
-  // flat list below unchanged.
+  // any free-text "Other…" stage present in the data), scoped to just the
+  // current page — desktop keeps the flat list below unchanged.
   const groups = useMemo(() => {
     const byStage = new Map()
-    filtered.forEach((lead) => {
+    leads.forEach((lead) => {
       const stage = lead.current_stage ?? 'calling'
       if (!byStage.has(stage)) byStage.set(stage, [])
       byStage.get(stage).push(lead)
@@ -170,7 +240,7 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
         const rows = byStage.get(stage)
         return { stage, rows, value: rows.reduce((s, l) => s + dealValueFor(l), 0) }
       })
-  }, [filtered])
+  }, [leads])
 
   function clearAllFilters() {
     setEmployeeFilter('')
@@ -365,15 +435,51 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
     </>
   )
 
+  // True total from the server (`count: 'exact'`, computed after every
+  // filter/search but before .range()) — not leads.length, which is only
+  // ever at most one page's worth. This is the fix for the old "X of 100"
+  // readout that could never say how many leads actually existed.
+  const rangeStart = totalCount === 0 ? 0 : page * LEADS_PAGE_SIZE + 1
+  const rangeEnd = page * LEADS_PAGE_SIZE + leads.length
+  const totalPages = Math.max(1, Math.ceil(totalCount / LEADS_PAGE_SIZE))
+
   const listStatus = (
     <>
-      {!loading && !error && leads.length > 0 && (
+      {!loading && !error && (
         <p className="vip-card-note">
-          {filtered.length} of {leads.length} lead{leads.length === 1 ? '' : 's'}
+          {totalCount === 0
+            ? 'No leads'
+            : `${rangeStart}–${rangeEnd} of ${totalCount} lead${totalCount === 1 ? '' : 's'}`}
         </p>
       )}
       {error && <p className="vip-error" role="alert">{error}</p>}
     </>
+  )
+
+  // Plainest functional pagination — Prev/Next + a page count, existing
+  // vip-btn classes only. Only shown once there's a second page to go to.
+  const paginationBar = totalPages > 1 && (
+    <div className="vip-btn-row" style={{ marginTop: 10 }}>
+      <button
+        type="button"
+        className="vip-btn vip-btn-secondary vip-btn-sm"
+        disabled={page <= 0}
+        onClick={() => setPage(page - 1)}
+      >
+        ‹ Prev
+      </button>
+      <span className="vip-card-note" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        Page {page + 1} of {totalPages}
+      </span>
+      <button
+        type="button"
+        className="vip-btn vip-btn-secondary vip-btn-sm"
+        disabled={page + 1 >= totalPages}
+        onClick={() => setPage(page + 1)}
+      >
+        Next ›
+      </button>
+    </div>
   )
 
   return (
@@ -386,6 +492,11 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Search by party, site, or owner…"
       />
+      {searchCapped && (
+        <p className="vip-form-note">
+          Showing the first 50 matches per category — refine your search for a complete list.
+        </p>
+      )}
 
       {/* Mobile: filters stay a disclosure panel behind a toggle — screen
           real estate is too tight for a persistent rail at phone width. */}
@@ -427,40 +538,43 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
 
         {loading ? (
           <p className="vip-empty">Loading…</p>
-        ) : filtered.length === 0 ? (
-          <p className="vip-empty">{leads.length === 0 ? 'No leads match these filters.' : 'No leads match your search.'}</p>
+        ) : leads.length === 0 ? (
+          <p className="vip-empty">No leads match these filters.</p>
         ) : (
-          <div className="vip-lead-groups">
-            {groups.map((group) => (
-              <div key={group.stage}>
-                <div className="vip-lead-group-head">
-                  <span className="vip-lead-group-swatch" style={{ background: stageFg(group.stage) }} />
-                  <span className="vip-lead-group-name">{stageLabel(group.stage)}</span>
-                  <span className="vip-lead-group-count">{group.rows.length}</span>
-                  <span className="vip-lead-group-value">{formatCurrencyCompact(group.value)}</span>
-                </div>
-                {group.rows.map((lead) => {
-                  const recency = recencyInfo(lead, lastActivityByLead)
-                  return (
-                    <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-lead-row">
-                      <div className="vip-lead-row-main">
-                        <div className="vip-lead-row-party">{partyLabel(lead)}</div>
-                        <div className="vip-lead-row-sub">
-                          {[lead.sites?.nickname || lead.sites?.locality, SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type]
-                            .filter(Boolean)
-                            .join(' · ')}
+          <>
+            <div className="vip-lead-groups">
+              {groups.map((group) => (
+                <div key={group.stage}>
+                  <div className="vip-lead-group-head">
+                    <span className="vip-lead-group-swatch" style={{ background: stageFg(group.stage) }} />
+                    <span className="vip-lead-group-name">{stageLabel(group.stage)}</span>
+                    <span className="vip-lead-group-count">{group.rows.length}</span>
+                    <span className="vip-lead-group-value">{formatCurrencyCompact(group.value)}</span>
+                  </div>
+                  {group.rows.map((lead) => {
+                    const recency = recencyInfo(lead, lastActivityByLead)
+                    return (
+                      <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-lead-row">
+                        <div className="vip-lead-row-main">
+                          <div className="vip-lead-row-party">{partyLabel(lead)}</div>
+                          <div className="vip-lead-row-sub">
+                            {[lead.sites?.nickname || lead.sites?.locality, SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </div>
                         </div>
-                      </div>
-                      <div className="vip-lead-row-side">
-                        <div className="vip-lead-row-value">{formatLeadValue(lead)}</div>
-                        <div className={recency.isStale ? 'vip-lead-row-recency vip-stale' : 'vip-lead-row-recency'}>{recency.label}</div>
-                      </div>
-                    </Link>
-                  )
-                })}
-              </div>
-            ))}
-          </div>
+                        <div className="vip-lead-row-side">
+                          <div className="vip-lead-row-value">{formatLeadValue(lead)}</div>
+                          <div className={recency.isStale ? 'vip-lead-row-recency vip-stale' : 'vip-lead-row-recency'}>{recency.label}</div>
+                        </div>
+                      </Link>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+            {paginationBar}
+          </>
         )}
       </div>
 
@@ -487,8 +601,8 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
 
           {loading ? (
             <p className="vip-empty">Loading…</p>
-          ) : filtered.length === 0 ? (
-            <p className="vip-empty">{leads.length === 0 ? 'No leads match these filters.' : 'No leads match your search.'}</p>
+          ) : leads.length === 0 ? (
+            <p className="vip-empty">No leads match these filters.</p>
           ) : (
             <>
               <div className="vip-leadrow-head">
@@ -500,7 +614,7 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
                 <span className="vip-leadrow-num">Value</span>
                 <span className="vip-leadrow-num">Last touch</span>
               </div>
-              {filtered.map((lead) => {
+              {leads.map((lead) => {
                 const recency = recencyInfo(lead, lastActivityByLead)
                 return (
                   <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-leadrow vip-clickable">
@@ -524,6 +638,7 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
                   </Link>
                 )
               })}
+              {paginationBar}
             </>
           )}
         </div>

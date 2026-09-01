@@ -1,0 +1,14 @@
+[
+  { "name": "Login", "path": "/login" },
+  { "name": "Home (Today)", "path": "/" },
+  { "name": "Search", "path": "/search" },
+  { "name": "Dashboard – Reports", "path": "/dashboard" },
+  { "name": "Dashboard – All Leads", "path": "/dashboard?tab=leads" },
+  { "name": "New Lead", "path": "/leads/new" },
+  { "name": "Lead Profile", "path": "/leads/402" },
+  { "name": "Log Activity", "path": "/activity" },
+  { "name": "Sales Exec Profile", "path": "/employees/26" },
+  { "name": "My Team", "path": "/team" },
+  { "name": "Profile", "path": "/profile" },
+  { "name": "Not Found (404)", "path": "/this-page-does-not-exist" }
+]
