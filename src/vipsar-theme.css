@@ -703,6 +703,18 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-report-grid { display: flex; flex-direction: column; gap: 14px; }
 .vip-tile-grid { display: flex; flex-direction: column; gap: 8px; }
 
+/* A plain section label between groups of report cards — spacing/typography
+   only, no card chrome (no background/border/padding), so the Reports view
+   reads as a handful of intentional groups (deal pipeline, sites & product,
+   activity & sourcing) rather than one undifferentiated stack of identical
+   cards. Same type scale as .vip-card-title, one step up in size/color to
+   read as a header over several cards rather than one card's own title. */
+.vip-report-section {
+  font-family: var(--vip-display); font-size: 13px; font-weight: 700;
+  letter-spacing: .04em; color: var(--vip-muted);
+  margin: 6px 0 -4px; padding: 0 2px;
+}
+
 /* Dashboard's Targets vs. actuals + Needs Attention pairing — main content
    (the attainment grid) plus a narrower fixed-ish aside, same shape as
    .vip-cols below, stacked on mobile like every other report-grid item. */

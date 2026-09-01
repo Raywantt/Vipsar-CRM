@@ -1,4 +1,4 @@
-import { LOSS_REASON_OPTIONS } from '../lib/lossReasonOptions'
+import { LOSS_REASON_OPTIONS, lossReasonLabel } from '../lib/lossReasonOptions'
 
 // loss_reasons SELECT is owner-only (RLS) — this card only ever gets
 // rendered for the owner (see Dashboard.jsx's isOwner gate), so there's no
@@ -41,7 +41,7 @@ function LossReasonsCard({ lossReasons, onOpenPanel }) {
           {[...reasonCounts.entries()].map(([reason, count]) => (
             <div key={reason} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                <div style={{ fontSize: 12, color: 'var(--vip-body)' }}>{reason}</div>
+                <div style={{ fontSize: 12, color: 'var(--vip-body)' }}>{lossReasonLabel(reason)}</div>
                 <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
                   {count}
                 </div>

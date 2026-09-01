@@ -617,6 +617,8 @@ function Dashboard() {
               )
             )}
 
+            <div className="vip-span-2 vip-report-section">Activity &amp; sourcing</div>
+
             {loading ? (
               <p className="vip-empty">Loading…</p>
             ) : (
@@ -635,6 +637,8 @@ function Dashboard() {
                 />
               </>
             )}
+
+            <div className="vip-span-2 vip-report-section">Deal pipeline</div>
 
             <div className="vip-span-2">
               <ClosureForecastCard leads={forecast} onOpenPanel={() => setPanel(buildForecastPanel({ forecast, scopeLabel }))} />
@@ -678,6 +682,8 @@ function Dashboard() {
                 already shows everything funnel-specific (reach + avg-days
                 per stage) inline. */}
             <SalesFunnelCard stageHistory={funnelStageHistory} leads={breakdownLeads} />
+
+            <div className="vip-span-2 vip-report-section">Sites &amp; product</div>
 
             <LeadsByCategoryCard
               title="Leads by area"
@@ -741,9 +747,12 @@ function Dashboard() {
             </div>
 
             {isOwner && (
-              <div className="vip-span-2">
-                <LossReasonsCard lossReasons={lossReasons} onOpenPanel={() => setPanel(buildLossPanel({ lossReasons }))} />
-              </div>
+              <>
+                <div className="vip-span-2 vip-report-section">Why we lose</div>
+                <div className="vip-span-2">
+                  <LossReasonsCard lossReasons={lossReasons} onOpenPanel={() => setPanel(buildLossPanel({ lossReasons }))} />
+                </div>
+              </>
             )}
           </div>
             </>
