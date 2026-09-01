@@ -104,11 +104,7 @@ needs before touching anything:
 - Deliberately **not built yet** — these need their own discussion first,
   don't add them as a side effect of unrelated work: a
   **`plans`-table screen** (the table has full RLS wired up and zero UI
-  anywhere in `src/`), **further role-differentiated Home/Today content**
-  (the old role-keyed `HOME_TILES`/`src/lib/homeTiles.js` tile-grid pattern
-  is gone — see the Mobile redesign section's Today bullet — so a future
-  role would need its own new mechanism, not an entry in a map that no
-  longer exists), and **a general screen listing past activities**
+  anywhere in `src/`), and **a general screen listing past activities**
   (`ActivityLog` only logs new ones; nothing browses old ones freely —
   the Day Review's day sheet lists a given exec's activities *for one
   chosen day*, and a lead's own timeline / a Sales Exec Profile's Activity
@@ -119,6 +115,18 @@ needs before touching anything:
   editing an existing follow-up's details and a standalone Follow-ups list
   page are still out of scope for this pass (only create and mark-done
   exist in the UI).
+- **`/` is now three role-specific screens, not one shared component** —
+  the 2026-09-01 "Today Briefing" rebuild (see the Today section below).
+  `Home.jsx` is `sales_executive`-only now; `owner` gets the new
+  `OwnerToday.jsx` (a team-wide bird's-eye day, not a personal one); a
+  `sales_coordinator` gets **a real, fully built `CoordinatorToday.jsx`** —
+  the Sales Coordinator section's old "Phase 3 placeholder" description of
+  that screen is stale and superseded by the Today section below. This is
+  the "further role-differentiated Home/Today content" this section used to
+  list as not-yet-built; it's done, via three separate files sharing one
+  `TodayGreetingHeader.jsx` component, not an entry in a map (the old
+  `HOME_TILES` tile-grid mechanism it might have used is still gone, per the
+  Mobile redesign section — this rebuild didn't revive it).
 - **Sales Exec Profile + redesigned Lead Profile** (`/employees/:id`,
   `/leads/:id` — see their own sections below) were built from a second
   Claude Design handoff (`design_handoff_detail_pages/README.md`/
@@ -245,12 +253,17 @@ src/
                 NotificationPrompt, OfflineIndicator, FollowUpForm, FollowUpList,
                 FabSheet — the mobile shell's FAB bottom sheet, see the
                 Mobile redesign section, NumPadInput — the mobile-only
-                on-screen numeric keypad, see the Numeric keypad section)
-  pages/        top-level views (Login, Home [renders Today, see the Mobile
-                redesign section], CoordinatorToday [the sales_coordinator's
-                own `/` — see the Sales Coordinator section], Profile, Search,
-                Dashboard, LeadQuickCapture, LeadDetail, EmployeeProfile,
-                MyTeam, ActivityLog, ...)
+                on-screen numeric keypad, see the Numeric keypad section,
+                TodayGreetingHeader — the greeting bar shared by all three
+                Today screens, see the Today section)
+  pages/        top-level views (Login, Home [sales_executive's own `/`,
+                exports the `Today` wrapper that also renders OwnerToday/
+                CoordinatorToday by role — see the Today section],
+                OwnerToday [the owner's own `/`, a team-wide bird's-eye day],
+                CoordinatorToday [the sales_coordinator's own `/`, a real
+                build — see the Today and Sales Coordinator sections],
+                Profile, Search, Dashboard, LeadQuickCapture, LeadDetail,
+                EmployeeProfile, MyTeam, ActivityLog, ...)
   contexts/     AuthContext — session + employee (id/name/mobile/role) lookup;
                 HeaderContext — lets Lead Detail/Sales Exec Profile/Dashboard
                 push a dynamic {title, sub} override into AppNav's header
@@ -728,60 +741,108 @@ approximation of it.** Concretely:
   trusting what a preview tab shows for an `index.html`-level change like
   this one.
 
-### Today (`src/pages/Home.jsx`)
+### Today (`src/pages/Home.jsx`, `src/pages/OwnerToday.jsx`, `src/pages/CoordinatorToday.jsx`)
 
-`/` is the landing page after login for both roles, still the one route
-`AppNav` renders nothing for (`AppNav.jsx` returns `null` when
-`pathname === '/'`) — a greeting bar (`.vip-today-head`: time-of-day
-greeting via `greetingForTime`, falling back to "Hello" late at night, plus
-a SYNCED/OFFLINE `.vip-sync-pill` from `useOnlineStatus()` and an avatar
-`Link` to `/profile`) is the page's own heading, so the screen starts flush
-at the top (`.vip-home .vip-body` swaps the fixed-header padding-top
-allowance for a small safe-area-aware one instead). Rebuilt in the Mobile
-redesign pass (see that section for the full breakdown — greeting bar/KPI
-grid/target bar/work queue/reminders/closing-next) from a tile-based
-shortcut screen into the current form; `src/lib/homeTiles.js`/`HOME_TILES`
-(the old role-keyed tile config) is deleted, not just unused — read the
-Mobile redesign section before assuming a "Home tile" mechanism still
-exists anywhere.
+`/` is the landing page after login, still the one route `AppNav` renders
+nothing for (`AppNav.jsx` returns `null` when `pathname === '/'`). As of the
+**2026-09-01 "Today Briefing" rebuild this is three separate screens, not
+one shared component branching on role.** `Home.jsx`'s default export is
+now a thin `Today` wrapper (bottom of the file) that picks one:
+`sales_coordinator` → `CoordinatorToday`, `owner` → `OwnerToday`, anyone
+else → the real `Home`. It's a wrapper *around* `Home`, not an early return
+*inside* it — `Home` fires a dozen hooks and several fetches before it
+renders anything, and none of those queries are scoped to data an owner or
+coordinator actually owns, so an early return would still pay for all of
+them.
 
-**Restructured again by the Day Review pass (2026-08-10)** into the two
-halves that handoff's screen 4c asks for. **There is no check-out flow, no
-modal, no gate on logout, and the phrase "wrap up your day" appears
-nowhere** — the screen just answers both questions whenever the rep looks at
-it. Top to bottom now: greeting bar → **Done today** → **Still to do today**
-→ the standing work buckets.
+**Why the split**: `Home` used to serve `sales_executive` and `owner` with
+the same rep-shaped screen (the Day Review pass's "Done today"/"Still to do
+today" halves — see the duplicate-fetch note below, which predates and
+survives this split). Real feedback (2026-09-01) was that this reads as a
+wall of zeros for an owner: they don't log activities, rarely have
+follow-ups of their own, and don't touch leads or send quotes personally.
+`OwnerToday.jsx` (new file) is the bird's-eye replacement — the whole sales
+team's day, not one person's. `CoordinatorToday.jsx` is now **a real build,
+not the Phase 3 placeholder** the Sales Coordinator section below used to
+describe (see that section's own bullet) — the same idea, scoped to one
+coordinator's own team instead of the whole company.
 
-* **Done today** replaces the old "My numbers" W/M/Q/Y KPI grid entirely
-  (`KPI_TILES` and both of its parallel mobile/desktop markups are gone).
-  Four tiles — Activities, Follow-ups `done / due`, Leads touched, Quotes
-  sent — from one `fetchDayReview(todayISO())` call run through
-  `buildDayRows([employee], …)`, i.e. **the exact same aggregation the
-  Dashboard's team table uses**, for this employee alone, so the two can't
-  disagree. A "since 9:12 am" note comes off the first activity logged.
-  Below it, a card of the day's three most significant entries
-  (`buildSignificantEntries` — teal dot = activity, navy = a lead edit,
-  red/green = lost/won) ending in **"See everything I logged today"**, which
-  opens this employee's own `daySheet` panel — the same panel the owner sees.
-* **Still to do today** replaces the old "Your reminders" card, keeping its
-  `+ Add reminder` toggle (so nothing was lost). Each open follow-up — due
-  today *or already late* — is a card with a red left bar, its own urgency
-  line ("3 days late" / "due 11:00 am"), and **one action**: Call (a real
-  `tel:` link on the most urgent, which is why `FOLLOW_UP_SELECT` now
-  embeds `parties(name, mobile)`) or Move (an inline reschedule panel).
-  Capped at 3, then "+N more · see all" opening the existing `followup`
-  drill-down kind. Followed by a **Tomorrow** row.
-* **The work queue lost its two follow-up rows** (Overdue follow-ups / Due
-  today). Those were the same reminders "Still to do today" now lists in
-  full, and the user's whole reason for picking this option was to stop
-  showing them twice. What's left is the three lead-ageing buckets (stale /
-  silent quotes / slipped) — the queue is now about leads going cold, which
-  is genuinely distinct from a reminder.
-* **The W/M/Q/Y period switch moved onto the "Order value vs target" card.**
-  It used to head the "My numbers" grid; that grid is now a single day with
-  no period to pick, and the target bar is the only block left that has one.
-  `PERIOD_LABEL_SUFFIX` went with it — the control itself now says which
-  period is showing.
+All three share one greeting bar, **`TodayGreetingHeader.jsx`**
+(`src/components/`, new) — was two byte-identical copies of the same markup
+until this rebuild touched both files heavily enough that hand-syncing them
+stopped being reasonable. Its own markup is unchanged from before: a
+time-of-day greeting via `greetingForTime` (falls back to "Hello" late at
+night), a SYNCED/OFFLINE `.vip-sync-pill` from `useOnlineStatus()`, and an
+avatar `Link` to `/profile`.
+
+All three then follow one **Hero → Act now → Recap/Overview → Outlook**
+grammar (the redesign's own term), with team-shaped content standing in for
+personal content on the two non-exec screens:
+
+* **`Home.jsx` (sales_executive only now)** — **Hero** (`TodayHero`) is the
+  W/M/Q/Y "Order value vs target" bar, promoted to full width and first
+  thing seen (it used to be a plain card two-thirds down the old page),
+  plus 4 "Done today" tiles (Activities, Follow-ups `done/pending` via
+  `DayKpiStrip`'s built-in done/missed rendering — a real fix, since "N
+  still open" used to always paint red even for a not-yet-due follow-up,
+  which is amber-pending everywhere else this app shows the same fact;
+  Leads touched; Quotes sent) off the same `fetchDayReview(todayISO())` →
+  `buildDayRows` pipeline the Dashboard's team table uses, for this
+  employee alone. **Act now** merges what used to be two separate cards
+  ("Still to do today" and the work queue) into one "Needs your attention
+  today" card: every open follow-up via `FollowUpList` (every row now
+  carries every action — Call/Move/Cancel/Log activity — where the old
+  bespoke `.vip-todo-card` per row gave only the first row a Call button
+  and the rest just Move, with neither the reminder's title nor its notes
+  ever rendered), then the 3 lead-ageing buckets (stale/silent quotes/
+  slipped) under a "Stale leads" subhead, then a **Tomorrow** row.
+  **Recap** is "Today's activity" — `buildSignificantEntries`'s handful of
+  the day's most significant entries, ending in "See everything I logged
+  today" (opens the same `daySheet` panel the owner sees). **Outlook** is
+  "Closing next", unchanged from before this pass.
+* **`OwnerToday.jsx` (new file)** — **Hero** is "Your team today": headcount
+  + today's team-wide total logged, with the same `DayKpiStrip` the Day
+  Review's team table already renders. **Overview** is the literal
+  `DayReviewCard` team table (every active sales exec via
+  `fetchActiveSalesExecs()`, unfiltered) — clicking a row opens that exec's
+  day sheet. **Act now** is "Needs attention today": just 2 of
+  `computeAttentionBuckets`'s 5 categories (stale leads, overdue
+  follow-ups — confirmed with the owner rather than defaulting to all 5, to
+  keep a screen billed as brief actually brief), org-wide. A small
+  secondary "Your reminders" card carries the owner's own occasional
+  personal follow-ups (a real but minor use case) without giving it full
+  `Home.jsx` billing. No W/M/Q/Y target bar at all — an owner carries no
+  personal quota.
+* **`CoordinatorToday.jsx` (real build now, not the placeholder)** —
+  structurally the same screen as `OwnerToday.jsx` (same Day Review
+  plumbing, same grammar), scoped to `fetchMyTeamExecs(employee.id)`
+  instead of every exec. **Hero** is "Your team today" for that
+  coordinator's own roster; **Overview** is the same `DayReviewCard`; **Act
+  now** is "Needs your team's attention" (the same 2-of-5 attention
+  categories) plus **the one genuinely new capability this screen adds**:
+  a "+ Assign follow-up" control (pick a team exec, then the same
+  `FollowUpForm` `EmployeeProfile.jsx` already uses for owner→exec
+  assignment) — before this, a coordinator had no "Set follow-up" action
+  anywhere, since `LeadQuickActions` only mounts under `canEdit`, which is
+  never true for a lead they don't own. Kept as its own file rather than
+  merged with `OwnerToday.jsx`: the two differ in roster source, and this
+  one carries the assign-follow-up card `OwnerToday` has no equivalent of.
+  Deliberately **not** here, matching the original Phase 4 scope: a date
+  picker (Dashboard already owns past-day review, already coordinator-team-
+  scoped) and a team target/attainment card (a coordinator carries no
+  personal quota).
+* Every screen still shows only what RLS actually returns for the viewer —
+  a sales exec's own row is all `Home.jsx` ever sees, and `OwnerToday`'s/
+  `CoordinatorToday`'s rosters come from `fetchActiveSalesExecs()`/
+  `fetchMyTeamExecs()` rather than a client-side role check, so there's
+  nothing further to gate beyond which of the three components renders.
+
+**Not yet verified live.** This rebuild reuses the Day Review plumbing
+(`fetchDayReview`/`buildDayRows`/`computeAttentionBuckets`/`DayReviewCard`)
+that was already proven live elsewhere, so the reasoning above should hold,
+but no one has driven all three screens in a real browser session since
+this landed — do that (all three roles, both widths) before treating this
+description as confirmed rather than reasoned-through.
 
 **Real duplicate-fetch bug found and fixed** (a code-review finding, part of
 a broader "every dashboard downloads the whole company and reduces it in
@@ -3516,10 +3577,16 @@ here.
   link, not the viewport. See the role × breakpoint section at the top of this
   file.
 * `Home.jsx` exports a `Today` wrapper that renders `CoordinatorToday` for an
-  SC and the unchanged `Home` for everyone else — a wrapper, not an early
-  return, because `Home` fires a dozen hooks and several fetches before it
-  renders. `CoordinatorToday` is currently a **placeholder** (greeting bar +
-  "your team view is being built"); Phase 4 replaces the card, not the bar.
+  SC and `OwnerToday` for an owner (`Home` itself now serves only
+  `sales_executive`) — a wrapper, not an early return, because `Home` fires
+  a dozen hooks and several fetches before it renders. **`CoordinatorToday`
+  was a placeholder (greeting bar + "your team view is being built") at the
+  time this paragraph was first written; it no longer is** — the
+  2026-09-01 "Today Briefing" rebuild replaced it with a real screen (team
+  day-review table, a red-flags queue, and a "+ Assign follow-up" action).
+  See the Today section above for the current shape of all three role
+  screens — don't trust this paragraph's "placeholder" framing, it predates
+  that rebuild.
 * **All three roles verified live 2026-08-10** (three dev servers on ports
   5181/5182/5183 — separate origins mean separate localStorage, which is the
   only way to hold three sessions at once; same-port tabs share one login).
@@ -3920,24 +3987,30 @@ during Phase 9; none is a bug report to re-investigate. Full detail in
    **Entry-on-behalf is now built** (2026-08-11) — the FAB, `/leads/new`, and
    `/activity` are all open to a coordinator, each gated behind a mandatory
    "Who is this for?" exec picker. See the Sales Coordinator section's own
-   bullet for the full shape. **Still to build: the rest of Phase 4** — the
-   coordinator's Today screen itself (team overview rows, red flags, and a
-   dedicated follow-up assignment flow from that team overview — an SC still
-   has no "Set follow-up" action anywhere today, since `LeadQuickActions`
-   only mounts under `canEdit`, which is never true for an SC on a lead they
-   don't own), replacing `CoordinatorToday`'s placeholder card. Red flags are settled: a lead untouched for
-   `ATTENTION_DAYS` (14 — the shared constant, see the Staleness bullet in
-   the Dashboard section; the spec's separate 10-day figure was retired), and
-   a follow-up past its due date and not done. Out of scope by decision: push
-   notifications for red flags, company-wide comparison views for an SC, and
-   de-duplicating parties/sites created across teams after the scoping change.
+   bullet for the full shape. **Phase 4 is now built too** (2026-09-01, as
+   part of the "Today Briefing" rebuild — see the Today section above):
+   `CoordinatorToday.jsx` replaced its old placeholder card with a real
+   team overview (the Day Review's own team table, scoped to the
+   coordinator's roster), a red-flags queue, and the dedicated follow-up
+   assignment flow this bullet used to describe as missing — an SC can now
+   "+ Assign follow-up" to a team exec directly from this screen. Red flags
+   are exactly the 2 categories this bullet originally settled on: a lead
+   untouched for `ATTENTION_DAYS` (14 — the shared constant, see the
+   Staleness bullet in the Dashboard section; the spec's separate 10-day
+   figure was retired), and a follow-up past its due date and not done.
+   Out of scope by decision, unchanged: push notifications for red flags,
+   company-wide comparison views for an SC, and de-duplicating parties/
+   sites created across teams after the scoping change. **Not yet verified
+   live** — see the Today section's own note on this.
 7. Deploy + pilot with 1-2 sales execs before full rollout.
    Still open from the "Current state" list above: a `plans`-table screen,
-   role-differentiated Home/Today content, and a general
-   browse-past-activities screen. Followups (see the dedicated section), the
-   Mobile redesign (the below-1024px experience end to end, desktop
-   untouched) and the Day Review (`Today` on the Dashboard, plus the
-   `lead_change_log` audit trail and the Done/Still-to-do restructure of the
-   exec's own Today screen) all shipped during this phase.
+   and a general browse-past-activities screen. Followups (see the
+   dedicated section), the Mobile redesign (the below-1024px experience end
+   to end, desktop untouched), the Day Review (`Today` on the Dashboard,
+   plus the `lead_change_log` audit trail and the original Done/Still-to-do
+   restructure of the exec's own Today screen), and — later in this same
+   phase, 2026-09-01 — the "Today Briefing" rebuild that split `/` into
+   three role-specific screens (`Home`/`OwnerToday`/`CoordinatorToday`, see
+   the Today section above) all shipped during this phase.
 
 For domain model, lead-sourcing logic, and locked-in design decisions, see DECISIONS.md.
