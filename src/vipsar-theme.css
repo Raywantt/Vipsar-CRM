@@ -410,6 +410,11 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 }
 .vip-total {
   display: flex; justify-content: space-between;
+  /* margin-top: auto anchors the total to the card's base when the card has
+     been stretched taller than its content by .vip-report-grid above. In a
+     card with no free space it resolves to 0, so unstretched cards are
+     unchanged. */
+  margin-top: auto;
   border-top: 1px solid var(--vip-line); padding-top: 9px;
   font-size: 12px; font-weight: 600; color: var(--vip-ink);
 }
@@ -867,7 +872,13 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 
   .vip-kpi-grid { grid-template-columns: repeat(4, 1fr); }
 
-  .vip-report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+  /* stretch, not start: a short card fills its row instead of leaving a
+     visible hole beneath it while its neighbour runs long. Measured 613px of
+     dead gutter across three rows before this (worst: Leads by area's 2 rows
+     beside Leads by site stage's 13). .vip-featured-row deliberately keeps
+     align-items: start below - its last child is position: sticky, which a
+     stretched full-height item would defeat. */
+  .vip-report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: stretch; }
   .vip-span-2 { grid-column: span 2; }
   .vip-featured-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 12px; align-items: start; }
   /* Targets vs. actuals grows with employee count; Needs Attention doesn't,

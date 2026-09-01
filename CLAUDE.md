@@ -581,7 +581,21 @@ approximation of it.** Concretely:
   three pairs that actually sit half-width. Get this pairing wrong (an odd
   number of half-width cards in a row) and CSS grid leaves a visible gap —
   checked via computed `getBoundingClientRect()` during build, not just
-  eyeballed. Home's tile
+  eyeballed. **`.vip-report-grid` is `align-items: stretch`, not `start`**
+  (changed 2026-09-01) — a paired card shorter than its neighbour used to
+  keep its natural height and leave a visible hole beneath it; measured
+  613px of dead gutter across the three pairs above, worst 452px between
+  Leads by area and Leads by site stage. Stretch makes the shorter card fill
+  its row, so the slack sits *inside* a card as breathing room rather than
+  as a hole in the page. `.vip-total` carries `margin-top: auto` for the
+  same reason, so a stretched card's Total row anchors to its base instead
+  of floating mid-card (in an unstretched card there's no free space, so it
+  resolves to 0 and nothing changes). **`.vip-featured-row` deliberately
+  keeps `align-items: start`** — its last child is `position: sticky`, which
+  a stretched full-height item would defeat; don't "consistency-fix" it to
+  match. Stretch hides a mismatch, it doesn't fix one: a card pairing that
+  is wildly uneven still wants the *content* equalised (see the Dashboard
+  section's Leads-by-site-stage note on how 13 rows became 7). Home's tile
   stack becomes `.vip-tile-grid` (2×2) and the KPI grid goes 4-up in one
   row. `.vip-narrow`/`.vip-wide` are plain utility classes, not React
   components — applying one is a one-line class-name change per page, not a
@@ -1649,6 +1663,36 @@ as always (each section's save query has no `employees` embed, so
 `LeadDetail` merges the returned row rather than replacing state wholesale
 — a plain replace would drop `lead.employees`).
 
+**"+ Add site details" (2026-09-01)** — `siteDetailsEditor` is now a ternary,
+not `site && …`: with no site linked it renders a card whose button calls
+`handleAddSite()` (insert a `sites` row, link it to the lead, drop the real
+`SiteDetailsSection` in place with no reload). The mobile summary row lost its
+own `site &&` gate for the same reason — it was hiding the row in exactly the
+case that needed reaching. **Why it exists**: nothing else in this app can
+create a site *after* intake (`SiteDetailsSection`/`AdditionalContactsSection`
+only ever UPDATE), so a lead with no `site_id` could never get a site stage,
+locality, area or site contact for the rest of its life — this is the "must
+come with a way to create a site from Lead Detail" caveat the LeadQuickCapture
+section already warned about, now actually built. The owner hit it live on
+lead #197 (Navdeep Arora). **`discovered_by` is the LEAD'S OWNER, not whoever
+clicks** — it's their site, and it's also what keeps the write legal for all
+three editing roles, since Postgres applies the SELECT policy to
+`INSERT … RETURNING` and `sites`' `team_scoped_select` is wide for owner/
+coordinator but falls back to `discovered_by = current_employee_id()` for an
+exec (who only reaches this on their own lead). The row is created
+deliberately empty — no stage is guessed for a site nobody has visited — and
+the two writes aren't transactional, so a failed link surfaces the orphaned
+site's id rather than swallowing it, same as `LeadQuickCapture`.
+**Expect this card to be effectively unreachable now**: every lead has created
+a `sites` row since 2026-08-17, and the 5 legacy stranded leads were backfilled
+2026-09-01. It is a safety net for a state that can no longer arise. **Not
+verified live for that reason** — lint and build pass and the RLS reasoning is
+read off the live policy, but by the time it was built no stranded lead
+remained to trigger it, and creating one artificially was declined. The
+*outcome* is proven (the backfill performed the identical insert+link and lead
+#197 renders a working Site stage dropdown); the button that produces it is
+not.
+
 **`AdditionalContactsSection` joined the architect→firm tree 2026-08-17** (see
 the ActivityLog section). Both of its firm inputs — the "mentioned during
 intake" suggestion and the "+ Add contact" form — were free-text boxes writing
@@ -2715,7 +2759,21 @@ since it isn't part of the date-range-scoped report data.
   footer — only passed for **Area and Product** (real data, no natural
   ceiling — 11 and 9 rows on real data), **not** Site Stage, whose
   `categoryOrder` is already a short, fixed, meaningful list (6 rows) where
-  trimming would arbitrarily hide a real bucket rather than an overflow. All
+  trimming would arbitrarily hide a real bucket rather than an overflow.
+  **That reasoning held in principle but failed in practice, and the fix was
+  the data, not a cap** (2026-09-01): because `site_stage` is free text with
+  an `Other…` escape hatch, the card was discovering casing/punctuation
+  variants of the *same* stage as extra buckets and had grown to 13 rows,
+  with each real stage split across two or three of them. Capping it would
+  have been actively harmful — the pinned `categoryOrder` buckets sort first,
+  so `Plaster` (20) would have stayed visible while its own larger duplicate
+  `PLASTER` (63) hid behind "+N more", making the card look tidy and read
+  more wrongly than before. `Schema/migration_normalize_site_stage.sql` (see
+  Conventions) normalised the column instead, taking the card back to 7 rows,
+  and it stays uncapped for the original reason. **Generalise this**: when a
+  `categoryOrder` card runs longer than its fixed list, suspect the data
+  before reaching for `maxRows` — a cap on a pinned-order card hides
+  whichever duplicate sorts last, not the overflow you meant. All
   three have a "Details" link opening `buildCategoryMixPanel` (`mix` kind,
   real count/share/won-conversion per bucket off the same `breakdownLeads`,
   just not capped) — generic enough that a fourth instance wouldn't need a
@@ -3896,6 +3954,7 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 - **✅ `Schema/migration_office_territory.sql` was RUN LIVE 2026-08-17** and is no longer outstanding. It adds `leads.office_territory` (nullable TEXT) and its CHECK of the four offices, for the New Lead screen's required territory tap-select (see the LeadQuickCapture section). Verified behaviourally rather than by introspection: two leads (#160, #161) saved through the real form with `Territory · Ludhiana` on the success card and no error — the failure this bullet used to describe (**every** New Lead save failing, every role and source, with `column "office_territory" of relation "leads" does not exist`) is gone. Independent of every other migration here: it touches no policy, trigger or function, so it can run before or after any of them, and it's safe to re-run. A fifth office needs **both** halves changed — the CHECK here *and* `src/lib/territoryOptions.js` — or the app offers a button that fails to save.
 - **⚠️ `Schema/migration_employee_theme_preference.sql` is OUTSTANDING (written 2026-08-20, not yet run against the live database)** — it creates a new `employee_preferences` table (one row per employee, `own row only, no owner exception` RLS mirroring `push_subscriptions`) so the Profile → Appearance Light/Dark/System choice follows an employee's account across devices instead of only the browser it was set on (see the Design system section's Dark mode bullet). Deliberately not a column on `employees` — that table's `UPDATE` policy is owner-only with no self-update exception, so a column there would lock every non-owner out of saving their own preference. Until this runs, the feature degrades silently rather than breaking anything: `AuthContext.jsx`'s post-login fetch and `Profile.jsx`'s save-to-account call both treat the resulting `PGRST205` ("table not found") the same as any other failure — the existing device-local `localStorage` control keeps working exactly as before, with a small inline warning on save ("Saved on this device, but couldn't sync to your account."). Verified live against the real dev database pre-migration: no console error, no crash, the local theme still applies and persists. Safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP POLICY IF EXISTS`), independent of every other migration in the folder.
 - **⚠️ `Schema/migration_territory_others.sql` is OUTSTANDING (written 2026-08-19, not yet run against the live database)** — it widens `leads_office_territory_check` to add a fifth value, `others`, alongside the four named offices, for the "Others" button added to New Lead's territory tap-select the same day. Until it runs, picking "Others" and saving fails with `new row for relation "leads" violates check constraint "leads_office_territory_check"`, surfaced inline on the form like any other save error — every other office keeps working, and nothing else in the app reads this column differently. Safe to re-run (`DROP CONSTRAINT IF EXISTS` before the `ADD CONSTRAINT`), independent of every other migration in the folder. **Confirm this has actually been run before relying on "Others" saving** — same "don't trust the file's presence" rule as every other migration in this file.
+- **✅ `Schema/migration_normalize_site_stage.sql` was RUN LIVE 2026-09-01** — a **data** migration (it rewrites rows, unlike almost everything else in this folder; it touches no policy, trigger, function or constraint and is independent of every other migration). `sites.site_stage` is free text with an `Other…` escape hatch on both Site details and Site Visit, so the same real stage had been typed several ways: 262 sites held **12 distinct values collapsing to 6**. This was not cosmetic — Dashboard's "Leads by site stage" groups on the raw string, so it rendered 13 buckets and **reported wrong numbers**: `PLASTER` 63 + `Plaster` 20 + `PLASTERING` 5 were three separate rows, so Plaster displayed as 20 and ranked fourth when it is really 88 and ranks first. Likewise `S.F SLAB`+`SF Slab` → 35, `F.F SLAB`+`FF Slab` → 26, `FLOORING`+`Flooring` → 29. Verified live after running: **6 distinct values, zero off `SITE_STAGE_OPTIONS`, all 262 rows still present** (the migration only ever moves rows between buckets). The card dropped 619px→372px and the Reports view 3229px→2982px as a side effect. Matching is an explicit value list, **not** an `UPPER()`/regex fold — `FF Slab` vs `F.F SLAB` differ by punctuation as well as case, and `PLASTERING` is a different word from `PLASTER`, so a generic fold would either miss them or over-merge. Safe to re-run (already-correct rows don't match their own WHERE clause; a re-run changes 0 rows). **The underlying hazard is NOT fixed** — `site_stage` is still free text with no CHECK, and the `Other…` box on both screens can re-create variants at any time. If this recurs, the fix is a constraint or a normalising trigger, not another cleanup pass; don't just re-run this file and consider it handled. Note the one non-stage value the migration deliberately refused to guess at (someone had typed a note into the stage field) was resolved by the owner directly, not by this file.
 - **✅ `Schema/migration_referral_employee.sql` was RUN LIVE 2026-08-19** and is no longer outstanding — it adds the nullable `leads.referred_by_employee_id` column for New Lead's "Referral from" field, which as of the same day can credit a referral to one of our own employees instead of an outside party (see the LeadQuickCapture section's own bullet — that bullet also covers the field's final UI shape, a type-first dropdown, after two earlier designs were tried and reverted the same day). Independent of every other migration in the folder — no policy, trigger or function touched, and no CHECK needed (plain nullable FK, `ON DELETE SET NULL`). Safe to re-run (`ADD COLUMN IF NOT EXISTS`).
 - **✅ `Schema/migration_client_meeting_design_sheet.sql` was RUN LIVE 2026-08-17** and verified both by the file's own introspection query and behaviourally. It widens **two** CHECK constraints for the `client_meeting`/`design_sheet` activity types: `activities.activity_type` (Log Activity's two new buttons) and `follow_ups.activity_type` (`FollowUpForm`'s "Type of follow-up" chip picker reads the same `ACTIVITY_TYPES` list, so it offers both as chips on *any* reminder — a failure with nothing to do with Log Activity, which is exactly why that half is easy to forget). Both constraint definitions now list the two new values. **The need for it was proven before running, not assumed**: submitting a Design Sheet against a real lead returned `new row for relation "activities" violates check constraint "activities_activity_type_check"`, which also confirmed the constraint name section 1 assumes; it failed cleanly as an inline error with no partial write. **Both halves then proven after running**: a Client Meeting and a Design Sheet both saved clean against lead #159, and a reminder tagged Design Sheet saved and survived a real page reload (Home's Tomorrow row). Independent of every other migration (no policy, trigger or function touched), safe to re-run, and it only widens what's allowed — no existing row changed. Adding a ninth activity type needs this same two-constraint treatment.
 - **✅ `Schema/migration_architect_firm_link.sql` was RUN LIVE 2026-08-17.** It adds `parties.firm_party_id` (a self-reference, architect → the `firm` party they work under, `ON DELETE SET NULL` so deleting a firm never deletes its architects), a `parties_firm_not_self` CHECK, an index, and a backfill promoting each distinct `firm_name` to a real `firm` party and linking its architects (case- and trim-insensitive, deliberately not fuzzy — merging `Kapoor & Assoc` with `Kapoor and Assoc` would be a guess about the real world). Verified by its own output: both existing firm names became real firm parties with their architects linked, and a firm party that already existed was **not** duplicated. `firm_name` is deliberately **not** dropped — it stays as a read-only fallback for anything the backfill couldn't match, and nothing writes to it anymore. Safe to re-run.

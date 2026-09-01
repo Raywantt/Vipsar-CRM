@@ -94,6 +94,8 @@ function LeadDetail() {
   // opened LeadQuickActions as a sheet. Both unused at ≥1024px, where the
   // desktop rail/inline quick actions render unconditionally instead.
   const [openSection, setOpenSection] = useState(null)
+  const [addingSite, setAddingSite] = useState(false)
+  const [addSiteError, setAddSiteError] = useState(null)
   const [quickActionsSheetOpen, setQuickActionsSheetOpen] = useState(false)
 
   useEffect(() => {
@@ -499,10 +501,14 @@ function LeadDetail() {
       title: 'Sales progress',
       summary: lead.quote_sent ? `quote sent ${shortDate(lead.quote_sent_at)}` : isWon ? 'order booked' : 'not started yet',
     },
-    site && {
+    {
+      // Deliberately NOT gated on `site` — a lead with no site row is exactly
+      // the case that needs reaching, to add one (see handleAddSite below).
       key: 'site',
       title: 'Site details',
-      summary: [site.locality || site.nickname, site.site_stage].filter(Boolean).join(' · ') || 'no details yet',
+      summary: site
+        ? [site.locality || site.nickname, site.site_stage].filter(Boolean).join(' · ') || 'no details yet'
+        : 'not linked yet',
     },
     party && { key: 'client', title: 'Client details', summary: party.mobile || 'no mobile on file' },
     site && {
@@ -867,7 +873,84 @@ function LeadDetail() {
       onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
     />
   )
-  const siteDetailsEditor = site && <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />
+  // A lead created before "every lead creates a sites row" (2026-08-17) can
+  // have NO site at all, and nothing else in this app can create one after
+  // intake — SiteDetailsSection/AdditionalContactsSection only ever UPDATE an
+  // existing row. Without this, such a lead could never get a site stage,
+  // locality, area or site contact for the rest of its life (5 leads were in
+  // exactly that state when this was added; the owner hit it on lead #197).
+  //
+  // discovered_by is the LEAD'S OWNER, not whoever clicks: it's their site,
+  // and it's also what makes the write legal for all three editing roles —
+  // Postgres applies the SELECT policy to INSERT ... RETURNING, and sites'
+  // team_scoped_select is wide for owner/coordinator but falls back to
+  // `discovered_by = current_employee_id()` for a sales exec, who reaches
+  // this only on their own lead. The row is created deliberately EMPTY —
+  // nothing here guesses a stage for a site nobody has visited.
+  async function handleAddSite() {
+    setAddingSite(true)
+    setAddSiteError(null)
+
+    const { data: newSite, error: siteError } = await supabase
+      .from('sites')
+      .insert({
+        discovered_by: lead.owner_employee_id ?? employee?.id ?? null,
+        discovered_via: lead.source_type ?? null,
+      })
+      .select()
+      .single()
+
+    if (siteError) {
+      setAddingSite(false)
+      setAddSiteError(errorMessage(siteError))
+      return
+    }
+
+    // Not wrapped in a transaction, same as LeadQuickCapture's site+lead
+    // inserts — so surface the orphaned site's id rather than swallowing it.
+    const { error: linkError } = await supabase
+      .from('leads')
+      .update({ site_id: newSite.id })
+      .eq('id', lead.id)
+      .select()
+      .single()
+
+    setAddingSite(false)
+
+    if (linkError) {
+      setAddSiteError(
+        `Site #${newSite.id} was created but couldn't be linked to this lead: ${errorMessage(linkError)}`
+      )
+      return
+    }
+
+    setLead((prev) => ({ ...prev, site_id: newSite.id }))
+    setSite(newSite)
+  }
+
+  const siteDetailsEditor = site ? (
+    <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />
+  ) : (
+    <div className="vip-card">
+      <div className="vip-card-title">Site details</div>
+      <p className="vip-empty">
+        No site is linked to this lead, so there is nothing to record a site stage against yet.
+      </p>
+      {addSiteError && (
+        <p className="vip-error" role="alert">
+          {addSiteError}
+        </p>
+      )}
+      <button
+        type="button"
+        className="vip-btn vip-btn-secondary vip-btn-sm"
+        onClick={handleAddSite}
+        disabled={addingSite}
+      >
+        {addingSite ? 'Adding…' : '+ Add site details'}
+      </button>
+    </div>
+  )
   const clientDetailsEditor = party && <ClientDetailsSection party={party} onSaved={setParty} />
   const contactsEditor = site && (
     <AdditionalContactsSection
