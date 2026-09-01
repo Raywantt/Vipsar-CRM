@@ -284,6 +284,14 @@ export function buildAgeingPanel(bucket, scopeLabel = 'Company', viewerEmployeeI
       age: `${r.age}d`,
       value: formatCurrencyCompact(r.value),
       initials: getInitials(r.owner),
+      // Dropped here previously even though toRow() computes it — silently
+      // starved two consumers: the owner name in this row could never be a
+      // real /employees/:id link, and DrilldownPanel's handleSaveDate fell
+      // back to `assignee` (the viewer) for every "Set date"/bulk follow-up
+      // action, so a follow-up created from this queue was assigned to
+      // whoever was looking at the dashboard instead of the lead's actual
+      // owner.
+      ownerId: r.ownerId,
       owner: r.owner,
     })),
   }

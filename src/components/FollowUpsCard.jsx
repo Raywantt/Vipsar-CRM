@@ -176,6 +176,10 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam }) {
       )}
 
       <div className="vip-card">
+        <div className="vip-card-head">
+          <div className="vip-card-title">All reminders</div>
+          <div className="vip-dd-hint">any due date — not scoped to {rangeLabel}</div>
+        </div>
         <div className="vip-seg vip-seg-outline">
           {BUCKETS.map((b) => (
             <button

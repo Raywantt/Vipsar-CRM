@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import DonutChart from './DonutChart'
 import FollowUpList from './FollowUpList'
+import EmployeeLink from './EmployeeLink'
 import { createFollowUp } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { todayISO, toISODate } from '../lib/followupDates'
@@ -104,7 +105,7 @@ function AgeRowContent({ r }) {
       </span>
       <span className="vip-dd-age-owner">
         <span className="vip-dd-avatar vip-dd-avatar-sm">{r.initials}</span>
-        <span>{r.owner}</span>
+        <EmployeeLink id={r.ownerId} name={r.owner} />
       </span>
     </>
   )
@@ -425,10 +426,19 @@ function PipelineBody({ panel, onDrill }) {
 
       {panel.convRows?.length > 0 && (
         <div className="vip-dd-section">
-          <div className="vip-dd-section-title">Stage-to-stage conversion</div>
+          <div className="vip-dd-section-head">
+            <div className="vip-dd-section-title">Stage-to-stage conversion</div>
+            {panel.convRows.some((c) => c.skipped) && (
+              <div className="vip-dd-hint">over 100% = leads skipped straight past that stage</div>
+            )}
+          </div>
           <div className="vip-dd-conv-row">
             {panel.convRows.map((c) => (
-              <div key={c.label} className="vip-dd-conv-card">
+              <div
+                key={c.label}
+                className={c.skipped ? 'vip-dd-conv-card vip-dd-conv-card-skipped' : 'vip-dd-conv-card'}
+                title={c.skipped ? 'Some leads reached this stage without ever being logged at the one before it, so this can read above 100%.' : undefined}
+              >
                 <div className="vip-dd-conv-label">{c.label}</div>
                 <div className="vip-dd-conv-pct" style={{ color: c.color }}>
                   {c.pct}
@@ -450,7 +460,7 @@ function PipelineBody({ panel, onDrill }) {
             <Link key={t.leadId} to={`/leads/${t.leadId}`} className="vip-dd-lead-row">
               <span className="vip-dd-lead-party">{t.party}</span>
               <span className={t.chipClass}>{t.stage}</span>
-              <span className="vip-dd-lead-owner">{t.owner}</span>
+              <EmployeeLink id={t.ownerId} name={t.owner} className="vip-dd-lead-owner" />
               <span className="vip-dd-lead-value">{t.value}</span>
             </Link>
           ))}
@@ -503,7 +513,7 @@ function StageLeadsBody({ panel }) {
             <Link key={r.leadId} to={`/leads/${r.leadId}`} className="vip-dd-lead-row">
               <span className="vip-dd-lead-party">{r.party}</span>
               <span className={r.chipClass}>{r.stage}</span>
-              <span className="vip-dd-lead-owner">{r.owner}</span>
+              <EmployeeLink id={r.ownerId} name={r.owner} className="vip-dd-lead-owner" />
               <span className="vip-dd-lead-value">{r.value}</span>
             </Link>
           ))
@@ -573,7 +583,7 @@ function ForecastBody({ panel }) {
               <span className="vip-dd-fc-party">{f.party}</span>
               <span className="vip-dd-hint">{f.sub}</span>
             </span>
-            <span className="vip-dd-fc-owner">{f.owner}</span>
+            <EmployeeLink id={f.ownerId} name={f.owner} className="vip-dd-fc-owner" />
             <span className="vip-dd-fc-prob">
               <span className="vip-dd-prob-track">
                 <span className="vip-dd-prob-fill" style={{ width: f.prob, background: f.probColor }} />
@@ -652,7 +662,7 @@ function LossBody({ panel }) {
           <Link key={l.leadId} to={`/leads/${l.leadId}`} className="vip-dd-lead-row">
             <span className="vip-dd-lead-party">{l.party}</span>
             <span className="vip-dd-hint">{l.reason}</span>
-            <span className="vip-dd-lead-owner">{l.owner}</span>
+            <EmployeeLink id={l.ownerId} name={l.owner} className="vip-dd-lead-owner" />
             <span className="vip-dd-lead-value">{l.value}</span>
             <span className="vip-dd-hint">{l.date}</span>
           </Link>

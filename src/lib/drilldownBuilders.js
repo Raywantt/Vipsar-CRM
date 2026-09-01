@@ -407,11 +407,22 @@ export function buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLa
     const cur = progression[i]
     if (!prev.reached) continue
     const rate = Math.round((cur.reached / prev.reached) * 100)
+    // `stage_history` only logs a lead's destination stage, so a lead that
+    // jumps straight from an earlier stage to a later one (skipping the
+    // stage in between) never contributes to the skipped stage's "reached"
+    // count while still counting toward the later one's — that can push
+    // this rate above 100%. That's a real, expected consequence of stages
+    // not being strictly sequential in how reps log them, not a bug, but a
+    // plain percentage with no explanation reads as broken math. Flagged
+    // here so the render can say so instead of grading it red/amber/green
+    // like a normal conversion rate.
+    const skipped = rate > 100
     convRows.push({
       label: `${stageLabel(prev.stage)} → ${stageLabel(cur.stage)}`,
       pct: `${rate}%`,
-      sub: `${prev.reached} → ${cur.reached}`,
-      color: rate >= 60 ? '#1f6f4a' : rate >= 40 ? '#7a6413' : '#b4232a',
+      sub: skipped ? `${prev.reached} → ${cur.reached} · stage skipped` : `${prev.reached} → ${cur.reached}`,
+      color: skipped ? TONE_NEUTRAL : rate >= 60 ? '#1f6f4a' : rate >= 40 ? '#7a6413' : '#b4232a',
+      skipped,
     })
   }
 
@@ -423,6 +434,7 @@ export function buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLa
       party: l.parties?.name ?? l.sites?.nickname ?? '(no party)',
       stage: stageLabel(l.current_stage ?? 'calling'),
       chipClass: stageChipClass(l.current_stage ?? 'calling'),
+      ownerId: l.owner_employee_id ?? null,
       owner: l.employees?.name ?? 'Unassigned',
       value: formatCurrencyCompact(dealValueFor(l)),
     }))
@@ -524,6 +536,7 @@ export function buildForecastPanel({ forecast, scopeLabel = 'Company' }) {
       leadId: l.id,
       party: l.parties?.name ?? '(no party)',
       sub: stageLabel(l.current_stage ?? 'calling'),
+      ownerId: l.owner_employee_id ?? null,
       owner: l.employees?.name ?? 'Unassigned',
       prob: l.closure_probability != null ? `${l.closure_probability}%` : '—',
       // An unset probability renders as an em-dash — paint it neutral, not
@@ -655,6 +668,7 @@ export function buildLossPanel({ lossReasons }) {
       leadId: row.lead_id,
       party: row.leads?.parties?.name ?? '(no party)',
       reason: row.reason ?? 'other',
+      ownerId: row.leads?.owner_employee_id ?? null,
       owner: row.leads?.employees?.name ?? 'Unassigned',
       value: formatCurrencyCompact(row.leads?.order_value ?? row.leads?.quote_value ?? 0),
       date: row.lost_at ? new Date(row.lost_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—',

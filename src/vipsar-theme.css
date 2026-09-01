@@ -1119,6 +1119,7 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
 
 .vip-dd-conv-row { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
 .vip-dd-conv-card { flex: 1; min-width: 90px; display: flex; flex-direction: column; gap: 4px; padding: 10px 11px; border-radius: var(--vip-r-field); background: var(--vip-canvas); border: 1px solid var(--vip-line-soft); }
+.vip-dd-conv-card-skipped { border-style: dashed; background: var(--vip-status-neutral-soft); }
 .vip-dd-conv-label { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; color: var(--vip-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vip-dd-conv-pct { font-family: var(--vip-display); font-size: 18px; font-weight: 600; line-height: 1; }
 .vip-dd-conv-sub { font-size: 10px; color: var(--vip-faint); }

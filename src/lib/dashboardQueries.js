@@ -246,6 +246,6 @@ export function fetchLossReasons() {
       // Phase 9 ruling. loss_reasons is append-only, so the row survives the
       // reopening and the table alone cannot tell you whether the lead is
       // still lost.
-      'id, lead_id, reason, competitor_name, lost_at, leads(current_stage, order_value, quote_value, parties!party_id(name), employees!owner_employee_id(name))'
+      'id, lead_id, reason, competitor_name, lost_at, leads(current_stage, order_value, quote_value, owner_employee_id, parties!party_id(name), employees!owner_employee_id(name))'
     )
 }
