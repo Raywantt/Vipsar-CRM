@@ -60,3 +60,8 @@ lerna-debug.log*
 # migration_backfill_legacy_created_at.sql — are tracked normally.
 Schema/import_*_legacy.sql
 *.xlsx
+
+# The scripts that GENERATE those imports carry the same data in their
+# duplicate-detection tables and comments (client names, mobile numbers), so
+# they stay local too. They live in Schema/generators/ next to what they emit.
+Schema/generators/
