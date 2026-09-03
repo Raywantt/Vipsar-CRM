@@ -2422,13 +2422,56 @@ they're the ones worth keeping in mind when touching this file: **switching acti
 never showed it), and **"Log another activity" resets them too**.
 
 `LeadSearchSelect` (`src/components/LeadSearchSelect.jsx`) is select-only
-(no create) — fetches the employee's own leads once (now embedding
-`sites(id, nickname, locality, site_stage)`, not just nickname/locality,
-so a picked lead carries enough site data for Site Visit's Site stage field
-above), filters client-side by linked party name / site nickname / locality,
-and shows nothing below the search box until a query is typed (previously
-showed the full unfiltered list by default — same "don't dump a big list"
-reasoning as the anchor-picker change above). Embedding `parties` from
+(no create) — it **searches the database as you type** (350ms debounce, 2-char
+minimum, both shared with `searchQueries.js` so every free-typed search in the
+app feels the same), using that same two-step shape: resolve the term against
+`parties`/`sites` directly, then fetch the leads pointing at whichever ids
+matched via plain `.in()` filters on leads' own columns. It embeds
+`sites(id, nickname, locality, site_stage)`, not just nickname/locality, so a
+picked lead carries enough site data for Site Visit's Site stage field above,
+and shows nothing below the search box until a query is typed. `.or()` and
+`.eq()` combine with AND at the top level, which is what keeps a search scoped
+to the right employee's leads.
+
+**This used to fetch `.limit(100)` once and filter that array client-side, and
+that was a live bug (found 2026-09-03, fixed the same day).** Every
+legacy-import rep owns more than 100 leads — Vipul 149, Harish 155, Manohar
+128 — so 28-55 of each rep's leads could not be selected in Log Activity or on
+a follow-up at all, no matter how the name was typed. The imports also left
+`created_at` unset (`Schema/import_*_legacy.sql`'s `INSERT INTO leads` omits
+the column), so every imported row shares one transaction timestamp and
+`ORDER BY created_at DESC` broke the 149-way tie arbitrarily — which is why
+the missing leads looked random rather than "just the oldest ones". Reproduced
+exactly against the live database from an owner session before fixing: the old
+query returned 100 of Vipul's 149, lead **#480 "Bhuvnesh Jain"** (`legacy-152`,
+the first row of his import) was not among them, and searching `bhuvnesh`
+returned zero rows. **Don't reintroduce a fetch-everything-then-filter approach
+here** — it is only ever correct while a rep stays under the cap, and this
+pilot's reps no longer do. The `LOOKUP_CAP` (150) on the party/site lookup is
+deliberately generous for the same reason: it is a company-wide lookup that
+then gets narrowed to one employee, so a rep searching a common surname whose
+own client sits 40 matches deep must still find them.
+
+`hasAnyLeads` (a cheap `head: true` count on mount) exists only to keep "you
+have no leads yet" distinguishable from "nothing matched what you typed" — the
+old fetch-everything version got that for free; a search-as-you-type one has to
+ask. A sequence counter discards stale responses, so a slow reply for "bhu"
+can't overwrite the results for "bhuvnesh".
+
+**Verified live 2026-09-03** across all three roles at 1440px and 375px, real
+sessions on the three-port setup: `sales_executive` (search by client name, by
+site nickname on a party-less lead, no-match state, the 2-char gate, selection
++ "Change", Save enabling); `sales_coordinator` (acting-for-exec path, scoped
+to the picked exec, and correctly finding nothing for a lead outside their
+team); `owner` (the real fix — "+ Assign follow-up" on Vipul's profile now
+returns "Bhuvnesh Jain — Ludhiana (Negotiation)", plus the `allLeads` path on
+Home's own reminder). **The discriminating check for the scoping** was run from
+the owner session specifically, since an owner can read every party: unscoped,
+`jain` returns leads across 3 different owners; scoped to Vipul it returns 14,
+all his. An exec-session check could not have told correct scoping apart from
+RLS merely hiding the rows. No console errors, no page overflow at 375px.
+
+Embedding `parties` from
 `leads` needs an explicit FK hint (`parties!party_id(...)`) — `leads` has
 three FKs to `parties` (`party_id`, `referred_by_party_id`, `other_party_id`),
 so a bare `parties(...)` embed fails with "more than one relationship was
