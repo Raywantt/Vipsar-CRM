@@ -2413,3 +2413,30 @@ a.vip-day-log-party:hover { text-decoration: underline; }
 @media (min-width: 1024px) {
   .vip-today-hero-value { font-size: 40px; }
 }
+
+/* ============================================================
+   24. ROLE TAG
+   A compact marker for an employee who is more than a plain sales exec,
+   shown beside their name in the owner's Day Review table and attainment
+   heatmap. A sales manager sells alongside the execs and is ranked with
+   them (owner's ruling, 2026-09-03: "mixed in, with a role badge"), so
+   their row is otherwise indistinguishable from a rep's.
+
+   Deliberately quiet — a neutral outline, not a stage-coloured chip. It
+   identifies a person, and reusing a .vip-chip-* colour would read as a
+   deal status. Uses existing tokens only, so it needs no dark-mode block
+   of its own (section 22 redefines both of these).
+   ============================================================ */
+.vip-role-tag {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid var(--vip-line-soft);
+  border-radius: 4px;
+  font-family: var(--vip-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--vip-faint);
+  white-space: nowrap;
+}

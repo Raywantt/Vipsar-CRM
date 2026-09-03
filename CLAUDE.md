@@ -254,14 +254,25 @@ src/
                 FabSheet — the mobile shell's FAB bottom sheet, see the
                 Mobile redesign section, NumPadInput — the mobile-only
                 on-screen numeric keypad, see the Numeric keypad section,
-                TodayGreetingHeader — the greeting bar shared by all three
-                Today screens, see the Today section)
-  pages/        top-level views (Login, Home [sales_executive's own `/`,
-                exports the `Today` wrapper that also renders OwnerToday/
-                CoordinatorToday by role — see the Today section],
+                TodayGreetingHeader — the greeting bar shared by all four
+                Today screens, see the Today section,
+                TeamTodayPanel — "your team today", the ONE implementation
+                both supervising roles render (coordinator's Today screen and
+                the manager's My team tab), see the Sales Manager section)
+  pages/        top-level views (Login, Today [the role switch for `/` — it
+                lived in Home.jsx until 2026-09-03 and moved out because
+                ManagerToday renders Home, which made the two files import
+                each other; see the Sales Manager section],
+                Home [sales_executive's own `/`; takes an `embedded` prop so
+                ManagerToday's "My day" tab can render the real screen rather
+                than a copy of it],
                 OwnerToday [the owner's own `/`, a team-wide bird's-eye day],
-                CoordinatorToday [the sales_coordinator's own `/`, a real
-                build — see the Today and Sales Coordinator sections],
+                CoordinatorToday [the sales_coordinator's own `/`, now a thin
+                roster fetch around TeamTodayPanel — see the Today and Sales
+                Coordinator sections],
+                ManagerToday [the sales_manager's own `/`, two tabs: My day
+                (the real Home) and My team (TeamTodayPanel) — see the Sales
+                Manager section],
                 Profile, Search, Dashboard, LeadQuickCapture, LeadDetail,
                 EmployeeProfile, MyTeam, ActivityLog, ...)
   contexts/     AuthContext — session + employee (id/name/mobile/role) lookup;
@@ -3842,6 +3853,128 @@ here.
   `sites`/`parties` coordinator UPDATE policies actually fix what was
   reproduced above. Both are in scope for Phase 9's QA pass.
 
+### Sales Manager (Phase 10 — role 4 of 4)
+
+A fourth role, `sales_manager` (SM): **a working sales executive who also
+supervises.** That sentence is the whole design, and the two halves are
+deliberately separate. Schema + RLS are live
+(`Schema/migration_sales_manager.sql`, run 2026-09-03); the screens shipped
+the same day. Every decision below was settled with the owner before
+building — don't reverse one without asking.
+
+**A sales exec now reports to TWO independent authorities.** `coordinator_id`
+and `manager_id` are separate nullable columns on `employees`. Both optional,
+neither implies the other, and neither supervisor can see into the other's
+supervision. An exec may have a coordinator, a manager, both, or neither —
+today Raghav Gupta and Vipul Sharma deliberately have no manager.
+
+* **As a rep, a manager needed NO new policy.** Every
+  `own_data_or_owner_role_*` policy keys on `= current_employee_id()`, not on
+  a role name, so a manager was covered by the existing exec plumbing the
+  moment the role value became legal. They own leads, log their own
+  activities, carry personal targets, and are **ranked among the execs**.
+* **As a supervisor** they read everything about their own team's leads and
+  may write only four columns on them.
+
+**How it differs from `sales_coordinator`** — each divergence is a decision:
+
+| | coordinator | manager |
+|---|---|---|
+| own leads/targets | none | yes |
+| edits team lead details | freely | **stage / follow-up / order value / owner only** |
+| stage direction | any | **forward only**, same as an exec |
+| entry on behalf | yes | **never** — logs only their own work |
+| edits an exec's activities | yes (unlocked ones) | never (SELECT only) |
+| loss reasons | cannot see | can, for their team |
+| reassign | within their team | same, **plus onto themselves** |
+
+* **`is_my_managed_member()` is a SECOND helper, not a widened
+  `is_my_team_member()`.** ~13 live coordinator policies route through the
+  latter; teaching it a second reporting line would change all of them at
+  once, and a mistake there is a silent cross-team leak on a role already in
+  production. Verified after the migration: the coordinator's own rules still
+  reject the same writes with the same messages.
+* **`enforce_manager_lock()` and the leads UPDATE policy are a PAIR.** RLS
+  restricts rows, never columns, so the policy hands the manager the whole
+  team row and the trigger draws the line inside it —
+  `current_stage`/`next_followup_date`/`order_value`/`owner_employee_id` and
+  nothing else. Removing either half silently guts the other, the same trap
+  `migration_sales_coordinator.sql` STEP 4b documented for the coordinator's
+  own (since-dropped) lock. `owner_employee_id` is in the allowed list only
+  because reassignment was explicitly asked for; its BOUNDS come from the
+  policy's `WITH CHECK`, not the trigger.
+* **Deactivating or demoting a manager who still has reports is HARD
+  BLOCKED.** This is stricter than the coordinator rule, which blocks only
+  the role change — called out in the migration rather than quietly widened
+  to both roles, since changing a live role's behaviour is its own decision.
+* **`fetchActiveSalesExecs()` filters on `CARRIES_OWN_LEADS`, not the literal
+  `'sales_executive'`.** Managers work their own pipeline, so excluding them
+  left their work invisible to every owner-facing report (heatmap, Day Review,
+  ranking, Set-a-target, All Leads' owner filter). Safe for the two
+  team-scoped wrappers: a manager has neither a `coordinator_id` nor a
+  `manager_id`, so `fetchMyTeamExecs`/`fetchMyManagedExecs` still return
+  executives only — which is what keeps "a manager's team is their execs, not
+  themselves" true.
+
+**The screens:**
+
+* **`ManagerToday.jsx`** — `/` is **two tabs, My day / My team**, defaulting
+  to My day (personal work first; team review a deliberate tap). Deliberately
+  **not persisted** — the answer was a fixed default, not "remember the last
+  choice". Neither half is rebuilt: "My day" renders the **real `Home`**
+  embedded (new `embedded` prop, which only skips the greeting bar and the
+  page wrapper), so a manager's personal day cannot drift from an exec's.
+* **`TeamTodayPanel.jsx`** — CoordinatorToday's own body, extracted and
+  parameterised; both supervising roles now render **one** implementation.
+  Its defaults ARE the coordinator's previous behaviour. A manager passes all
+  5 attention buckets (a coordinator sees 2) and `rowActions`.
+* **The `Today` wrapper moved out of `Home.jsx` into `Today.jsx`** —
+  ManagerToday renders Home, so leaving the role switch in Home.jsx made the
+  two files import each other. A cycle that works under ESM only because the
+  binding is read at render time; a separate file removes it outright.
+* **Dashboard has a page-level My / Team switch**, defaulting to My. Applied
+  **once**, to the fetched rows (`all*` state + scoped `useMemo`s), rather
+  than taught to twelve cards. `inScope()` returns true immediately unless
+  the viewer is a manager, so it is an exact no-op for the other three roles.
+  `seesOthersData` follows the **switch**, not the role.
+* **Lead Detail splits `canEdit` from `canQuickAct`.** On a team lead a
+  manager gets the quick actions and NOT the detail sections, mirroring the
+  lock. `canLogActivityHere` withholds "Log activity" on a team lead —
+  without it, `/activity?lead=<id>` preselects the lead and bypasses the
+  picker's own owner scoping, letting a manager credit themselves with a
+  rep's work.
+* **`buildAgeingPanel` gained `allowLogCall`** (defaulting to `queueActions`,
+  so every existing caller is untouched). "Log call" and "Set date" are not
+  the same kind of action: Set date creates a real follow-up **assigned to
+  the lead's owner** (a supervisor nudging a rep), while Log call inserts an
+  activity crediting whoever clicked. Only the first is offered on a team
+  queue.
+* **`/team`, the exec profile and the loss-reasons card** all open for a
+  manager, each scoped to their own reports. A manager may open their own
+  exec's profile; another manager's exec redirects away.
+* **`.vip-role-tag`** (theme section 24) badges a manager `MGR` in the
+  owner's Day Review table and heatmap — they are ranked among the execs, so
+  without it their row is indistinguishable from a rep's.
+
+**Verified live 2026-09-03** across four roles at 1440px and 375px, against
+the real database. As the manager: the four employee-trigger rules were
+exercised rather than inspected (all rejected with their exact messages, rows
+unmutated); a forbidden column on a team lead was refused by the lock and an
+allowed one succeeded; a cross-team mass UPDATE reported success and touched
+**0 of 195 rows** (RLS filters an UPDATE's target rows — a silent no-op, not
+an error, worth remembering generally); a backward stage move was refused;
+the Dashboard switch genuinely changed the figures; and a red-flag row really
+created a `follow_ups` row assigned to the exec, `created_by` the manager
+(deleted afterwards, no residue). No regressions: the coordinator's Today and
+Dashboard render identically to before the extraction.
+
+**Known gaps, not oversights:** the "Reassign owner" dropdown still lists
+every active rep rather than only the supervisor's own team — pre-existing
+behaviour for the coordinator too, with the database refusing an out-of-team
+target; and the two real managers own no leads yet (their data arrives with
+the Excel import), so the populated "My day" half was verified only through
+the dummy `sm` account.
+
 ### Data isolation — what a sales exec can see and change
 
 A full audit (2026-08-10) of "a sales exec only sees their own data and only
@@ -4123,7 +4256,7 @@ during Phase 9; none is a bug report to re-investigate. Full detail in
    installability section above. Out of scope: background sync/auto-retry
    of failed submissions, iOS's more aggressive cache-clearing on inactive
    PWAs.
-8. ⬅️ current — **Sales Coordinator role** (see its own section above).
+8. ✅ **Sales Coordinator role** (see its own section above).
    Phases 1–2 (schema + RLS) are live and verified; Phase 3 (role/team admin
    in Profile) and the Phase 5 routing it needed are built, and all three
    roles were driven live 2026-08-10. A coordinator's **Dashboard** is done
@@ -4156,5 +4289,15 @@ during Phase 9; none is a bug report to re-investigate. Full detail in
    phase, 2026-09-01 — the "Today Briefing" rebuild that split `/` into
    three role-specific screens (`Home`/`OwnerToday`/`CoordinatorToday`, see
    the Today section above) all shipped during this phase.
+10. ⬅️ current — **Sales Manager role** (see its own section above). Schema,
+   RLS and every screen shipped 2026-09-03 and were driven live across all
+   four roles at both widths. Three managers exist in the live database;
+   two are real (Aanchal Tripathi, Pawan Kumar), one is a test account
+   (`sm`). **Still open:** the two real managers own no leads until their
+   Excel import lands, so the populated "My day" half is verified only
+   through the test account; and the "Reassign owner" dropdown still offers
+   every active rep rather than only the supervisor's own team (the database
+   refuses an out-of-team target, so this is a UI wart, and it predates this
+   role — a coordinator has it too).
 
 For domain model, lead-sourcing logic, and locked-in design decisions, see DECISIONS.md.

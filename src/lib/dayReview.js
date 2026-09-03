@@ -95,6 +95,12 @@ export function buildDayRows(employees, data, isPast) {
     return {
       employeeId: emp.id,
       name: emp.name,
+      // Carried so the owner's table can badge a sales manager sitting among
+      // the execs. They are ranked together deliberately (the owner's ruling:
+      // "mixed in, with a role badge"), and without the badge a manager's row
+      // is indistinguishable from a rep's — which matters when reading a
+      // lighter personal number next to someone whose whole job is selling.
+      role: emp.role ?? null,
       initials: getInitials(emp.name),
       total: own.activities.length,
       calls: own.activities.filter((a) => a.activity_type === 'call').length,

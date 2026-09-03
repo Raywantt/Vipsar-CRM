@@ -1,3 +1,4 @@
+import { ROLES, roleLabel } from '../lib/roles'
 import { useState } from 'react'
 
 // "What the team did today" — one row per sales exec, nine columns under
@@ -26,6 +27,22 @@ const COLUMNS = [
 // noise, and the eye needs the real numbers to stand out. The Total column
 // and the done/missed pair always print a real figure, since "0 activities"
 // and "0 done" are the point rather than clutter.
+
+// A sales manager sells alongside the execs and is ranked with them, so their
+// row sits in this table like any other — the badge is the only thing marking
+// that they also supervise. Renders nothing for a plain sales_executive, so
+// the common case stays visually quiet; the full role name is on the tooltip
+// rather than in the cell, because the name column is 190px and a spelled-out
+// "Sales Manager" would push real names to an ellipsis.
+function RoleTag({ role }) {
+  if (role !== ROLES.SALES_MANAGER) return null
+  return (
+    <span className="vip-role-tag" title={roleLabel(role)}>
+      MGR
+    </span>
+  )
+}
+
 function Cell({ value, dash }) {
   if (value === 0 && dash) return <span className="vip-daycell-dash">—</span>
   return <span>{value}</span>
@@ -123,6 +140,7 @@ function DayReviewCard({ rows, totals, isPast, onOpenExec, selectedExecId }) {
                   <span className="vip-daytable-name">
                     <span className={row.total === 0 ? 'vip-dd-avatar vip-daytable-avatar-quiet' : 'vip-dd-avatar'}>{row.initials}</span>
                     <span className={row.total === 0 ? 'vip-daytable-quiet' : undefined}>{row.name}</span>
+                    <RoleTag role={row.role} />
                   </span>
                   {COLUMNS.map((c) => (
                     <span
@@ -159,7 +177,10 @@ function DayReviewCard({ rows, totals, isPast, onOpenExec, selectedExecId }) {
               <button key={row.employeeId} type="button" className="vip-daycard" onClick={() => onOpenExec(row.employeeId)}>
                 <span className="vip-daycard-head">
                   <span className={row.total === 0 ? 'vip-dd-avatar vip-daytable-avatar-quiet' : 'vip-dd-avatar'}>{row.initials}</span>
-                  <span className={row.total === 0 ? 'vip-daycard-name vip-daytable-quiet' : 'vip-daycard-name'}>{row.name}</span>
+                  <span className={row.total === 0 ? 'vip-daycard-name vip-daytable-quiet' : 'vip-daycard-name'}>
+                    {row.name}
+                    <RoleTag role={row.role} />
+                  </span>
                   <span className={row.total === 0 ? 'vip-daycard-total vip-daytable-quiet' : 'vip-daycard-total'}>{row.total}</span>
                   <span className="vip-daycard-chevron">›</span>
                 </span>

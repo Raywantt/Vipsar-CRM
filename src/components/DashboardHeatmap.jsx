@@ -1,3 +1,4 @@
+import { ROLES, roleLabel } from '../lib/roles'
 import { useNavigate } from 'react-router-dom'
 import { ACTIVITY_METRIC_OPTIONS } from '../lib/targetMetrics'
 import { getInitials } from '../lib/initials'
@@ -54,6 +55,14 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, ran
           <div className="vip-dd-heatmap-exec" onClick={() => navigate(`/employees/${emp.id}`)}>
             <span className="vip-dd-avatar">{getInitials(emp.name)}</span>
             <span className="vip-dd-heatmap-name">{emp.name}</span>
+            {/* Same badge the Day Review table uses — a manager is ranked
+                among the execs here on purpose, so the row needs to say
+                which one they are. */}
+            {emp.role === ROLES.SALES_MANAGER && (
+              <span className="vip-role-tag" title={roleLabel(emp.role)}>
+                MGR
+              </span>
+            )}
           </div>
 
           {COLS.map((c) => {
