@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
@@ -89,12 +89,13 @@ function Dashboard() {
   // for them in one direction or the other — labelling their team's figures
   // with their own name, or filtering the page down as if they were a rep.
   const isCoordinator = employee?.role === 'sales_coordinator'
-  const seesOthersData = isOwner || isCoordinator
-  const scopeLabel = isOwner ? 'Company' : isCoordinator ? 'My team' : employee?.name ?? 'You'
-  // One source for what the All Leads view is called — the page header and the
-  // card's own title both read this, so they can't drift into disagreeing
-  // about whose leads are on screen.
-  const leadsTitle = isOwner ? 'All leads' : isCoordinator ? 'Team leads' : 'My leads'
+  // A manager is BOTH a rep and a supervisor, so no single answer to
+  // "do they see others' data?" is right for the whole page — it depends on
+  // the My/Team switch below. seesOthersData therefore reads the switch
+  // rather than the role, which is what keeps per-exec breakdowns off the
+  // page while they are looking at their own numbers.
+  const isManager = employee?.role === 'sales_manager'
+  const canSeeTeamDirectory = isOwner || isManager
   const [searchParams] = useSearchParams()
 
   // No more in-page tab buttons — Reports/All leads is chosen purely by
@@ -114,21 +115,135 @@ function Dashboard() {
   const [customStart, setCustomStart] = usePersistedFilterState('vip-filters:dashboard', 'customStart', todayISO())
   const [customEnd, setCustomEnd] = usePersistedFilterState('vip-filters:dashboard', 'customEnd', todayISO())
 
-  const [activities, setActivities] = useState([])
-  const [leads, setLeads] = useState([])
-  const [forecast, setForecast] = useState([])
-  const [employees, setEmployees] = useState([])
-  const [targets, setTargets] = useState([])
-  const [wonStageHistory, setWonStageHistory] = useState([])
-  const [breakdownLeads, setBreakdownLeads] = useState([])
-  const [funnelStageHistory, setFunnelStageHistory] = useState([])
-  const [lossReasons, setLossReasons] = useState([])
+  // ---- Raw fetched rows, before the manager's My/Team scope is applied ----
+  // Named all* so the scoped values below can keep the plain names every card
+  // and drill-down already reads. The setters are untouched, so every fetch
+  // effect further down is unchanged.
+  const [allActivities, setActivities] = useState([])
+  const [allLeads, setLeads] = useState([])
+  const [allForecast, setForecast] = useState([])
+  const [allEmployees, setEmployees] = useState([])
+  const [allTargets, setTargets] = useState([])
+  const [allWonStageHistory, setWonStageHistory] = useState([])
+  const [allBreakdownLeads, setBreakdownLeads] = useState([])
+  const [allFunnelStageHistory, setFunnelStageHistory] = useState([])
+  const [allLossReasons, setLossReasons] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
-  const [decidedStageHistory, setDecidedStageHistory] = useState([])
+  const [allDecidedStageHistory, setDecidedStageHistory] = useState([])
   const [activitiesTrendWindow, setActivitiesTrendWindow] = useState([])
   const [panel, setPanel] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // ---- The sales manager's My / Team switch ----
+  //
+  // A manager is the only role whose RLS returns TWO different populations in
+  // one query: their own leads (own_data_or_owner_role_*) and their team's
+  // (manager_team_*). Every card on this page would otherwise silently blend
+  // the two into a single figure that answers neither "how am I doing?" nor
+  // "how is my team doing?". The owner chose one page-level switch over
+  // per-card controls, so it is applied once, here, to the fetched rows —
+  // not repeated inside twelve cards that would each have to be taught it.
+  //
+  // Defaults to 'my' (the owner's choice): a manager opens their Dashboard on
+  // their own numbers. Deliberately NOT persisted, for the same reason the
+  // Today tabs aren't — the answer was a fixed default, not "remember".
+  //
+  // Every filter below is an EXACT no-op for owner, coordinator and exec:
+  // inScope() returns true immediately unless the viewer is a manager. That
+  // is what keeps this change invisible to the three roles already in
+  // production.
+  const [managerScope, setManagerScope] = useState('my')
+
+  // Who counts as "my team" — read off allEmployees, which for a manager is
+  // fetched as their own reports plus themselves (see the roster effect).
+  const managedIds = useMemo(
+    () => new Set(allEmployees.filter((e) => e.manager_id === employee?.id).map((e) => e.id)),
+    [allEmployees, employee?.id]
+  )
+
+  // The one predicate. `ownerId` is whichever column identifies whose row
+  // this is — employee_id on activities/targets, owner_employee_id on leads,
+  // leads.owner_employee_id on the three stage-history feeds and on
+  // loss_reasons.
+  const inScope = useCallback(
+    (ownerId) => {
+      if (!isManager) return true
+      return managerScope === 'my' ? ownerId === employee?.id : managedIds.has(ownerId)
+    },
+    [isManager, managerScope, employee?.id, managedIds]
+  )
+
+  const employees = useMemo(
+    () =>
+      !isManager
+        ? allEmployees
+        : managerScope === 'my'
+        ? allEmployees.filter((e) => e.id === employee?.id)
+        : allEmployees.filter((e) => managedIds.has(e.id)),
+    [allEmployees, isManager, managerScope, employee?.id, managedIds]
+  )
+
+  const activities = useMemo(() => allActivities.filter((r) => inScope(r.employee_id)), [allActivities, inScope])
+  const targets = useMemo(() => allTargets.filter((r) => inScope(r.employee_id)), [allTargets, inScope])
+  const leads = useMemo(() => allLeads.filter((r) => inScope(r.owner_employee_id)), [allLeads, inScope])
+  const forecast = useMemo(() => allForecast.filter((r) => inScope(r.owner_employee_id)), [allForecast, inScope])
+  const breakdownLeads = useMemo(
+    () => allBreakdownLeads.filter((r) => inScope(r.owner_employee_id)),
+    [allBreakdownLeads, inScope]
+  )
+  // The three stage-history feeds and loss_reasons all carry their owner one
+  // level down, on the embedded lead. A row whose embed came back null is
+  // dropped — that already happens today for RLS-invisible rows (see
+  // SalesFunnelCard's note), so `?.` here preserves that behaviour rather
+  // than inventing a new one.
+  const wonStageHistory = useMemo(
+    () => allWonStageHistory.filter((r) => inScope(r.leads?.owner_employee_id)),
+    [allWonStageHistory, inScope]
+  )
+  const decidedStageHistory = useMemo(
+    () => allDecidedStageHistory.filter((r) => inScope(r.leads?.owner_employee_id)),
+    [allDecidedStageHistory, inScope]
+  )
+  const funnelStageHistory = useMemo(
+    () => allFunnelStageHistory.filter((r) => inScope(r.leads?.owner_employee_id)),
+    [allFunnelStageHistory, inScope]
+  )
+  const lossReasons = useMemo(
+    () => allLossReasons.filter((r) => inScope(r.leads?.owner_employee_id)),
+    [allLossReasons, inScope]
+  )
+
+  // Declared here, below the switch, because all three now depend on it —
+  // putting them up with isOwner/isCoordinator (where they used to live) read
+  // managerScope before its own `const`, which is a temporal-dead-zone crash
+  // rather than a wrong label.
+  //
+  // seesOthersData gates every per-exec breakdown on the page. For a manager
+  // it follows the SWITCH, not the role: looking at their own numbers they
+  // are a rep and there is nobody to break down by; looking at their team
+  // they are a supervisor and the breakdowns are the point.
+  const seesOthersData = isOwner || isCoordinator || (isManager && managerScope === 'team')
+  // The drill-down eyebrow. 'Company' would overstate a manager's visibility
+  // in either mode — they see their own leads and their own team's, never
+  // the company's.
+  const scopeLabel = isOwner
+    ? 'Company'
+    : isCoordinator
+    ? 'My team'
+    : isManager
+    ? managerScope === 'team'
+      ? 'My team'
+      : employee?.name ?? 'You'
+    : employee?.name ?? 'You'
+  // One source for what the All Leads view is called — the page header and the
+  // card's own title both read this, so they can't drift into disagreeing
+  // about whose leads are on screen.
+  const leadsTitle = isOwner
+    ? 'All leads'
+    : isCoordinator || (isManager && managerScope === 'team')
+    ? 'Team leads'
+    : 'My leads'
 
   // ---- Day Review (the `today` period) ----
   // Its own date, independent of the report cards' date range: this pane
@@ -228,9 +343,15 @@ function Dashboard() {
       if (!active) return
       if (error) return
       const all = data ?? []
+      // A manager's roster is their own reports PLUS themselves — they carry
+      // a quota and work deals, so their own row has to be available for the
+      // 'my' side of the switch. Which of the two the page actually shows is
+      // decided by the `employees` memo above, not here.
       setEmployees(
         employee?.role === 'sales_coordinator'
           ? all.filter((e) => e.coordinator_id === employee.id)
+          : employee?.role === 'sales_manager'
+          ? all.filter((e) => e.manager_id === employee.id || e.id === employee.id)
           : all
       )
     })
@@ -338,7 +459,14 @@ function Dashboard() {
   }, [])
 
   useEffect(() => {
-    if (!isOwner) {
+    // The owner, and now a sales manager for their own team's lost deals
+    // (owner's ruling, 2026-09-03). loss_reasons SELECT is genuinely
+    // owner-only in RLS — the card is invisible to a coordinator, not merely
+    // hidden — so this widening required a real policy,
+    // manager_team_select on loss_reasons (migration_sales_manager.sql
+    // STEP 6). A sales exec still fetches nothing rather than firing a
+    // request the database would answer with an empty set.
+    if (!isOwner && !isManager) {
       setLossReasons([])
       return
     }
@@ -365,7 +493,7 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [isOwner])
+  }, [isOwner, isManager])
 
   // Everything on the Day Review reloads when the date changes — nothing here
   // is cached across days, since every figure is bounded to the one day.
@@ -511,11 +639,43 @@ function Dashboard() {
             <div className="vip-tile-chevron">›</div>
           </Link>
 
-          {isOwner && (
+          {/* The manager's page-level My / Team switch. Above the date range
+              deliberately: it decides WHOSE numbers the whole page is about,
+              which is a bigger question than which period they cover. Every
+              card below reads the scoped arrays, so nothing else needs to
+              know this control exists. */}
+          {isManager && (
+            <div className="vip-seg vip-seg-outline" role="tablist" aria-label="Whose numbers to show">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={managerScope === 'my'}
+                className={managerScope === 'my' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setManagerScope('my')}
+              >
+                My numbers
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={managerScope === 'team'}
+                className={managerScope === 'team' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setManagerScope('team')}
+              >
+                My team
+              </button>
+            </div>
+          )}
+
+          {/* Same capability as BottomNav's sidebar link, not a second
+              role test — this tile IS the mobile path to /team, and the two
+              must open for exactly the same people or one breakpoint loses
+              the screen. */}
+          {canSeeTeamDirectory && (
             <Link to="/team" className="vip-tile vip-only-mobile" style={{ textDecoration: 'none' }}>
               <div>
                 <div className="vip-tile-label">My Team</div>
-                <div className="vip-tile-desc">Browse your sales team</div>
+                <div className="vip-tile-desc">{isManager ? 'Browse your reporting execs' : 'Browse your sales team'}</div>
               </div>
               <div className="vip-tile-chevron">›</div>
             </Link>
@@ -746,7 +906,12 @@ function Dashboard() {
               />
             </div>
 
-            {isOwner && (
+            {/* A manager sees why THEIR TEAM loses, on the team side of the
+                switch only — on "My numbers" the card would be about their
+                own handful of lost deals, which is not what this card is
+                for. The RLS policy is scoped to their team plus their own
+                leads either way. */}
+            {(isOwner || (isManager && managerScope === 'team')) && (
               <>
                 <div className="vip-span-2 vip-report-section">Why we lose</div>
                 <div className="vip-span-2">

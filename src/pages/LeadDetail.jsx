@@ -16,7 +16,7 @@ import { errorMessage } from '../lib/errorMessage'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { stageFg, TONE_GOOD, TONE_WARN, TONE_BAD, TONE_MID, TONE_GOOD_SOFT, TONE_WARN_SOFT, TONE_BAD_SOFT, TONE_NEUTRAL, TONE_NEUTRAL_SOFT } from '../lib/statusColors'
 import { getInitials } from '../lib/initials'
-import { STALE_DAYS, ATTENTION_DAYS } from '../lib/attention'
+import { STALE_DAYS, ATTENTION_DAYS, staleGateDays } from '../lib/attention'
 import { formatCurrency, formatCurrencyCompact } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
 import { SOURCE_TYPE_LABELS as SOURCE_LABELS } from '../lib/sourceTypeOptions'
@@ -279,19 +279,55 @@ function LeadDetail() {
   // the database has already decided.
   const isOwner = employee?.role === 'owner'
   const isCoordinator = employee?.role === 'sales_coordinator'
-  const canEdit = isOwner || isCoordinator || lead.owner_employee_id === employee?.id
+  const isManager = employee?.role === 'sales_manager'
+  const isMyLead = lead.owner_employee_id === employee?.id
+  // A manager viewing one of THEIR OWN leads is simply a rep here and takes
+  // the ordinary isMyLead branch below — every limit in this block applies
+  // only to a team member's lead.
+  const isTeamLeadForManager = isManager && !isMyLead
+  const canEdit = isOwner || isCoordinator || isMyLead
 
-  // Reassigning moves a lead between people — owner and coordinator only. The
-  // database agrees: coordinator_team_update's WITH CHECK keeps the new owner
-  // inside the coordinator's own team and, since is_my_team_member() is false
-  // for their own id, stops them assigning a lead to themselves.
-  const canReassign = isOwner || isCoordinator
+  // A sales manager supervises without overwriting: on a team member's lead
+  // they get the quick actions (stage, follow-up, reassign) but NOT the
+  // detail sections, so `canEdit` above deliberately stays false for them.
+  // The database draws the same line one level down — enforce_manager_lock()
+  // (Schema/migration_sales_manager.sql STEP 7) permits exactly
+  // current_stage / next_followup_date / order_value / owner_employee_id on
+  // a team lead and refuses every other column — so this is the UI mirror of
+  // a real boundary, not the boundary itself.
+  //
+  // `isManager` with no team check beside it is the same shortcut the
+  // coordinator test above documents, and it is sound for the same reason:
+  // `leads` SELECT only ever reaches a manager through manager_team_select,
+  // i.e. is_my_managed_member(owner_employee_id). A team lead they can load
+  // is by definition one of their own team's.
+  const canQuickAct = canEdit || isManager
+
+  // Reassigning moves a lead between people — an oversight action. The
+  // database bounds each supervisor's half: coordinator_team_update's and
+  // manager_team_update's WITH CHECK both keep the new owner inside that
+  // supervisor's own team. The manager's differs in one respect by design —
+  // they MAY take a team lead onto their own name, because unlike a
+  // coordinator they carry a quota and work deals themselves.
+  const canReassign = isOwner || isCoordinator || isManager
 
   // A sales executive may only move a lead FORWARD; walking it back is a
   // coordinator/owner action. Enforced by the owner_only_stage_change trigger
   // (Schema/migration_lead_edit_rights.sql) — this flag just lets the picker
   // grey the chip out with a reason instead of collecting a database error.
+  // A manager is deliberately NOT in this list: the owner's ruling is that
+  // they are held to the same one-way funnel as their reps, on their own
+  // leads as well as their team's.
   const canMoveStageBackward = isOwner || isCoordinator
+
+  // Log activity is "record work I personally did". A manager logs only
+  // their own work (the owner's ruling), so on a TEAM lead the link is
+  // withheld — without this it would open /activity?lead=<team lead>, whose
+  // preselect bypasses the picker's own owner scoping and would let a
+  // manager credit themselves with an activity on someone else's deal.
+  // A coordinator keeps it: entry-on-behalf is their job, and that screen
+  // asks them whose it is.
+  const canLogActivityHere = !isOwner && !isTeamLeadForManager
 
   const stage = lead.current_stage ?? 'calling'
   const isWon = stage === 'won'
@@ -323,6 +359,11 @@ function LeadDetail() {
   // neither activity nor a created_at can't honestly be called stale OR
   // active; it renders as unknown (TONE_NEUTRAL), not as either extreme.
   const hasTouch = touchDays != null
+  // Every threshold below tests touchGate (floored at HISTORY_STARTS_AT) while
+  // every label still prints the real touchDays. A legacy lead therefore reads
+  // "Active" until its floored age crosses the line, then reports its true age
+  // when it does. See attention.js.
+  const touchGate = staleGateDays(lastActivityAt, lead?.created_at ?? null, lead) ?? touchDays
   // Thresholds come from attention.js so this page can't drift from the
   // Needs Attention queue. They were hardcoded 14/7 here, and the labels
   // disagreed with the rest of the app: 7 days read as "Cooling" here but was
@@ -330,12 +371,12 @@ function LeadDetail() {
   // 14 is when it needs attention.
   const touchColor = !hasTouch
     ? TONE_NEUTRAL
-    : touchDays >= ATTENTION_DAYS
+    : touchGate >= ATTENTION_DAYS
       ? TONE_BAD
-      : touchDays >= STALE_DAYS
+      : touchGate >= STALE_DAYS
         ? TONE_WARN
         : TONE_GOOD
-  const isAtRisk = isOpen && !isOnHold && hasTouch && touchDays >= ATTENTION_DAYS
+  const isAtRisk = isOpen && !isOnHold && hasTouch && touchGate >= ATTENTION_DAYS
 
   const statusLabel = isWon ? 'Customer' : isOnHold ? 'On hold' : isAtRisk ? 'At risk' : 'Open lead'
   const statusStyle = isWon
@@ -347,16 +388,16 @@ function LeadDetail() {
         : { bg: 'var(--vip-canvas-2)', fg: 'var(--vip-body)' }
   const healthLabel = !hasTouch
     ? 'No activity on record'
-    : touchDays >= ATTENTION_DAYS
+    : touchGate >= ATTENTION_DAYS
       ? `Needs attention · ${touchDays}d no touch`
-      : touchDays >= STALE_DAYS
+      : touchGate >= STALE_DAYS
         ? `Stale · ${touchDays}d`
         : `Active · ${touchDays}d ago`
   const healthStyle = !hasTouch
     ? { bg: TONE_NEUTRAL_SOFT, fg: TONE_NEUTRAL }
-    : touchDays >= ATTENTION_DAYS
+    : touchGate >= ATTENTION_DAYS
       ? { bg: TONE_BAD_SOFT, fg: TONE_BAD }
-      : touchDays >= STALE_DAYS
+      : touchGate >= STALE_DAYS
         ? { bg: TONE_WARN_SOFT, fg: TONE_WARN }
         : { bg: TONE_GOOD_SOFT, fg: TONE_GOOD }
 
@@ -666,7 +707,7 @@ function LeadDetail() {
           the exact same LeadQuickActions component, just relocated. */}
       <div className="vip-only-desktop">
         <div className="vip-btn-row">
-          {employee?.role !== 'owner' && (
+          {canLogActivityHere && (
             <Link className="vip-btn vip-btn-sm" to={`/activity?lead=${id}`}>
               Log activity
             </Link>
@@ -682,7 +723,7 @@ function LeadDetail() {
           )}
         </div>
 
-        {canEdit && (
+        {canQuickAct && (
           <LeadQuickActions
             {...quickActionsProps}
           />
@@ -822,7 +863,7 @@ function LeadDetail() {
     <div className="vip-only-mobile">
       <div className="vip-sticky-footer">
         <div className="vip-lead-actionbar">
-          {employee?.role !== 'owner' && (
+          {canLogActivityHere && (
             <Link className="vip-btn" to={`/activity?lead=${id}`}>
               Log activity
             </Link>
@@ -836,7 +877,7 @@ function LeadDetail() {
               Call client
             </button>
           )}
-          {canEdit && (
+          {canQuickAct && (
             <button
               type="button"
               className="vip-lead-actionbar-toggle"
@@ -856,10 +897,25 @@ function LeadDetail() {
       <>
         <div className="vip-narrow vip-pad-sticky-footer">
           {mainContent}
-          <p className="vip-empty">
-            This lead belongs to {lead.employees?.name ?? 'another sales exec'} — you can view the summary above, but
-            only they or an owner can make changes to it.
-          </p>
+          {/* Two different read-only states share this branch, and telling
+              them apart matters: a plain rep looking at a colleague's lead
+              really can change nothing, but a MANAGER looking at one of
+              their own team's leads has just been shown a full quick-actions
+              panel by mainContent. Giving them the "only they or an owner can
+              make changes" line would flatly contradict the controls sitting
+              directly above it. */}
+          {isTeamLeadForManager ? (
+            <p className="vip-empty">
+              This lead belongs to {lead.employees?.name ?? 'one of your sales executives'}, who reports to you — you
+              can change its stage, set follow-ups and reassign it above. Its client, site and quote details stay
+              theirs to edit.
+            </p>
+          ) : (
+            <p className="vip-empty">
+              This lead belongs to {lead.employees?.name ?? 'another sales exec'} — you can view the summary above, but
+              only they or an owner can make changes to it.
+            </p>
+          )}
         </div>
         {mobileActionBar}
       </>

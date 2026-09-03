@@ -65,6 +65,12 @@ function BottomNav() {
     employee?.role === 'sales_coordinator' ||
     employee?.role === 'sales_manager'
   const showFab = canLogActivity || canCreateLead
+  // The team directory: the owner's whole roster, or a manager's own reports.
+  // Declared here beside the other capability flags so the sidebar link and
+  // Dashboard's mobile tile can read ONE value — the split that cost a
+  // coordinator two core actions on an entire breakpoint started as exactly
+  // this kind of second, separately-computed opinion.
+  const canSeeTeamDirectory = employee?.role === 'owner' || employee?.role === 'sales_manager'
 
   const dashTab = location.pathname === '/dashboard' ? new URLSearchParams(location.search).get('tab') : null
   const onLeadsTab = dashTab === 'leads'
@@ -150,7 +156,12 @@ function BottomNav() {
           <IconBell />
           <span className="vip-nav-label">Follow-ups</span>
         </Link>
-        {employee?.role === 'owner' && (
+        {/* One capability flag read by this link, matching the route's own
+            allowedRoles — not `role === 'owner'` plus a second opinion
+            somewhere else. A manager sees the same directory narrowed to
+            their own reports (MyTeam.jsx). Its mobile path is the tile at
+            the top of Dashboard, which reads the same flag. */}
+        {canSeeTeamDirectory && (
           <NavLink to="/team" className={extraTabClass} title="My Team">
             <IconTeam />
             <span className="vip-nav-label">My Team</span>

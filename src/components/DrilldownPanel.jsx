@@ -116,7 +116,7 @@ function AgeRowContent({ r }) {
 // or tap (without dragging) to open the lead like a plain ageing row does.
 // Touch/mouse position tracked in local state rather than a library; no
 // drag library is used anywhere in this app (see CLAUDE.md's Conventions).
-function SwipeAgeRow({ r, onLogCall, onRequestDate, busy, message }) {
+function SwipeAgeRow({ r, onLogCall, onRequestDate, busy, message, allowLogCall = true }) {
   const [dragX, setDragX] = useState(0)
   const [open, setOpen] = useState(false)
   const [startX, setStartX] = useState(null)
@@ -162,18 +162,25 @@ function SwipeAgeRow({ r, onLogCall, onRequestDate, busy, message }) {
   return (
     <div className="vip-dd-age-swipe">
       <div className="vip-dd-age-actions">
-        <button
-          type="button"
-          className="vip-dd-age-action vip-dd-age-action-call"
-          disabled={busy}
-          onClick={async () => {
-            await onLogCall(r)
-            setOpen(false)
-            setDragX(0)
-          }}
-        >
-          Log call
-        </button>
+        {/* Withheld on a supervisor's team queue: this inserts an activity
+            crediting the CLICKER, which on someone else's lead would put a
+            manager's name on their rep's call. "Set date" beside it is
+            different in kind — it creates a follow-up assigned to the lead's
+            OWNER, which is exactly what a supervisor nudging a rep means. */}
+        {allowLogCall && (
+          <button
+            type="button"
+            className="vip-dd-age-action vip-dd-age-action-call"
+            disabled={busy}
+            onClick={async () => {
+              await onLogCall(r)
+              setOpen(false)
+              setDragX(0)
+            }}
+          >
+            Log call
+          </button>
+        )}
         <button
           type="button"
           className="vip-dd-age-action vip-dd-age-action-date"
@@ -297,7 +304,13 @@ function AgeingBody({ panel }) {
       <div className="vip-dd-section">
         <div className="vip-dd-section-head">
           <div className="vip-dd-section-title">{panel.listTitle}</div>
-          <div className="vip-dd-hint">{panel.queueActions ? 'swipe a row to log a call' : panel.listHint}</div>
+          <div className="vip-dd-hint">
+            {panel.queueActions
+              ? panel.allowLogCall !== false
+                ? 'swipe a row to log a call'
+                : 'swipe a row to set a follow-up'
+              : panel.listHint}
+          </div>
         </div>
         {rows.length === 0 ? (
           <p className="vip-empty">Nothing in this queue right now.</p>
@@ -308,6 +321,7 @@ function AgeingBody({ panel }) {
               r={r}
               busy={busyLeadId === r.leadId}
               message={messages[r.leadId]}
+              allowLogCall={panel.allowLogCall !== false}
               onLogCall={handleLogCall}
               onRequestDate={(row) => {
                 setDateSheet(row.leadId)

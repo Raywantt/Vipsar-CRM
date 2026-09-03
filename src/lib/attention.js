@@ -4,8 +4,8 @@ import { formatCurrencyCompact } from './format'
 import { getInitials } from './initials'
 import { dealValueFor } from './pipelineValue'
 import { todayISO } from './followupDates'
+import { daysSince } from './dateMath'
 
-const MS_PER_DAY = 1000 * 60 * 60 * 24
 const CLOSED_STAGES = ['won', 'lost']
 
 // How many days of inaction before a lead lands in each bucket. Named here
@@ -36,10 +36,128 @@ export const ATTENTION_DAYS = 14
 export const SILENT_QUOTE_DAYS = 5
 export const PENDING_RFQ_DAYS = 3
 
-function daysSince(dateLike) {
+// ---------------------------------------------------------------------------
+// The date the legacy sheets were imported. For AN IMPORTED LEAD ONLY (see
+// isImportedLead below — this is scoped by provenance, not applied globally),
+// nothing dated before it counts as evidence of neglect.
+//
+// Set 2026-09-03, at the owner's direction, to reset every queue to a blank
+// slate after the three legacy imports (431 leads) landed.
+//
+// THE PROBLEM IT SOLVES. Below, a lead with no logged activity falls back to
+// `created_at` as its last-touch proxy. That was harmless while every lead
+// was created here. It stopped being harmless once 431 leads arrived from
+// sheets carrying real dates back to 2023: the fallback then answers "when
+// did our records start?" and reports it as "when was this last touched?".
+// Those are different questions, and 306 of those leads have no activity
+// history at all — not because nobody worked them, but because the work
+// predates this CRM. A blank record is not evidence of neglect.
+//
+// Measured live 2026-09-03, once created_at was backfilled to the real legacy
+// dates (Schema/migration_backfill_legacy_created_at.sql): Needs Attention
+// would have gone 165 -> 396 rows overnight, 334 of them stale. Not a queue
+// anyone works; a queue people learn to ignore.
+//
+// WHAT THE RULE IS. One sentence: **on an imported lead, a signal dated
+// before HISTORY_STARTS_AT is treated as though it arrived on
+// HISTORY_STARTS_AT.** An app-created lead is never touched. Every bucket's own
+// threshold then does its normal job from that floor, so all five clear today
+// and refill on their own schedule as the floor ages:
+//
+//     pending RFQ    PENDING_RFQ_DAYS (3)   -> from ~5 Sept
+//     silent quotes  SILENT_QUOTE_DAYS (5)  -> from ~7 Sept
+//     stale          ATTENTION_DAYS (14)    -> from ~16 Sept
+//     slipped / overdue follow-ups          -> see inheritedGraceIsOver()
+//
+// WHY A CLAMP AND NOT A DELETE. The owner asked to "remove all leads from
+// needs attention and start again". Nothing is removed, because there is
+// nothing to remove — these buckets are derived on every render, not stored.
+// Suppressing the legacy leads permanently, or stamping a fake touch onto
+// them, would both have thrown away real signal: 33 quotes genuinely sent
+// with no reply since, and 21 RFQs genuinely raised with no quote, are among
+// the most actionable leads in the system and could not have been
+// reconstructed. Clamping gives the same empty screen today and hands every
+// one of them back within days, with its true age intact.
+//
+// NOTE the ages below are NOT clamped for display — only the threshold test
+// is. A lead silent since 2023 still reports "847d silent" when it surfaces
+// on 16 Sept; it simply could not surface before then. Clamping the displayed
+// age too would have made a two-year-cold lead read as a fortnight old, which
+// is the same kind of lie the fallback was already telling.
+//
+// THIS SELF-EXPIRES. Once every lead has real history recorded here, the
+// floor is older than everything and the clamp stops doing anything at all.
+// It is safe to leave in place; deleting it later restores the flood.
+export const HISTORY_STARTS_AT = '2026-09-02'
+
+const HISTORY_FLOOR_MS = new Date(`${HISTORY_STARTS_AT}T00:00:00`).getTime()
+
+// ---------------------------------------------------------------------------
+// THE CLAMP APPLIES ONLY TO IMPORTED LEADS. This is load-bearing and was a
+// real bug in the first cut of this rule, caught live before it shipped.
+//
+// 2026-09-02 is when the legacy sheets were IMPORTED — it is not when this
+// CRM started. The app's own 292 leads have genuine history stretching back
+// well before it. Applying the floor globally therefore suppressed a real
+// signal: lead #320 (MADANLAL LAKHANI, Vishal Kumar) is an app-created lead
+// whose follow-up was set for 22 Aug and had genuinely gone overdue, and the
+// global floor hid it for a fortnight purely because its date fell before the
+// import. That is the precise failure the whole clamp exists to avoid, so it
+// is now scoped by provenance rather than by date alone.
+//
+// `external_reference_id` is the only honest marker of provenance we have:
+// Schema/import_{vipul,harish,manohar}_legacy.sql stamp every imported row
+// 'legacy-<sheet row>', and nothing in the app ever writes it. It is selected
+// by fetchLeadsForBreakdown for this. A lead reaching here without the field
+// is treated as app-created — the safe default, since it means "show it".
+function isImportedLead(lead) {
+  return typeof lead?.external_reference_id === 'string' && lead.external_reference_id.startsWith('legacy-')
+}
+
+// The later of `dateLike` and the history floor, in ms. Null in, null out —
+// callers already treat an unknown date as "don't judge this lead".
+function notBefore(dateLike) {
   if (!dateLike) return null
-  const diff = Date.now() - new Date(dateLike).getTime()
-  return Math.floor(diff / MS_PER_DAY)
+  const t = new Date(dateLike).getTime()
+  if (Number.isNaN(t)) return null
+  return t < HISTORY_FLOOR_MS ? HISTORY_FLOOR_MS : t
+}
+
+// Age in days used ONLY to decide whether a lead crosses a threshold. Pair it
+// with a real, unclamped `daysSince(...)` for anything shown on screen.
+// An app-created lead is never clamped — its own dates are the truth.
+export function queueAge(dateLike, imported) {
+  if (!imported) return daysSince(dateLike)
+  const t = notBefore(dateLike)
+  return t == null ? null : daysSince(t)
+}
+
+// `slipped` and `followupsOverdue` have no day threshold — they fire the
+// moment a promised date is in the past — so the clamp above cannot clear
+// them (a date re-floored to yesterday is still "before today"). An inherited
+// promise instead gets one standard ATTENTION_DAYS runway to be re-confirmed
+// before it counts against anyone. Dates set inside this CRM are unaffected
+// and still fire immediately, which is the behaviour reps already expect.
+function inheritedGraceIsOver() {
+  const floorAge = daysSince(HISTORY_FLOOR_MS)
+  return floorAge != null && floorAge >= ATTENTION_DAYS
+}
+
+function inheritedDatePasses(dateStr, imported) {
+  if (!imported) return true
+  return dateStr >= HISTORY_STARTS_AT || inheritedGraceIsOver()
+}
+
+// The staleness age every *label* surface should gate on — All Leads'
+// "Nd silent", EmployeeProfile's touchColor, Lead Profile's health pill.
+// They must use the same floor as the queue: a screen shouting "847d silent"
+// in red while Needs Attention reports nothing to do is the exact
+// contradiction the STALE_DAYS/ATTENTION_DAYS split was made to end.
+// `lead` is needed for provenance — see isImportedLead. Callers that hold a
+// lead object should pass it; passing nothing means "app-created", i.e. no
+// clamp, which is the behaviour every screen had before this rule existed.
+export function staleGateDays(lastActivityAt, createdAt, lead = null) {
+  return queueAge(lastActivityAt ?? createdAt ?? null, isImportedLead(lead))
 }
 
 function isOpen(lead) {
@@ -103,10 +221,14 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
   const pendingRfq = []
 
   openLeads.forEach((lead) => {
+    // Each bucket below gates on a floored age (queueAge) but reports the
+    // real one — see HISTORY_STARTS_AT for why the two differ.
+    const imported = isImportedLead(lead)
     const lastActivityAt = lastActivityByLead.get(lead.id) ?? null
     const sinceTouch = lastActivityAt ?? lead.created_at
     const touchAge = daysSince(sinceTouch)
-    if (touchAge != null && touchAge >= ATTENTION_DAYS) {
+    const touchGate = queueAge(sinceTouch, imported)
+    if (touchGate != null && touchGate >= ATTENTION_DAYS) {
       stale.push(
         toRow(lead, touchAge, lastActivityAt ? `Last activity ${touchAge}d ago` : `No activity since created, ${touchAge}d ago`)
       )
@@ -114,13 +236,14 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
 
     if (lead.quote_sent && lead.quote_sent_at) {
       const quoteAge = daysSince(lead.quote_sent_at)
+      const quoteGate = queueAge(lead.quote_sent_at, imported)
       const touchedSinceQuote = lastActivityAt && new Date(lastActivityAt) > new Date(lead.quote_sent_at)
-      if (quoteAge >= SILENT_QUOTE_DAYS && !touchedSinceQuote) {
+      if (quoteGate != null && quoteGate >= SILENT_QUOTE_DAYS && !touchedSinceQuote) {
         silentQuotes.push(toRow(lead, quoteAge, `Quote sent ${quoteAge}d ago, nothing since`))
       }
     }
 
-    if (lead.next_followup_date && lead.next_followup_date < today) {
+    if (lead.next_followup_date && lead.next_followup_date < today && inheritedDatePasses(lead.next_followup_date, imported)) {
       const overdueAge = daysSince(lead.next_followup_date)
       followupsOverdue.push(toRow(lead, overdueAge, `Follow-up was due ${overdueAge}d ago`))
     }
@@ -128,14 +251,15 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
     // Same calendar comparison as above. This one was latent rather than
     // visible — the defect is identical, there simply happened to be no lead
     // whose estimated close date was today when it was found.
-    if (lead.estimated_close_date && lead.estimated_close_date < today) {
+    if (lead.estimated_close_date && lead.estimated_close_date < today && inheritedDatePasses(lead.estimated_close_date, imported)) {
       const slipAge = daysSince(lead.estimated_close_date)
       slipped.push(toRow(lead, slipAge, `Est. close was ${slipAge}d ago`))
     }
 
     if (lead.rfq_raised && !lead.quote_sent && lead.rfq_raised_at) {
       const rfqAge = daysSince(lead.rfq_raised_at)
-      if (rfqAge >= PENDING_RFQ_DAYS) {
+      const rfqGate = queueAge(lead.rfq_raised_at, imported)
+      if (rfqGate != null && rfqGate >= PENDING_RFQ_DAYS) {
         pendingRfq.push(toRow(lead, rfqAge, `RFQ raised ${rfqAge}d ago, no quote yet`))
       }
     }
@@ -236,7 +360,23 @@ export function countDistinctLeads(buckets) {
 // turn on Home's swipe-action queue there too). Defaults to the old
 // `scopeLabel !== 'Company'` rule so Home's own call (scopeLabel: 'You')
 // is unaffected; Dashboard passes `queueActions: false` explicitly.
-export function buildAgeingPanel(bucket, scopeLabel = 'Company', viewerEmployeeId = null, queueActions = scopeLabel !== 'Company') {
+//
+// `allowLogCall` splits the two row actions apart, and defaults to
+// `queueActions` so every existing caller behaves exactly as before. It
+// exists because "Log call" and "Set date" are not the same kind of action:
+// Set date creates a real follow_up ASSIGNED TO THE LEAD'S OWNER (see
+// DrilldownPanel's handleSaveDate), which is a supervisor nudging their rep,
+// while Log call inserts an `activities` row crediting whoever clicked. On a
+// sales manager's TEAM queue the first is exactly right and the second would
+// credit the manager with a call their rep made — the one thing the owner
+// ruled out for that role (2026-09-03: a manager logs only their own work).
+export function buildAgeingPanel(
+  bucket,
+  scopeLabel = 'Company',
+  viewerEmployeeId = null,
+  queueActions = scopeLabel !== 'Company',
+  allowLogCall = queueActions
+) {
   const owners = new Map()
   bucket.rows.forEach((row) => {
     const key = row.ownerId ?? 'unassigned'
@@ -257,6 +397,7 @@ export function buildAgeingPanel(bucket, scopeLabel = 'Company', viewerEmployeeI
     value: String(bucket.count),
     note: bucket.note,
     queueActions,
+    allowLogCall,
     viewerEmployeeId,
     stats: [
       { label: 'Value involved', value: formatCurrencyCompact(totalValue), sub: `across ${bucket.count} lead${bucket.count === 1 ? '' : 's'}`, color: '#b4232a' },

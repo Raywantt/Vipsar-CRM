@@ -1,52 +1,29 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
-import { fetchDayReview } from '../lib/dayReviewQueries'
-import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
-import { fetchLeadsForBreakdown, fetchLastActivityPerLead } from '../lib/dashboardQueries'
-import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
-import { rescheduleFollowUp } from '../lib/followUpQueries'
-import { todayISO } from '../lib/followupDates'
-import DayReviewCard from '../components/DayReviewCard'
-import { DayKpiStrip } from '../components/DayReviewHeader'
-import FollowUpForm from '../components/FollowUpForm'
-import DrilldownPanel from '../components/DrilldownPanel'
+import TeamTodayPanel from '../components/TeamTodayPanel'
 import TodayGreetingHeader from '../components/TodayGreetingHeader'
 import { errorMessage } from '../lib/errorMessage'
 
-// The sales coordinator's Today screen — a real build now, not the Phase 3
-// placeholder this file used to be. Every piece of data here is the exact
-// same Day Review plumbing Dashboard's own "Today" period already runs for
-// the owner (fetchDayReview, buildDayRows/buildDayTotals/buildDayKpis,
-// DayReviewCard, computeAttentionBuckets/buildAgeingPanel) — it's RLS-driven
-// and role-agnostic, and every table it touches already has live
-// coordinator_team_* policies, so scoping "my team" instead of "the company"
-// only ever means passing a smaller `employees` array in, never new queries
-// or new RLS. Same "Hero → Act now → Recap/Overview → Outlook" grammar
-// Home.jsx uses, with team-shaped content in place of personal content —
-// see the Today Briefing redesign notes in CLAUDE.md.
+// The sales coordinator's Today screen.
 //
-// Deliberately NOT here, matching CLAUDE.md's own Phase 4 scope: a date
-// picker (Home has none either; Dashboard already owns past-day review,
-// already coordinator-scoped) and a team target/attainment card (a
-// coordinator carries no personal quota; Dashboard's Targets vs. Actuals is
-// already coordinator-team-scoped).
+// Its body moved into TeamTodayPanel (2026-09-03) when the sales manager
+// arrived needing the same screen with a different roster and a wider set of
+// red flags. Nothing about what a coordinator sees changed in that move: the
+// panel's defaults ARE this screen's old behaviour — the same two attention
+// buckets ('stale', 'followups_overdue'), in the same order, with the same
+// copy. What is left here is the only part that was ever coordinator-specific:
+// which execs make up "my team".
+//
+// The two-bucket default is the Phase 4 spec's own scope, not an oversight —
+// this is an oversight view of a whole team, not one rep's actionable list.
+// A manager passes all five explicitly.
 function CoordinatorToday() {
   const { employee } = useAuth()
 
   const [employees, setEmployees] = useState([])
   const [employeesLoaded, setEmployeesLoaded] = useState(false)
   const [loadError, setLoadError] = useState(null)
-
-  const [dayData, setDayData] = useState(null)
-  const [breakdownLeads, setBreakdownLeads] = useState(null)
-  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
-
-  const [panel, setPanel] = useState(null)
-  const [selectedExecId, setSelectedExecId] = useState(null)
-
-  const [addingFollowUp, setAddingFollowUp] = useState(false)
-  const [pickedExec, setPickedExec] = useState(null)
 
   useEffect(() => {
     if (!employee?.id) return
@@ -61,90 +38,6 @@ function CoordinatorToday() {
       active = false
     }
   }, [employee?.id])
-
-  // Same day-scoped fetch Home.jsx's own "Done today" runs — RLS alone
-  // decides whose rows come back (a coordinator's team here, via
-  // coordinator_team_select), so this call is byte-identical either way.
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchDayReview(todayISO()).then((res) => {
-      if (!active) return
-      setDayData(res)
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
-
-  // Same pipeline-snapshot pair Home.jsx fetches once for its own work
-  // queue — fetchLeadsForBreakdown() is already RLS-scoped to the
-  // coordinator's team, so the red-flags queue below needs no owner filter
-  // the way Home's personal one does.
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead()]).then(([leadsRes, activityRes]) => {
-      if (!active) return
-      setBreakdownLeads(leadsRes.data ?? [])
-      const map = new Map()
-      ;(activityRes.data ?? []).forEach((row) => {
-        const existing = map.get(row.lead_id)
-        if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-      })
-      setLastActivityByLead(map)
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
-
-  const dayRows = dayData ? buildDayRows(employees, dayData, false) : []
-  const dayTotals = buildDayTotals(dayRows)
-  const dayKpis = dayData ? buildDayKpis(dayData, dayRows, false) : []
-
-  const attentionBuckets = breakdownLeads ? computeAttentionBuckets(breakdownLeads, lastActivityByLead) : null
-
-  // Only the two reasons CLAUDE.md's own Phase 4 spec names — not all 5
-  // computeAttentionBuckets buckets Home's personal queue shows, since this
-  // is an oversight view of the whole team, not one rep's actionable list.
-  const redFlagRows = attentionBuckets
-    ? ['stale', 'followups_overdue'].map((key) => {
-        const bucket = attentionBuckets.find((b) => b.key === key)
-        return {
-          key,
-          title: bucket.title,
-          sub: bucket.sub,
-          count: bucket.count,
-          color: bucket.color,
-          onOpen: () => setPanel(buildAgeingPanel(bucket, 'Your team', null, false)),
-        }
-      })
-    : []
-  const redFlagTotal = redFlagRows.reduce((s, r) => s + r.count, 0)
-
-  function openDaySheet(employeeId) {
-    if (!dayData) return
-    const emp = employees.find((e) => e.id === employeeId)
-    if (!emp) return
-    setSelectedExecId(employeeId)
-    setPanel(
-      buildDaySheetPanel({
-        employee: emp,
-        data: dayData,
-        dateISO: todayISO(),
-        isPast: false,
-        changesUnavailable: dayData.changesUnavailable,
-        changeLogStart: null,
-        onReschedule: rescheduleFollowUp,
-      })
-    )
-  }
-
-  function closeAssignForm() {
-    setAddingFollowUp(false)
-    setPickedExec(null)
-  }
 
   return (
     <div className="vip-wide vip-pad-fab-overhang">
@@ -162,106 +55,8 @@ function CoordinatorToday() {
           </p>
         </div>
       ) : (
-        <>
-          {/* ---------- Hero: the team's headline pace — same shell as
-              Home's personal hero, team-shaped content: no target/period
-              switch (a coordinator carries no personal quota), just team
-              size and today's total, with the same supporting KPI strip
-              Dashboard's own Today period already renders for the owner. ---------- */}
-          <div className="vip-today-hero">
-            <div className="vip-today-hero-head">
-              <span className="vip-day-head-title">Your team today</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span className="vip-today-hero-value">{employees.length}</span>
-              <span className="vip-today-hero-sub">
-                sales exec{employees.length === 1 ? '' : 's'} · {dayData ? `${dayTotals.total} logged today` : 'loading…'}
-              </span>
-            </div>
-            {dayData && (
-              <div className="vip-today-hero-kpis">
-                <DayKpiStrip kpis={dayKpis} />
-              </div>
-            )}
-          </div>
-
-          <div className="vip-featured-row">
-            <div className="vip-today-col">
-              {/* ---------- Overview: this literally is the "team overview
-                  rows (last activity, open leads, follow-ups due/overdue)"
-                  the old placeholder card described wanting — reused
-                  verbatim from Dashboard's own Today period. ---------- */}
-              <DayReviewCard rows={dayRows} totals={dayTotals} isPast={false} onOpenExec={openDaySheet} selectedExecId={selectedExecId} />
-            </div>
-
-            <div className="vip-today-col">
-              {/* ---------- Act now: team red flags + the genuinely new
-                  piece this screen adds — assigning a follow-up to a team
-                  member, the same "+ Assign follow-up" pattern
-                  EmployeeProfile.jsx already establishes for owner→exec. ---------- */}
-              <div className="vip-card">
-                <div className="vip-card-head">
-                  <div className="vip-card-title">Needs your team's attention</div>
-                  <div className="vip-day-head-actions">
-                    {redFlagTotal > 0 && <span className="vip-day-head-count">{redFlagTotal}</span>}
-                    <button
-                      type="button"
-                      className="vip-btn-link"
-                      onClick={() => (addingFollowUp ? closeAssignForm() : setAddingFollowUp(true))}
-                    >
-                      {addingFollowUp ? 'Cancel' : '+ Assign follow-up'}
-                    </button>
-                  </div>
-                </div>
-
-                {addingFollowUp && (
-                  <label className="vip-field">
-                    Who is this for? *
-                    <select
-                      className="vip-select"
-                      value={pickedExec?.id ?? ''}
-                      onChange={(e) => setPickedExec(employees.find((emp) => String(emp.id) === e.target.value) ?? null)}
-                    >
-                      <option value="">— Choose a sales exec —</option>
-                      {employees.map((emp) => (
-                        <option key={emp.id} value={emp.id}>
-                          {emp.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                {addingFollowUp && pickedExec && (
-                  <FollowUpForm assignedTo={pickedExec.id} createdBy={employee.id} onSaved={closeAssignForm} onCancel={closeAssignForm} />
-                )}
-
-                {!attentionBuckets ? (
-                  <p className="vip-empty">Loading…</p>
-                ) : redFlagTotal === 0 ? (
-                  <p className="vip-empty">Nothing needs your attention right now.</p>
-                ) : (
-                  redFlagRows
-                    .filter((r) => r.count > 0)
-                    .map((row) => (
-                      <button key={row.key} type="button" className="vip-queue-row" onClick={row.onOpen}>
-                        <span className="vip-queue-bar" style={{ background: row.color }} />
-                        <span className="vip-queue-main">
-                          <span className="vip-queue-title">{row.title}</span>
-                          <span className="vip-queue-sub">{row.sub}</span>
-                        </span>
-                        <span className="vip-queue-count-num">{row.count}</span>
-                        <span className="vip-queue-chevron">›</span>
-                      </button>
-                    ))
-                )}
-              </div>
-            </div>
-          </div>
-        </>
+        <TeamTodayPanel employee={employee} execs={employees} />
       )}
-
-      <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
     </div>
   )
 }

@@ -18,8 +18,6 @@ import { errorMessage } from '../lib/errorMessage'
 import DrilldownPanel from '../components/DrilldownPanel'
 import { DayKpiStrip } from '../components/DayReviewHeader'
 import TodayGreetingHeader from '../components/TodayGreetingHeader'
-import CoordinatorToday from './CoordinatorToday'
-import OwnerToday from './OwnerToday'
 
 function formatDate(value) {
   if (!value) return '—'
@@ -73,7 +71,7 @@ function followUpPanel(title, rows, onMarkDone) {
   }
 }
 
-function Home() {
+function Home({ embedded = false }) {
   const { employee } = useAuth()
   const navigate = useNavigate()
 
@@ -298,8 +296,14 @@ function Home() {
   const attendCount = openFollowUps.length + queueTotal
 
   return (
-    <div className="vip-wide vip-pad-fab-overhang">
-      <TodayGreetingHeader employee={employee} />
+    // `embedded` is set only by ManagerToday's "My day" tab, which supplies
+    // its own page wrapper and greeting bar and would otherwise render a
+    // second one inside a nested .vip-wide. Nothing else about this screen
+    // changes by role: a manager IS a rep here, so they get the identical
+    // hero, work queue and target bar an exec does, scoped by RLS to their
+    // own leads and activities.
+    <div className={embedded ? undefined : 'vip-wide vip-pad-fab-overhang'}>
+      {!embedded && <TodayGreetingHeader employee={employee} />}
 
       {/* ---------- Hero: today's headline number, promoted from a buried
           card lower on the old page to the first thing seen. Everything
@@ -532,24 +536,4 @@ function TargetBar({ target, period }) {
   )
 }
 
-// `/` is one route serving a different screen per role. The switch lives in
-// a wrapper rather than an early return inside Home, because Home runs a
-// dozen hooks and fires several fetches before it renders anything — a
-// coordinator or owner hitting an early return would still pay for every one
-// of those queries, all of which are scoped to leads and activities neither
-// role owns.
-//
-// Home itself is now sales_executive-only. It used to also serve owner, but
-// real feedback (2026-09-01) is that a rep-shaped "Done today" hero and
-// personal work queue read as a wall of zeros for an owner — they don't log
-// activities, rarely have follow-ups of their own, and don't touch leads or
-// send quotes themselves. OwnerToday is the bird's-eye replacement: the
-// whole sales team's day, not one person's.
-function Today() {
-  const { employee } = useAuth()
-  if (employee?.role === 'sales_coordinator') return <CoordinatorToday />
-  if (employee?.role === 'owner') return <OwnerToday />
-  return <Home />
-}
-
-export default Today
+export default Home

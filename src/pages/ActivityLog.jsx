@@ -96,10 +96,17 @@ function ActivityLog() {
   const [submitError, setSubmitError] = useState(null)
   const [result, setResult] = useState(null)
 
+  // Active employees only. Deactivating someone is meant to stop them being
+  // selectable, not just stop them logging in — without this filter a
+  // deactivated colleague stayed in the "Accompanied by" list forever, and a
+  // duplicate record (same person added twice, one deactivated) showed up as
+  // two identical names with no way to tell them apart. Same .eq('is_active',
+  // true) fetchCoordinators/fetchActiveSalesExecs already use.
   useEffect(() => {
     supabase
       .from('employees')
       .select('id, name')
+      .eq('is_active', true)
       .order('name')
       .then(({ data }) => setEmployees(data ?? []))
   }, [])

@@ -2598,7 +2598,48 @@ since it isn't part of the date-range-scoped report data.
   `ATTENTION_DAYS`; output is identical today, but retuning either threshold
   would otherwise have left that one screen colouring by the old numbers.
   **Any new surface that colours or labels by staleness must import these
-  constants — never repeat the literals.** Every row opens the `ageing` drill-down kind via
+  constants — never repeat the literals.**
+  **`HISTORY_STARTS_AT` (`'2026-09-02'`) — the legacy-import reset, added
+  2026-09-03 at the owner's direction.** The three legacy imports brought in
+  431 leads with real dates going back to 2023 but **no activity history at
+  all** for 306 of them. `computeAttentionBuckets` falls back to
+  `lead.created_at` when a lead has no logged activity, so once
+  `migration_backfill_legacy_created_at.sql` put those true dates in place,
+  that fallback stopped answering "when was this last touched?" and started
+  answering "when did our records start?" — measured live, Needs Attention
+  would have gone **165 → 396 rows overnight, 334 of them stale**. A blank
+  record is not evidence of neglect. The rule, in one sentence: **on an
+  imported lead, a signal dated before `HISTORY_STARTS_AT` is treated as
+  though it arrived on `HISTORY_STARTS_AT`.** Each bucket's own threshold
+  then does its normal job from that floor, so all five clear and refill on
+  their own schedule (RFQ +3d, quotes +5d, stale +14d). Three things about
+  it are load-bearing:
+  * **It is scoped by provenance, not by date** — `isImportedLead` tests
+    `external_reference_id LIKE 'legacy-%'`, the marker the import files
+    stamp and nothing in the app ever writes. The first cut keyed on the
+    date alone and that was a **real bug caught live before shipping**:
+    2026-09-02 is when the sheets were *imported*, not when this CRM
+    started, so a global floor also silenced lead #320 (MADANLAL LAKHANI,
+    Vishal Kumar) — an app-created lead whose follow-up was genuinely
+    overdue from 22 Aug. Pinned by three regression tests. Both
+    `fetchLeadsForBreakdown` and `fetchLeadsList` had to start selecting
+    `external_reference_id` for this; drop it from either and the clamp
+    silently stops applying on that screen.
+  * **Only the threshold test is clamped, never the displayed age.** A lead
+    silent since 2023 still reports its true "847d" when it surfaces — it
+    just could not surface earlier. Clamping the shown age too would be the
+    same lie the fallback was already telling.
+  * **The label surfaces clamp too** (`LeadsListCard`'s "Nd silent",
+    `EmployeeProfile`'s `touchColor`, Lead Profile's health pill — all via
+    the exported `staleGateDays`). All Leads shouting a red "847d silent"
+    while Needs Attention reports nothing to do is exactly the
+    contradiction the STALE_DAYS/ATTENTION_DAYS split was made to end.
+  **It self-expires** — once every lead has real history recorded here the
+  floor is older than everything and the clamp does nothing. Leaving it is
+  free; deleting it restores the flood. `attention.test.js`'s own `NOW` was
+  moved to 2026-11-12 for this, deliberately past the floor, so the ordinary
+  threshold tests still measure thresholds rather than the clamp.
+  Every row opens the `ageing` drill-down kind via
   `buildAgeingPanel`; the KPI row's "Stale leads" tile reuses the exact same
   call rather than a second computation (see the Dashboard-v2 Design-system
   bullet above for why that reuse matters generally). For Week/Month/

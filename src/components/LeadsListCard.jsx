@@ -4,7 +4,7 @@ import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
 import { fetchLeadsList, fetchLastActivityPerLead, resolveLeadsSearchFilter, LEADS_PAGE_SIZE } from '../lib/dashboardQueries'
 import { MIN_QUERY_LENGTH } from '../lib/searchQueries'
 import { stageChipClass, stageFg } from '../lib/statusColors'
-import { STALE_DAYS } from '../lib/attention'
+import { STALE_DAYS, staleGateDays } from '../lib/attention'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
 import { formatCurrencyCompact } from '../lib/format'
@@ -27,7 +27,11 @@ function recencyInfo(lead, lastActivityByLead) {
   const lastAt = lastActivityByLead.get(lead.id) ?? lead.created_at
   if (!lastAt) return { label: 'no activity on record', isStale: false }
   const days = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000)
-  const isStale = days >= STALE_DAYS
+  // Gate on the floored age, label with the real one — see HISTORY_STARTS_AT
+  // in attention.js. Without this a legacy lead reads a red "847d silent"
+  // here while Needs Attention correctly reports nothing to do.
+  const gate = staleGateDays(lastActivityByLead.get(lead.id) ?? null, lead.created_at, lead)
+  const isStale = gate != null && gate >= STALE_DAYS
   return { label: isStale ? `${days}d silent` : days <= 0 ? 'touched today' : `${days}d ago`, isStale }
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
+import { useAuth } from '../contexts/AuthContext'
 import { fetchTeamMembers } from '../lib/employeeQueries'
 import { fetchLeadsForBreakdown, fetchLastActivityPerLead } from '../lib/dashboardQueries'
 import { computeAttentionBuckets, countDistinctLeads } from '../lib/attention'
@@ -26,6 +27,16 @@ const OK = '#7a6413'
 const FILTERS_STORAGE_KEY = 'vip-filters:my-team'
 
 function MyTeam() {
+  // Owner-only until 2026-09-03; a sales manager gets the same directory
+  // narrowed to their own reports. The narrowing is client-side because
+  // `employees` SELECT is deliberately open to every active employee (name
+  // lookups, "Accompanied by"), so the database will hand back the whole
+  // roster no matter who asks — same reason fetchMyManagedExecs filters in
+  // JS. Nothing sensitive rides on it: the per-card stats below come from
+  // fetchLeadsForBreakdown(), which IS RLS-scoped, so a manager could not
+  // see another team's numbers even if this filter were removed.
+  const { employee } = useAuth()
+  const isManager = employee?.role === 'sales_manager'
   const [employees, setEmployees] = useState([])
   const [leads, setLeads] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
@@ -44,7 +55,11 @@ function MyTeam() {
           setError(errorMessage(teamRes.error))
           return
         }
-        setEmployees(teamRes.data ?? [])
+        setEmployees(
+          isManager
+            ? (teamRes.data ?? []).filter((e) => e.manager_id === employee?.id)
+            : (teamRes.data ?? [])
+        )
         setLeads(leadsRes.data ?? [])
         const map = new Map()
         ;(activityRes.data ?? []).forEach((row) => {
@@ -57,7 +72,7 @@ function MyTeam() {
     return () => {
       active = false
     }
-  }, [])
+  }, [isManager, employee?.id])
 
   // Open-lead count + open pipeline value per employee, from the same
   // unbounded breakdown query Dashboard/EmployeeProfile already fetch —

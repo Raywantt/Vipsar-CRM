@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient'
+import { CARRIES_OWN_LEADS } from './roles'
 
 // The columns every write below reads back. Shared so adding a field doesn't
 // mean remembering four separate .select() strings — coordinator_id was
@@ -93,7 +94,20 @@ export function fetchActiveSalesExecs() {
   return supabase
     .from('employees')
     .select('id, name, role, coordinator_id, manager_id, office_location, created_at')
-    .eq('role', 'sales_executive')
+    // CARRIES_OWN_LEADS, not the literal 'sales_executive'. A sales manager
+    // works their own pipeline and carries their own targets (the owner's
+    // ruling, 2026-09-03: managers are ranked among execs and appear mixed
+    // in with them, distinguished by a role badge). Filtering on the literal
+    // role left them out of every screen that answers "who are our reps" —
+    // the owner's heatmap and Day Review table, the attainment ranking, the
+    // Set-a-target employee list and All Leads' owner filter — so a manager
+    // could log work that no owner-facing report ever showed.
+    //
+    // Safe for the two team-scoped wrappers below: a manager has neither a
+    // coordinator_id nor a manager_id, so fetchMyTeamExecs and
+    // fetchMyManagedExecs both still return executives only. That is what
+    // keeps "a manager's team is their execs, not themselves" true.
+    .in('role', CARRIES_OWN_LEADS)
     .eq('is_active', true)
     .order('name')
 }

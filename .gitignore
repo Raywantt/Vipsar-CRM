@@ -49,3 +49,14 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# Real customer data — THIS REPOSITORY IS PUBLIC.
+# The legacy-CRM import scripts and their source spreadsheets contain client
+# names, mobile numbers and addresses for several hundred real people.
+# Committing them would publish that to anyone on the internet, permanently
+# (git history keeps it even after a later delete). Keep them local; run the
+# SQL from the Supabase SQL Editor the same way every other migration is run.
+# Migrations that carry NO customer data — e.g.
+# migration_backfill_legacy_created_at.sql — are tracked normally.
+Schema/import_*_legacy.sql
+*.xlsx

@@ -9,13 +9,14 @@ import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQuerie
 import { fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
 import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp } from '../lib/followUpQueries'
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
-import { computeAttentionBuckets, STALE_DAYS, ATTENTION_DAYS } from '../lib/attention'
+import { computeAttentionBuckets, STALE_DAYS, ATTENTION_DAYS, staleGateDays } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageChipClass } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
+import { roleLabel } from '../lib/roles'
 import { parseTimestamp } from '../lib/dbTime'
 import { todayISO } from '../lib/followupDates'
 import FollowUpForm from '../components/FollowUpForm'
@@ -74,9 +75,14 @@ function pctColor(p) {
 // (see leadsAssigned below) used to reach here as a fake ~20687 (epoch
 // fallback from new Date(null)) and render solid red. Genuinely unknown now
 // renders as neutral grey instead of the worst possible color.
-function touchColor(days) {
+// `gate` is the age floored at HISTORY_STARTS_AT (attention.js); `days` stays
+// the real one and is what the row prints. Passing only `days` here would
+// paint 300+ legacy leads solid red on a screen whose own stale STAT, which
+// reads computeAttentionBuckets, correctly reports zero.
+function touchColor(days, gate = days) {
   if (days == null) return NEUTRAL
-  return days >= ATTENTION_DAYS ? BAD : days >= STALE_DAYS ? OK : GOOD
+  if (gate == null) return NEUTRAL
+  return gate >= ATTENTION_DAYS ? BAD : gate >= STALE_DAYS ? OK : GOOD
 }
 
 function leadTitle(lead) {
@@ -173,6 +179,7 @@ function EmployeeProfile() {
 
   const isOwner = viewer?.role === 'owner'
   const isCoordinator = viewer?.role === 'sales_coordinator'
+  const isManager = viewer?.role === 'sales_manager'
   const isSelf = viewer?.id === execId
   const preset = PERIOD_OPTIONS.includes(searchParams.get('period')) ? searchParams.get('period') : 'month'
   const range = rangeForPreset(preset)
@@ -206,23 +213,32 @@ function EmployeeProfile() {
   //
   // A coordinator's answer isn't knowable from role + id alone the way
   // owner/self are — it depends on this exec's own coordinator_id, which
-  // only arrives once fetchEmployeeProfile resolves. `pendingCoordinatorCheck`
+  // only arrives once fetchEmployeeProfile resolves. `pendingSupervisorCheck`
   // marks that "still finding out" window so the redirect (and the final
   // render guard below) wait for it instead of bouncing a legitimate
   // coordinator before their own team-membership check has even run.
   const canOpenDirectly = isOwner || isSelf
-  const pendingCoordinatorCheck = isCoordinator && !canOpenDirectly && profileEmployee == null && profileError == null
+  // Both supervising roles answer the same way and for the same reason: their
+  // right to this page depends on a column of the PROFILE row (coordinator_id
+  // / manager_id), not on their own role plus the id in the URL, so neither
+  // can be decided until fetchEmployeeProfile resolves. `pendingSupervisorCheck`
+  // marks that "still finding out" window so the redirect (and the render
+  // guard below) wait for it instead of bouncing a legitimate supervisor
+  // before their own team-membership check has run.
+  const isSupervisor = isCoordinator || isManager
+  const pendingSupervisorCheck = isSupervisor && !canOpenDirectly && profileEmployee == null && profileError == null
   const isMyTeamMember = isCoordinator && profileEmployee != null && profileEmployee.coordinator_id === viewer?.id
-  const allowed = canOpenDirectly || isMyTeamMember
+  const isMyManagedMember = isManager && profileEmployee != null && profileEmployee.manager_id === viewer?.id
+  const allowed = canOpenDirectly || isMyTeamMember || isMyManagedMember
   // Anyone whose access *could* end up true — used only to gate the initial
-  // profile-row fetch, since that's the one fetch a coordinator needs before
+  // profile-row fetch, since that's the one fetch a supervisor needs before
   // `allowed` itself can be computed.
-  const mayAttempt = canOpenDirectly || isCoordinator
+  const mayAttempt = canOpenDirectly || isSupervisor
 
   useEffect(() => {
-    if (!viewer || pendingCoordinatorCheck) return
+    if (!viewer || pendingSupervisorCheck) return
     if (!allowed) navigate('/dashboard', { replace: true })
-  }, [viewer, pendingCoordinatorCheck, allowed, navigate])
+  }, [viewer, pendingSupervisorCheck, allowed, navigate])
 
   useEffect(() => {
     if (!viewer || !mayAttempt) return
@@ -251,12 +267,25 @@ function EmployeeProfile() {
       // against a company-wide list here would score every exec outside the
       // team as if they had zero activity and no targets, not because they
       // do, but because this session simply can't see their data.
-      setActiveSalesExecs(isCoordinator ? all.filter((e) => e.coordinator_id === viewer.id) : all)
+      // The rank pill needs a peer group this session can actually SEE.
+      // A supervisor's activities/leads/targets are RLS-scoped to their own
+      // team, so comparing against a company-wide roster would score every
+      // outsider as zero — not because they did nothing, but because their
+      // rows never arrive. A manager's own row is added back explicitly:
+      // unlike a coordinator they carry a quota, so on their own profile
+      // they must be part of the group they are being ranked within.
+      setActiveSalesExecs(
+        isCoordinator
+          ? all.filter((e) => e.coordinator_id === viewer.id)
+          : isManager
+          ? all.filter((e) => e.manager_id === viewer.id || e.id === viewer.id)
+          : all
+      )
     })
     return () => {
       active = false
     }
-  }, [viewer, allowed, isCoordinator])
+  }, [viewer, allowed, isCoordinator, isManager])
 
   useEffect(() => {
     if (!viewer || !allowed) return
@@ -346,7 +375,7 @@ function EmployeeProfile() {
     return () => setOverride(null)
   }, [execName, setOverride])
 
-  if (!viewer || pendingCoordinatorCheck) return null
+  if (!viewer || pendingSupervisorCheck) return null
   if (!allowed) return null
   if (profileError) return <div className="vip-wide"><p className="vip-error" role="alert">{profileError}</p></div>
   if (!profileEmployee) return <div className="vip-wide"><p className="vip-empty">Loading…</p></div>
@@ -466,6 +495,7 @@ function EmployeeProfile() {
       // cause) used to fall through to new Date(null) — epoch — and sort to
       // the very top of this list as if it were 56 years overdue.
       const days = lastAt ? Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000) : null
+      const gate = staleGateDays(lastActivityByLead.get(l.id) ?? null, l.created_at, l)
       // Calendar comparison on a DATE column — see attention.js's note. Parsing
       // a date-only string gives UTC midnight (05:30 IST), so comparing it to an
       // instant marked a follow-up due TODAY as overdue for most of the day.
@@ -475,7 +505,7 @@ function EmployeeProfile() {
         : overdueFollowup
         ? 'Follow-up overdue'
         : STAGE_NEXT_ACTION[l.current_stage ?? 'calling'] ?? 'No next step'
-      return { lead: l, days, nextStep }
+      return { lead: l, days, gate, nextStep }
     })
     // Unknown (days: null) sorts last, not first — treated as -1 so it
     // never outranks a real, known age. See the null-guard above.
@@ -544,7 +574,12 @@ function EmployeeProfile() {
             </div>
             <span className="vip-profile-sub">
               {[
-                profileEmployee.role === 'owner' ? 'Owner' : 'Sales Executive',
+                // roleLabel(), not an owner/else ternary. That ternary
+                // predates the third and fourth roles and would print
+                // "Sales Executive" on a coordinator's or a manager's own
+                // profile — the one place a person reads their own job title
+                // back off this app.
+                roleLabel(profileEmployee.role),
                 profileEmployee.office_location,
                 // Guarded defensively — no employee has a null created_at
                 // today, but this is the exact same unguarded new Date(x)
@@ -692,15 +727,15 @@ function EmployeeProfile() {
                 {leadsAssigned.length === 0 ? (
                   <p className="vip-empty">No open leads assigned.</p>
                 ) : (
-                  leadsAssigned.map(({ lead, days, nextStep }) => (
+                  leadsAssigned.map(({ lead, days, gate, nextStep }) => (
                     <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-dd-age-row">
-                      <span className="vip-dd-age-bar" style={{ background: touchColor(days) }} />
+                      <span className="vip-dd-age-bar" style={{ background: touchColor(days, gate) }} />
                       <span className="vip-dd-age-main">
                         <span className="vip-dd-age-party">{leadTitle(lead)}</span>
                         <span className="vip-dd-age-last">{[lead.sites?.nickname || lead.sites?.locality, stageLabel(lead.current_stage ?? 'calling')].filter(Boolean).join(' · ')} · {nextStep}</span>
                       </span>
                       <span className="vip-dd-age-side">
-                        <span className="vip-dd-age-days" style={{ color: touchColor(days) }}>
+                        <span className="vip-dd-age-days" style={{ color: touchColor(days, gate) }}>
                           {days != null ? `${days}d ago` : 'no activity'}
                         </span>
                         <span className="vip-dd-age-value">{formatCurrencyCompact(dealValueFor(lead))}</span>

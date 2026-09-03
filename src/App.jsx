@@ -7,7 +7,7 @@ import OfflineIndicator from './components/OfflineIndicator'
 import InstallPrompt from './components/InstallPrompt'
 import NotificationPrompt from './components/NotificationPrompt'
 import Login from './pages/Login'
-import Home from './pages/Home'
+import Today from './pages/Today'
 import Profile from './pages/Profile'
 import Search from './pages/Search'
 import Dashboard from './pages/Dashboard'
@@ -77,7 +77,7 @@ function App() {
           <Route
             path="/team"
             element={
-              <ProtectedRoute allowedRoles={['owner']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_manager']}>
                 <MyTeam />
               </ProtectedRoute>
             }
@@ -107,7 +107,7 @@ function App() {
             path="/"
             element={
               <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator', 'sales_manager']}>
-                <Home />
+                <Today />
               </ProtectedRoute>
             }
           />

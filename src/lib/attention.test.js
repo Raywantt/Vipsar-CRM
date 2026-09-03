@@ -1,12 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { computeAttentionBuckets, countDistinctLeads, buildAgeingPanel, STALE_DAYS, ATTENTION_DAYS, SILENT_QUOTE_DAYS, PENDING_RFQ_DAYS } from './attention'
 
-const NOW = new Date(2026, 7, 13, 12, 0, 0) // Thursday 2026-08-13, noon
+// Deliberately well past attention.js's HISTORY_STARTS_AT (2026-09-02) so the
+// legacy-import clamp is inert here and every threshold test below measures
+// the threshold it claims to. Moved forward from 2026-08-13 when that clamp
+// landed — at the old date every fixture sat before the floor, so all five
+// buckets correctly reported nothing and eight tests failed. The clamp has
+// its own describe block at the bottom of this file.
+const NOW = new Date(2026, 10, 12, 12, 0, 0) // Thursday 2026-11-12, noon
 const daysAgo = (n) => new Date(NOW.getTime() - n * 24 * 60 * 60 * 1000).toISOString()
 
 function baseLead(overrides = {}) {
   return {
     id: 'lead-1',
+    external_reference_id: null,   // app-created; see isImportedLead
     current_stage: 'negotiation',
     created_at: daysAgo(30),
     quote_value: 10000,
@@ -218,5 +225,135 @@ describe('buildAgeingPanel', () => {
     }
     const panel = buildAgeingPanel(bucket)
     expect(panel.ownerRows).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The legacy-import reset (HISTORY_STARTS_AT). Pins the behaviour the owner
+// asked for on 2026-09-03: every bucket clears to a blank slate, then refills
+// on its own threshold as the floor ages. If someone deletes the clamp, the
+// first test here fails rather than 300+ leads quietly reappearing on the
+// dashboard one morning.
+// ---------------------------------------------------------------------------
+describe('computeAttentionBuckets — legacy history floor', () => {
+  // One day after HISTORY_STARTS_AT: nothing can have aged past any threshold.
+  const JUST_AFTER_GO_LIVE = new Date(2026, 8, 3, 12, 0, 0) // 2026-09-03
+  const legacyLead = (overrides = {}) =>
+    baseLead({
+      // A real imported lead: created years ago, never touched in this CRM.
+      // external_reference_id is what marks it as imported — without it the
+      // clamp correctly does not apply and every test below would fail.
+      external_reference_id: 'legacy-152',
+      created_at: new Date(2023, 0, 21).toISOString(),
+      ...overrides,
+    })
+
+  afterEach(() => vi.useRealTimers())
+
+  function atTime(when) {
+    vi.useFakeTimers()
+    vi.setSystemTime(when)
+  }
+
+  it('clears all five buckets on day one, however old the inherited data is', () => {
+    atTime(JUST_AFTER_GO_LIVE)
+    const leads = [
+      legacyLead({ id: 'stale' }),
+      legacyLead({ id: 'quote', quote_sent: true, quote_sent_at: '2023-02-01' }),
+      legacyLead({ id: 'rfq', rfq_raised: true, rfq_raised_at: '2023-02-01' }),
+      legacyLead({ id: 'followup', next_followup_date: '2023-03-01' }),
+      legacyLead({ id: 'slipped', estimated_close_date: '2023-04-01' }),
+    ]
+    const buckets = computeAttentionBuckets(leads, new Map())
+    buckets.forEach((b) => expect(b.count).toBe(0))
+  })
+
+  it('hands each bucket back on its own threshold, not all at once', () => {
+    const leads = [
+      legacyLead({ id: 'stale' }),
+      legacyLead({ id: 'quote', quote_sent: true, quote_sent_at: '2023-02-01' }),
+      legacyLead({ id: 'rfq', rfq_raised: true, rfq_raised_at: '2023-02-01' }),
+    ]
+    const countsOn = (date) => {
+      atTime(date)
+      const [stale, silent, , , rfq] = computeAttentionBuckets(leads, new Map())
+      vi.useRealTimers()
+      return { stale: stale.count, silent: silent.count, rfq: rfq.count }
+    }
+    // PENDING_RFQ_DAYS (3) lands first, then SILENT_QUOTE_DAYS (5),
+    // then ATTENTION_DAYS (14) — floor is 2026-09-02.
+    expect(countsOn(new Date(2026, 8, 6, 12))).toEqual({ stale: 0, silent: 0, rfq: 1 })
+    expect(countsOn(new Date(2026, 8, 8, 12))).toEqual({ stale: 0, silent: 1, rfq: 1 })
+    // stale is 3, not 1: all three fixtures are untouched legacy leads, so
+    // every one of them crosses ATTENTION_DAYS together once the floor ages.
+    expect(countsOn(new Date(2026, 8, 17, 12))).toEqual({ stale: 3, silent: 1, rfq: 1 })
+  })
+
+  it('reports the REAL age once a lead resurfaces, not the floored one', () => {
+    atTime(new Date(2026, 8, 17, 12)) // 15 days past the floor
+    const [stale] = computeAttentionBuckets([legacyLead({ id: 'old' })], new Map())
+    expect(stale.count).toBe(1)
+    // Created 2023-01-21; ~1335 days by 2026-09-17. The floor gates whether it
+    // shows, never what it claims about itself.
+    expect(stale.rows[0].age).toBeGreaterThan(1300)
+  })
+
+  it('does not shield a lead whose own recorded activity is recent enough to judge', () => {
+    atTime(new Date(2026, 9, 30, 12)) // well past the floor
+    const lastActivity = new Map([['worked', new Date(2026, 9, 1).toISOString()]])
+    const [stale] = computeAttentionBuckets([legacyLead({ id: 'worked' })], lastActivity)
+    // Real activity logged in this CRM 29 days ago — the clamp is irrelevant.
+    expect(stale.count).toBe(1)
+    expect(stale.rows[0].age).toBe(29)
+  })
+
+  it('still fires immediately for a date set inside this CRM, with no grace', () => {
+    atTime(new Date(2026, 8, 3, 12)) // day one, when everything else is silent
+    const leads = [
+      baseLead({ id: 'own-followup', created_at: '2026-09-02', next_followup_date: '2026-09-02' }),
+    ]
+    const [, , followupsOverdue] = computeAttentionBuckets(leads, new Map())
+    // Dated on/after the floor, so it is this CRM's own promise, not an
+    // inherited one — a rep who set yesterday's date is genuinely overdue.
+    expect(followupsOverdue.count).toBe(1)
+  })
+})
+
+// Regression guard for a bug caught live on 2026-09-03, before shipping: the
+// first cut of the clamp keyed on the DATE alone, so it also silenced
+// app-created leads whose dates happened to predate the import. Lead #320
+// (MADANLAL LAKHANI) was a genuine in-CRM follow-up, set for 22 Aug and truly
+// overdue, and it vanished for a fortnight. The clamp must key on provenance.
+describe('computeAttentionBuckets — the clamp must not touch app-created leads', () => {
+  const DAY_AFTER_IMPORT = new Date(2026, 8, 3, 12, 0, 0) // 2026-09-03
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(DAY_AFTER_IMPORT)
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('still reports an app-created follow-up that went overdue before the import', () => {
+    const leads = [
+      baseLead({ id: 320, external_reference_id: null, next_followup_date: '2026-08-22' }),
+    ]
+    const [, , followupsOverdue] = computeAttentionBuckets(leads, new Map())
+    expect(followupsOverdue.count).toBe(1)
+  })
+
+  it('still reports an app-created lead that has genuinely gone quiet', () => {
+    const leads = [
+      baseLead({ id: 'app', external_reference_id: null, created_at: new Date(2026, 6, 1).toISOString() }),
+    ]
+    const [stale] = computeAttentionBuckets(leads, new Map())
+    expect(stale.count).toBe(1)
+  })
+
+  it('silences the identical lead when it carries an import reference', () => {
+    const leads = [
+      baseLead({ id: 'imported', external_reference_id: 'legacy-9', created_at: new Date(2026, 6, 1).toISOString() }),
+    ]
+    const [stale] = computeAttentionBuckets(leads, new Map())
+    expect(stale.count).toBe(0)
   })
 })
