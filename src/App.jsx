@@ -33,7 +33,7 @@ function App() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator', 'sales_manager']}>
                 <Dashboard />
               </ProtectedRoute>
             }
@@ -50,7 +50,7 @@ function App() {
               // new lead to the picked exec (owner_employee_id), not the
               // coordinator, so the RLS insert policy's is_my_team_member()
               // check passes. See CLAUDE.md's Sales Coordinator section.
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator', 'sales_manager']}>
                 <LeadQuickCapture />
               </ProtectedRoute>
             }
@@ -58,7 +58,7 @@ function App() {
           <Route
             path="/leads/:id"
             element={
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator', 'sales_manager']}>
                 <LeadDetail />
               </ProtectedRoute>
             }
@@ -69,7 +69,7 @@ function App() {
               // Both roles can hit the route; EmployeeProfile itself enforces
               // who can see what (owner: any employee, sales exec: self
               // only, else redirect to /dashboard) — see FLOW.md §4.
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator', 'sales_manager']}>
                 <EmployeeProfile />
               </ProtectedRoute>
             }
@@ -90,7 +90,7 @@ function App() {
               // sales_coordinator included: the entry-on-behalf flow — a
               // mandatory "Who is this for?" picker credits the activity to
               // the picked exec (employee_id), not the coordinator.
-              <ProtectedRoute allowedRoles={['sales_executive', 'sales_coordinator']}>
+              <ProtectedRoute allowedRoles={['sales_executive', 'sales_coordinator', 'sales_manager']}>
                 <ActivityLog />
               </ProtectedRoute>
             }
@@ -98,7 +98,7 @@ function App() {
           <Route
             path="/profile"
             element={
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator', 'sales_manager']}>
                 <Profile />
               </ProtectedRoute>
             }
@@ -106,7 +106,7 @@ function App() {
           <Route
             path="/"
             element={
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator', 'sales_manager']}>
                 <Home />
               </ProtectedRoute>
             }
@@ -114,7 +114,7 @@ function App() {
           <Route
             path="/search"
             element={
-              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator']}>
+              <ProtectedRoute allowedRoles={['owner', 'sales_executive', 'sales_coordinator', 'sales_manager']}>
                 <Search />
               </ProtectedRoute>
             }

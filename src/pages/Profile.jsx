@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { getPushPermissionState, hasActiveSubscription, subscribeToPush, unsubscribeFromPush } from '../lib/pushSubscription'
-import { fetchAllEmployees, fetchCoordinators } from '../lib/employeeQueries'
+import { fetchAllEmployees, fetchCoordinators, fetchManagers } from '../lib/employeeQueries'
 import { roleLabel } from '../lib/roles'
 import AddEmployeeForm from '../components/AddEmployeeForm'
 import ManageEmployeesSection from '../components/ManageEmployeesSection'
@@ -27,6 +27,7 @@ function Profile() {
 
   const [employees, setEmployees] = useState([])
   const [coordinators, setCoordinators] = useState([])
+  const [managers, setManagers] = useState([])
   const [employeesLoading, setEmployeesLoading] = useState(isOwner)
   const [addingEmployee, setAddingEmployee] = useState(false)
 
@@ -71,12 +72,15 @@ function Profile() {
   useEffect(() => {
     if (!isOwner) return
     let active = true
-    Promise.all([fetchAllEmployees(), fetchCoordinators()]).then(([all, coords]) => {
-      if (!active) return
-      setEmployeesLoading(false)
-      if (!all.error) setEmployees(all.data ?? [])
-      if (!coords.error) setCoordinators(coords.data ?? [])
-    })
+    Promise.all([fetchAllEmployees(), fetchCoordinators(), fetchManagers()]).then(
+      ([all, coords, mgrs]) => {
+        if (!active) return
+        setEmployeesLoading(false)
+        if (!all.error) setEmployees(all.data ?? [])
+        if (!coords.error) setCoordinators(coords.data ?? [])
+        if (!mgrs.error) setManagers(mgrs.data ?? [])
+      }
+    )
     return () => {
       active = false
     }
@@ -99,6 +103,18 @@ function Profile() {
       }
       if (!eligible && listed) return prev.filter((c) => c.id !== row.id)
       return listed ? prev.map((c) => (c.id === row.id ? { id: row.id, name: row.name } : c)) : prev
+    })
+    // Same treatment for the manager list, for the same reason: promoting
+    // someone to Sales Manager has to make them selectable in the "Reports to
+    // (Manager)" dropdown immediately, without a refetch.
+    setManagers((prev) => {
+      const eligible = row.role === 'sales_manager' && row.is_active
+      const listed = prev.some((m) => m.id === row.id)
+      if (eligible && !listed) {
+        return [...prev, { id: row.id, name: row.name }].sort((a, b) => a.name.localeCompare(b.name))
+      }
+      if (!eligible && listed) return prev.filter((m) => m.id !== row.id)
+      return listed ? prev.map((m) => (m.id === row.id ? { id: row.id, name: row.name } : m)) : prev
     })
   }
 
@@ -229,6 +245,7 @@ function Profile() {
             <ManageEmployeesSection
               employees={employees}
               coordinators={coordinators}
+              managers={managers}
               currentEmployeeId={employee?.id}
               onUpdated={upsertEmployee}
             />

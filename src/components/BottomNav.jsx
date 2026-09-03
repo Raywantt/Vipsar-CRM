@@ -50,11 +50,20 @@ function BottomNav() {
   // this for?" exec picker and credits the picked exec (entry-on-behalf, see
   // CLAUDE.md's Sales Coordinator section). Both routes admit the role in
   // App.jsx to match.
-  const canLogActivity = employee?.role === 'sales_executive' || employee?.role === 'sales_coordinator'
+  // sales_manager is on both: they do their own field work, so they need the
+  // same two actions an exec has, for themselves. They do NOT get an entry-on-
+  // behalf picker the way a coordinator does — a manager logs only their own
+  // work (owner's ruling, 2026-09-03), so these open the ordinary self-scoped
+  // forms. See CLAUDE.md's Sales Manager section.
+  const canLogActivity =
+    employee?.role === 'sales_executive' ||
+    employee?.role === 'sales_coordinator' ||
+    employee?.role === 'sales_manager'
   const canCreateLead =
     employee?.role === 'sales_executive' ||
     employee?.role === 'owner' ||
-    employee?.role === 'sales_coordinator'
+    employee?.role === 'sales_coordinator' ||
+    employee?.role === 'sales_manager'
   const showFab = canLogActivity || canCreateLead
 
   const dashTab = location.pathname === '/dashboard' ? new URLSearchParams(location.search).get('tab') : null

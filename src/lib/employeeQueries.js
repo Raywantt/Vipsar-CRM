@@ -4,7 +4,7 @@ import { supabase } from './supabaseClient'
 // mean remembering four separate .select() strings — coordinator_id was
 // exactly that kind of addition, and a row returned without it would silently
 // blank the "Reports to" dropdown after a save.
-const EMPLOYEE_ROW = 'id, name, mobile, role, coordinator_id, is_active'
+const EMPLOYEE_ROW = 'id, name, mobile, role, coordinator_id, manager_id, is_active'
 
 export function fetchAllEmployees() {
   return supabase.from('employees').select(EMPLOYEE_ROW).order('name')
@@ -19,6 +19,20 @@ export function fetchCoordinators() {
     .from('employees')
     .select('id, name')
     .eq('role', 'sales_coordinator')
+    .eq('is_active', true)
+    .order('name')
+}
+
+// Active sales managers, for the "Reports to (Manager)" dropdown in Manage
+// employees. Same shape and same reasoning as fetchCoordinators above:
+// deactivated managers are excluded, because assigning a team to someone
+// whose database access is revoked leaves those execs unsupervised while
+// looking assigned.
+export function fetchManagers() {
+  return supabase
+    .from('employees')
+    .select('id, name')
+    .eq('role', 'sales_manager')
     .eq('is_active', true)
     .order('name')
 }
@@ -50,7 +64,7 @@ export async function fetchEmployeeDataCounts(employeeId) {
 export function fetchEmployeeProfile(id) {
   return supabase
     .from('employees')
-    .select('id, name, role, office_location, is_active, created_at, coordinator_id')
+    .select('id, name, role, office_location, is_active, created_at, coordinator_id, manager_id')
     .eq('id', id)
     .single()
 }
@@ -63,7 +77,7 @@ export function fetchEmployeeProfile(id) {
 export function fetchTeamMembers() {
   return supabase
     .from('employees')
-    .select('id, name, mobile, role, coordinator_id, office_location, is_active, created_at')
+    .select('id, name, mobile, role, coordinator_id, manager_id, office_location, is_active, created_at')
     .neq('role', 'owner')
     .order('name')
 }
@@ -78,7 +92,7 @@ export function fetchTeamMembers() {
 export function fetchActiveSalesExecs() {
   return supabase
     .from('employees')
-    .select('id, name, role, coordinator_id, office_location, created_at')
+    .select('id, name, role, coordinator_id, manager_id, office_location, created_at')
     .eq('role', 'sales_executive')
     .eq('is_active', true)
     .order('name')
@@ -122,6 +136,21 @@ export async function fetchMyTeamExecs(coordinatorId) {
   return { data: (data ?? []).filter((e) => e.coordinator_id === coordinatorId), error }
 }
 
+// A sales_manager's own reporting execs. Same client-side filter and the same
+// reason as fetchMyTeamExecs above — `employees` SELECT is open to every
+// active employee (name lookups, the "Accompanied by" dropdown), so the
+// database will not narrow this for us and a role check in the query would be
+// security theatre. The real boundary is is_my_managed_member() in RLS, which
+// scopes the leads/activities this roster is then used to fetch.
+//
+// Scoped once, here, rather than per consumer: CLAUDE.md's Sales Coordinator
+// section records what happened the last time an `isOwner ? all : just-me`
+// check was repeated across four screens.
+export async function fetchMyManagedExecs(managerId) {
+  const { data, error } = await fetchActiveSalesExecs()
+  return { data: (data ?? []).filter((e) => e.manager_id === managerId), error }
+}
+
 // Only handles the employees-row half of "add an employee" — the Supabase
 // Auth user (login credentials) still has to be created manually in the
 // Supabase dashboard first, and its UUID pasted in here as authUserId.
@@ -137,14 +166,20 @@ export function insertEmployee({ name, mobile, role, authUserId }) {
     .single()
 }
 
-// Promoting an exec MUST clear coordinator_id in the same statement.
+// Promoting an exec MUST clear BOTH reporting lines in the same statement.
 // validate_employee_role_assignment() rejects any non-exec that still carries
-// one, so `update({ role })` alone fails with "Only a sales executive can be
-// assigned to a coordinator" — a confusing error for what looks like a plain
-// role change. Clearing it here is correct on its own terms too: a coordinator
-// or owner has nobody to report to.
+// a coordinator_id or a manager_id, so `update({ role })` alone fails with
+// "Only a sales executive can be assigned to a coordinator/manager" — a
+// confusing error for what looks like a plain role change, and doubly so when
+// it names a line the owner never touched. Clearing them is correct on its own
+// terms too: a manager, coordinator or owner has nobody to report to.
+//
+// Note this is the one place promoting an exec to sales_manager is handled,
+// and it has to clear the manager line as well as the coordinator one — an
+// exec being promoted may well have had a manager themselves.
 export function updateEmployeeRole(id, role) {
-  const patch = role === 'sales_executive' ? { role } : { role, coordinator_id: null }
+  const patch =
+    role === 'sales_executive' ? { role } : { role, coordinator_id: null, manager_id: null }
   return supabase.from('employees').update(patch).eq('id', id).select(EMPLOYEE_ROW).single()
 }
 
@@ -155,6 +190,20 @@ export function updateEmployeeCoordinator(id, coordinatorId) {
   return supabase
     .from('employees')
     .update({ coordinator_id: coordinatorId || null })
+    .eq('id', id)
+    .select(EMPLOYEE_ROW)
+    .single()
+}
+
+// The second, independent reporting line. managerId of null unassigns.
+// Written as its own statement rather than merged with the coordinator one so
+// that setting a manager never disturbs an exec's coordinator, or vice versa —
+// they are separate authorities and a save on one must not be able to clear
+// the other. Same trigger has the final say on both.
+export function updateEmployeeManager(id, managerId) {
+  return supabase
+    .from('employees')
+    .update({ manager_id: managerId || null })
     .eq('id', id)
     .select(EMPLOYEE_ROW)
     .single()
