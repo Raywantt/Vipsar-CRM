@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import FollowUpList from './FollowUpList'
+import ShowMoreRows from './ShowMoreRows'
 import {
   fetchFollowUpsInRange,
   markFollowUpDone,
@@ -23,6 +24,11 @@ import { TONE_BAD, TONE_WARN, TONE_GOOD, TONE_NEUTRAL } from '../lib/statusColor
 // whole company, a coordinator's their own team, a rep's only themselves. So
 // there is deliberately no role branch here — the same reasoning that fixed
 // the `isOwner ? all : just-me` bug shape documented in CLAUDE.md.
+
+// This card fetches every reminder the company has ever had, all-time, so
+// the bucket a viewer lands on (especially Done or Cancelled) can hold years
+// of rows. Rendered in chunks, revealed in place — see ShowMoreRows.
+const ROW_CHUNK = 40
 
 const BUCKETS = [
   { key: 'overdue', label: 'Overdue', tone: TONE_BAD },
@@ -69,6 +75,13 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam }) {
   const [actionError, setActionError] = useState(null)
   const [bucket, setBucket] = useState('overdue')
   const [execFilter, setExecFilter] = useState('all')
+  const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
+
+  // A new bucket or exec filter is a different list — start it from the top
+  // rather than keeping whatever depth the previous one was expanded to.
+  useEffect(() => {
+    setVisibleCount(ROW_CHUNK)
+  }, [bucket, execFilter])
 
   // Upcoming reminders sit beyond the selected range's end by definition, so
   // the fetch deliberately runs to a far horizon rather than range.end — a
@@ -197,7 +210,7 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam }) {
         {actionError && <p className="vip-error" role="alert">{actionError}</p>}
 
         <FollowUpList
-          followUps={visible}
+          followUps={visible.slice(0, visibleCount)}
           viewerId={viewer?.id}
           onMarkDone={handleMarkDone}
           onCancel={handleCancel}
@@ -205,6 +218,12 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam }) {
           onReopen={handleReopen}
           onLogActivity={handleLogActivity}
           emptyLabel={`Nothing ${BUCKETS.find((b) => b.key === bucket)?.label.toLowerCase()}.`}
+        />
+        <ShowMoreRows
+          shown={Math.min(visibleCount, visible.length)}
+          total={visible.length}
+          noun="reminders"
+          onShowMore={() => setVisibleCount((v) => v + ROW_CHUNK)}
         />
       </div>
     </>

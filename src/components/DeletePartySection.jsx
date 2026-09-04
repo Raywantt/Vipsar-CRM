@@ -30,6 +30,11 @@ function friendlyDeleteError(error, partyName) {
   return `${partyName} can't be deleted — still linked to ${linkedTo}. This tool is for a mistaken entry (a wrongly added architect, PMC, or other contact), not a party who already has real history.`
 }
 
+// Same cap + note LeadsListCard/Search.jsx already use for their own
+// search-result lists — a broad query (a single common letter/digit) had no
+// ceiling here before, unlike those two.
+const MATCH_CAP = 50
+
 function DeletePartySection() {
   const [parties, setParties] = useState([])
   const [loading, setLoading] = useState(true)
@@ -55,13 +60,14 @@ function DeletePartySection() {
   }, [])
 
   const term = search.trim().toLowerCase()
-  const matches = term
+  const allMatches = term
     ? parties.filter((party) => {
         const name = party.name?.toLowerCase() ?? ''
         const mobile = party.mobile?.toLowerCase() ?? ''
         return name.includes(term) || mobile.includes(term)
       })
     : []
+  const matches = allMatches.slice(0, MATCH_CAP)
 
   async function handleDelete(party) {
     setDeleting(true)
@@ -105,51 +111,58 @@ function DeletePartySection() {
       ) : matches.length === 0 ? (
         <p className="vip-empty">No parties found.</p>
       ) : (
-        matches.map((party) => (
-          <div key={party.id} className="vip-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-              <div className="vip-row-main">
-                <div className="vip-row-title">{party.name}</div>
-                <div className="vip-row-sub">
-                  {[PARTY_TYPE_LABELS[party.party_type] ?? party.party_type, party.mobile].filter(Boolean).join(' · ')}
+        <>
+          {allMatches.length > MATCH_CAP && (
+            <p className="vip-form-note">
+              Showing the first {MATCH_CAP} matches — refine your search for a complete list.
+            </p>
+          )}
+          {matches.map((party) => (
+            <div key={party.id} className="vip-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                <div className="vip-row-main">
+                  <div className="vip-row-title">{party.name}</div>
+                  <div className="vip-row-sub">
+                    {[PARTY_TYPE_LABELS[party.party_type] ?? party.party_type, party.mobile].filter(Boolean).join(' · ')}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {confirmingId === party.id ? (
-              <div className="vip-btn-row" style={{ alignItems: 'center' }}>
-                <span style={{ fontSize: 13, color: 'var(--vip-body)', flex: 1 }}>Delete {party.name}?</span>
+              {confirmingId === party.id ? (
+                <div className="vip-btn-row" style={{ alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, color: 'var(--vip-body)', flex: 1 }}>Delete {party.name}?</span>
+                  <button
+                    type="button"
+                    className="vip-btn vip-btn-danger vip-btn-sm"
+                    style={{ width: 'auto', flex: '0 0 auto' }}
+                    onClick={() => handleDelete(party)}
+                    disabled={deleting}
+                  >
+                    {deleting ? 'Deleting…' : 'Confirm'}
+                  </button>
+                  <button
+                    type="button"
+                    className="vip-btn vip-btn-secondary vip-btn-sm"
+                    style={{ width: 'auto', flex: '0 0 auto' }}
+                    onClick={() => setConfirmingId(null)}
+                    disabled={deleting}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
                   className="vip-btn vip-btn-danger vip-btn-sm"
-                  style={{ width: 'auto', flex: '0 0 auto' }}
-                  onClick={() => handleDelete(party)}
-                  disabled={deleting}
+                  style={{ width: 'auto', alignSelf: 'flex-start' }}
+                  onClick={() => setConfirmingId(party.id)}
                 >
-                  {deleting ? 'Deleting…' : 'Confirm'}
+                  Delete
                 </button>
-                <button
-                  type="button"
-                  className="vip-btn vip-btn-secondary vip-btn-sm"
-                  style={{ width: 'auto', flex: '0 0 auto' }}
-                  onClick={() => setConfirmingId(null)}
-                  disabled={deleting}
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="vip-btn vip-btn-danger vip-btn-sm"
-                style={{ width: 'auto', alignSelf: 'flex-start' }}
-                onClick={() => setConfirmingId(party.id)}
-              >
-                Delete
-              </button>
-            )}
-          </div>
-        ))
+              )}
+            </div>
+          ))}
+        </>
       )}
     </div>
   )

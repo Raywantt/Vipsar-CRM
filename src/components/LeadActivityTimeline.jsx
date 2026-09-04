@@ -1,7 +1,14 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageLabel } from '../lib/leadStageOptions'
 import { parseTimestamp } from '../lib/dbTime'
+import ShowMoreRows from './ShowMoreRows'
+
+// A lead accumulates stage changes + activities + ownership changes for as
+// long as it stays open — years, for an old one — with nothing to page it.
+// Rendered in chunks, revealed in place — see ShowMoreRows.
+const ROW_CHUNK = 30
 
 // parseTimestamp, not new Date(): activities.created_at and
 // stage_history.changed_at are naive TIMESTAMPs holding UTC, so a bare parse
@@ -11,7 +18,15 @@ function formatWhen(value) {
   return parseTimestamp(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 }
 
-function LeadActivityTimeline({ activities, stageHistory, ownerHistory = [] }) {
+function LeadActivityTimeline({ leadId, activities, stageHistory, ownerHistory = [] }) {
+  const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
+
+  // A different lead is a different timeline — start it from the top rather
+  // than keeping whatever depth the previous lead's page had been expanded to.
+  useEffect(() => {
+    setVisibleCount(ROW_CHUNK)
+  }, [leadId])
+
   const entries = [
     ...stageHistory.map((h) => ({
       key: `stage-${h.id}`,
@@ -54,23 +69,31 @@ function LeadActivityTimeline({ activities, stageHistory, ownerHistory = [] }) {
       {entries.length === 0 ? (
         <p className="vip-empty">No activity yet.</p>
       ) : (
-        entries.map((entry) => (
-          <div key={entry.key} className="vip-timeline-item">
-            <div className="vip-timeline-when">{formatWhen(entry.at)}</div>
-            <div className="vip-timeline-main">
-              <div className="vip-timeline-head">
-                <div className="vip-timeline-title">{entry.title}</div>
-                <div className="vip-tag">{entry.kind}</div>
-              </div>
-              {entry.notes && <div className="vip-timeline-detail">{entry.notes}</div>}
-              <div className="vip-timeline-by">
-                {entry.byId ? <Link to={`/employees/${entry.byId}`}>{entry.by}</Link> : entry.by}
-                {entry.accompaniedBy ? ` · with ${entry.accompaniedBy}` : ''}
-                {entry.loggedByCoordinator ? ` · logged by sales coordinator ${entry.loggedByCoordinator}` : ''}
+        <>
+          {entries.slice(0, visibleCount).map((entry) => (
+            <div key={entry.key} className="vip-timeline-item">
+              <div className="vip-timeline-when">{formatWhen(entry.at)}</div>
+              <div className="vip-timeline-main">
+                <div className="vip-timeline-head">
+                  <div className="vip-timeline-title">{entry.title}</div>
+                  <div className="vip-tag">{entry.kind}</div>
+                </div>
+                {entry.notes && <div className="vip-timeline-detail">{entry.notes}</div>}
+                <div className="vip-timeline-by">
+                  {entry.byId ? <Link to={`/employees/${entry.byId}`}>{entry.by}</Link> : entry.by}
+                  {entry.accompaniedBy ? ` · with ${entry.accompaniedBy}` : ''}
+                  {entry.loggedByCoordinator ? ` · logged by sales coordinator ${entry.loggedByCoordinator}` : ''}
+                </div>
               </div>
             </div>
-          </div>
-        ))
+          ))}
+          <ShowMoreRows
+            shown={Math.min(visibleCount, entries.length)}
+            total={entries.length}
+            noun="entries"
+            onShowMore={() => setVisibleCount((v) => v + ROW_CHUNK)}
+          />
+        </>
       )}
     </div>
   )

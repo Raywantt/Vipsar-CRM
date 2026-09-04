@@ -21,6 +21,7 @@ import { parseTimestamp } from '../lib/dbTime'
 import { todayISO } from '../lib/followupDates'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
+import ShowMoreRows from '../components/ShowMoreRows'
 import { errorMessage } from '../lib/errorMessage'
 
 const GOOD = '#0f6b6b'
@@ -32,6 +33,16 @@ const BLUE = '#3f7d9e'
 const NEUTRAL = '#9aa5a6'
 
 const PERIOD_OPTIONS = ['week', 'month', 'quarter']
+
+// fetchFollowUpsForEmployee returns every follow-up ever assigned to this
+// exec, any status — years of Done/Cancelled rows on a long-tenured rep.
+// Rendered in chunks, revealed in place — see ShowMoreRows.
+const FOLLOWUP_ROW_CHUNK = 40
+
+// "Leads assigned" is every OPEN lead this exec owns, no natural cap — the
+// legacy-import reps carry 80-150+ leads each. Rendered in chunks, revealed
+// in place — see ShowMoreRows.
+const LEADS_ROW_CHUNK = 40
 
 const METRIC_TILES = [
   { key: 'order_value', label: 'Order value', money: true },
@@ -198,6 +209,8 @@ function EmployeeProfile() {
   const [followUps, setFollowUps] = useState([])
   const [followUpError, setFollowUpError] = useState(null)
   const [addingFollowUp, setAddingFollowUp] = useState(false)
+  const [visibleFollowUps, setVisibleFollowUps] = useState(FOLLOWUP_ROW_CHUNK)
+  const [visibleLeads, setVisibleLeads] = useState(LEADS_ROW_CHUNK)
   const [loading, setLoading] = useState(true)
 
   // Role guard — a sales exec may only open their own page (FLOW.md §4); a
@@ -290,6 +303,7 @@ function EmployeeProfile() {
   useEffect(() => {
     if (!viewer || !allowed) return
     let active = true
+    setVisibleFollowUps(FOLLOWUP_ROW_CHUNK)
     fetchFollowUpsForEmployee(execId).then(({ data, error }) => {
       if (!active) return
       if (!error) setFollowUps(data ?? [])
@@ -333,6 +347,14 @@ function EmployeeProfile() {
     setFollowUpError(null)
     setFollowUps((prev) => prev.map((f) => (f.id === data.id ? data : f)))
   }
+
+  // Its own effect, keyed only on execId — not the leads-fetch effect below,
+  // which also reruns on every Week/Month/Quarter toggle even though
+  // myOpenLeads/leadsAssigned don't depend on the period at all. Resetting
+  // there would collapse an expanded list back to 40 on every period click.
+  useEffect(() => {
+    setVisibleLeads(LEADS_ROW_CHUNK)
+  }, [execId])
 
   useEffect(() => {
     if (!range || !viewer || !allowed) return
@@ -727,21 +749,29 @@ function EmployeeProfile() {
                 {leadsAssigned.length === 0 ? (
                   <p className="vip-empty">No open leads assigned.</p>
                 ) : (
-                  leadsAssigned.map(({ lead, days, gate, nextStep }) => (
-                    <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-dd-age-row">
-                      <span className="vip-dd-age-bar" style={{ background: touchColor(days, gate) }} />
-                      <span className="vip-dd-age-main">
-                        <span className="vip-dd-age-party">{leadTitle(lead)}</span>
-                        <span className="vip-dd-age-last">{[lead.sites?.nickname || lead.sites?.locality, stageLabel(lead.current_stage ?? 'calling')].filter(Boolean).join(' · ')} · {nextStep}</span>
-                      </span>
-                      <span className="vip-dd-age-side">
-                        <span className="vip-dd-age-days" style={{ color: touchColor(days, gate) }}>
-                          {days != null ? `${days}d ago` : 'no activity'}
+                  <>
+                    {leadsAssigned.slice(0, visibleLeads).map(({ lead, days, gate, nextStep }) => (
+                      <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-dd-age-row">
+                        <span className="vip-dd-age-bar" style={{ background: touchColor(days, gate) }} />
+                        <span className="vip-dd-age-main">
+                          <span className="vip-dd-age-party">{leadTitle(lead)}</span>
+                          <span className="vip-dd-age-last">{[lead.sites?.nickname || lead.sites?.locality, stageLabel(lead.current_stage ?? 'calling')].filter(Boolean).join(' · ')} · {nextStep}</span>
                         </span>
-                        <span className="vip-dd-age-value">{formatCurrencyCompact(dealValueFor(lead))}</span>
-                      </span>
-                    </Link>
-                  ))
+                        <span className="vip-dd-age-side">
+                          <span className="vip-dd-age-days" style={{ color: touchColor(days, gate) }}>
+                            {days != null ? `${days}d ago` : 'no activity'}
+                          </span>
+                          <span className="vip-dd-age-value">{formatCurrencyCompact(dealValueFor(lead))}</span>
+                        </span>
+                      </Link>
+                    ))}
+                    <ShowMoreRows
+                      shown={Math.min(visibleLeads, leadsAssigned.length)}
+                      total={leadsAssigned.length}
+                      noun="leads"
+                      onShowMore={() => setVisibleLeads((v) => v + LEADS_ROW_CHUNK)}
+                    />
+                  </>
                 )}
               </div>
             </div>
@@ -832,6 +862,9 @@ function EmployeeProfile() {
                     createdBy={viewer.id}
                     onSaved={(row) => {
                       setFollowUps((prev) => [...prev, row])
+                      // A follow-up just assigned right here must be visible
+                      // without also having to tap "+N more" for it.
+                      setVisibleFollowUps((v) => v + 1)
                       setAddingFollowUp(false)
                     }}
                     onCancel={() => setAddingFollowUp(false)}
@@ -839,13 +872,19 @@ function EmployeeProfile() {
                 )}
                 {followUpError && <p className="vip-error" role="alert">{followUpError}</p>}
                 <FollowUpList
-                  followUps={followUps}
+                  followUps={followUps.slice(0, visibleFollowUps)}
                   viewerId={viewer.id}
                   onMarkDone={handleMarkDone}
                   onCancel={handleCancelFollowUp}
                   onReschedule={handleRescheduleFollowUp}
                   onReopen={handleReopenFollowUp}
                   emptyLabel="No follow-ups set."
+                />
+                <ShowMoreRows
+                  shown={Math.min(visibleFollowUps, followUps.length)}
+                  total={followUps.length}
+                  noun="follow-ups"
+                  onShowMore={() => setVisibleFollowUps((v) => v + FOLLOWUP_ROW_CHUNK)}
                 />
               </div>
             </div>

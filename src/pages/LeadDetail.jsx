@@ -860,7 +860,7 @@ function LeadDetail() {
         )}
       </div>
 
-      <LeadActivityTimeline activities={activities} stageHistory={stageHistory} ownerHistory={ownerHistory} />
+      <LeadActivityTimeline leadId={id} activities={activities} stageHistory={stageHistory} ownerHistory={ownerHistory} />
     </div>
   )
 

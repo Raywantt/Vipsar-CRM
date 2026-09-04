@@ -7,6 +7,14 @@ import EmployeeLink from './EmployeeLink'
 import { createFollowUp } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { todayISO, toISODate } from '../lib/followupDates'
+import ShowMoreRows from './ShowMoreRows'
+
+// Chunk size for ShowMoreRows in every drill-down body below that renders an
+// otherwise-unbounded list (a Needs Attention bucket, every lead at one
+// pipeline stage, every forecast-eligible lead) — these are already the
+// deepest view DrilldownPanel offers, so unlike ClosureForecastCard's own
+// "+N more · View all" there's nowhere further to send the rest.
+const ROW_CHUNK = 40
 
 // Slide-over drill-down reused by every clickable Dashboard metric — the KPI
 // row, heatmap cells, Funnel/Pipeline, Leads by source, Why we lose, and each
@@ -219,11 +227,13 @@ function AgeingBody({ panel }) {
   const [messages, setMessages] = useState({})
   const [dateSheet, setDateSheet] = useState(null) // leadId | 'bulk' | null
   const [dateValue, setDateValue] = useState('')
+  const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
 
   useEffect(() => {
     setRows(panel.ageRows)
     setMessages({})
     setDateSheet(null)
+    setVisibleCount(ROW_CHUNK)
   }, [panel])
 
   async function handleLogCall(r) {
@@ -315,7 +325,7 @@ function AgeingBody({ panel }) {
         {rows.length === 0 ? (
           <p className="vip-empty">Nothing in this queue right now.</p>
         ) : panel.queueActions ? (
-          rows.map((r) => (
+          rows.slice(0, visibleCount).map((r) => (
             <SwipeAgeRow
               key={r.leadId}
               r={r}
@@ -330,12 +340,18 @@ function AgeingBody({ panel }) {
             />
           ))
         ) : (
-          rows.map((r) => (
+          rows.slice(0, visibleCount).map((r) => (
             <Link key={r.leadId} to={`/leads/${r.leadId}`} className="vip-dd-age-row">
               <AgeRowContent r={r} />
             </Link>
           ))
         )}
+        <ShowMoreRows
+          shown={Math.min(visibleCount, rows.length)}
+          total={rows.length}
+          noun="leads"
+          onShowMore={() => setVisibleCount((v) => v + ROW_CHUNK)}
+        />
       </div>
 
       {dateSheet && (
@@ -490,10 +506,18 @@ function PipelineBody({ panel, onDrill }) {
 // reads as "the same drill-down screen, one level in" rather than a new UI.
 function StageLeadsBody({ panel }) {
   const [ownerFilter, setOwnerFilter] = useState('')
+  const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
 
   useEffect(() => {
     setOwnerFilter('')
   }, [panel])
+
+  // Also resets on the owner filter itself — narrowing to one owner should
+  // start from the top of THAT list, not wherever the unfiltered one had
+  // scrolled to.
+  useEffect(() => {
+    setVisibleCount(ROW_CHUNK)
+  }, [panel, ownerFilter])
 
   const rows = ownerFilter ? panel.leadRows.filter((r) => String(r.ownerId) === ownerFilter) : panel.leadRows
 
@@ -523,14 +547,22 @@ function StageLeadsBody({ panel }) {
         {rows.length === 0 ? (
           <p className="vip-empty">No leads for this owner at this stage.</p>
         ) : (
-          rows.map((r) => (
-            <Link key={r.leadId} to={`/leads/${r.leadId}`} className="vip-dd-lead-row">
-              <span className="vip-dd-lead-party">{r.party}</span>
-              <span className={r.chipClass}>{r.stage}</span>
-              <EmployeeLink id={r.ownerId} name={r.owner} className="vip-dd-lead-owner" />
-              <span className="vip-dd-lead-value">{r.value}</span>
-            </Link>
-          ))
+          <>
+            {rows.slice(0, visibleCount).map((r) => (
+              <Link key={r.leadId} to={`/leads/${r.leadId}`} className="vip-dd-lead-row">
+                <span className="vip-dd-lead-party">{r.party}</span>
+                <span className={r.chipClass}>{r.stage}</span>
+                <EmployeeLink id={r.ownerId} name={r.owner} className="vip-dd-lead-owner" />
+                <span className="vip-dd-lead-value">{r.value}</span>
+              </Link>
+            ))}
+            <ShowMoreRows
+              shown={Math.min(visibleCount, rows.length)}
+              total={rows.length}
+              noun="leads"
+              onShowMore={() => setVisibleCount((v) => v + ROW_CHUNK)}
+            />
+          </>
         )}
       </div>
     </div>
@@ -561,6 +593,12 @@ function WinRateBody({ panel }) {
 }
 
 function ForecastBody({ panel }) {
+  const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
+
+  useEffect(() => {
+    setVisibleCount(ROW_CHUNK)
+  }, [panel])
+
   return (
     <div className="vip-dd-section-stack">
       {panel.fcBuckets.length > 0 && (
@@ -591,7 +629,7 @@ function ForecastBody({ panel }) {
           <span>Value</span>
           <span>Est. close</span>
         </div>
-        {panel.fcRows.map((f) => (
+        {panel.fcRows.slice(0, visibleCount).map((f) => (
           <Link key={f.leadId} to={`/leads/${f.leadId}`} className="vip-dd-fc-row">
             <span className="vip-dd-fc-party-col">
               <span className="vip-dd-fc-party">{f.party}</span>
@@ -610,6 +648,12 @@ function ForecastBody({ panel }) {
             </span>
           </Link>
         ))}
+        <ShowMoreRows
+          shown={Math.min(visibleCount, panel.fcRows.length)}
+          total={panel.fcRows.length}
+          noun="leads"
+          onShowMore={() => setVisibleCount((v) => v + ROW_CHUNK)}
+        />
       </div>
     </div>
   )

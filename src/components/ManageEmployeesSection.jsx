@@ -280,11 +280,17 @@ function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
   )
 }
 
+// Same cap + note LeadsListCard/Search.jsx already use for their own
+// search-result lists — a broad query (a single common letter) had no
+// ceiling here before, unlike those two.
+const MATCH_CAP = 50
+
 function ManageEmployeesSection({ employees, coordinators, managers, currentEmployeeId, onUpdated }) {
   const [search, setSearch] = useState('')
 
   const term = search.trim().toLowerCase()
-  const matches = term ? employees.filter((emp) => emp.name?.toLowerCase().includes(term)) : []
+  const allMatches = term ? employees.filter((emp) => emp.name?.toLowerCase().includes(term)) : []
+  const matches = allMatches.slice(0, MATCH_CAP)
 
   return (
     <div className="vip-card">
@@ -305,16 +311,23 @@ function ManageEmployeesSection({ employees, coordinators, managers, currentEmpl
       ) : matches.length === 0 ? (
         <p className="vip-empty">No employees found.</p>
       ) : (
-        matches.map((emp) => (
-          <EmployeeRow
-            key={emp.id}
-            emp={emp}
-            isSelf={emp.id === currentEmployeeId}
-            coordinators={coordinators}
-            managers={managers}
-            onUpdated={onUpdated}
-          />
-        ))
+        <>
+          {allMatches.length > MATCH_CAP && (
+            <p className="vip-form-note">
+              Showing the first {MATCH_CAP} matches — refine your search for a complete list.
+            </p>
+          )}
+          {matches.map((emp) => (
+            <EmployeeRow
+              key={emp.id}
+              emp={emp}
+              isSelf={emp.id === currentEmployeeId}
+              coordinators={coordinators}
+              managers={managers}
+              onUpdated={onUpdated}
+            />
+          ))}
+        </>
       )}
 
       <p className="vip-form-note">
