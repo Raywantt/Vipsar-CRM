@@ -36,6 +36,8 @@
 // Bodies are re-sent as-is on a retry. supabase-js only ever sends strings
 // here, and this app uses no Supabase Storage, so there is no single-use
 // ReadableStream body that a second attempt could find already consumed.
+import { invalidateAllQueries } from './queryCache'
+
 const TIMEOUT_MS = 20000
 
 // A dropped connection is re-established on the next attempt, so these delays
@@ -133,6 +135,53 @@ function warnIfSilentlyTruncated(input, init, response) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// CACHE INVALIDATION LIVES HERE ON PURPOSE — read this before moving it.
+//
+// src/lib/queryCache.js caches read results for a short window so switching
+// screens is instant. Anything cached must be dropped the moment the data
+// behind it changes, or the app confidently shows figures that are already
+// wrong — a far worse failure than being slow.
+//
+// The obvious implementation is to call invalidateAllQueries() after each
+// write, at each call site. That is exactly the pattern this codebase has
+// been bitten by twice before: `lead_change_log` and `entered_by_role` are
+// both written by Postgres TRIGGERS rather than app code, precisely because
+// there is no single lead-update service here and "remember to call the
+// helper" fails the first time someone adds a new write path (see CLAUDE.md
+// on both). Leads alone are written from four LeadDetail sections,
+// LeadStageSection, LeadQuickActions and three side-effect paths in
+// ActivityLog.
+//
+// So invalidation is done ONCE, here, at the transport every Supabase call
+// already funnels through: any non-GET that actually succeeded drops the
+// cache. A write path added years from now is covered automatically, with
+// nothing to remember. This is the same reasoning as the trigger-written
+// audit trail, applied to the client.
+//
+// Only 2xx invalidates: a rejected write (RLS refusal, constraint violation)
+// changed nothing, and throwing away good cached reads over it would just
+// make a failed save slow as well as failed.
+function invalidateCacheAfterWrite(input, method, response) {
+  try {
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
+    if (!response.ok) return
+
+    const url = typeof input === 'string' ? input : input?.url
+    // A POST to /rest/v1/rpc/... is a read in this app (see
+    // fetchCategoryBreakdown) — PostgREST requires POST for function calls,
+    // so method alone would misread those as writes and defeat the cache on
+    // every single Dashboard load.
+    if (url && url.includes('/rest/v1/rpc/')) return
+
+    invalidateAllQueries()
+  } catch {
+    // Never let invalidation break a request that already succeeded. The
+    // cost of a missed invalidation is a stale read for <90s; the cost of
+    // throwing here would be a failed save the user has to redo.
+  }
+}
+
 export function createSupabaseFetch(baseFetch = globalThis.fetch.bind(globalThis)) {
   return async function supabaseFetch(input, init = {}) {
     const method = (init.method ?? 'GET').toUpperCase()
@@ -165,6 +214,7 @@ export function createSupabaseFetch(baseFetch = globalThis.fetch.bind(globalThis
       try {
         const response = await baseFetch(input, { ...init, signal: controller.signal })
         warnIfSilentlyTruncated(input, init, response)
+        invalidateCacheAfterWrite(input, method, response)
         return response
       } catch (error) {
         // The caller gave up on this request (a superseded navigation, a

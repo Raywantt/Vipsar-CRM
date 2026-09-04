@@ -15,23 +15,47 @@ import { dealValueFor } from '../lib/pipelineValue'
 // "lost" off the end of Stage) would hide the wrong thing. onOpenPanel
 // (optional) opens the matching `mix`/`pipeline` drill-down for the rows
 // this card doesn't show.
-function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorStages, maxRows, onOpenPanel }) {
+//
+// aggregated (optional): pre-grouped [{ category, count, value }] rows from
+// a server-side RPC (see Dashboard.jsx's fastCategoryBreakdown and
+// Schema/migration_leads_category_breakdown_rpc.sql) — when present, this
+// is used INSTEAD of reducing `leads` client-side, and the empty-state/
+// total are derived from it too rather than from `leads.length`, so this
+// card can render before the (slower) full `leads` fetch even finishes.
+// `leads`/`getCategory` are still required as the fallback path — every
+// caller keeps passing them so the card degrades to the exact old
+// behaviour whenever `aggregated` is undefined (migration not run yet, or
+// a role fastCategoryBreakdown deliberately withholds it from — see that
+// variable's own comment in Dashboard.jsx).
+function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorStages, maxRows, onOpenPanel, aggregated }) {
   const map = new Map()
   if (categoryOrder) {
     categoryOrder.forEach((c) => map.set(c, { count: 0, dealValue: 0 }))
   }
-  leads.forEach((lead) => {
-    const cat = getCategory(lead)
-    if (!map.has(cat)) map.set(cat, { count: 0, dealValue: 0 })
-    const entry = map.get(cat)
-    entry.count += 1
-    entry.dealValue += dealValueFor(lead)
-  })
+
+  if (aggregated) {
+    aggregated.forEach(({ category, count, value }) => {
+      const entry = map.get(category) ?? { count: 0, dealValue: 0 }
+      entry.count += count
+      entry.dealValue += value
+      map.set(category, entry)
+    })
+  } else {
+    leads.forEach((lead) => {
+      const cat = getCategory(lead)
+      if (!map.has(cat)) map.set(cat, { count: 0, dealValue: 0 })
+      const entry = map.get(cat)
+      entry.count += 1
+      entry.dealValue += dealValueFor(lead)
+    })
+  }
 
   const rows = categoryOrder ? [...map.entries()] : [...map.entries()].sort((a, b) => b[1].count - a[1].count)
   const visibleRows = maxRows ? rows.slice(0, maxRows) : rows
   const remaining = rows.length - visibleRows.length
-  const totalDealValue = leads.reduce((s, l) => s + dealValueFor(l), 0)
+  const totalCount = aggregated ? aggregated.reduce((s, r) => s + r.count, 0) : leads.length
+  const totalDealValue = aggregated ? aggregated.reduce((s, r) => s + r.value, 0) : leads.reduce((s, l) => s + dealValueFor(l), 0)
+  const isEmpty = aggregated ? totalCount === 0 : leads.length === 0
 
   return (
     <div className="vip-card">
@@ -44,7 +68,7 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
         )}
       </div>
 
-      {leads.length === 0 ? (
+      {isEmpty ? (
         <p className="vip-empty">No leads found.</p>
       ) : (
         <>
@@ -69,7 +93,7 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
           <div className="vip-total">
             <div>Total</div>
             <div style={{ display: 'flex', gap: 14 }}>
-              <div>{leads.length}</div>
+              <div>{totalCount}</div>
               <div style={{ width: 48, textAlign: 'right' }}>{formatCurrencyCompact(totalDealValue)}</div>
             </div>
           </div>

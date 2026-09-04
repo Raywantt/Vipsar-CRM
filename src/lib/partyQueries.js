@@ -11,8 +11,13 @@ import { sanitizeForIlike } from './sanitizeForIlike'
 // shape and is worth the same fix later. Search.jsx no longer uses this —
 // see fetchRecentParties/searchParties below instead.
 export function fetchAllParties() {
-  return fetchAllRows(() =>
-    supabase.from('parties').select('id, name, party_type, mobile, city, firm_name', { count: 'exact' }).order('name')
+  return fetchAllRows(
+    () =>
+      supabase.from('parties').select('id, name, party_type, mobile, city, firm_name', { count: 'exact' }).order('name'),
+    // `parties` is 1,358 rows (ROW-COUNTS.md) = 2 pages, and this loads on
+    // mount for Search's party directory — the same second-round-trip
+    // penalty fetchLeadsForBreakdown had, on Search's own critical path.
+    { speculativePages: 1 }
   )
 }
 

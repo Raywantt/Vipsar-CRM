@@ -2,28 +2,46 @@ import { supabase } from './supabaseClient'
 import { sanitizeForIlike } from './sanitizeForIlike'
 import { MIN_QUERY_LENGTH } from './searchQueries'
 import { fetchAllRows } from './fetchAllRows'
+import { cachedQuery } from './queryCache'
+
+// The heavy, company-wide reads below go through cachedQuery (see
+// src/lib/queryCache.js for the measurements that motivated it). Two effects:
+// identical requests fired at the same moment collapse into one, and moving
+// between the screens that share them (Dashboard / Today / My Team / Sales
+// Exec Profile all call fetchLeadsForBreakdown) no longer re-downloads the
+// same rows each time.
+//
+// A KEY MUST ENCODE EVERY ARGUMENT THAT CHANGES THE RESULT. The date-scoped
+// and owner-scoped queries below build their key from their arguments for
+// exactly this reason — sharing one key between two different questions
+// would serve one's answer to the other. Anything unparameterised gets a
+// constant key.
 
 // RLS scopes both tables to "own data or owner role" already, so these same
 // queries serve both the owner (sees everyone) and a sales exec (sees only
 // their own rows) — no role branching needed here.
 
 export function fetchActivityCounts(range) {
-  return fetchAllRows(() =>
-    supabase
-      .from('activities')
-      .select('activity_type, employee_id, employees!employee_id(name)', { count: 'exact' })
-      .gte('created_at', range.start.toISOString())
-      .lte('created_at', range.end.toISOString())
+  return cachedQuery(`activities:counts:${range.start.toISOString()}:${range.end.toISOString()}`, () =>
+    fetchAllRows(() =>
+      supabase
+        .from('activities')
+        .select('activity_type, employee_id, employees!employee_id(name)', { count: 'exact' })
+        .gte('created_at', range.start.toISOString())
+        .lte('created_at', range.end.toISOString())
+    )
   )
 }
 
 export function fetchNewLeadsBySource(range) {
-  return fetchAllRows(() =>
-    supabase
-      .from('leads')
-      .select('source_type, owner_employee_id, employees!owner_employee_id(name)', { count: 'exact' })
-      .gte('created_at', range.start.toISOString())
-      .lte('created_at', range.end.toISOString())
+  return cachedQuery(`leads:by-source:${range.start.toISOString()}:${range.end.toISOString()}`, () =>
+    fetchAllRows(() =>
+      supabase
+        .from('leads')
+        .select('source_type, owner_employee_id, employees!owner_employee_id(name)', { count: 'exact' })
+        .gte('created_at', range.start.toISOString())
+        .lte('created_at', range.end.toISOString())
+    )
   )
 }
 
@@ -137,16 +155,18 @@ export function fetchLeadsList(filters = {}) {
 // Not scoped to a date range — this is a snapshot of the current pipeline,
 // not tied to when leads were created.
 export function fetchClosureForecast() {
-  return fetchAllRows(() =>
-    supabase
-      .from('leads')
-      .select(
-        'id, current_stage, quote_value, closure_probability, estimated_close_date, owner_employee_id, parties!party_id(name), employees!owner_employee_id(name)',
-        { count: 'exact' }
-      )
-      .not('current_stage', 'in', '(won,lost)')
-      .or('quote_sent.eq.true,closure_probability.not.is.null')
-      .order('estimated_close_date', { ascending: true, nullsFirst: false })
+  return cachedQuery('leads:closure-forecast', () =>
+    fetchAllRows(() =>
+      supabase
+        .from('leads')
+        .select(
+          'id, current_stage, quote_value, closure_probability, estimated_close_date, owner_employee_id, parties!party_id(name), employees!owner_employee_id(name)',
+          { count: 'exact' }
+        )
+        .not('current_stage', 'in', '(won,lost)')
+        .or('quote_sent.eq.true,closure_probability.not.is.null')
+        .order('estimated_close_date', { ascending: true, nullsFirst: false })
+    )
   )
 }
 
@@ -158,14 +178,25 @@ export function fetchClosureForecast() {
 // src/lib/attention.js) — the extra columns below are the ones that query
 // needs (quote/RFQ timestamps, forecast/follow-up dates) and were the only
 // reason this select didn't already carry them.
+// THE single most-shared query in the app — Dashboard, Today (all four role
+// variants), My Team and the Sales Exec Profile all call it on mount, which
+// is why caching it is worth more than caching anything else here.
 export function fetchLeadsForBreakdown() {
-  return fetchAllRows(() =>
-    supabase
-      .from('leads')
-      .select(
-        'id, external_reference_id, current_stage, order_value, site_id, owner_employee_id, source_type, quote_sent, quote_sent_at, rfq_raised, rfq_raised_at, quote_value, closure_probability, estimated_close_date, next_followup_date, created_at, parties!party_id(name), sites(nickname, locality, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)',
-        { count: 'exact' }
-      )
+  return cachedQuery('leads:breakdown', () =>
+    fetchAllRows(() =>
+      supabase
+        .from('leads')
+        .select(
+          'id, external_reference_id, current_stage, order_value, site_id, owner_employee_id, source_type, quote_sent, quote_sent_at, rfq_raised, rfq_raised_at, quote_value, closure_probability, estimated_close_date, next_followup_date, created_at, parties!party_id(name), sites(nickname, locality, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)',
+          { count: 'exact' }
+        ),
+      // `leads` is 1,209 rows (ROW-COUNTS.md) = 2 pages, and this query was
+      // MEASURED as Dashboard's critical path: page 1 ran 1,199→2,914ms and
+      // page 2 then ran 2,917→3,611ms, which was the page's entire load
+      // time. Firing page 2 alongside page 1 removes that second round trip.
+      // Raise this if `leads` passes 2,000 rows.
+      { speculativePages: 1 }
+    )
   )
 }
 
@@ -175,8 +206,10 @@ export function fetchLeadsForBreakdown() {
 // scopes this to "own data or owner role", same as every other activities
 // query on this page.
 export function fetchLastActivityPerLead() {
-  return fetchAllRows(() =>
-    supabase.from('activities').select('lead_id, created_at', { count: 'exact' }).not('lead_id', 'is', null)
+  return cachedQuery('activities:last-per-lead', () =>
+    fetchAllRows(() =>
+      supabase.from('activities').select('lead_id, created_at', { count: 'exact' }).not('lead_id', 'is', null)
+    )
   )
 }
 
@@ -210,15 +243,18 @@ export function fetchActivityLogForExec(employeeId, activityType) {
 // leads they don't own come back with `leads: null` and must be filtered out
 // client-side to get "own data or owner role" scoping.
 export function fetchDecidedStageHistory() {
-  return fetchAllRows(() =>
-    supabase
-      .from('stage_history')
-      .select('lead_id, stage, changed_at, leads(owner_employee_id, order_value)', { count: 'exact' })
-      .in('stage', ['won', 'lost'])
-      .order('changed_at', { ascending: false }),
-    // Tie-break in the SAME direction as the sort above — consumers here
-    // take the first row per key and mean the most recent one.
-    { ascending: false }
+  return cachedQuery('stage_history:decided', () =>
+    fetchAllRows(
+      () =>
+        supabase
+          .from('stage_history')
+          .select('lead_id, stage, changed_at, leads(owner_employee_id, order_value)', { count: 'exact' })
+          .in('stage', ['won', 'lost'])
+          .order('changed_at', { ascending: false }),
+      // Tie-break in the SAME direction as the sort above — consumers here
+      // take the first row per key and mean the most recent one.
+      { ascending: false }
+    )
   )
 }
 
@@ -231,11 +267,16 @@ export function fetchDecidedStageHistory() {
 export function fetchActivitiesTrendWindow() {
   const since = new Date()
   since.setDate(since.getDate() - 56)
-  return fetchAllRows(() =>
-    supabase
-      .from('activities')
-      .select('activity_type, employee_id, created_at', { count: 'exact' })
-      .gte('created_at', since.toISOString())
+  // Keyed by the DAY, not the exact timestamp — `since` moves by a few
+  // milliseconds on every call, and keying on that would produce a fresh
+  // cache entry every time and never hit.
+  return cachedQuery(`activities:trend-8w:${since.toISOString().slice(0, 10)}`, () =>
+    fetchAllRows(() =>
+      supabase
+        .from('activities')
+        .select('activity_type, employee_id, created_at', { count: 'exact' })
+        .gte('created_at', since.toISOString())
+    )
   )
 }
 
@@ -248,11 +289,41 @@ export function fetchActivitiesTrendWindow() {
 // rows client-side to get the same "own data or owner role" scoping every
 // other Dashboard query gets for free.
 export function fetchStageHistoryForFunnel() {
-  return fetchAllRows(() =>
-    supabase
-      .from('stage_history')
-      .select('lead_id, stage, changed_at, leads(owner_employee_id)', { count: 'exact' })
-      .order('changed_at', { ascending: true })
+  return cachedQuery('stage_history:funnel', () =>
+    fetchAllRows(
+      () =>
+        supabase
+          .from('stage_history')
+          .select('lead_id, stage, changed_at, leads(owner_employee_id)', { count: 'exact' })
+          .order('changed_at', { ascending: true }),
+      // stage_history is 1,591 rows (ROW-COUNTS.md) = 2 pages. Same
+      // second-round-trip saving as fetchLeadsForBreakdown above.
+      { speculativePages: 1 }
+    )
+  )
+}
+
+// Fast path for the three category-breakdown cards (area/site stage/
+// product) + Pipeline by stage, added alongside
+// Schema/migration_leads_category_breakdown_rpc.sql — see that file's header
+// for the full reasoning and the security note on why the RPC MUST stay
+// SECURITY INVOKER. Returns grouped counts/sums (~30-40 rows) instead of
+// every lead in the company, so those four cards no longer have to wait on
+// (or pay the transfer cost of) fetchLeadsForBreakdown() to render.
+//
+// `ownerIds` (optional): passed only for a sales_manager viewing their
+// "Team" scope — see Dashboard.jsx's managerScope/inScope. Every other role
+// passes nothing; RLS alone already scopes the underlying query correctly.
+//
+// FAILS SOFT, on purpose: until the migration above is actually run, calling
+// this returns a PGRST202/PGRST301-shaped "function not found" error (not a
+// crash) — Dashboard.jsx checks for `error` and falls back to the existing
+// client-side computation over breakdownLeads, exactly as if this function
+// didn't exist yet. Same shape as AuthContext's PGRST205 handling for
+// employee_preferences before that migration ran.
+export function fetchCategoryBreakdown(ownerIds = null) {
+  return cachedQuery(`leads:category-breakdown:${ownerIds ? [...ownerIds].sort((a, b) => a - b).join(',') : 'all'}`, () =>
+    supabase.rpc('leads_category_breakdown', { p_owner_ids: ownerIds })
   )
 }
 
@@ -263,17 +334,19 @@ export function fetchStageHistoryForFunnel() {
 // "lost this month" list (party/owner/value) — LossReasonsCard's compact
 // view still only reads reason/competitor_name.
 export function fetchLossReasons() {
-  return fetchAllRows(() =>
-    supabase
-      .from('loss_reasons')
-      .select(
-      // current_stage is embedded so the caller can drop rows whose lead has
-      // since been REOPENED — see Dashboard.jsx's filter and DECISIONS.md's
-      // Phase 9 ruling. loss_reasons is append-only, so the row survives the
-      // reopening and the table alone cannot tell you whether the lead is
-      // still lost.
-        'id, lead_id, reason, competitor_name, lost_at, leads(current_stage, order_value, quote_value, owner_employee_id, parties!party_id(name), employees!owner_employee_id(name))',
-        { count: 'exact' }
-      )
+  return cachedQuery('loss_reasons:all', () =>
+    fetchAllRows(() =>
+      supabase
+        .from('loss_reasons')
+        .select(
+          // current_stage is embedded so the caller can drop rows whose lead
+          // has since been REOPENED — see Dashboard.jsx's filter and
+          // DECISIONS.md's Phase 9 ruling. loss_reasons is append-only, so the
+          // row survives the reopening and the table alone cannot tell you
+          // whether the lead is still lost.
+          'id, lead_id, reason, competitor_name, lost_at, leads(current_stage, order_value, quote_value, owner_employee_id, parties!party_id(name), employees!owner_employee_id(name))',
+          { count: 'exact' }
+        )
+    )
   )
 }

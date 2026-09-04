@@ -47,6 +47,7 @@ import {
   fetchNewLeadsBySource,
   fetchClosureForecast,
   fetchLeadsForBreakdown,
+  fetchCategoryBreakdown,
   fetchStageHistoryForFunnel,
   fetchLossReasons,
   fetchLastActivityPerLead,
@@ -126,6 +127,14 @@ function Dashboard() {
   const [allTargets, setTargets] = useState([])
   const [allWonStageHistory, setWonStageHistory] = useState([])
   const [allBreakdownLeads, setBreakdownLeads] = useState([])
+  // Fast path for the 3 category-breakdown cards + Pipeline by stage — see
+  // Schema/migration_leads_category_breakdown_rpc.sql and
+  // fetchCategoryBreakdown()'s own header comment. null means "not
+  // available" (migration not yet run, or the fetch hasn't resolved yet) —
+  // every consumer below falls back to computing the same numbers from
+  // allBreakdownLeads/breakdownLeads exactly as before, so this is additive
+  // only and never blocks rendering.
+  const [categoryBreakdown, setCategoryBreakdown] = useState(null)
   const [allFunnelStageHistory, setFunnelStageHistory] = useState([])
   const [allLossReasons, setLossReasons] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
@@ -192,6 +201,15 @@ function Dashboard() {
     () => allBreakdownLeads.filter((r) => inScope(r.owner_employee_id)),
     [allBreakdownLeads, inScope]
   )
+  // categoryBreakdown comes straight from RLS (see fetchCategoryBreakdown's
+  // p_owner_ids param, unused here) — it does NOT know about a manager's
+  // own My/Team toggle the way the inScope filter above does. Rather than
+  // guess, the fast RPC-backed path is simply not used for a manager at
+  // all; they keep the exact client-side computation from breakdownLeads
+  // (already correctly scoped by inScope) that every role used before this
+  // change. Every other role has no such toggle, so RLS alone is already
+  // the right answer and the fast path applies normally.
+  const fastCategoryBreakdown = isManager ? null : categoryBreakdown
   // The three stage-history feeds and loss_reasons all carry their owner one
   // level down, on the embedded lead. A row whose embed came back null is
   // dropped — that already happens today for RLS-invisible rows (see
@@ -359,6 +377,32 @@ function Dashboard() {
       active = false
     }
   }, [employee])
+
+  // Fires once on mount, independent of the manager scope switch — the
+  // manager case simply doesn't use this data (see fastCategoryBreakdown
+  // above), so there's nothing to refetch when managerScope changes.
+  // Fails soft: an error (including "function does not exist" if the
+  // migration hasn't been run yet) just leaves categoryBreakdown null,
+  // which every consumer below already treats as "use the slow path".
+  useEffect(() => {
+    let active = true
+    fetchCategoryBreakdown().then(({ data, error }) => {
+      if (!active) return
+      if (error || !data) return
+      const grouped = { area: [], site_stage: [], product: [], stage: [] }
+      data.forEach((row) => {
+        const bucket = grouped[row.category_group]
+        // lead_count/deal_value come back over PostgREST as strings (bigint/
+        // numeric, to avoid JS float precision loss) — coerce once, here,
+        // rather than at every consumer.
+        if (bucket) bucket.push({ category: row.category, count: Number(row.lead_count), value: Number(row.deal_value) })
+      })
+      setCategoryBreakdown(grouped)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -566,7 +610,17 @@ function Dashboard() {
   const onHoldLeadCount = breakdownLeads.filter((l) => (l.current_stage ?? 'calling') === 'on_hold').length
   const wonThisRange = range ? computeOrderValueActuals(wonStageHistory, range, false) : 0
 
+  // Fast path (fastCategoryBreakdown's 'stage' grouping) when available;
+  // falls back to the original client-side reduction over breakdownLeads
+  // otherwise (migration not yet run, or a manager — see
+  // fastCategoryBreakdown's own comment above). Zero-fills every
+  // LEAD_STAGE_OPTIONS value either way, since the RPC only returns stages
+  // that actually have at least one lead.
   const stageRows = LEAD_STAGE_OPTIONS.map((stage) => {
+    if (fastCategoryBreakdown) {
+      const entry = fastCategoryBreakdown.stage.find((r) => r.category === stage)
+      return { stage, count: entry?.count ?? 0, value: entry?.value ?? 0 }
+    }
     const stageLeads = breakdownLeads.filter((l) => (l.current_stage ?? 'calling') === stage)
     return {
       stage,
@@ -835,7 +889,11 @@ function Dashboard() {
                   Details ›
                 </button>
               </div>
-              {breakdownLeads.length === 0 ? (
+              {/* Independent of breakdownLeads on purpose — stageRows is
+                  already sourced from whichever path is faster (see its own
+                  comment above), so gating the empty-check on the slower
+                  fetch would defeat that. */}
+              {stageRows.every((r) => r.count === 0) ? (
                 <p className="vip-empty">No leads found.</p>
               ) : (
                 stageRows.map(({ stage, count, value }) => (
@@ -869,6 +927,7 @@ function Dashboard() {
               title="Leads by area"
               leads={breakdownLeads}
               getCategory={areaCategory}
+              aggregated={fastCategoryBreakdown?.area}
               maxRows={6}
               onOpenPanel={() =>
                 setPanel(
@@ -887,6 +946,7 @@ function Dashboard() {
               title="Leads by site stage"
               leads={breakdownLeads}
               getCategory={siteStageCategory}
+              aggregated={fastCategoryBreakdown?.site_stage}
               categoryOrder={[...SITE_STAGE_OPTIONS, 'Not set', 'No site']}
               onOpenPanel={() =>
                 setPanel(
@@ -911,6 +971,7 @@ function Dashboard() {
                 title="Leads by product"
                 leads={breakdownLeads}
                 getCategory={productCategory}
+                aggregated={fastCategoryBreakdown?.product}
                 maxRows={6}
                 onOpenPanel={() =>
                   setPanel(

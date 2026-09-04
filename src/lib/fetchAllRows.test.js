@@ -121,6 +121,77 @@ describe('fetchAllRows', () => {
     expect(t.calls).toHaveLength(1)
   })
 
+  // speculativePages: fire page 2 alongside page 1 rather than waiting for
+  // page 1's count to prove it's needed. Opt-in, for the tables known to sit
+  // just over the cap (leads/stage_history/parties).
+  describe('speculativePages', () => {
+    it('returns the same rows as the serial path, in the same order', async () => {
+      const serial = fakeTable(mkRows(1204), { cap: 1000 })
+      const spec = fakeTable(mkRows(1204), { cap: 1000 })
+      const a = await fetchAllRows(serial.build)
+      const b = await fetchAllRows(spec.build, { speculativePages: 1 })
+      expect(b.data).toEqual(a.data)
+      expect(b.data).toHaveLength(1204)
+    })
+
+    it('fetches both pages at once instead of waiting for the count', async () => {
+      const t = fakeTable(mkRows(1204), { cap: 1000 })
+      await fetchAllRows(t.build, { speculativePages: 1 })
+      // Still exactly 2 requests — the win is that they overlap, not that
+      // there are fewer of them.
+      expect(t.calls).toHaveLength(2)
+      expect(t.calls.map((c) => c.from).sort((x, y) => x - y)).toEqual([0, 1000])
+    })
+
+    // The cost of guessing wrong: one extra request that comes back empty.
+    // It must not corrupt the result or trigger further paging.
+    it('is harmless when the table turns out to fit in one page', async () => {
+      const t = fakeTable(mkRows(10), { cap: 1000 })
+      const { data } = await fetchAllRows(t.build, { speculativePages: 1 })
+      expect(data).toHaveLength(10)
+      expect(t.calls).toHaveLength(2)
+    })
+
+    it('is harmless on an empty table', async () => {
+      const t = fakeTable([], { cap: 1000 })
+      const { data } = await fetchAllRows(t.build, { speculativePages: 1 })
+      expect(data).toEqual([])
+    })
+
+    it('still fetches pages beyond the speculative ones', async () => {
+      const t = fakeTable(mkRows(3500), { cap: 1000 })
+      const { data } = await fetchAllRows(t.build, { speculativePages: 1 })
+      expect(data).toHaveLength(3500)
+      expect(t.calls.map((c) => c.from).sort((x, y) => x - y)).toEqual([0, 1000, 2000, 3000])
+    })
+
+    // With no count there is no plan to follow, so the serial walk still has
+    // to run — but it must resume AFTER what the speculative page already
+    // brought back, not re-fetch it.
+    it('does not duplicate rows when no count is available', async () => {
+      const t = fakeTable(mkRows(1204), { cap: 1000, withCount: false })
+      const { data } = await fetchAllRows(t.build, { speculativePages: 1 })
+      expect(data).toHaveLength(1204)
+      expect(data.at(-1).id).toBe(1204)
+    })
+
+    it('surfaces an error from a speculative page rather than silently dropping it', async () => {
+      let call = 0
+      const build = () => ({
+        order: function () { return this },
+        range: function () { return this },
+        then: (resolve) => {
+          call += 1
+          if (call === 2) return resolve({ data: null, error: { message: 'page 2 failed' }, count: null })
+          resolve({ data: mkRows(1000), error: null, count: 1204 })
+        },
+      })
+      const { data, error } = await fetchAllRows(build, { speculativePages: 1 })
+      expect(data).toBe(null)
+      expect(error.message).toBe('page 2 failed')
+    })
+  })
+
   it('stops cleanly when the total is an exact multiple of the cap', async () => {
     const t = fakeTable(mkRows(2000), { cap: 1000 })
     const { data } = await fetchAllRows(t.build)

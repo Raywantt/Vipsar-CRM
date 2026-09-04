@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { errorMessage } from '../lib/errorMessage'
 import { fetchAccountTheme, setTheme } from '../lib/theme'
+import { clearQueryCacheOnSignOut } from '../lib/queryCache'
 
 const AuthContext = createContext(undefined)
 
@@ -80,7 +81,16 @@ export function AuthProvider({ children }) {
     employee,
     employeeError,
     loading,
-    signOut: () => supabase.auth.signOut(),
+    // Clear the read cache BEFORE ending the session. src/lib/queryCache.js
+    // holds whole-company aggregates in memory, and these are shared office
+    // machines — the next person to log in on this device must not be handed
+    // the previous employee's cached figures, which RLS would never have
+    // shown them. Cleared first, not after, so a slow signOut round trip
+    // can't leave that window open.
+    signOut: () => {
+      clearQueryCacheOnSignOut()
+      return supabase.auth.signOut()
+    },
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
