@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient'
+import { fetchAllRows } from './fetchAllRows'
 import { sanitizeForIlike } from './sanitizeForIlike'
 
 // parties SELECT is open to everyone (needed for search-before-create
@@ -10,7 +11,9 @@ import { sanitizeForIlike } from './sanitizeForIlike'
 // shape and is worth the same fix later. Search.jsx no longer uses this —
 // see fetchRecentParties/searchParties below instead.
 export function fetchAllParties() {
-  return supabase.from('parties').select('id, name, party_type, mobile, city, firm_name').order('name')
+  return fetchAllRows(() =>
+    supabase.from('parties').select('id, name, party_type, mobile, city, firm_name', { count: 'exact' }).order('name')
+  )
 }
 
 // Columns Search.jsx's party rows need — both fetchRecentParties and
@@ -77,11 +80,19 @@ export async function searchParties(term, typeFilter) {
 export function fetchLeadsForParties(partyIds) {
   if (!partyIds.length) return Promise.resolve({ data: [], error: null })
   const ids = partyIds.join(',')
-  return supabase
-    .from('leads')
-    .select('id, party_id, other_party_id, referred_by_party_id, owner_employee_id, created_at, employees!owner_employee_id(name)')
-    .or(`party_id.in.(${ids}),other_party_id.in.(${ids}),referred_by_party_id.in.(${ids})`)
-    .order('created_at', { ascending: false })
+  return fetchAllRows(() =>
+    supabase
+      .from('leads')
+      .select(
+        'id, party_id, other_party_id, referred_by_party_id, owner_employee_id, created_at, employees!owner_employee_id(name)',
+        { count: 'exact' }
+      )
+      .or(`party_id.in.(${ids}),other_party_id.in.(${ids}),referred_by_party_id.in.(${ids})`)
+      .order('created_at', { ascending: false }),
+    // Tie-break in the SAME direction as the sort above — consumers here
+    // take the first row per key and mean the most recent one.
+    { ascending: false }
+  )
 }
 
 // leads.party_id only — a party appears elsewhere on a lead as a referrer

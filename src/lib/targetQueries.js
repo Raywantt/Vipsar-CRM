@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient'
+import { fetchAllRows } from './fetchAllRows'
 
 // RLS scopes targets to "own data or owner role", same as activities/leads —
 // a sales exec's query naturally returns only their own target rows.
@@ -21,11 +22,16 @@ export function fetchTargetsForPeriod({ periodType, periodValue }) {
 // exec only ever sees rows for their own leads (others come back with
 // leads: null and get filtered out); an owner sees everyone's.
 export function fetchWonStageHistory() {
-  return supabase
-    .from('stage_history')
-    .select('lead_id, changed_at, leads(owner_employee_id, order_value)')
-    .eq('stage', 'won')
-    .order('changed_at', { ascending: false })
+  return fetchAllRows(() =>
+    supabase
+      .from('stage_history')
+      .select('lead_id, changed_at, leads(owner_employee_id, order_value)', { count: 'exact' })
+      .eq('stage', 'won')
+      .order('changed_at', { ascending: false }),
+    // Tie-break in the SAME direction as the sort above — consumers here
+    // take the first row per key and mean the most recent one.
+    { ascending: false }
+  )
 }
 
 export function insertTarget({ employeeId, periodType, periodValue, metricName, targetValue }) {

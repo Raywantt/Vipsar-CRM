@@ -60,6 +60,41 @@ against without a re-check once the app has a real usage history.
 `parties`, `lead_change_log`, `sites`, `leads`, `stage_history`,
 `follow_up_change_log`, `activities`.
 
+## ⚠️ 1,000 is a HARD CEILING, not just a "getting big" threshold
+
+Added 2026-09-04, after the first table crossed it and broke a live figure.
+
+PostgREST caps every response at the project's `max-rows` setting — **1,000
+rows here** — regardless of whether the query asked for a limit. So a query
+with no `.limit()`/`.range()` does **not** return the whole table. It returns
+the first 1,000 rows and says nothing about the rest: no error, no flag, just
+a shorter array. This document's own "loads the *entire* table on mount, no
+cap at all" framing below was wrong in exactly that way.
+
+Five tables are already past it: `stage_history` (1,591), `parties` (1,358),
+`lead_change_log` (1,265), `sites` (1,206), `leads` (1,204). `activities`
+(900) is next.
+
+What that cost, before it was found: every screen built on
+`fetchLeadsForBreakdown` was reducing 1,000 of 1,204 leads and reporting the
+result as the whole company — **₹3.16 Cr of open pipeline missing (14%), 10
+leads missing from Negotiation, 24 from Won**.
+
+And it got worse the more the data was curated, which is what made it look
+like a ghost rather than a rounding error. Those queries had no `ORDER BY`
+either, so Postgres returned heap order — and an UPDATE writes a new tuple
+version at the **end** of the heap. **Editing a lead therefore moved it to
+the back of the physical order and pushed it over the cap.** The owner added
+a quote value to a lead and the act of recording it is what deleted it from
+every dashboard figure.
+
+**The rule: a query that means "every row" must page.** Use
+`fetchAllRows()` (`src/lib/fetchAllRows.js`) — it pages past the cap and
+imposes a deterministic order, which is required too, since `.range()` paging
+with no `ORDER BY` can silently repeat or skip rows between pages. A bare
+unbounded `.select()` is only safe on a table that will never reach 1,000
+rows, and this file exists to tell you which those are.
+
 ## What that means for the redesign
 
 Of the 7 flagged tables, these are the ones actually rendered as an
@@ -69,8 +104,10 @@ the ones worth designing with virtualization in mind rather than pagination:
 - **`leads`** — `LeadsListCard`'s All Leads view (currently hard-capped at
   100 rows client-side, not paginated).
 - **`parties`** — `Search`'s party directory (`fetchAllParties` loads the
-  *entire* table on mount, no cap at all — already flagged in `CLAUDE.md`
-  as a "downloads the whole company" pattern).
+  entire table on mount — already flagged in `CLAUDE.md` as a "downloads the
+  whole company" pattern. It now really does load all of it: until
+  2026-09-04 it silently stopped at 1,000 of 1,358, see the ceiling section
+  above).
 - **`activities`** / **`stage_history`** — merged into
   `LeadActivityTimeline` per lead (bounded per-lead today, so not urgent at
   the per-lead scale, but relevant if a future screen lists activity
