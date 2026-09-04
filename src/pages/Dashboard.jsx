@@ -29,7 +29,7 @@ import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS } from '../lib/sourceTypeOptions'
 import { stageChipClass } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
-import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
+import { computeAttentionBuckets, computeAttentionBucketsFromRpc, buildAgeingPanel } from '../lib/attention'
 import { dealValueFor, sumOpenPipelineValue, sumOnHoldValue } from '../lib/pipelineValue'
 import {
   buildOrderValueAttainPanel,
@@ -48,6 +48,7 @@ import {
   fetchClosureForecast,
   fetchLeadsForBreakdown,
   fetchCategoryBreakdown,
+  fetchLeadsNeedingAttention,
   fetchStageHistoryForFunnel,
   fetchLossReasons,
   fetchLastActivityPerLead,
@@ -135,6 +136,17 @@ function Dashboard() {
   // allBreakdownLeads/breakdownLeads exactly as before, so this is additive
   // only and never blocks rendering.
   const [categoryBreakdown, setCategoryBreakdown] = useState(null)
+  // Needs Attention's five buckets, filtered server-side — see
+  // Schema/migration_needs_attention_rpc.sql. null means "not available"
+  // (migration not run, fetch not resolved, or a manager — see
+  // fastAttentionRows below), in which case the original client-side
+  // computeAttentionBuckets over breakdownLeads runs exactly as before.
+  const [attentionRows, setAttentionRows] = useState(null)
+  // Set only when the RPC actually failed (not merely "hasn't answered
+  // yet"). It gates the fetchLastActivityPerLead() query, whose sole
+  // consumer is the client-side fallback — so on the normal path that
+  // activities scan is never issued at all.
+  const [attentionRpcFailed, setAttentionRpcFailed] = useState(false)
   const [allFunnelStageHistory, setFunnelStageHistory] = useState([])
   const [allLossReasons, setLossReasons] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
@@ -210,6 +222,11 @@ function Dashboard() {
   // change. Every other role has no such toggle, so RLS alone is already
   // the right answer and the fast path applies normally.
   const fastCategoryBreakdown = isManager ? null : categoryBreakdown
+  // Same manager caveat as fastCategoryBreakdown above: the RPC is scoped by
+  // RLS alone and cannot know about a manager's own My/Team toggle, so that
+  // role keeps the client-side computation (which inScope has already
+  // filtered correctly). Every other role has no such toggle.
+  const fastAttentionRows = isManager ? null : attentionRows
   // The three stage-history feeds and loss_reasons all carry their owner one
   // level down, on the embedded lead. A row whose embed came back null is
   // dropped — that already happens today for RLS-invisible rows (see
@@ -386,6 +403,24 @@ function Dashboard() {
   // which every consumer below already treats as "use the slow path".
   useEffect(() => {
     let active = true
+    fetchLeadsNeedingAttention().then(({ data, error }) => {
+      if (!active) return
+      if (error || !data) {
+        // Distinct from "still loading": this is what releases the
+        // fetchLastActivityPerLead() query below, which the fallback needs
+        // and the fast path does not.
+        setAttentionRpcFailed(true)
+        return
+      }
+      setAttentionRows(data)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
     fetchCategoryBreakdown().then(({ data, error }) => {
       if (!active) return
       if (error || !data) return
@@ -445,7 +480,14 @@ function Dashboard() {
   // Powers Needs Attention (src/lib/attention.js) — "no activity in N days"
   // needs each lead's most recent activity, reduced client-side from every
   // activities row rather than a second per-lead round trip.
+  //
+  // ONLY FETCHED WHEN THE FALLBACK WILL ACTUALLY RUN. Its one consumer is
+  // computeAttentionBuckets(), which the RPC path replaces — so on the
+  // normal path this whole activities scan (measured 885-3,024ms) is never
+  // issued. A manager always needs it (the RPC can't honour their My/Team
+  // toggle), and so does anyone whose RPC call failed.
   useEffect(() => {
+    if (!isManager && !attentionRpcFailed) return
     let active = true
     fetchLastActivityPerLead().then(({ data, error }) => {
       if (!active) return
@@ -463,7 +505,7 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [])
+  }, [isManager, attentionRpcFailed])
 
   // Powers the win-rate KPI/drill-down and the `loss` kind's lost-leads list.
   useEffect(() => {
@@ -636,7 +678,11 @@ function Dashboard() {
   const openLeadCount = breakdownLeads.filter((l) => !['won', 'lost', 'on_hold'].includes(l.current_stage ?? 'calling')).length
 
   const rangeLabel = RANGE_LABELS[preset]
-  const attentionBuckets = computeAttentionBuckets(breakdownLeads, lastActivityByLead)
+  // Fast path when the RPC answered; otherwise the original client-side
+  // reduction over every lead, unchanged.
+  const attentionBuckets = fastAttentionRows
+    ? computeAttentionBucketsFromRpc(fastAttentionRows)
+    : computeAttentionBuckets(breakdownLeads, lastActivityByLead)
   const staleBucket = attentionBuckets.find((b) => b.key === 'stale')
   const weightedForecastValue = forecast.reduce(
     (s, l) => s + (Number(l.quote_value ?? 0) * (l.closure_probability ?? 0)) / 100,

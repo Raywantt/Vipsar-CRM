@@ -3,6 +3,7 @@ import { sanitizeForIlike } from './sanitizeForIlike'
 import { MIN_QUERY_LENGTH } from './searchQueries'
 import { fetchAllRows } from './fetchAllRows'
 import { cachedQuery } from './queryCache'
+import { todayISO } from './followupDates'
 
 // The heavy, company-wide reads below go through cachedQuery (see
 // src/lib/queryCache.js for the measurements that motivated it). Two effects:
@@ -321,6 +322,42 @@ export function fetchStageHistoryForFunnel() {
 // client-side computation over breakdownLeads, exactly as if this function
 // didn't exist yet. Same shape as AuthContext's PGRST205 handling for
 // employee_preferences before that migration ran.
+// Needs Attention's five buckets, filtered in Postgres instead of by
+// downloading every lead — see Schema/migration_needs_attention_rpc.sql.
+// Returns only the leads that actually land in a bucket (~66 of 1,209 on
+// live data today).
+//
+// `now`/`today`/the timezone offset come from the BROWSER, deliberately.
+// attention.js's thresholds are decided by the viewer's own clock
+// (todayISO(), Date.now()), and the database runs in UTC while the reps are
+// in IST — a server-side CURRENT_DATE would disagree with the client for
+// five and a half hours every night. Passing them in makes both paths agree
+// by construction. See the migration's header for the full reasoning,
+// including why JS parses naive timestamps and date-only strings
+// differently and how the SQL reproduces that.
+//
+// Cache key is the DATE, not the instant: `now` moves every millisecond and
+// keying on it would never hit the cache, while every threshold here is
+// measured in whole days, so reusing a result computed seconds ago is exact
+// for the purposes of these buckets.
+//
+// FAILS SOFT, same as fetchCategoryBreakdown: until the migration runs this
+// returns a "function not found" error and Dashboard falls back to the
+// existing client-side computeAttentionBuckets().
+export function fetchLeadsNeedingAttention() {
+  const now = new Date()
+  const today = todayISO()
+  return cachedQuery(`leads:needs-attention:${today}`, () =>
+    supabase.rpc('leads_needing_attention', {
+      p_now: now.toISOString(),
+      p_today: today,
+      // getTimezoneOffset() returns MINUTES BEHIND UTC (-330 for IST), so
+      // negate it to get the offset the SQL adds/subtracts (+330).
+      p_tz_offset_minutes: -now.getTimezoneOffset(),
+    })
+  )
+}
+
 export function fetchCategoryBreakdown(ownerIds = null) {
   return cachedQuery(`leads:category-breakdown:${ownerIds ? [...ownerIds].sort((a, b) => a - b).join(',') : 'all'}`, () =>
     supabase.rpc('leads_category_breakdown', { p_owner_ids: ownerIds })

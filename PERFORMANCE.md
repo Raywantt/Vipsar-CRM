@@ -148,11 +148,29 @@ effects), so judge production numbers from a production build.
 
 ## 6. Known remaining work (deliberately not done yet)
 
-- **Needs Attention still downloads every lead.** Its five buckets have a
-  legacy-import date clamp, two day-thresholds and calendar-string date
-  comparisons that have each caused a real bug before. Porting that to SQL
-  needs live verification of the numbers, side by side, before it is trusted.
-  It is the largest remaining payload on Dashboard.
+- ~~**Needs Attention still downloads every lead.**~~ **DONE 2026-09-05**
+  (`migration_needs_attention_rpc.sql`) — 66 rows instead of 1,209, verified
+  IDENTICAL against the client-side path on every bucket and every rendered
+  field. It also let Dashboard drop `fetchLastActivityPerLead()` on the fast
+  path. **The side-by-side comparison earned its keep twice**: it caught
+  `NULL LIKE '...'` returning NULL rather than false (which silently emptied
+  two whole buckets of app-created leads) and a tie-ordering difference that
+  a count-only check would have declared a pass. Use that same technique for
+  anything below.
+- **`fetchLeadsForBreakdown` is now the critical path on its own (~2.3s of a
+  ~3.4s load), and Needs Attention no longer keeps it there.** Its remaining
+  consumers fall into three groups, each with a clear route off it:
+  1. *Open-pipeline KPIs, on-hold value/count, open lead count, the All
+     Leads header* — all stage-grouped counts/sums, already returned by
+     `leads_category_breakdown`'s `stage` grouping. Pure rewiring.
+  2. *Drill-down panels* (`buildPipelinePanel`, `buildCategoryMixPanel`,
+     `buildMixPanel`) — click-triggered, so they can fetch on open. The
+     query cache makes the second panel instant.
+  3. *Sales funnel* — the one genuine blocker: `computeFunnel` needs per-lead
+     ids to dedupe leads that appear in both `stage_history` and the current
+     stage list, so counts alone won't do. Either give it its own slim
+     `select id, current_stage` (no joins — measured 429ms vs 868ms) or move
+     the funnel into an RPC too.
 - **`fetchStageHistoryForFunnel` / `fetchWonStageHistory` /
   `fetchDecidedStageHistory`** ship 1,600 raw rows each to compute a handful
   of figures. All three are good RPC candidates.

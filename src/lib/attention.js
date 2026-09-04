@@ -265,6 +265,17 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
     }
   })
 
+  return assembleBuckets({ stale, silentQuotes, followupsOverdue, slipped, pendingRfq })
+}
+
+// The presentation half, extracted 2026-09-05 so the client-side path above
+// and the RPC-backed path below produce BYTE-IDENTICAL buckets. Every title,
+// sub, colour, note and sort order lives here and nowhere else — the two
+// paths differ only in how they decided which leads belong in each bucket,
+// never in how those buckets are rendered. That is what makes the RPC safe
+// to swap in: the only thing that can differ is bucket membership, which is
+// a set of lead ids and can therefore be compared exactly.
+function assembleBuckets({ stale, silentQuotes, followupsOverdue, slipped, pendingRfq }) {
   const totalValue = (rows) => rows.reduce((s, r) => s + r.value, 0)
   const uniqueOwners = (rows) => new Set(rows.map((r) => r.ownerId)).size
   const avgAge = (rows) => (rows.length ? rows.reduce((s, r) => s + (r.age ?? 0), 0) / rows.length : 0)
@@ -329,6 +340,68 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
       rows: sortByAgeDesc(pendingRfq),
     },
   ]
+}
+
+// ---------------------------------------------------------------------------
+// The RPC-backed path (Schema/migration_needs_attention_rpc.sql).
+//
+// Postgres has already decided WHICH leads are in WHICH bucket — that is the
+// expensive part, and the only part that moved. Everything below recomputes
+// the displayed age and description in JS with the same daysSince() calls
+// the client-side path uses, then hands off to the same assembleBuckets().
+//
+// The ages are deliberately recomputed here rather than returned by the RPC:
+// they are the UNCLAMPED, true ages (a lead silent since 2023 still reports
+// "847d" even though the import floor is what let it surface), and computing
+// them in the same place, the same way, for both paths removes a whole class
+// of drift. The RPC returns only the raw dates.
+export function computeAttentionBucketsFromRpc(rpcRows) {
+  const stale = []
+  const silentQuotes = []
+  const followupsOverdue = []
+  const slipped = []
+  const pendingRfq = []
+
+  ;(rpcRows ?? []).forEach((r) => {
+    // Shaped into the same object toRow() reads from a `leads` row. The
+    // party/owner fallback chains were already resolved by the RPC's own
+    // COALESCE, so wrapping them here reproduces partyLabel()/owner exactly.
+    const lead = {
+      id: r.lead_id,
+      current_stage: r.current_stage,
+      quote_value: r.quote_value == null ? null : Number(r.quote_value),
+      order_value: r.order_value == null ? null : Number(r.order_value),
+      owner_employee_id: r.owner_id,
+      parties: { name: r.party },
+      employees: { name: r.owner_name },
+    }
+
+    if (r.is_stale) {
+      const lastActivityAt = r.last_activity_at ?? null
+      const touchAge = daysSince(lastActivityAt ?? r.lead_created_at)
+      stale.push(
+        toRow(lead, touchAge, lastActivityAt ? `Last activity ${touchAge}d ago` : `No activity since created, ${touchAge}d ago`)
+      )
+    }
+    if (r.is_silent_quote) {
+      const quoteAge = daysSince(r.quote_sent_at)
+      silentQuotes.push(toRow(lead, quoteAge, `Quote sent ${quoteAge}d ago, nothing since`))
+    }
+    if (r.is_followup_overdue) {
+      const overdueAge = daysSince(r.next_followup_date)
+      followupsOverdue.push(toRow(lead, overdueAge, `Follow-up was due ${overdueAge}d ago`))
+    }
+    if (r.is_slipped) {
+      const slipAge = daysSince(r.estimated_close_date)
+      slipped.push(toRow(lead, slipAge, `Est. close was ${slipAge}d ago`))
+    }
+    if (r.is_pending_rfq) {
+      const rfqAge = daysSince(r.rfq_raised_at)
+      pendingRfq.push(toRow(lead, rfqAge, `RFQ raised ${rfqAge}d ago, no quote yet`))
+    }
+  })
+
+  return assembleBuckets({ stale, silentQuotes, followupsOverdue, slipped, pendingRfq })
 }
 
 // A lead can land in more than one bucket at once (stale AND overdue AND
