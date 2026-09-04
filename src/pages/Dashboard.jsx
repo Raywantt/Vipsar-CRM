@@ -762,7 +762,27 @@ function Dashboard() {
                     rangeLabel={rangeLabel}
                     employees={employees}
                     showByEmployee={seesOthersData}
-                    onTargetCreated={(row) => setTargets((prev) => [...prev, row])}
+                    // A REPLACE, not a blind append — insertTarget() is now an
+                    // upsert (see targetQueries.js), so re-setting a target
+                    // for a period/metric that already had one updates that
+                    // SAME row in the database. Appending here regardless
+                    // would leave the stale copy sitting in local state next
+                    // to the corrected one, silently reintroducing the exact
+                    // "which one does the UI believe" ambiguity the upsert
+                    // was meant to end — TargetsVsActualsCard's own render
+                    // would still show whichever `targetFor()`'s first match
+                    // happened to be.
+                    onTargetCreated={(row) =>
+                      setTargets((prev) => {
+                        const isSameTarget = (t) =>
+                          t.employee_id === row.employee_id &&
+                          t.period_type === row.period_type &&
+                          t.period_value === row.period_value &&
+                          t.metric_name === row.metric_name
+                        const replaced = prev.some(isSameTarget)
+                        return replaced ? prev.map((t) => (isSameTarget(t) ? row : t)) : [...prev, row]
+                      })
+                    }
                     onOpenLog={handleOpenLog}
                     onOpenPanel={setPanel}
                   />
