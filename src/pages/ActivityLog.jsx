@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
+import { fetchAllRows } from '../lib/fetchAllRows'
 import { useAuth } from '../contexts/AuthContext'
 import LeadSearchSelect from '../components/LeadSearchSelect'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
@@ -103,12 +104,9 @@ function ActivityLog() {
   // two identical names with no way to tell them apart. Same .eq('is_active',
   // true) fetchCoordinators/fetchActiveSalesExecs already use.
   useEffect(() => {
-    supabase
-      .from('employees')
-      .select('id, name')
-      .eq('is_active', true)
-      .order('name')
-      .then(({ data }) => setEmployees(data ?? []))
+    fetchAllRows(() => supabase.from('employees').select('id, name', { count: 'exact' }).eq('is_active', true).order('name')).then(
+      ({ data }) => setEmployees(data ?? [])
+    )
   }, [])
 
   useEffect(() => {

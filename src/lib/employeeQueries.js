@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient'
 import { CARRIES_OWN_LEADS } from './roles'
+import { fetchAllRows } from './fetchAllRows'
 
 // The columns every write below reads back. Shared so adding a field doesn't
 // mean remembering four separate .select() strings — coordinator_id was
@@ -8,7 +9,7 @@ import { CARRIES_OWN_LEADS } from './roles'
 const EMPLOYEE_ROW = 'id, name, mobile, role, coordinator_id, manager_id, is_active'
 
 export function fetchAllEmployees() {
-  return supabase.from('employees').select(EMPLOYEE_ROW).order('name')
+  return fetchAllRows(() => supabase.from('employees').select(EMPLOYEE_ROW, { count: 'exact' }).order('name'))
 }
 
 // Active sales coordinators, for the "Reports to" dropdown in Manage
@@ -16,12 +17,14 @@ export function fetchAllEmployees() {
 // database access is revoked would leave those execs effectively unsupervised
 // while looking assigned.
 export function fetchCoordinators() {
-  return supabase
-    .from('employees')
-    .select('id, name')
-    .eq('role', 'sales_coordinator')
-    .eq('is_active', true)
-    .order('name')
+  return fetchAllRows(() =>
+    supabase
+      .from('employees')
+      .select('id, name', { count: 'exact' })
+      .eq('role', 'sales_coordinator')
+      .eq('is_active', true)
+      .order('name')
+  )
 }
 
 // Active sales managers, for the "Reports to (Manager)" dropdown in Manage
@@ -30,12 +33,14 @@ export function fetchCoordinators() {
 // whose database access is revoked leaves those execs unsupervised while
 // looking assigned.
 export function fetchManagers() {
-  return supabase
-    .from('employees')
-    .select('id, name')
-    .eq('role', 'sales_manager')
-    .eq('is_active', true)
-    .order('name')
+  return fetchAllRows(() =>
+    supabase
+      .from('employees')
+      .select('id, name', { count: 'exact' })
+      .eq('role', 'sales_manager')
+      .eq('is_active', true)
+      .order('name')
+  )
 }
 
 // How much data an employee is still holding — used only to warn an owner
@@ -76,11 +81,15 @@ export function fetchEmployeeProfile(id) {
 // territory/tenure display EmployeeProfile already uses, is_active so a
 // deactivated rep still shows (deactivate, never hide, matches Settings).
 export function fetchTeamMembers() {
-  return supabase
-    .from('employees')
-    .select('id, name, mobile, role, coordinator_id, manager_id, office_location, is_active, created_at')
-    .neq('role', 'owner')
-    .order('name')
+  return fetchAllRows(() =>
+    supabase
+      .from('employees')
+      .select('id, name, mobile, role, coordinator_id, manager_id, office_location, is_active, created_at', {
+        count: 'exact',
+      })
+      .neq('role', 'owner')
+      .order('name')
+  )
 }
 
 // Every active sales exec, for the profile page's ranking (blended
@@ -91,25 +100,27 @@ export function fetchTeamMembers() {
 // "Accompanied by" dropdown), so the database will happily return every rep
 // regardless of who is asking.
 export function fetchActiveSalesExecs() {
-  return supabase
-    .from('employees')
-    .select('id, name, role, coordinator_id, manager_id, office_location, created_at')
-    // CARRIES_OWN_LEADS, not the literal 'sales_executive'. A sales manager
-    // works their own pipeline and carries their own targets (the owner's
-    // ruling, 2026-09-03: managers are ranked among execs and appear mixed
-    // in with them, distinguished by a role badge). Filtering on the literal
-    // role left them out of every screen that answers "who are our reps" —
-    // the owner's heatmap and Day Review table, the attainment ranking, the
-    // Set-a-target employee list and All Leads' owner filter — so a manager
-    // could log work that no owner-facing report ever showed.
-    //
-    // Safe for the two team-scoped wrappers below: a manager has neither a
-    // coordinator_id nor a manager_id, so fetchMyTeamExecs and
-    // fetchMyManagedExecs both still return executives only. That is what
-    // keeps "a manager's team is their execs, not themselves" true.
-    .in('role', CARRIES_OWN_LEADS)
-    .eq('is_active', true)
-    .order('name')
+  return fetchAllRows(() =>
+    supabase
+      .from('employees')
+      .select('id, name, role, coordinator_id, manager_id, office_location, created_at', { count: 'exact' })
+      // CARRIES_OWN_LEADS, not the literal 'sales_executive'. A sales manager
+      // works their own pipeline and carries their own targets (the owner's
+      // ruling, 2026-09-03: managers are ranked among execs and appear mixed
+      // in with them, distinguished by a role badge). Filtering on the literal
+      // role left them out of every screen that answers "who are our reps" —
+      // the owner's heatmap and Day Review table, the attainment ranking, the
+      // Set-a-target employee list and All Leads' owner filter — so a manager
+      // could log work that no owner-facing report ever showed.
+      //
+      // Safe for the two team-scoped wrappers below: a manager has neither a
+      // coordinator_id nor a manager_id, so fetchMyTeamExecs and
+      // fetchMyManagedExecs both still return executives only. That is what
+      // keeps "a manager's team is their execs, not themselves" true.
+      .in('role', CARRIES_OWN_LEADS)
+      .eq('is_active', true)
+      .order('name')
+  )
 }
 
 // Last ~N activities for one exec across every activity type, newest first

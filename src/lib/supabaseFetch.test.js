@@ -135,3 +135,103 @@ describe('createSupabaseFetch', () => {
     expect(value.status).toBe(200)
   })
 })
+
+// The row-cap guardrail (fixed 2026-09-04, see fetchAllRows.js): a query with
+// no .limit()/.range() does not mean "every row" — PostgREST silently caps the
+// response at the project's max-rows setting and says nothing when it does.
+// This is the runtime tripwire for a future unpaged query that slips past the
+// static review fetchAllRows.test.js asks for.
+describe('createSupabaseFetch — silent-truncation guardrail', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  const rangedResponse = (contentRange) =>
+    new Response('[]', { status: 206, headers: { 'content-range': contentRange } })
+
+  it('warns when an unpaged request comes back truncated with a known total', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const base = vi.fn().mockResolvedValue(rangedResponse('0-999/1204'))
+
+    await settle(createSupabaseFetch(base)('https://x.supabase.co/rest/v1/leads?select=id', { method: 'GET' }))
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toMatch(/leads/)
+    expect(warn.mock.calls[0][0]).toMatch(/1000 of 1204/)
+    warn.mockRestore()
+  })
+
+  it('warns on a truncated response even when the total is unknown (no count requested)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const base = vi.fn().mockResolvedValue(rangedResponse('0-999/*'))
+
+    await settle(createSupabaseFetch(base)('https://x.supabase.co/rest/v1/leads?select=id', { method: 'GET' }))
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it('does not warn when the request already carries an explicit limit (fetchAllRows-style paging)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const base = vi.fn().mockResolvedValue(rangedResponse('0-999/1204'))
+
+    await settle(
+      createSupabaseFetch(base)('https://x.supabase.co/rest/v1/leads?select=id&offset=0&limit=1000', { method: 'GET' })
+    )
+
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('does not warn when nothing was actually truncated', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const base = vi.fn().mockResolvedValue(rangedResponse('0-14/15'))
+
+    await settle(createSupabaseFetch(base)('https://x.supabase.co/rest/v1/employees?select=id', { method: 'GET' }))
+
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('does not warn on a small table returning under the cap with no known total', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const base = vi.fn().mockResolvedValue(rangedResponse('0-14/*'))
+
+    await settle(createSupabaseFetch(base)('https://x.supabase.co/rest/v1/employees?select=id', { method: 'GET' }))
+
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('does not warn on a write — the guardrail only ever inspects reads', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const base = vi.fn().mockResolvedValue(rangedResponse('0-999/1204'))
+
+    await settle(createSupabaseFetch(base)('https://x.supabase.co/rest/v1/leads', { method: 'PATCH' }))
+
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('does not warn on a non-REST request (auth, storage)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const base = vi.fn().mockResolvedValue(rangedResponse('0-999/1204'))
+
+    await settle(createSupabaseFetch(base)('https://x.supabase.co/auth/v1/token', { method: 'GET' }))
+
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('never throws or blocks the response when the response carries no content-range at all', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const base = vi.fn().mockResolvedValue(new Response('[]', { status: 200 }))
+
+    const { value } = await settle(
+      createSupabaseFetch(base)('https://x.supabase.co/rest/v1/leads?select=id', { method: 'GET' })
+    )
+
+    expect(value.status).toBe(200)
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+})

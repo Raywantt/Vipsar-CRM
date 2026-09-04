@@ -189,15 +189,18 @@ export function fetchLastActivityPerLead() {
 export function fetchActivityLogForExec(employeeId, activityType) {
   const since = new Date()
   since.setDate(since.getDate() - 60)
-  return supabase
-    .from('activities')
-    .select(
-      'id, notes, created_at, leads_generated, start_time, end_time, accompanied_by, leads(current_stage, parties!party_id(name)), parties!party_id(name), employees!accompanied_by(name)'
-    )
-    .eq('employee_id', employeeId)
-    .eq('activity_type', activityType)
-    .gte('created_at', since.toISOString())
-    .order('created_at', { ascending: false })
+  return fetchAllRows(() =>
+    supabase
+      .from('activities')
+      .select(
+        'id, notes, created_at, leads_generated, start_time, end_time, accompanied_by, leads(current_stage, parties!party_id(name)), parties!party_id(name), employees!accompanied_by(name)',
+        { count: 'exact' }
+      )
+      .eq('employee_id', employeeId)
+      .eq('activity_type', activityType)
+      .gte('created_at', since.toISOString())
+      .order('created_at', { ascending: false })
+  )
 }
 
 // stage_history rows for leads that were ultimately decided (won or lost),

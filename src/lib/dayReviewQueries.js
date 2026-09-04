@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient'
 import { toISODate } from './followupDates'
+import { fetchAllRows } from './fetchAllRows'
 
 // Every query here is bounded to ONE calendar day. Nothing on the Day Review
 // aggregates beyond that — see the Dashboard section of CLAUDE.md.
@@ -45,12 +46,17 @@ const LEAD_NAME_EMBED = 'leads(id, current_stage, parties!party_id(name), sites(
 // Calls/Visits columns, the day sheet's timeline, and the "worked 9:12 am –
 // 6:40 pm" span (min/max created_at) — one query rather than three.
 export function fetchDayActivities({ startISO, endISO }) {
-  return supabase
-    .from('activities')
-    .select(`id, employee_id, activity_type, notes, created_at, lead_id, party_id, parties!party_id(name), ${LEAD_NAME_EMBED}`)
-    .gte('created_at', startISO)
-    .lte('created_at', endISO)
-    .order('created_at', { ascending: true })
+  return fetchAllRows(() =>
+    supabase
+      .from('activities')
+      .select(
+        `id, employee_id, activity_type, notes, created_at, lead_id, party_id, parties!party_id(name), ${LEAD_NAME_EMBED}`,
+        { count: 'exact' }
+      )
+      .gte('created_at', startISO)
+      .lte('created_at', endISO)
+      .order('created_at', { ascending: true })
+  )
 }
 
 // Field-level lead edits on D, from the table Schema/migration_lead_change_log.sql
@@ -58,12 +64,16 @@ export function fetchDayActivities({ startISO, endISO }) {
 // wants creation rows too; only the team table's Changes column excludes them
 // (see dayReview.js), matching the design's own column definition.
 export function fetchDayLeadChanges({ startISO, endISO }) {
-  return supabase
-    .from('lead_change_log')
-    .select(`id, lead_id, changed_by, changed_at, field, old_value, new_value, detail, ${LEAD_NAME_EMBED}`)
-    .gte('changed_at', startISO)
-    .lte('changed_at', endISO)
-    .order('changed_at', { ascending: true })
+  return fetchAllRows(() =>
+    supabase
+      .from('lead_change_log')
+      .select(`id, lead_id, changed_by, changed_at, field, old_value, new_value, detail, ${LEAD_NAME_EMBED}`, {
+        count: 'exact',
+      })
+      .gte('changed_at', startISO)
+      .lte('changed_at', endISO)
+      .order('changed_at', { ascending: true })
+  )
 }
 
 // Stage moves on D — including Won and Lost, which are stages in this app
@@ -76,14 +86,17 @@ export function fetchDayLeadChanges({ startISO, endISO }) {
 // Schema/migration_scope_stage_history.sql; the embedded-leads null check in
 // dayReview.js is kept as belt-and-braces, same as fetchStageHistoryForFunnel.
 export function fetchDayStageChanges({ startISO, endISO }) {
-  return supabase
-    .from('stage_history')
-    .select(
-      'id, lead_id, stage, changed_by, changed_at, leads(id, owner_employee_id, order_value, quote_value, parties!party_id(name), sites(nickname, locality))'
-    )
-    .gte('changed_at', startISO)
-    .lte('changed_at', endISO)
-    .order('changed_at', { ascending: true })
+  return fetchAllRows(() =>
+    supabase
+      .from('stage_history')
+      .select(
+        'id, lead_id, stage, changed_by, changed_at, leads(id, owner_employee_id, order_value, quote_value, parties!party_id(name), sites(nickname, locality))',
+        { count: 'exact' }
+      )
+      .gte('changed_at', startISO)
+      .lte('changed_at', endISO)
+      .order('changed_at', { ascending: true })
+  )
 }
 
 // Leads created on D. created_by_employee_id (added by the same migration,
@@ -91,25 +104,31 @@ export function fetchDayStageChanges({ startISO, endISO }) {
 // would re-credit every reassigned lead to whoever holds it now, retroactively
 // changing a day sheet for a date before the reassignment happened.
 export function fetchDayNewLeads({ startISO, endISO }) {
-  return supabase
-    .from('leads')
-    .select(
-      'id, created_by_employee_id, owner_employee_id, source_type, quote_value, order_value, current_stage, created_at, parties!party_id(name), sites(nickname, locality)'
-    )
-    .gte('created_at', startISO)
-    .lte('created_at', endISO)
+  return fetchAllRows(() =>
+    supabase
+      .from('leads')
+      .select(
+        'id, created_by_employee_id, owner_employee_id, source_type, quote_value, order_value, current_stage, created_at, parties!party_id(name), sites(nickname, locality)',
+        { count: 'exact' }
+      )
+      .gte('created_at', startISO)
+      .lte('created_at', endISO)
+  )
 }
 
 // Follow-ups DUE on a given date — one call serves both the Done/missed
 // column (dateISO = D) and the Tomorrow column (dateISO = D + 1).
 export function fetchFollowUpsDueOn(dateISO) {
-  return supabase
-    .from('follow_ups')
-    .select(
-      `id, assigned_to, created_by, party_id, lead_id, activity_type, title, notes, due_date, due_time, status, is_done, done_at, cancelled_at, cancel_reason, completed_by_activity_id, parties(name), ${LEAD_NAME_EMBED}`
-    )
-    .eq('due_date', dateISO)
-    .order('due_time', { ascending: true, nullsFirst: false })
+  return fetchAllRows(() =>
+    supabase
+      .from('follow_ups')
+      .select(
+        `id, assigned_to, created_by, party_id, lead_id, activity_type, title, notes, due_date, due_time, status, is_done, done_at, cancelled_at, cancel_reason, completed_by_activity_id, parties(name), ${LEAD_NAME_EMBED}`,
+        { count: 'exact' }
+      )
+      .eq('due_date', dateISO)
+      .order('due_time', { ascending: true, nullsFirst: false })
+  )
 }
 
 // Quotes sent on D. There is no `quote` activity type in this schema — a
@@ -118,10 +137,14 @@ export function fetchFollowUpsDueOn(dateISO) {
 // can't be placed on the day sheet's timeline. Attribution is the lead's
 // owner, the only employee reference the column has.
 export function fetchDayQuotesSent(dateISO) {
-  return supabase
-    .from('leads')
-    .select('id, owner_employee_id, quote_value, quote_sent_at, parties!party_id(name), sites(nickname, locality)')
-    .eq('quote_sent_at', dateISO)
+  return fetchAllRows(() =>
+    supabase
+      .from('leads')
+      .select('id, owner_employee_id, quote_value, quote_sent_at, parties!party_id(name), sites(nickname, locality)', {
+        count: 'exact',
+      })
+      .eq('quote_sent_at', dateISO)
+  )
 }
 
 // Everything the Day Review needs for one date, in one round of parallel
@@ -182,12 +205,20 @@ export async function fetchDayReview(dateISO) {
 // skipped entirely when there are none.
 export function fetchPriorStages(leadIds, beforeISO) {
   if (!leadIds.length) return Promise.resolve({ data: [], error: null })
-  return supabase
-    .from('stage_history')
-    .select('lead_id, stage, changed_at')
-    .in('lead_id', leadIds)
-    .lt('changed_at', beforeISO)
-    .order('changed_at', { ascending: false })
+  return fetchAllRows(
+    () =>
+      supabase
+        .from('stage_history')
+        .select('lead_id, stage, changed_at', { count: 'exact' })
+        .in('lead_id', leadIds)
+        .lt('changed_at', beforeISO)
+        .order('changed_at', { ascending: false }),
+    // priorStageMap (dayReview.js) takes the FIRST row per lead_id from this
+    // most-recent-first list — tie-break in the same direction, or a shared
+    // timestamp (the legacy imports wrote whole sheets in one transaction)
+    // hands it the OLDEST of the tied rows instead of the most recent.
+    { ascending: false }
+  )
 }
 
 // The earliest change-log row that exists, used for the honest "Change

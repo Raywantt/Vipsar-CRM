@@ -136,7 +136,9 @@ export async function attachFirms(parties) {
   const ids = [...new Set(parties.map((p) => p.firm_party_id).filter(Boolean))]
   if (ids.length === 0) return parties.map((p) => ({ ...p, firm: null }))
 
-  const { data } = await supabase.from('parties').select('id, name, party_type').in('id', ids)
+  const { data } = await fetchAllRows(() =>
+    supabase.from('parties').select('id, name, party_type', { count: 'exact' }).in('id', ids)
+  )
   const byId = new Map((data ?? []).map((f) => [f.id, f]))
   return parties.map((p) => ({ ...p, firm: p.firm_party_id ? byId.get(p.firm_party_id) ?? null : null }))
 }

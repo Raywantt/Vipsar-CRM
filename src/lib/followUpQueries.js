@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient'
 import { todayISO } from './followupDates'
+import { fetchAllRows } from './fetchAllRows'
 
 // THE one module that reads or writes follow_ups. See FOLLOWUPS.md (repo
 // root) for the rules this implements; rule numbers below refer to it.
@@ -68,23 +69,27 @@ export function isDueToday(f) {
 
 // Every follow-up assigned to this employee, any status. Callers filter.
 export function fetchFollowUpsForEmployee(employeeId) {
-  return supabase
-    .from('follow_ups')
-    .select(FOLLOW_UP_SELECT)
-    .eq('assigned_to', employeeId)
-    .order('status', { ascending: true })
-    .order('due_date', { ascending: true })
+  return fetchAllRows(() =>
+    supabase
+      .from('follow_ups')
+      .select(FOLLOW_UP_SELECT, { count: 'exact' })
+      .eq('assigned_to', employeeId)
+      .order('status', { ascending: true })
+      .order('due_date', { ascending: true })
+  )
 }
 
 // Open, due today or overdue — the rep's "what do I owe right now" list.
 export function fetchDueFollowUpsForEmployee(employeeId) {
-  return supabase
-    .from('follow_ups')
-    .select(FOLLOW_UP_SELECT)
-    .eq('assigned_to', employeeId)
-    .eq('status', FOLLOW_UP_OPEN)
-    .lte('due_date', todayISO())
-    .order('due_date', { ascending: true })
+  return fetchAllRows(() =>
+    supabase
+      .from('follow_ups')
+      .select(FOLLOW_UP_SELECT, { count: 'exact' })
+      .eq('assigned_to', employeeId)
+      .eq('status', FOLLOW_UP_OPEN)
+      .lte('due_date', todayISO())
+      .order('due_date', { ascending: true })
+  )
 }
 
 // Every open follow-up on a lead. A lead may carry several at once now
@@ -93,45 +98,55 @@ export function fetchDueFollowUpsForEmployee(employeeId) {
 // completing an on-hold reminder used to erase the lead's hold reason from
 // the screen.
 export function fetchFollowUpsForLead(leadId) {
-  return supabase
-    .from('follow_ups')
-    .select(FOLLOW_UP_SELECT)
-    .eq('lead_id', leadId)
-    .order('status', { ascending: true })
-    .order('due_date', { ascending: true })
+  return fetchAllRows(() =>
+    supabase
+      .from('follow_ups')
+      .select(FOLLOW_UP_SELECT, { count: 'exact' })
+      .eq('lead_id', leadId)
+      .order('status', { ascending: true })
+      .order('due_date', { ascending: true })
+  )
 }
 
 // Rule 5.5 — an assigner can always see the outcome of what they assigned.
 // Nothing in the app queried by created_by before this.
 export function fetchFollowUpsAssignedBy(employeeId) {
-  return supabase
-    .from('follow_ups')
-    .select(FOLLOW_UP_SELECT)
-    .eq('created_by', employeeId)
-    .neq('assigned_to', employeeId)
-    .order('due_date', { ascending: true })
+  return fetchAllRows(() =>
+    supabase
+      .from('follow_ups')
+      .select(FOLLOW_UP_SELECT, { count: 'exact' })
+      .eq('created_by', employeeId)
+      .neq('assigned_to', employeeId)
+      .order('due_date', { ascending: true })
+  )
 }
 
 // Team-wide, for the owner/coordinator oversight view. RLS does the scoping:
 // an owner sees everything, a coordinator sees their own team, a rep sees
 // only themselves — so this needs no role branch of its own.
 export function fetchFollowUpsInRange(startISO, endISO) {
-  return supabase
-    .from('follow_ups')
-    .select(FOLLOW_UP_SELECT)
-    .gte('due_date', startISO)
-    .lte('due_date', endISO)
-    .order('due_date', { ascending: true })
+  return fetchAllRows(() =>
+    supabase
+      .from('follow_ups')
+      .select(FOLLOW_UP_SELECT, { count: 'exact' })
+      .gte('due_date', startISO)
+      .lte('due_date', endISO)
+      .order('due_date', { ascending: true })
+  )
 }
 
 // The audit trail (Rule 10.2). Read-only — the table is trigger-written and
 // has no INSERT/UPDATE/DELETE grant for anyone.
 export function fetchFollowUpHistory(followUpId) {
-  return supabase
-    .from('follow_up_change_log')
-    .select('id, field, old_value, new_value, changed_at, changed_by, employees!changed_by(name)')
-    .eq('follow_up_id', followUpId)
-    .order('changed_at', { ascending: false })
+  return fetchAllRows(() =>
+    supabase
+      .from('follow_up_change_log')
+      .select('id, field, old_value, new_value, changed_at, changed_by, employees!changed_by(name)', {
+        count: 'exact',
+      })
+      .eq('follow_up_id', followUpId)
+      .order('changed_at', { ascending: false })
+  )
 }
 
 // ---------- writes ----------

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import { fetchAreas } from '../lib/lookupQueries'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { errorMessage } from '../lib/errorMessage'
@@ -30,18 +30,14 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
 
   useEffect(() => {
     let active = true
-    supabase
-      .from('areas')
-      .select('id, area_name, city')
-      .order('area_name')
-      .then(({ data, error }) => {
-        if (!active) return
-        if (error) {
-          setAreasError(errorMessage(error))
-        } else {
-          setAreas(data)
-        }
-      })
+    fetchAreas().then(({ data, error }) => {
+      if (!active) return
+      if (error) {
+        setAreasError(errorMessage(error))
+      } else {
+        setAreas(data)
+      }
+    })
     return () => {
       active = false
     }

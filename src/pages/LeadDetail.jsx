@@ -10,6 +10,8 @@ import SalesProgressSection from '../components/SalesProgressSection'
 import LeadQuickActions from '../components/LeadQuickActions'
 import LeadActivityTimeline from '../components/LeadActivityTimeline'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
+import { fetchAreas, fetchProducts } from '../lib/lookupQueries'
+import { fetchAllRows } from '../lib/fetchAllRows'
 import { fetchLeadOwnerHistory } from '../lib/leadOwnerHistory'
 import { fetchFollowUpsForLead, FOLLOW_UP_OPEN } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
@@ -156,27 +158,34 @@ function LeadDetail() {
           ? supabase.from('sites').select('*').eq('id', leadRow.site_id).single()
           : Promise.resolve(EMPTY),
         leadRow.site_id
-          ? supabase
-              .from('site_contacts')
-              .select('id, role, party_id, parties(name, party_type)')
-              .eq('site_id', leadRow.site_id)
+          ? fetchAllRows(() =>
+              supabase
+                .from('site_contacts')
+                .select('id, role, party_id, parties(name, party_type)', { count: 'exact' })
+                .eq('site_id', leadRow.site_id)
+            )
           : Promise.resolve({ data: [], error: null }),
-        supabase
-          .from('stage_history')
-          .select('id, stage, changed_at, changed_by, employees(name)')
-          .eq('lead_id', leadRow.id)
-          .order('changed_at', { ascending: true }),
-        supabase
-          .from('activities')
-          .select(
-            'id, activity_type, notes, created_at, employee_id, employees!employee_id(name), accompanied_by_employee:employees!accompanied_by(name), logged_by_employee_id, logged_by:employees!logged_by_employee_id(name, role)'
-          )
-          .eq('lead_id', leadRow.id)
-          .order('created_at', { ascending: false }),
+        fetchAllRows(() =>
+          supabase
+            .from('stage_history')
+            .select('id, stage, changed_at, changed_by, employees(name)', { count: 'exact' })
+            .eq('lead_id', leadRow.id)
+            .order('changed_at', { ascending: true })
+        ),
+        fetchAllRows(() =>
+          supabase
+            .from('activities')
+            .select(
+              'id, activity_type, notes, created_at, employee_id, employees!employee_id(name), accompanied_by_employee:employees!accompanied_by(name), logged_by_employee_id, logged_by:employees!logged_by_employee_id(name, role)',
+              { count: 'exact' }
+            )
+            .eq('lead_id', leadRow.id)
+            .order('created_at', { ascending: false })
+        ),
         fetchLeadOwnerHistory(leadRow.id),
         fetchActiveSalesExecs(),
-        supabase.from('areas').select('id, area_name, city').order('area_name'),
-        supabase.from('products').select('id, name, category').order('name'),
+        fetchAreas(),
+        fetchProducts(),
         // Every follow-up on this lead, any status — not just the on-hold one,
         // and no longer filtered to not-done. A lead may carry several open
         // reminders now (FOLLOWUPS.md Rule 3.1), and the old not-done filter

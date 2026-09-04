@@ -4,11 +4,13 @@ import { fetchAllRows } from './fetchAllRows'
 // RLS scopes targets to "own data or owner role", same as activities/leads —
 // a sales exec's query naturally returns only their own target rows.
 export function fetchTargetsForPeriod({ periodType, periodValue }) {
-  return supabase
-    .from('targets')
-    .select('id, employee_id, metric_name, target_value, employees(name)')
-    .eq('period_type', periodType)
-    .eq('period_value', periodValue)
+  return fetchAllRows(() =>
+    supabase
+      .from('targets')
+      .select('id, employee_id, metric_name, target_value, employees(name)', { count: 'exact' })
+      .eq('period_type', periodType)
+      .eq('period_value', periodValue)
+  )
 }
 
 // order_value has no timestamp of its own, so "actual order value achieved

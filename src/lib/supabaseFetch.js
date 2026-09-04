@@ -67,6 +67,72 @@ function isNetworkError(error) {
   return error?.name === 'TypeError'
 }
 
+// ---------------------------------------------------------------------------
+// DEV-ONLY GUARDRAIL for the row-cap bug fixed 2026-09-04 (see fetchAllRows.js
+// and CLAUDE.md's Conventions entry) — a query with no .limit()/.range() does
+// not mean "every row"; PostgREST silently caps the response at the project's
+// max-rows setting (1,000 here) and says nothing when it does. That shipped
+// once already: leads had grown past the cap, and every screen reading it
+// unpaged reported a truncated company as if it were the whole one.
+//
+// This does NOT replace fetchAllRows.js or the fetchAllRows.test.js static
+// review it wants for every new "give me everything" query — it's the second,
+// independent layer: a runtime tripwire for the day someone (a future screen,
+// a future contributor) writes a fresh unbounded query and forgets. It fires
+// in dev only, on the exact request that would have silently lost rows, so
+// the fix lands before the query ever reaches production data.
+//
+// The signal: supabase-js sets an explicit `limit` query param for BOTH
+// .limit() and .range() (see PostgrestTransformBuilder — .range() computes
+// limit=to-from+1). fetchAllRows always calls .range() internally, so every
+// legitimately paged request carries that param. A request with NO `limit`
+// param is one that asked for "everything" — and if PostgREST's own
+// Content-Range response header then shows fewer rows came back than exist
+// (or, when the total isn't known because the caller didn't request an exact
+// count, exactly the server's cap came back), the request was silently
+// truncated. Reading only response HEADERS here, never the body, so this
+// can never consume a stream the real caller still needs.
+const KNOWN_MAX_ROWS = 1000
+
+function warnIfSilentlyTruncated(input, init, response) {
+  try {
+    if (!import.meta.env?.DEV) return
+    if (response.status !== 200 && response.status !== 206) return
+
+    const url = typeof input === 'string' ? input : input?.url
+    if (!url || !url.includes('/rest/v1/')) return
+
+    const method = (init?.method ?? 'GET').toUpperCase()
+    if (method !== 'GET' && method !== 'HEAD') return
+
+    const params = new URL(url, globalThis.location?.origin ?? 'http://x').searchParams
+    if (params.has('limit') || params.has('offset')) return // an explicit page was asked for — fetchAllRows or a deliberate .limit()
+
+    const contentRange = response.headers.get('content-range')
+    if (!contentRange) return
+    const m = /^(\d+)-(\d+)\/(\d+|\*)$/.exec(contentRange)
+    if (!m) return
+
+    const returned = Number(m[2]) - Number(m[1]) + 1
+    const total = m[3] === '*' ? null : Number(m[3])
+    const truncated = total != null ? returned < total : returned === KNOWN_MAX_ROWS
+
+    if (truncated) {
+      const table = url.split('/rest/v1/')[1]?.split('?')[0] ?? url
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[fetchAllRows guardrail] An unpaged query against "${table}" returned ` +
+          `${returned}${total != null ? ` of ${total}` : ''} rows — PostgREST's ` +
+          `max-rows cap (${KNOWN_MAX_ROWS}) silently truncated the response. ` +
+          `Wrap this query in fetchAllRows() (src/lib/fetchAllRows.js) instead ` +
+          `of calling it unpaged. Request: ${url}`
+      )
+    }
+  } catch {
+    // Never let the guardrail itself break a real request.
+  }
+}
+
 export function createSupabaseFetch(baseFetch = globalThis.fetch.bind(globalThis)) {
   return async function supabaseFetch(input, init = {}) {
     const method = (init.method ?? 'GET').toUpperCase()
@@ -97,7 +163,9 @@ export function createSupabaseFetch(baseFetch = globalThis.fetch.bind(globalThis
       callerSignal?.addEventListener('abort', forwardAbort)
 
       try {
-        return await baseFetch(input, { ...init, signal: controller.signal })
+        const response = await baseFetch(input, { ...init, signal: controller.signal })
+        warnIfSilentlyTruncated(input, init, response)
+        return response
       } catch (error) {
         // The caller gave up on this request (a superseded navigation, a
         // component unmounting). Nothing to recover — reissuing it would
