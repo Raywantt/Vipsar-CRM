@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fetchAreas } from '../lib/lookupQueries'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'

@@ -1,0 +1,147 @@
+-- ============================================================
+-- MIGRATION: let a sales_manager reassign a lead they can already see to
+-- ANY active exec in the company, not just their own team (written 2026-09-07)
+--
+-- WHY: reported directly — "in the interface it shows all the execs but
+-- when they click on an exec who is outside their team scope, it simply
+-- declines the reassignment." Confirmed in the code: LeadQuickActions.jsx's
+-- Reassign owner dropdown (`activeSalesExecs`) has ALWAYS listed every
+-- active exec company-wide (a known, documented, deliberately-unfixed gap —
+-- see CLAUDE.md's Sales Manager section), so the UI already offers the
+-- option. The database is what refuses it.
+--
+-- NO VISIBILITY CHANGE. This is deliberately narrow — confirmed directly
+-- with the owner before writing it, after first drafting a much wider
+-- version that would have made `leads` SELECT unconditional for
+-- sales_manager (rejected: that would also have made All Leads and Search
+-- go company-wide for a manager, which was never asked for and isn't
+-- wanted). This migration touches ONLY which EMPLOYEE a lead may be handed
+-- to — never which leads a manager can see or open. A manager still only
+-- ever reaches a lead through the existing manager_team_select (their
+-- team's) or own_data_or_owner_role_select (their own) policies, both
+-- completely untouched here.
+--
+-- THE ACTUAL BUG: leads' manager_team_update policy (added by
+-- migration_sales_manager.sql, then rewritten into the wrapped
+-- `(SELECT ...)` form by migration_rls_performance_leads_stage_history.sql —
+-- that second file's version is what this migration builds on and replaces)
+-- has an UNCHANGED `USING` clause (which OLD rows a manager may touch: their
+-- own team's) but a `WITH CHECK` clause that ALSO constrained the NEW
+-- owner_employee_id to be a team member or the manager themselves:
+--
+--   WITH CHECK (
+--     ( (SELECT current_employee_role()) = 'sales_manager'
+--       AND (SELECT is_my_managed_member(owner_employee_id)) )
+--     OR owner_employee_id = (SELECT current_employee_id())
+--   )
+--
+-- Postgres evaluates a permissive UPDATE's USING and WITH CHECK as
+-- independent OR-across-all-applicable-policies checks — which is WHY
+-- "reassign your own lead to a team member" already worked before this
+-- migration despite no single policy's USING+WITH CHECK pair covering it on
+-- its own: own_data_or_owner_role_update's USING matches (it's the
+-- manager's own lead), and manager_team_update's WITH CHECK independently
+-- validates the new row (the new owner is on the manager's team). But
+-- neither policy's WITH CHECK has ever had a branch for "new owner is some
+-- OTHER active employee, not on my team and not me" — so THAT case, on
+-- either an own lead or a team lead, has always been refused. This
+-- migration adds exactly that branch.
+--
+-- THE FIX matches how the OWNER's own reassignment right already works —
+-- own_data_or_owner_role_update's WITH CHECK lets an owner set
+-- owner_employee_id to ANYTHING once `current_employee_role() = 'owner'` is
+-- true, with no further check on the target at all (the UI's own dropdown
+-- is what's trusted to only ever offer a sensible employee). This migration
+-- gives a manager the identical shape, once `current_employee_role() =
+-- 'sales_manager'` is true, for a row `USING` already let them reach:
+--
+--   WITH CHECK ( (SELECT current_employee_role()) = 'sales_manager' )
+--
+-- ⚠️ THE ROLE GUARD IS NOT OPTIONAL — a bare `WITH CHECK (true)` here would
+-- have been a real vulnerability, not merely a looser policy. WITH CHECK
+-- clauses are OR'd across EVERY applicable policy regardless of which
+-- policy's USING actually matched the row, so an unconditional `true` on
+-- THIS policy would have silently satisfied the WITH CHECK requirement for
+-- ANY role's UPDATE on ANY row their OWN policy's USING let them reach —
+-- e.g. a sales_executive reassigning their own lead to literally anyone,
+-- bypassing the "an exec cannot reassign at all" rule entirely. The guard
+-- is what keeps this branch inert for every role except a real, currently-
+-- authenticated sales_manager.
+--
+-- WHAT THIS DOES NOT DO:
+--   - Does not touch USING on manager_team_update, or
+--     own_data_or_owner_role_select/update, or any SELECT policy anywhere.
+--     A manager's set of reachable leads is EXACTLY what it was before this
+--     file: their own, plus their team's.
+--   - Does not restrict the new owner to an active employee or to a
+--     rep-carrying role (sales_executive/sales_manager) at the database
+--     layer — deliberately mirroring the owner's own policy, which has no
+--     such check either and trusts the UI's dropdown (already scoped to
+--     active reps only, see fetchActiveSalesExecs/CARRIES_OWN_LEADS) to
+--     only ever send a sensible id. Not asked for; not added.
+--   - Does not touch lead_owner_history — its INSERT policy
+--     (authenticated_insert, rls_policies.sql) is already open to any
+--     active employee with no team check, so reassignment history-logging
+--     for an outside-team target already works with no change.
+--   - Does not touch enforce_manager_lock() (migration_sales_manager.sql
+--     STEP 7) — that trigger already permits owner_employee_id as one of
+--     the 4 allowed columns on a non-own lead, and it has never checked the
+--     NEW owner's team membership at all, only whether the row is or isn't
+--     the manager's own lead. Nothing there needed to change.
+--
+-- Safe to re-run: DROP POLICY IF EXISTS before the CREATE POLICY.
+--
+-- ORDERING: must run after migration_sales_manager.sql AND
+-- migration_rls_performance_leads_stage_history.sql (both already live per
+-- CLAUDE.md) — this migration's own DROP/CREATE replaces the exact policy
+-- the second of those two produces. ⚠️ If either of those two is ever
+-- re-run AFTER this one, it will silently revert manager_team_update back
+-- to the team-only WITH CHECK — same reversion hazard
+-- migration_lead_edit_rights.sql already documents for its own relationship
+-- to migration_sales_coordinator.sql. Re-run this file again afterward to
+-- restore the widened form.
+-- ============================================================
+
+DROP POLICY IF EXISTS "manager_team_update" ON leads;
+CREATE POLICY "manager_team_update" ON leads
+  FOR UPDATE USING (
+    (SELECT current_employee_role()) = 'sales_manager'
+    AND (SELECT is_my_managed_member(owner_employee_id))
+  ) WITH CHECK (
+    (SELECT current_employee_role()) = 'sales_manager'
+  );
+
+
+-- ============================================================
+-- VERIFY — run each of these after the migration.
+-- ============================================================
+
+-- Q1. The policy exists and its WITH CHECK no longer mentions
+--     is_my_managed_member or a self-only fallback.
+-- SELECT policyname, cmd, qual, with_check FROM pg_policies
+--  WHERE tablename = 'leads' AND policyname = 'manager_team_update';
+--    Expect `with_check` to read exactly:
+--    (( SELECT current_employee_role() AS current_employee_role) = 'sales_manager'::text)
+
+-- Q2. THE BEHAVIOURAL CHECK — MUST be run as a real logged-in sales_manager,
+--     never from the SQL Editor (postgres, BYPASSRLS, no auth.uid() — every
+--     branch above would evaluate false/null regardless of whether this
+--     migration worked, so a SQL Editor test proves nothing either way).
+--
+--   1. Log in as a manager. Open one of your OWN leads. Reassign it to an
+--      exec who is NOT on your team (pick one from the dropdown — it
+--      already lists everyone). Expect success, and the lead's owner really
+--      changes (reload and confirm, or check the Deal owner card's
+--      "Reassigned from X to Y" entry).
+--   2. Open one of your TEAM's leads. Reassign it to the same kind of
+--      outside-team exec. Expect success.
+--   3. Reassign a lead back onto your own team (or yourself) to confirm
+--      that path — already working before this migration — is unaffected.
+--   4. As a DIFFERENT role (a sales_executive, on their own lead), confirm
+--      reassignment is still refused exactly as before — this migration
+--      must not have opened anything for a non-manager. Try it via the API
+--      directly if the UI doesn't offer the control to that role at all.
+--   5. As a coordinator, confirm their own team-only reassignment behaviour
+--      (unchanged, coordinator_team_update was not touched by this file)
+--      still refuses a target outside their team.
+-- ============================================================

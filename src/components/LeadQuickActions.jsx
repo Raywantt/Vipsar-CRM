@@ -9,28 +9,47 @@ import { errorMessage } from '../lib/errorMessage'
 // The three quick actions from the Lead Profile handoff (README.md §6.1 /
 // DATA_CONTRACT.md §5).
 //
-// This whole component only mounts under `canEdit`, which as of 2026-08-13
-// means the three people who may change a lead: its own sales executive,
-// that exec's sales coordinator, and the owner (see LeadDetail.jsx).
+// This whole component mounts under `canQuickAct` (see LeadDetail.jsx),
+// which — since the Sales Manager build (2026-09-03) — is wider than
+// `canEdit`: the lead's own sales executive, that exec's sales coordinator,
+// the owner, AND a sales manager viewing one of their own team's leads (who
+// gets this sheet without getting the detail sections below it — a manager
+// supervises without overwriting, see LeadDetail.jsx's canEdit/canQuickAct
+// split).
 //
-// **Change stage is available to all three.** It was owner-only between
+// **Change stage is available to all four.** It was owner-only between
 // 2026-08-10 and 2026-08-13 — deliberately, then deliberately reversed; the
 // rep gets it back, but forward-only. `canMoveStageBackward` (owner and
-// coordinator) is passed straight through to LeadStageSection, which greys
-// out any chip that would walk the lead to an earlier stage. That is a UI
-// convenience, not the boundary: the owner_only_stage_change trigger in
-// Schema/migration_lead_edit_rights.sql is what actually refuses the write.
+// coordinator only — a manager is held to the same one-way funnel as their
+// reps, by the owner's ruling) is passed straight through to
+// LeadStageSection, which greys out any chip that would walk the lead to an
+// earlier stage. That is a UI convenience, not the boundary: the
+// owner_only_stage_change trigger (Schema/migration_lead_edit_rights.sql /
+// migration_sales_manager.sql STEP 8) is what actually refuses the write.
 //
-// **Reassign owner is owner + coordinator** (`canReassign`) — moving a lead
-// between people is an oversight action, and a rep reassigning their own
-// lead away isn't a thing they should do unilaterally. The database bounds
-// the coordinator's half of that: coordinator_team_update's WITH CHECK keeps
-// the new owner inside their own team.
+// **Reassign owner is owner + coordinator + manager** (`canReassign`) —
+// moving a lead between people is an oversight action, and a rep
+// reassigning their own lead away isn't a thing they should do
+// unilaterally. The database bounds each supervisor's half differently:
+// coordinator_team_update's WITH CHECK still keeps the new owner inside the
+// coordinator's own team. manager_team_update's WITH CHECK is wider — as of
+// 2026-09-07 (Schema/migration_manager_reassign_any_employee.sql) a manager
+// may hand a lead they can already reach (their own, or their team's) to
+// ANY active exec in the company, not just their own team — the owner's own
+// direct request, after the dropdown below had always listed every exec
+// while the database silently refused anyone outside the team. This widens
+// WHO a reachable lead can be given to; it does NOT widen WHICH leads a
+// manager can reach in the first place — `activeSalesExecs` below has
+// always been the full company roster regardless (see its own prop
+// comment in LeadDetail.jsx), so this dropdown needed no change, only the
+// database catching up to what it already offered.
 //
-// Both flags arrive as capabilities rather than as a role, on purpose. An
+// All flags arrive as capabilities rather than as a role, on purpose. An
 // `isOwner` prop is what previously made this component un-openable for a
 // coordinator who had full database rights the entire time — the same
-// "not an owner means a rep" shorthand that cost them the desktop nav.
+// "not an owner means a rep" shorthand that cost them the desktop nav. A
+// bare `role !== 'owner'` check would have made the identical mistake for a
+// manager, who is a rep AND a supervisor at once.
 //
 // Set follow-up mounts the same FollowUpForm Home's "Add reminder" uses,
 // with this lead preset (so it never asks "which lead?") and assigned to the
