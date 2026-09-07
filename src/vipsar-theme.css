@@ -2169,6 +2169,13 @@ a.vip-day-log-party:hover { text-decoration: underline; }
 .vip-dd-day-tag-site_visit { background: var(--vip-status-good-soft); color: var(--vip-teal); }
 .vip-dd-day-tag-call { background: var(--vip-line-soft); color: var(--vip-body); }
 .vip-dd-day-tag-architect_meeting { background: var(--vip-status-neutral-soft); color: var(--vip-navy); }
+/* The two Client Meeting umbrellas (see src/lib/meetingBucket.js). Tinted
+   apart on purpose — they sit side by side in a day sheet, and the whole
+   reason they are two rows is that a manager should be able to tell at a
+   glance which kind of meeting a rep spent the day in. Built from tokens, so
+   section 22 repaints both for dark mode without a block of their own. */
+.vip-dd-day-tag-client_meeting_old { background: var(--vip-status-warn-soft); color: var(--vip-status-warn); }
+.vip-dd-day-tag-client_meeting_new { background: var(--vip-status-neutral-soft); color: var(--vip-mid); }
 .vip-dd-day-tag-booking_update { background: var(--vip-status-good-soft); color: var(--vip-won); }
 
 /* Change rows: mono timestamp, party, then a field-typed diff line. */

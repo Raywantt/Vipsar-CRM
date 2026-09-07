@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { FOLLOWUP_OPTIONS, followupDateFor } from '../lib/followupDates'
 import { createFollowUp } from '../lib/followUpQueries'
-import { ACTIVITY_TYPES } from '../lib/activityTypes'
+import { LOGGABLE_ACTIVITY_TYPES } from '../lib/activityTypes'
 import LeadSearchSelect from './LeadSearchSelect'
 import { errorMessage } from '../lib/errorMessage'
 
@@ -131,7 +131,7 @@ function FollowUpForm({ assignedTo, createdBy, lead = null, onSaved, onCancel })
         <div className="vip-field">
           Type of follow-up <span className="vip-field-hint">optional</span>
           <div className="vip-chip-wrap">
-            {ACTIVITY_TYPES.map((opt) => (
+            {LOGGABLE_ACTIVITY_TYPES.map((opt) => (
               <button
                 key={opt.value}
                 type="button"

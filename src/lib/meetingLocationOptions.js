@@ -9,7 +9,8 @@
 // office, and a third free-typed value would only blur the one distinction
 // this field exists to make.
 //
-// Only ever set for 'client_meeting' activities. A Site Visit is already at a
+// Only ever set for the two Client Meeting umbrellas ('client_meeting_old' /
+// 'client_meeting_new' — see meetingBucket.js). A Site Visit is already at a
 // site by definition, and an Architect Meeting is anchored on a party rather
 // than a place, so neither asks.
 export const MEETING_LOCATION_OPTIONS = [

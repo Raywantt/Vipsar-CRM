@@ -1,4 +1,5 @@
 import { ACTIVITY_TYPES } from './activityTypes'
+import { OLD_MEETING, NEW_MEETING } from './meetingBucket'
 
 // The targets table's metric_name is free text (no CHECK constraint), but
 // this dashboard only knows how to compute an "actual" for metrics that map
@@ -24,7 +25,13 @@ import { ACTIVITY_TYPES } from './activityTypes'
 // are still logged, still counted in every activity total, and still shown on
 // Dashboard's Activity card either way — this list only controls what can
 // carry a TARGET.
-const TARGETABLE_ACTIVITY_VALUES = ['site_visit', 'call', 'client_meeting', 'rfq_raised', 'architect_meeting']
+// Client Meeting was one targetable metric until 2026-09-07; it is now two,
+// Old Meetings and New Meetings, each carrying its own target and its own
+// heatmap column (the owner's ruling — a combined quota would have hidden the
+// very split the buckets exist to show). Any target row still keyed on the
+// retired 'client_meeting' metric no longer computes an actual and needs
+// re-entering against whichever of the two it was really meant for.
+const TARGETABLE_ACTIVITY_VALUES = ['site_visit', 'call', OLD_MEETING, NEW_MEETING, 'rfq_raised', 'architect_meeting']
 
 // Activity-type-shaped targetable metrics only (excludes order_value/
 // won_count, which are computed differently) — shared by DashboardHeatmap's

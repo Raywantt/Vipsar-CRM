@@ -6,7 +6,9 @@ import { useAuth } from '../contexts/AuthContext'
 import LeadSearchSelect from '../components/LeadSearchSelect'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import NumPadInput from '../components/NumPadInput'
-import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
+import { LOGGABLE_ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
+import { PICKABLE_MEETING, meetingTypeForStage } from '../lib/meetingBucket'
+import { stageLabel } from '../lib/leadStageOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLocationOptions'
 import { formatTimeRange } from '../lib/format'
@@ -158,7 +160,7 @@ function ActivityLog() {
   // "the lead and type pre-filled". Runs once on mount; selectActivityType
   // handles the rest of the type-switch bookkeeping itself.
   useEffect(() => {
-    if (preselectedType && ACTIVITY_TYPES.some((t) => t.value === preselectedType)) {
+    if (preselectedType && LOGGABLE_ACTIVITY_TYPES.some((t) => t.value === preselectedType)) {
       selectActivityType(preselectedType)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -194,7 +196,7 @@ function ActivityLog() {
   const isOfficeDay = activityType === 'office_day'
   const isSiteVisit = activityType === 'site_visit'
   const isArchitectMeeting = activityType === 'architect_meeting'
-  const isClientMeeting = activityType === 'client_meeting'
+  const isClientMeeting = activityType === PICKABLE_MEETING
   // The Firm box is for an individual architect only — see firmName's own
   // comment. Reading party_type off the selected party (rather than tracking
   // the picker's dropdown) means this is right for an existing party too, not
@@ -221,6 +223,14 @@ function ActivityLog() {
   const officeDaySatisfied =
     !isOfficeDay || Boolean(workSummary.trim() && startTime && endTime && !timeRangeInvalid)
   const meetingLocationSatisfied = !isClientMeeting || Boolean(meetingLocation)
+  // Which umbrella this meeting falls under, decided from the lead's stage
+  // right now and frozen onto the row — see meetingBucket.js. Computed here,
+  // beside canSubmit, rather than again inside handleSubmit: the value the
+  // form PROMISES the rep below and the value it WRITES have to be the same
+  // one, or the confirmation lies. Null until a lead is picked, which is also
+  // when the hint is allowed to appear.
+  const resolvedMeetingType =
+    isClientMeeting && selectedLead ? meetingTypeForStage(selectedLead.current_stage) : null
   const canSubmit =
     Boolean(activityType) &&
     anchorSatisfied &&
@@ -255,7 +265,7 @@ function ActivityLog() {
       setStartTime('')
       setEndTime('')
     }
-    if (value !== 'client_meeting') {
+    if (value !== PICKABLE_MEETING) {
       setMeetingLocation('')
     }
     // The same rule, finally applied to the follow-up fields and the lead.
@@ -336,7 +346,10 @@ function ActivityLog() {
         employee_id: actingForId,
         lead_id: selectedLead?.id ?? null,
         party_id: isArchitectMeeting ? resolvedArchitect?.id ?? null : null,
-        activity_type: activityType,
+        // A Client Meeting is never stored as itself — it lands as an Old
+        // or New Meeting. The DB CHECK refuses the unbucketed value, so this
+        // resolution cannot be skipped by any future write path either.
+        activity_type: resolvedMeetingType ?? activityType,
         accompanied_by: accompaniedBy || null,
         notes: notes.trim() || null,
         // Each guarded by its own type as well as cleared in
@@ -587,7 +600,7 @@ function ActivityLog() {
       <div className="vip-lede">What did you do?</div>
 
       <div className="vip-choice-grid">
-        {ACTIVITY_TYPES.map((opt) => (
+        {LOGGABLE_ACTIVITY_TYPES.map((opt) => (
           <button
             key={opt.value}
             type="button"
@@ -849,6 +862,16 @@ function ActivityLog() {
                       </button>
                     ))}
                   </div>
+                  {/* Says out loud what the CRM is about to decide on the
+                      rep's behalf. Without it the bucketing is invisible
+                      until after the save, and a rep who disagrees has no
+                      way to notice before it is on the record. */}
+                  {resolvedMeetingType && (
+                    <div className="vip-field-hint">
+                      Logs as <b>{ACTIVITY_LABELS[resolvedMeetingType]}</b> — this lead is at{' '}
+                      {stageLabel(selectedLead.current_stage ?? 'calling')}.
+                    </div>
+                  )}
                 </div>
               )}
               {activityType === 'booking_update' && (

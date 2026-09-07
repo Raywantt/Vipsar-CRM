@@ -209,12 +209,23 @@ CREATE TABLE activities (
   employee_id     INTEGER NOT NULL REFERENCES employees(id),
   party_id        INTEGER REFERENCES parties(id),
   lead_id         INTEGER REFERENCES leads(id),
-  -- Kept in sync with src/lib/activityTypes.js. A new value here must be
-  -- added to follow_ups.activity_type's CHECK below as well — that list is
-  -- driven by the same app-side constant.
+  -- Kept in sync with src/lib/activityTypes.js (ACTIVITY_TYPES). A value that
+  -- a person can also PICK on a reminder must be added to
+  -- follow_ups.activity_type's CHECK below as well — but note the two lists
+  -- are no longer identical, see the meeting buckets immediately below.
+  --
+  -- A Client Meeting is stored as one of TWO umbrellas, never as itself:
+  -- 'client_meeting_old' (lead at RFQ or later, incl. on_hold/won/lost) or
+  -- 'client_meeting_new' (anything earlier). The rep still taps one "Client
+  -- Meeting" button; src/lib/meetingBucket.js resolves which. The plain
+  -- 'client_meeting' value is deliberately ABSENT here so no write path can
+  -- create a meeting that neither umbrella counts. It remains legal on
+  -- follow_ups, where a reminder has no bucket yet.
+  -- See Schema/migration_client_meeting_buckets.sql.
   activity_type   TEXT NOT NULL CHECK (activity_type IN
-                    ('site_visit','call','client_meeting','architect_meeting',
-                     'rfq_raised','design_sheet','office_day','booking_update')),
+                    ('site_visit','call','client_meeting_old','client_meeting_new',
+                     'architect_meeting','rfq_raised','design_sheet','office_day',
+                     'booking_update')),
   accompanied_by  INTEGER REFERENCES employees(id) ON DELETE SET NULL,
   notes           TEXT,
   leads_generated INTEGER,   -- only used for 'office_day' entries (retired
@@ -230,7 +241,8 @@ CREATE TABLE activities (
   end_time        TIME,      -- only used for 'office_day' entries
   -- Where a Client Meeting happened. Closed list with a real CHECK, same
   -- treatment as leads.source_type; labels live in
-  -- src/lib/meetingLocationOptions.js. Only used for 'client_meeting'.
+  -- src/lib/meetingLocationOptions.js. Only used for the two Client Meeting
+  -- umbrellas ('client_meeting_old' / 'client_meeting_new').
   meeting_location TEXT CHECK (meeting_location IS NULL OR meeting_location IN
                      ('site','office')),
   -- Same SC edit lock as leads.entered_by_role above — see that comment.

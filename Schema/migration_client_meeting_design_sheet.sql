@@ -1,3 +1,10 @@
+-- ⚠️ SUPERSEDED (2026-09-07) for activities.activity_type ONLY.
+-- Schema/migration_client_meeting_buckets.sql split 'client_meeting' into
+-- 'client_meeting_old' / 'client_meeting_new' and REMOVED the plain value
+-- from the activities CHECK. Re-running THIS file afterwards silently
+-- reverts that split (and would then reject every bucketed meeting row
+-- already in the table) — run migration_client_meeting_buckets.sql again to
+-- restore it. Section 2 (follow_ups) is still current and unaffected.
 -- ============================================================
 -- Adds two new activity types, 'client_meeting' and 'design_sheet'
 -- (2026-08-17).
