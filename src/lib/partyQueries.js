@@ -14,10 +14,18 @@ export function fetchAllParties() {
   return fetchAllRows(
     () =>
       supabase.from('parties').select('id, name, party_type, mobile, city, firm_name', { count: 'exact' }).order('name'),
-    // `parties` is 1,358 rows (ROW-COUNTS.md) = 2 pages, and this loads on
-    // mount for Search's party directory — the same second-round-trip
-    // penalty fetchLeadsForBreakdown had, on Search's own critical path.
-    { speculativePages: 1 }
+    // speculativePages is DELIBERATELY NOT USED HERE — see the row-count
+    // note in fetchAllRows.js. The premise ("this table is known to
+    // exceed one page") is only ever true for the OWNER: under RLS a
+    // sales executive sees ~86 leads and a coordinator their team's, so
+    // for every other role the extra page is a request that cannot
+    // possibly return a row. Measured live on a real exec session
+    // (2026-09-07): it is not the free wasted request the option assumed
+    // — the exact count is ~1s of this query's ~2.4s, and the duplicate
+    // ran the full 8s to Supabase's statement_timeout inside a 19-request
+    // burst, alongside the real page 0, which then timed out too. The
+    // owner's measured saving was ~150-300ms; the cost to everyone else
+    // was a blank Dashboard.
   )
 }
 

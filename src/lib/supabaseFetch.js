@@ -54,6 +54,32 @@ const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'PATCH', 'D
 // abort (a superseded page navigation, which must never be retried).
 const TIMEOUT = Symbol('supabase-fetch-timeout')
 
+// ---------------------------------------------------------------------------
+// IN-FLIGHT WRITE COUNT. Read by src/lib/appUpdate.js, which must never reload
+// the page to apply a new build while a save is on the wire: the reload
+// cancels the request at the network layer, and for a POST that leaves it
+// genuinely unknowable whether the row was written server-side — the same
+// ambiguity this file already refuses to guess at when deciding not to retry a
+// timed-out POST.
+//
+// It lives here for the same reason the retry does: this is the one chokepoint
+// every Supabase call already passes through, so no screen has to remember to
+// declare "I am saving".
+//
+// Reads are deliberately not counted. A GET cancelled by a reload costs
+// nothing — the page is about to re-issue it anyway — so counting them would
+// only hold updates back for no gain. Note this is a different split from
+// IDEMPOTENT_METHODS above: PUT/PATCH/DELETE are safe to RETRY but are still
+// writes, and are counted here.
+// ---------------------------------------------------------------------------
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+let inFlightWrites = 0
+
+export function pendingWriteCount() {
+  return inFlightWrites
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -197,46 +223,57 @@ export function createSupabaseFetch(baseFetch = globalThis.fetch.bind(globalThis
     // guessing wrong there writes a row nobody asked for.
     const maxAttempts = idempotent ? 3 : 2
 
+    // Counted across the WHOLE retry loop, not per attempt: a write waiting
+    // out its backoff between two attempts is still an unfinished save, and
+    // decrementing in the gap would open a 250ms window for appUpdate.js to
+    // reload straight through it.
+    const isWrite = !READ_METHODS.has(method)
+    if (isWrite) inFlightWrites++
+
     let attempt = 0
-    for (;;) {
-      if (callerSignal?.aborted) throw callerSignal.reason ?? new DOMException('Aborted', 'AbortError')
-      if (attempt > 0) await sleep(BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1])
+    try {
+      for (;;) {
+        if (callerSignal?.aborted) throw callerSignal.reason ?? new DOMException('Aborted', 'AbortError')
+        if (attempt > 0) await sleep(BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1])
 
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(TIMEOUT), TIMEOUT_MS)
-      // AbortSignal.any would say this in one line, but it only landed in
-      // Safari 17.4 and this app's whole reason for existing is phones in the
-      // field — forwarding the caller's abort by hand costs three lines and
-      // works everywhere.
-      const forwardAbort = () => controller.abort(callerSignal.reason)
-      callerSignal?.addEventListener('abort', forwardAbort)
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(TIMEOUT), TIMEOUT_MS)
+        // AbortSignal.any would say this in one line, but it only landed in
+        // Safari 17.4 and this app's whole reason for existing is phones in the
+        // field — forwarding the caller's abort by hand costs three lines and
+        // works everywhere.
+        const forwardAbort = () => controller.abort(callerSignal.reason)
+        callerSignal?.addEventListener('abort', forwardAbort)
 
-      try {
-        const response = await baseFetch(input, { ...init, signal: controller.signal })
-        warnIfSilentlyTruncated(input, init, response)
-        invalidateCacheAfterWrite(input, method, response)
-        return response
-      } catch (error) {
-        // The caller gave up on this request (a superseded navigation, a
-        // component unmounting). Nothing to recover — reissuing it would
-        // resurrect work that was deliberately cancelled.
-        if (callerSignal?.aborted) throw error
+        try {
+          const response = await baseFetch(input, { ...init, signal: controller.signal })
+          warnIfSilentlyTruncated(input, init, response)
+          invalidateCacheAfterWrite(input, method, response)
+          return response
+        } catch (error) {
+          // The caller gave up on this request (a superseded navigation, a
+          // component unmounting). Nothing to recover — reissuing it would
+          // resurrect work that was deliberately cancelled.
+          if (callerSignal?.aborted) throw error
 
-        const timedOut = controller.signal.aborted && controller.signal.reason === TIMEOUT
-        const retryable = timedOut ? idempotent : isNetworkError(error)
+          const timedOut = controller.signal.aborted && controller.signal.reason === TIMEOUT
+          const retryable = timedOut ? idempotent : isNetworkError(error)
 
-        if (!retryable || attempt >= maxAttempts - 1) {
-          // Give the timeout an honest message. An AbortError reads as if
-          // something cancelled the request on purpose, which sends whoever
-          // reads the console looking in the wrong place entirely.
-          if (timedOut) throw new TypeError(`Request timed out after ${TIMEOUT_MS / 1000}s`)
-          throw error
+          if (!retryable || attempt >= maxAttempts - 1) {
+            // Give the timeout an honest message. An AbortError reads as if
+            // something cancelled the request on purpose, which sends whoever
+            // reads the console looking in the wrong place entirely.
+            if (timedOut) throw new TypeError(`Request timed out after ${TIMEOUT_MS / 1000}s`)
+            throw error
+          }
+          attempt++
+        } finally {
+          clearTimeout(timer)
+          callerSignal?.removeEventListener('abort', forwardAbort)
         }
-        attempt++
-      } finally {
-        clearTimeout(timer)
-        callerSignal?.removeEventListener('abort', forwardAbort)
       }
+    } finally {
+      if (isWrite) inFlightWrites--
     }
   }
 }

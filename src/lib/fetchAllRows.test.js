@@ -24,6 +24,25 @@ function fakeTable(rows, { cap = 1000, withCount = true } = {}) {
         const want = Math.min(to - from + 1, cap)
         const slice = rows.slice(from, from + want)
         calls.push({ from, to, returned: slice.length, orders: q._orders })
+        // THE REAL SERVER'S BEHAVIOUR, and the thing this helper used to get
+        // wrong. PostgREST does not hand back an empty array for an offset
+        // past the end of the result set — it REFUSES the range with 416 /
+        // PGRST103, whenever an exact count was asked for. Modelling that as
+        // an empty page is what let the speculativePages bug ship green: for
+        // every non-owner role the speculative page is out of range, and the
+        // error blanked every figure on Dashboard, Today, My Team and the
+        // Sales Exec Profile. An offset of 0 is always satisfiable.
+        if (withCount && from > 0 && from >= rows.length) {
+          return resolve({
+            data: null,
+            count: null,
+            error: {
+              code: 'PGRST103',
+              message: 'Requested range not satisfiable',
+              details: `An offset of ${from} was requested, but there are only ${rows.length} rows.`,
+            },
+          })
+        }
         resolve({ data: slice, error: null, count: withCount ? rows.length : null })
       },
     }
@@ -175,6 +194,56 @@ describe('fetchAllRows', () => {
       expect(data.at(-1).id).toBe(1204)
     })
 
+    // The live bug, 2026-09-07. `leads` only exceeds one page FOR THE OWNER;
+    // under RLS an exec sees a few dozen rows, so their speculative page 2 is
+    // always out of range. PostgREST refuses it, and propagating that error
+    // returned data: null from fetchLeadsForBreakdown() — which every figure
+    // on Dashboard/Today/My Team/EmployeeProfile then rendered as zero.
+    it('survives the speculative page being refused as out of range', async () => {
+      const t = fakeTable(mkRows(37), { cap: 1000 })
+      const { data, error } = await fetchAllRows(t.build, { speculativePages: 1 })
+      expect(error).toBe(null)
+      expect(data).toHaveLength(37)
+      // The refused page must not send it back round for more, either.
+      expect(t.calls).toHaveLength(2)
+    })
+
+    // Measured live the same day: the out-of-range page on `leads` returned
+    // 416/PGRST103, but on `stage_history` it returned 57014 "canceling
+    // statement due to statement timeout" — PostgREST must compute the exact
+    // count before it can call the range unsatisfiable, and that count is
+    // slow under that table's own-leads RLS. A fix that matched on the error
+    // code would have left the sales funnel blank for the very roles this
+    // exists for, so the discard rule keys on "did we need this page?".
+    it('discards ANY failure on a speculative page the count proves was not needed', async () => {
+      let call = 0
+      const build = () => ({
+        order: function () { return this },
+        range: function () { return this },
+        then: (resolve) => {
+          call += 1
+          if (call === 2) {
+            return resolve({ data: null, count: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } })
+          }
+          resolve({ data: mkRows(88), error: null, count: 88 })
+        },
+      })
+      const { data, error } = await fetchAllRows(build, { speculativePages: 1 })
+      expect(error).toBe(null)
+      expect(data).toHaveLength(88)
+    })
+
+    it('survives a refused range on an empty result set', async () => {
+      const t = fakeTable([], { cap: 1000 })
+      const { data, error } = await fetchAllRows(t.build, { speculativePages: 1 })
+      expect(error).toBe(null)
+      expect(data).toEqual([])
+    })
+
+    // The other side of the rule: a page the count says we DID need (1,204
+    // rows means offset 1000 is real) must still fail loudly rather than
+    // quietly returning a short list — the exact failure mode this whole
+    // file exists to prevent.
     it('surfaces an error from a speculative page rather than silently dropping it', async () => {
       let call = 0
       const build = () => ({

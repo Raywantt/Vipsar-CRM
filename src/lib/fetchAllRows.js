@@ -92,6 +92,37 @@ export const FETCH_ALL_PAGE_SIZE = 1000
 // pay a wasted request to speed up the four that don't would be a bad trade.
 // Set it only where the table is genuinely known to exceed `pageSize` (see
 // ROW-COUNTS.md), and raise it if one of those tables passes 2,000 rows.
+// A .range() whose offset is past the end of the result set is NOT an empty
+// page — PostgREST answers it with an ERROR: 416 Range Not Satisfiable,
+// PGRST103, "An offset of 1000 was requested, but there are only 3 rows."
+// It does that whenever an exact count was requested, which every caller of
+// this helper does.
+//
+// THIS SHIPPED AS A LIVE BUG (2026-09-07). speculativePages fires page 2
+// before the count proves it is needed, and the tables it is set on only
+// exceed 1,000 rows FOR THE OWNER. Under RLS a sales executive sees a few
+// dozen leads, a coordinator their team's — so for every non-owner role the
+// speculative page asked for rows 1000-1999 of a 30-row result, PostgREST
+// refused the range, and the error was propagated as a failure of the WHOLE
+// query. fetchLeadsForBreakdown() returned null, and Dashboard, Today, My
+// Team and the Sales Exec Profile rendered every figure as zero. The
+// verification pass that cleared this ran as the owner, the one role whose
+// row counts hide it.
+//
+// A refused range is one of the two shapes that miss takes (the other is a
+// statement timeout — see the note at the discard rule below). It is not a
+// failure here. It is the server answering the
+// exact question a speculative page asks — "is there anything at this
+// offset?" — with "no". Treat it as an empty page, never as an error.
+// Anything else (a real network failure, a permission error) still fails
+// loudly, and page 0 is never covered by this: an offset of 0 is always a
+// satisfiable range, so a genuine failure on the first page still surfaces.
+function isRangeNotSatisfiable(error) {
+  if (!error) return false
+  if (error.code === 'PGRST103') return true
+  return /range not satisfiable/i.test(error.message ?? '')
+}
+
 export async function fetchAllRows(
   buildQuery,
   { orderBy = 'id', ascending = true, pageSize = FETCH_ALL_PAGE_SIZE, speculativePages = 0 } = {}
@@ -109,12 +140,44 @@ export async function fetchAllRows(
   const total = first.count ?? null
   const rows = [...(first.data ?? [])]
 
-  // A speculative page past the end simply returns an empty array, so these
-  // append safely whether or not the guess was right.
+  // A speculative page past the end of the result set comes back either
+  // empty or as a refused range (see isRangeNotSatisfiable above) — both
+  // mean "there was nothing there", which is a correct answer to a guess,
+  // not a failure of the query.
   let lastSpeculativeWasEmpty = false
   for (let i = 1; i < openingResults.length; i++) {
     const { data, error } = openingResults[i]
-    if (error) return { data: null, error }
+
+    // THE PRIMARY RULE: page 0 has now told us the real total, so we know
+    // whether this speculative page was ever needed. If it lies past the
+    // end it cannot contribute a single row, so whatever came back is
+    // discarded — an empty array, a refused range, or a failure.
+    //
+    // Deliberately not an error-code test. Measured live on a real sales
+    // executive's session (2026-09-07): the out-of-range page on `leads`
+    // came back 416/PGRST103, but the one on `stage_history` came back
+    // 57014 "canceling statement due to statement timeout" — PostgREST has
+    // to compute the exact count before it can decide the range is
+    // unsatisfiable, and under that table's own-leads RLS the count is slow
+    // enough to hit the statement timeout first. So the SAME missed guess
+    // surfaces as two different errors depending on the table, and matching
+    // on either code would have left the sales funnel blank for exactly the
+    // roles this whole fix exists for. Asking "did we need this page?"
+    // instead of "what kind of error was it?" is right for every table and
+    // every future failure mode.
+    if (total != null && i * pageSize >= total) {
+      lastSpeculativeWasEmpty = true
+      continue
+    }
+
+    if (error) {
+      // No count to reason with (the caller omitted it), so fall back to
+      // reading the error: a refused range is still the server saying
+      // "nothing at that offset". Anything else is a real failure.
+      if (!isRangeNotSatisfiable(error)) return { data: null, error }
+      lastSpeculativeWasEmpty = true
+      continue
+    }
     const batch = data ?? []
     rows.push(...batch)
     lastSpeculativeWasEmpty = batch.length === 0
@@ -132,7 +195,15 @@ export async function fetchAllRows(
     if (remaining.length) {
       const results = await Promise.all(remaining)
       for (const { data, error } of results) {
-        if (error) return { data: null, error }
+        if (error) {
+          // These offsets were planned against page 0's count, so a refused
+          // range here means rows were deleted while we were paging. There
+          // is genuinely nothing at that offset any more; skipping it hides
+          // no rows, whereas failing the query would blank the whole screen
+          // over a concurrent delete.
+          if (!isRangeNotSatisfiable(error)) return { data: null, error }
+          continue
+        }
         rows.push(...(data ?? []))
       }
     }
@@ -146,7 +217,10 @@ export async function fetchAllRows(
   if (!lastSpeculativeWasEmpty) {
     for (let page = 1; page < 500; page++) {
       const { data, error } = await fetchPage(rows.length)
-      if (error) return { data: null, error }
+      if (error) {
+        if (!isRangeNotSatisfiable(error)) return { data: null, error }
+        break
+      }
       const batch = data ?? []
       rows.push(...batch)
       if (batch.length === 0) break

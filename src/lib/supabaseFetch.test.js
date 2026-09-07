@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { createSupabaseFetch } from './supabaseFetch'
+import { createSupabaseFetch, pendingWriteCount } from './supabaseFetch'
 
 // WebKit's wording for a request that never reached the server — the exact
 // failure the iOS PWA hit on every first Save (see supabaseFetch.js).
@@ -233,5 +233,69 @@ describe('createSupabaseFetch — silent-truncation guardrail', () => {
     expect(value.status).toBe(200)
     expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
+  })
+})
+
+describe('pendingWriteCount', () => {
+  // Read by appUpdate.js, which must not reload the page to apply a new build
+  // while a save is on the wire — a cancelled POST leaves it unknowable
+  // whether the row was written, the same ambiguity this file already refuses
+  // to guess at when it declines to retry a timed-out POST.
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('is zero at rest', () => {
+    expect(pendingWriteCount()).toBe(0)
+  })
+
+  it('counts a write while it is in flight and clears it afterwards', async () => {
+    let release
+    const base = vi.fn(() => new Promise((resolve) => { release = resolve }))
+    const pending = createSupabaseFetch(base)('/leads', { method: 'POST' })
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(pendingWriteCount()).toBe(1)
+
+    release(ok())
+    await settle(pending)
+    expect(pendingWriteCount()).toBe(0)
+  })
+
+  it('does not count reads', async () => {
+    let release
+    const base = vi.fn(() => new Promise((resolve) => { release = resolve }))
+    const pending = createSupabaseFetch(base)('/leads', { method: 'GET' })
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(pendingWriteCount()).toBe(0)
+
+    release(ok())
+    await settle(pending)
+  })
+
+  it('stays counted across the backoff between two attempts', async () => {
+    // The whole point of counting around the retry LOOP rather than each
+    // attempt: a write sleeping out its 250ms backoff is still an unfinished
+    // save, and a gap here would let a reload slip straight through it.
+    const base = vi
+      .fn()
+      .mockRejectedValueOnce(networkError())
+      .mockImplementationOnce(() => {
+        expect(pendingWriteCount()).toBe(1)
+        return Promise.resolve(ok())
+      })
+
+    await settle(createSupabaseFetch(base)('/leads', { method: 'POST' }))
+    expect(base).toHaveBeenCalledTimes(2)
+    expect(pendingWriteCount()).toBe(0)
+  })
+
+  it('clears the count when a write fails outright', async () => {
+    const base = vi.fn().mockRejectedValue(networkError())
+
+    const { error } = await settle(createSupabaseFetch(base)('/leads', { method: 'POST' }))
+
+    expect(error).toBeInstanceOf(TypeError)
+    expect(pendingWriteCount()).toBe(0)
   })
 })

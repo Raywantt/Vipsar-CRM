@@ -1,53 +1,71 @@
-import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching'
-
-// injectManifest strategy — this file (not vite-plugin-pwa's generated
-// service worker) owns the precache + push handling. self.__WB_MANIFEST is
-// replaced at build time with the file list from injectManifest.globPatterns
-// in vite.config.js.
-
+// The service worker exists for ONE reason now: push notifications for
+// follow-up reminders. It deliberately caches nothing.
+//
 // ---------------------------------------------------------------------------
-// TAKE OVER IMMEDIATELY. Without these two the installed PWA silently runs an
-// old build forever, while the same app in a browser tab updates normally —
-// which is exactly the "the app and the website look different" bug reported
-// on 2026-08-10.
+// WHY THE OFFLINE COPY WAS REMOVED (2026-09-07, owner's decision)
 //
-// WHY IT HAPPENED: vite.config.js sets registerType: 'autoUpdate', which with
-// the DEFAULT generateSW strategy makes the plugin inject skipWaiting() and
-// clientsClaim() for you. This project uses strategies: 'injectManifest'
-// instead (so the push handlers below can exist at all), and under
-// injectManifest the plugin does not touch this file beyond swapping in
-// __WB_MANIFEST. So the config read as "auto update" while the generated
-// dist/sw.js contained neither call — verified, both greps returned 0.
+// This file used to call precacheAndRoute(self.__WB_MANIFEST), which stored a
+// complete copy of the app shell on every employee's device and served the
+// page from that copy instead of the network. Two things made that a bad deal
+// for this app:
 //
-// A new service worker with no skipWaiting() installs and then sits in the
-// WAITING state until every client for the scope is closed. A browser tab gets
-// closed all the time, so the website picked up new builds. An installed PWA
-// is backgrounded rather than closed, so its old worker kept control and kept
-// serving the old precached index.html and old hashed JS/CSS.
+//   1. IT WAS THE STALE-APP BUG. A precached index.html points at one exact
+//      hashed bundle, so a refresh returned the OLD build — measured on a live
+//      tab as workerStart 1006ms with transferSize 0, i.e. the refresh never
+//      reached the network at all. That is why employees were being told to
+//      clear their site data after every deploy, and why a plain refresh
+//      looked like it did nothing.
+//   2. IT BOUGHT ALMOST NOTHING. The app is not usable offline regardless:
+//      there is no runtimeCaching rule for Supabase (deliberately — see the
+//      PWA section in CLAUDE.md), so with no signal a rep got the shell and no
+//      data. And the hashed assets are already served `immutable` by
+//      vercel.json, so the browser's own HTTP cache keeps the JS/CSS without
+//      any help from here. The precache was duplicating the browser's cache
+//      while adding a staleness trap the browser's cache does not have.
 //
-// This is self-healing from here: the browser's own update check fetches this
-// file, and THIS version skips waiting on its own, so it activates without
-// needing anything closed. The already-installed old worker can't be fixed
-// retroactively, but it doesn't need to be.
-//
-// Deliberately NOT auto-reloading open pages on activation. clientsClaim()
-// means the next navigation serves the new build, which is enough. Forcing a
-// reload of a live page would discard whatever a rep had typed into a lead or
-// activity form mid-edit — a worse bug than being one launch behind.
+// NOT a performance fix, and it must not be described as one: the CRM's slow
+// page loads were measured (PERFORMANCE.md) as database request contention —
+// 32 concurrent queries starving each other, a `leads` query going 868ms alone
+// to 5,143ms during a real load. This file was never part of that.
 // ---------------------------------------------------------------------------
+
+// TAKE OVER IMMEDIATELY. Kept from the 2026-08-10 fix, and still load-bearing:
+// without skipWaiting() a new worker sits in the WAITING state until every
+// client for the scope closes, which an installed PWA (backgrounded, never
+// closed) may never do. That is what made the app serve a stale build forever.
 self.addEventListener('install', () => {
   self.skipWaiting()
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim())
+  event.waitUntil(
+    (async () => {
+      // Actively delete the app-shell copies previous versions of this worker
+      // left on the device. cleanupOutdatedCaches() cannot do this job any
+      // more — it only knows how to prune workbox's OWN precaches relative to
+      // a current one, and there is no current one. Deleting every cache for
+      // this origin is correct here because this app has never used the Cache
+      // API for anything except that precache.
+      //
+      // Without this, an employee's device keeps ~1MB of a build nothing will
+      // ever read again, and (worse) the door stays open for some future code
+      // path to serve from it.
+      const keys = await caches.keys()
+      await Promise.all(keys.map((key) => caches.delete(key)))
+      await self.clients.claim()
+    })()
+  )
 })
 
-// Drops precaches left behind by previous versions. Without it every deploy
-// adds another full copy of the app shell to storage and none are ever freed.
-cleanupOutdatedCaches()
-
-precacheAndRoute(self.__WB_MANIFEST)
+// A no-op fetch handler, on purpose. It calls neither respondWith() nor
+// anything else, so every request falls through to the network exactly as if
+// no service worker were installed — that is the entire intent.
+//
+// It exists because Chrome's install criteria require a service worker with a
+// fetch handler before it will offer "Add to Home Screen". Delete this and
+// reps can no longer install the CRM on their phones. It is not caching, and
+// must never quietly grow into caching.
+self.addEventListener('fetch', () => {})
 
 self.addEventListener('push', (event) => {
   const data = event.data?.json() ?? {}

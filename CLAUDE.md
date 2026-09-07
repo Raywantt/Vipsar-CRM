@@ -250,7 +250,9 @@ src/
                 DayReviewCard, DayReviewHeader (exports DayDateBar +
                 DayKpiStrip — see the Day Review section),
                 DeletePartySection, ChangePasswordForm, InstallPrompt,
-                NotificationPrompt, OfflineIndicator, FollowUpForm, FollowUpList,
+                NotificationPrompt, OfflineIndicator,
+                UpdateBanner — the held-back half of the auto-update flow, see
+                the Auto-update section, FollowUpForm, FollowUpList,
                 FabSheet — the mobile shell's FAB bottom sheet, see the
                 Mobile redesign section, NumPadInput — the mobile-only
                 on-screen numeric keypad, see the Numeric keypad section,
@@ -299,6 +301,9 @@ src/
                 one correct way to parse a timestamp out of this schema
                 (see the Day Review section),
                 followUpQueries.js, followupDates.js, pushSubscription.js,
+                appUpdate.js — the auto-update engine; decideReload() is the one
+                place deciding whether a new build may reload the page out from
+                under whoever is using it, see the Auto-update section —
                 roles.js — the canonical role list/labels, see the Sales
                 Coordinator section —
                 theme.js — light/dark override, see the Design system
@@ -386,11 +391,17 @@ design handoff from Claude Design. Per-page CSS files (`Dashboard.css`,
 recreate them; add a `vip-`-prefixed class to `vipsar-theme.css` instead of
 writing new per-component CSS. `src/index.css` is kept as an intentionally
 empty seam (nothing left to own) rather than deleted, since `main.jsx`
-imports it before the theme file. Section numbering runs 1–23; **22 is dark
-mode and stays physically last in the file** even though 23 (Day Review) is
-numbered higher — 22 only overrides `:root` tokens and `.vip-chip-*`, so
-nothing in 23 can beat it, and keeping the token redefinitions at the end is
-the whole point of that section. Add new sections after 23.
+imports it before the theme file. Section numbering runs 1–26. **22 is dark
+mode**, and it used to be physically last for a reason worth keeping in mind
+even though it no longer is (25, 24 and 26 now sit after it, in that physical
+order): 22 only redefines `:root` tokens and `.vip-chip-*`, never layout, so a
+later section can't accidentally beat it — **as long as that later section
+styles itself out of tokens rather than hardcoding a colour.** A literal hex
+declared after 22 is a colour dark mode cannot reach. Section 26's own
+`--vip-shell` family is the deliberate exception in the other direction: 22
+leaves those alone on purpose (the header and bottom nav are dark chrome in
+both themes), so a component built from them needs no dark block at all. Add
+new sections at the end.
 
 **Watch the `.vip-only-mobile`/`.vip-only-desktop` cascade trap when adding a
 class that sets `display`.** Both utilities are single-class rules
@@ -436,9 +447,12 @@ approximation of it.** Concretely:
 * **Fonts** — Archivo (headings/numbers), IBM Plex Sans (body), IBM Plex
   Mono (ids/timestamps) — self-hosted in `public/fonts/` rather than the
   Google Fonts CDN `@import` the handoff shipped with, so they're
-  precached by the service worker and survive offline like the rest of the
-  app shell (see PWA installability below). `vite.config.js`'s
-  `workbox.globPatterns` includes `woff2` for this.
+  served from this app's own origin rather than a third-party CDN, so they
+  are covered by Vercel's `immutable` asset caching and are not a
+  render-blocking request to another host. **They used to be precached by the
+  service worker "so they survive offline like the rest of the app shell";
+  that is no longer true and neither is the premise** — the app shell precache
+  was removed 2026-09-07, see the Auto-update section.
 * **Header** (`AppNav.jsx`) — a per-route title + sub (a small
   `ROUTE_HEADERS` lookup — **a sub describes the screen as it is now; check it
   still holds when a screen's rules change.** `/leads/new`'s read "Fill any one
@@ -765,7 +779,9 @@ approximation of it.** Concretely:
   mode, explicit Dark, persistence across a real reload with no flash, and
   visual correctness (chips, pills, deal stats) across Lead Detail, the All
   Leads stage list, and Home — both desktop and mobile. **Testing gotcha
-  worth knowing**: this app's own service worker precaches `index.html`
+  worth knowing (HISTORICAL — the precache was removed 2026-09-07, so this
+  no longer bites; kept because the symptom is worth recognising)**: this
+  app's service worker used to precache `index.html`
   (see PWA installability below), so an already-installed SW from earlier
   in a session keeps serving the old cached shell even after a fresh
   `npm run build` — unregister it (or bump past its update cycle) before
@@ -2111,10 +2127,12 @@ which needed new infrastructure this app didn't have before:
   strategy to `injectManifest` (`strategies: 'injectManifest', srcDir: 'src',
   filename: 'sw.js'`) specifically because `generateSW` can't add custom
   event listeners — `src/sw.js` is now a real, checked-in service worker
-  source file that calls `precacheAndRoute(self.__WB_MANIFEST)` itself (same
-  file list that used to live under `workbox.globPatterns`, now under
-  `injectManifest.globPatterns`) plus its own `push`/`notificationclick`
-  handlers. `devOptions.enabled` is still off for the same reason noted
+  source file carrying its own `push`/`notificationclick` handlers. It used
+  to call `precacheAndRoute(self.__WB_MANIFEST)` as well; that was removed
+  2026-09-07 (see the Auto-update section), so **push notifications are now
+  the ONLY reason this service worker exists** — which makes `injectRegister`
+  and the registration in `dist/registerSW.js` load-bearing for reminders,
+  not for caching. `devOptions.enabled` is still off for the same reason noted
   under PWA installability below — test this via `npm run build && npm run
   preview`, never `npm run dev` (no service worker registers under `dev` at
   all, so `hasActiveSubscription()`/`NotificationPrompt` are effectively
@@ -4068,13 +4086,20 @@ so standalone and browser render identically apart from `env(safe-area-inset-*)`
 resolving to real values in standalone — if the two ever look different again,
 suspect a stale worker before suspecting CSS.
 
-`vite.config.js`'s `injectManifest.globPatterns` (moved here from
-`workbox.globPatterns` when the Follow-ups feature's push notifications
-needed a custom `src/sw.js` — see that section) is scoped to
-`**/*.{js,css,html,svg,png,ico,webmanifest,woff2}` — this precaches the app
-shell only. No `runtimeCaching` rule was added for Supabase, so API calls are
-untouched by the service worker and always hit the network (fail honestly
-offline instead of silently serving stale data). `devOptions.enabled: true`
+**⚠️ THE APP SHELL PRECACHE WAS REMOVED 2026-09-07 — the paragraph that
+stood here described `injectManifest.globPatterns` precaching the whole
+shell, and it is gone.** `vite.config.js` now sets
+`injectManifest: { injectionPoint: undefined }` and `src/sw.js` caches
+nothing at all; the worker is 618 bytes of push handlers plus a deliberate
+no-op `fetch` listener that exists only to keep the app installable. Full
+reasoning in `src/sw.js`'s header and the Auto-update section — in short, the
+precache WAS the stale-app bug, and it bought nothing here because there was
+never a `runtimeCaching` rule for Supabase, so the app was never usable
+offline anyway (a rep with no signal got a shell and no data), and
+`vercel.json` already serves `/assets/*` as `immutable` so the browser's own
+HTTP cache keeps the JS/CSS regardless. **Do not reintroduce precaching to
+"make it work offline" without also building offline data storage** — the
+shell alone was never the missing piece, and it costs the staleness trap. `devOptions.enabled: true`
 was tried, to get a service worker running under `npm run dev` too, and then
 reverted — workbox's dev-mode precache went stale on every source edit
 (kept serving an old `index.html` after an unrelated change), which is worse
@@ -4114,13 +4139,200 @@ four icons, and `apple-touch-icon` resolve correctly; the service worker
 registers, activates, and takes control. The preview server process was
 then **actually killed** and the tab reloaded — every request still
 returned 200, served from the service worker's cache, proving the app
-shell genuinely loads with zero signal. Install/offline banners were
+shell genuinely loaded with zero signal. **That capability was deliberately
+given up on 2026-09-07** (see the Auto-update section); with no precache the
+app now needs the network to start. Re-verified live after the removal:
+`caches.keys()` is empty and a navigation reports `workerStart: 0` /
+`transferSize: 959`, i.e. the page really does come off the network now. Install/offline banners were
 exercised by dispatching synthetic `beforeinstallprompt`/`online`/`offline`
 events (Chrome doesn't reliably fire real installability heuristics from a
 single automated page load). iOS-Safari UA detection was unit-verified
 against 6 real device UA strings — all correct. Not verified: an actual
 screenshot of the iOS hint rendering (this environment can't spoof
 `navigator.userAgent` convincingly) — left to the user, as planned.
+
+### Auto-update (`src/lib/appUpdate.js`, `src/components/UpdateBanner.jsx`)
+
+Built 2026-09-07, from a direct owner report: with nine real employees on the
+CRM, every deploy meant telling people to clear their cache and revisit the
+URL, and *"not every employee is tech based"*. The app now takes new builds by
+itself. **Nobody should ever be told to clear a cache again — if that advice
+becomes necessary, something here has broken, so fix it rather than reviving
+the instruction.**
+
+Two separate things had to be added, because two separate things were missing:
+
+* **Nothing ever asked whether a new build existed.** `dist/registerSW.js` (the
+  script vite-plugin-pwa injects) is a single `navigator.serviceWorker
+  .register('/sw.js')` and nothing more. A browser only re-fetches `sw.js` on a
+  real document navigation, or roughly every 24h — so a rep who leaves the tab
+  open, or who only ever *backgrounds* the installed PWA rather than closing
+  it, never triggered a check at all.
+* **Even when the new worker took over, the open page did not.** `src/sw.js`'s
+  `skipWaiting()` + `clients.claim()` (added 2026-08-10, see the PWA section
+  above) activate the new worker promptly, but claiming a client only decides
+  what the NEXT document fetch is served from. This is an SPA — react-router
+  navigates without a document fetch — so the tab kept executing the old JS
+  bundle already in memory, indefinitely. `sw.js`'s own comment block records
+  the decision not to auto-reload ("would discard whatever a rep had typed into
+  a lead or activity form"), which was the right worry and the wrong
+  conclusion: it abandoned auto-reload rather than making it conditional.
+
+**The first of those two causes was then removed outright** later the same day:
+the owner elected to delete the app-shell precache entirely rather than keep
+working around it (see the PWA section). A refresh now genuinely reaches the
+server, so a stale tab has a working manual escape hatch for the first time.
+This module remains necessary for the second cause — an open tab still runs
+the JS it loaded until something reloads it, and nobody should have to know to
+press F5.
+
+**`decideReload()` is that condition, and it is the whole design.** A pure
+function (vitest runs `node` here, so nothing that reads the DOM could be
+tested) returning `{reload, reason}`, checked in this order — the order is
+load-bearing, so the reason reported is the real one:
+
+1. **`save-in-flight`** — a write is on the wire. This is the one case that
+   can cost committed data rather than typing: the reload cancels the request,
+   and for a POST that leaves it genuinely unknowable whether the row landed,
+   the same ambiguity `supabaseFetch.js` already refuses to guess at when it
+   declines to retry a timed-out POST. Read via that file's new
+   `pendingWriteCount()` — counted around the WHOLE retry loop, not per
+   attempt, or a write sleeping out its 250ms backoff would leave a gap to
+   reload through. Reads are deliberately not counted (a cancelled GET costs
+   nothing, the page is about to re-issue it).
+2. **`field-focused`** — the cursor is in a field **and `document.hasFocus()`**.
+   That second half matters: a field left focused on a window the rep walked
+   away from must NOT hold an update back forever, so it falls through to (3).
+3. **`recent-typing`** — a part-filled form typed into within `TYPING_IDLE_MS`
+   (3 min). **Both halves are required.** Content with no recent typing is an
+   abandoned form; recent typing with nothing left on screen was a search box
+   or a since-saved form. Either alone would mean never updating.
+4. **`cooldown`** — an auto-reload already happened within 30s. A stale build
+   is bad; a page that reloads forever is unusable, so any unforeseen
+   "activates again immediately" state degrades to the banner, never to a spin.
+
+Otherwise it reloads, silently and immediately. **`type="search"` inputs are
+excluded from the dirty-form test on purpose** — a filter left with text in it
+is very common here (All Leads, Search, Manage employees), and blocking on one
+would mean an employee who types a filter once and leaves it never updates.
+
+**HOW A NEW BUILD IS DETECTED (changed 2026-09-07, same day it was built).**
+It fetches the app's own HTML (`/`, which `vercel.json` rewrites to
+index.html) with `cache: 'no-cache'` — must revalidate, may be answered 304 —
+and compares the hashed `/assets/…` filenames in it against the ones this page
+actually loaded, read off the DOM at startup. Vite renames those on any build
+whose output differs, so a mismatch IS a deploy. `<link>` is read as well as
+`<script>` so a CSS-only deploy is caught.
+
+It originally listened for the service worker's `controllerchange`, which was
+correct while `sw.js` carried a precache manifest that changed every build.
+**Once the precache was removed, `sw.js` became byte-identical between deploys,
+so that event would never have fired again** — the auto-update would have
+silently stopped working, with nothing failing loudly to say so. Worth
+remembering as a shape: removing the precache quietly invalidated a mechanism
+in a different file that depended on it changing.
+
+The replacement is also much faster. The old path could not reload until a new
+worker had downloaded and precached the entire app shell — measured at between
+6 and 29 seconds after a real tab switch. The new one is a single round trip:
+measured at **~4 seconds** from deploy to the tab having reloaded itself.
+
+`isNewBuild()` **returns false whenever either side is empty**, and that guard
+is the important half: a dropped connection, a captive-portal page, an error
+page or an unreadable DOM must never be mistaken for a deploy. Missing a check
+delays the update by minutes and the next one corrects it; a false positive
+reloads a working page, possibly on a loop.
+
+**Checks are event-driven first, timer second, for cost reasons.** The owner
+asked directly whether frequent checking would be expensive. It is a
+conditional request for `/sw.js` answering **304, headers only** (`vercel.json`
+already serves it `must-revalidate`), so ~300-500 bytes — but at 60s that is
+still ~95k edge requests/month across nine people for almost no benefit.
+Instead: on regaining focus, on `visibilitychange`, and on `online` (which
+forces past the 20s throttle), plus a **5-minute** backstop timer **that does
+not run while the tab is hidden**. Reps pocket and re-open their phones
+constantly, so the focus check fires at exactly the moments that matter.
+`UPDATE_POLL_MS` is one named constant if this ever needs retuning.
+
+`visibilitychange` also *applies* a pending update when the tab goes hidden —
+nobody is looking, so the reload costs nothing visually.
+
+**`UpdateBanner.jsx` is the held-back case only, and most people will never see
+it.** It appears solely when `decideReload` says no, re-testing every 10s, and
+carries an "Update now" button for someone who would rather take it than finish
+typing. Mounted globally in `App.jsx` beside `OfflineIndicator`/`InstallPrompt`
+(so it works on `/login` too). Styled by theme section 26 — bottom-anchored,
+offset by `--vip-bottom-nav-h`, which clears the tab bar on a tab route AND
+lands flush above `.vip-sticky-footer`'s Save button on a drilled route; see
+that section's comment, the two heights are near-equal by circumstance rather
+than by a shared token.
+
+**Verified live end to end** against real production builds served by `vite
+preview`, driving only the app's own code path (an `online` event — never a
+manual `reload()` or `registration.update()`), owner session, both widths:
+* A deploy landed while a tab sat open on `/login`: it reloaded itself from
+  bundle `index-DNuCaPOh.js` to `index-BMN271gK.js`, with a `window` probe
+  variable gone afterwards proving a real reload.
+* A second deploy while a field held typed text: **no reload**, banner shown,
+  the typed text still there, still on the old bundle.
+* On **`/leads/new` at 375px** — the hardest case, since a sticky Save footer
+  already owns the bottom — measured bar bottom **730px** against footer top
+  **731px**: flush, no overlap with the Save button, no horizontal overflow.
+* Clearing the fields (a rep finishing up) and then touching **nothing**: the
+  10s recheck reloaded the page on its own onto the newer bundle, same route,
+  still logged in, banner gone.
+
+**Not verified**: a real phone. This was driven in a desktop browser against a
+local preview server, so the installed-PWA and iOS-Safari paths are reasoned
+through rather than observed — worth one real check on a rep's handset after
+the first deploy.
+
+**WHY A PLAIN REFRESH DIDN'T FIX A STALE BROWSER TAB — measured, not
+inferred. (HISTORICAL: the cause below was removed on 2026-09-07; a refresh
+works now. Kept because it is the reasoning that justified removing it, and
+because reintroducing any precache brings all of it straight back.)** The owner asked this directly (2026-09-07): website sessions, not
+just the installed PWA, stayed stale *even after refreshing*, which is why the
+standing advice had escalated to clearing site data. The cause was measured on
+a live tab with `PerformanceNavigationTiming`: **`workerStart` 1006ms,
+`transferSize` 0**. A refresh never reaches Vercel at all. `precacheAndRoute`
+in `src/sw.js` registers a precache route that matches the navigation for `/`
+(workbox's `directoryIndex` default resolves it to the precached
+`index.html`), so the browser asks the CURRENTLY-ACTIVE worker, which returns
+the `index.html` it cached at ITS install time — pointing at the old bundle
+hash. Zero bytes off the network.
+
+So a manual refresh is a race the employee usually loses: the reload does kick
+off a worker update check, but the page has already been served and parsed from
+the old precache before the new worker finishes downloading and activating. A
+second refresh, after activation, gets the new build. Clearing site data
+"worked" only because it unregisters the worker entirely, sending the next load
+to the network.
+
+That whole trap is gone with the precache. Both halves were re-measured live
+after the removal: `caches.keys()` empty, and a navigation reporting
+`workerStart: 0` with `transferSize: 959` — the page really is fetched from
+the server now, so one refresh is enough and always will be.
+
+**The old worker's stored copies are actively deleted, not just orphaned.**
+`src/sw.js`'s `activate` handler deletes every cache for the origin, which is
+what frees the ~1MB each employee is still carrying. Proven live rather than
+assumed: a cache named exactly like the real one
+(`workbox-precache-v2-http://localhost:4173/`) was planted, a genuinely
+changed worker was installed, and it was gone afterwards. Note the first
+attempt at that test proved nothing — re-registering a byte-identical `sw.js`
+never fires `activate` — which is also why this cleanup runs exactly ONCE per
+device, on the migration off the precaching worker. That is sufficient: after
+it, no cache is ever created again.
+
+**The first deploy after this ships is still the old story**, unavoidably:
+employees are currently running a build with none of this code in it, so that
+one update still arrives by the old route. The correct one-time instruction is
+**NOT** "clear your cache" — it is *open the CRM, wait ten seconds, then
+refresh once*. The wait lets the new (non-caching) worker install and activate
+and wipe the old stored copy; the refresh then comes off the network. Closing
+the tab and reopening does the same job. Every deploy after that is automatic
+and needs nothing at all — and from then on a manual refresh also works, for
+anyone who reaches for one out of habit.
 
 ## Commands
 
@@ -4205,7 +4417,11 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 - **Compare a DATE column as a calendar string, never against an instant.** `next_followup_date`, `estimated_close_date`, `due_date`, `quote_sent_at`, `rfq_raised_at` and `lost_at` are `DATE`, and `new Date('2026-08-13')` parses to **UTC midnight = 05:30 IST** — so `new Date(col).getTime() < Date.now()` says a date of *today* is already in the past, from 05:30 IST until midnight. That shipped: a follow-up due today was reported **overdue** for ~18½ hours of every day (Phase 9 finding F-P7-1, fixed in `attention.js`, `EmployeeProfile.jsx` and `LeadDetail.jsx`). Compare `col < todayISO()` — both are `YYYY-MM-DD`, so string order is date order and there is no timezone to get wrong. This is a *different* bug from the naive-`TIMESTAMP` parsing issue in the Day Review section; that one is about `TIMESTAMP` columns and is fixed with `parseTimestamp`. `Home.jsx`'s `new Date(\`${f.due_date}T00:00:00\`)` is the other correct pattern — appending the time forces local parsing.
 - **`dealValueFor()` is for SUMS; `dealValueOrNull()` is for DISPLAY.** Both live in `src/lib/pipelineValue.js`. The first coerces an unknown value to `0`, which is right for adding up and wrong for showing: a lead nobody has quoted is not a deal worth ₹0. Every per-lead display site used to read `dealValueFor` and print ₹0, which on real data was most of the rows in All Leads (Phase 9 finding F-P4-2). Don't "simplify" by making `dealValueFor` return null — `sumOpenPipelineValue` and the four category-breakdown cards add its result, and null would poison every total.
 - **✅ `Schema/migration_needs_attention_rpc.sql` was RUN LIVE 2026-09-05 and verified IDENTICAL against the client-side path.** `leads_needing_attention()` moves Needs Attention's five buckets (`src/lib/attention.js`) into Postgres, returning only the leads that actually land in a bucket (**66 rows instead of scanning 1,209 in the browser**). **The split is deliberate and load-bearing: SQL owns the PREDICATES, JS owns the PRESENTATION.** The RPC decides only bucket membership; `attention.js` still builds every row and label through the same `toRow`/`sortByAgeDesc`/`assembleBuckets` code both paths now share (`assembleBuckets` was extracted for exactly this), so the card and drill-down cannot drift — the only thing that *can* differ is membership, which is a set of lead ids and is therefore exactly comparable. **`SECURITY INVOKER`**, same as `leads_category_breakdown` and for the same reason. **`p_now`/`p_today`/`p_tz_offset_minutes` are parameters, not `now()`/`CURRENT_DATE`**: the database is UTC and the reps are IST, so a server-side date would misjudge overdue follow-ups for 5½ hours every night. **The date handling reproduces two JS quirks on purpose** — JS parses a naive `TIMESTAMP` as LOCAL time but a date-only string as UTC MIDNIGHT, so `naive_to_instant`/`date_to_instant` differ; matching existing behaviour exactly is the point, including where it is itself quirky. **Two real bugs were caught by the comparison before this shipped, both of which a count-only check would have missed**: (1) `NULL LIKE 'legacy-%'` is NULL, not false, so `NOT imported` went NULL and silently dropped **every app-created lead** from the `followups_overdue` and `slipped` buckets — including lead #320, the very lead this file already records as having been wrongly hidden once before by an earlier version of this same clamp (fixed with `COALESCE(..., false)`, which must not be removed); and (2) buckets are sorted by age with a *stable* sort, so equal-age leads keep insertion order — the client inserts in `id` order, so without `ORDER BY f.id` the two paths agreed on *which* 56 leads were stale while disagreeing on their order (207 differing row positions). Final verification, owner session, live data: all five buckets identical on lead-id sets AND on every rendered field (party/stage/chipClass/description/age/value/owner), same order, same summary lines, 66 distinct leads both ways. **Dashboard also stopped fetching `fetchLastActivityPerLead()` entirely on the fast path** — its only consumer was the fallback — removing an activities scan measured at 885–3,024ms. **What this did NOT do: shorten the page.** Cold load stayed ~3.46s, because `fetchLeadsForBreakdown` is still fetched for its other consumers (open-pipeline KPIs, the sales funnel, and the click-triggered drill-down panels) and remains the critical path at ~2.3s. Removing it needs those three groups handled — the KPIs can read `leads_category_breakdown`'s stage grouping, the drill-downs can fetch on click, and the funnel needs either its own slim `id, current_stage` query or an RPC of its own.
-- **`fetchAllRows`'s `speculativePages` option (added 2026-09-04) fetches page 2 alongside page 1, for the tables known to sit just over the 1,000-row cap.** Paging is inherently sequential — page 2 cannot start until page 1 returns the count proving it is needed — and on `leads` (1,209 rows) that second round trip was MEASURED as Dashboard's entire critical path (page 1: 1,199→2,914ms; page 2: 2,917→3,611ms; every other query had finished by 2,274ms). It is **opt-in per call site, deliberately**: the cost of guessing wrong is one extra request returning an empty array, and most queries in this app return well under one page, so making it the default would tax the many to speed up the few. Currently set on `fetchLeadsForBreakdown` (leads 1,209), `fetchStageHistoryForFunnel` (stage_history 1,591) and `fetchAllParties` (parties 1,358) — the three ROW-COUNTS.md flags as past the cap AND loaded on a screen's critical path. **Raise it when a table passes 2,000 rows, and add it when a new table crosses 1,000** (`activities`, at 900, is next) — otherwise the sequential wait silently returns. Pinned by 7 cases in `fetchAllRows.test.js`, including that it produces byte-identical rows to the serial path and that an error on the speculative page is surfaced rather than dropped. **Verified live 2026-09-05** (owner session, three cold loads): the two `leads` pages now start within 1ms of each other instead of back-to-back, and Dashboard data completes at 3,320/3,479/3,438ms against 3,611ms before — **a real but modest ~150-300ms, NOT the ~700ms the sequential gap implied**, because page 1 itself slowed from 1,715ms to ~2,200ms once the two pages started competing for the same connection pool. Read that as confirmation that this app is contention-bound: adding parallelism has diminishing returns, and only fewer/lighter queries keep paying. The same session also ran the discriminating correctness check — the `leads_category_breakdown` RPC's output compared bucket-by-bucket against an independent client-side reduction of all 1,209 leads using `dealValueFor` — with **0 mismatches across all four groupings**, which simultaneously proves the SQL mirrors the JS rules exactly and that speculative paging neither duplicates nor drops rows.
+- **`fetchAllRows`'s `speculativePages` option (added 2026-09-04) fetches page 2 alongside page 1, for the tables known to sit just over the 1,000-row cap.** Paging is inherently sequential — page 2 cannot start until page 1 returns the count proving it is needed — and on `leads` (1,209 rows) that second round trip was MEASURED as Dashboard's entire critical path (page 1: 1,199→2,914ms; page 2: 2,917→3,611ms; every other query had finished by 2,274ms). It is **opt-in per call site, deliberately**: the cost of guessing wrong is one extra request that comes back with nothing, and most queries in this app return well under one page, so making it the default would tax the many to speed up the few. Currently set on `fetchLeadsForBreakdown` (leads 1,209), `fetchStageHistoryForFunnel` (stage_history 1,591) and `fetchAllParties` (parties 1,358) — the three ROW-COUNTS.md flags as past the cap AND loaded on a screen's critical path. **Raise it when a table passes 2,000 rows, and add it when a new table crosses 1,000** (`activities`, at 900, is next) — otherwise the sequential wait silently returns. Pinned by 7 cases in `fetchAllRows.test.js`, including that it produces byte-identical rows to the serial path and that an error on the speculative page is surfaced rather than dropped. **Verified live 2026-09-05** (owner session, three cold loads): the two `leads` pages now start within 1ms of each other instead of back-to-back, and Dashboard data completes at 3,320/3,479/3,438ms against 3,611ms before — **a real but modest ~150-300ms, NOT the ~700ms the sequential gap implied**, because page 1 itself slowed from 1,715ms to ~2,200ms once the two pages started competing for the same connection pool. Read that as confirmation that this app is contention-bound: adding parallelism has diminishing returns, and only fewer/lighter queries keep paying. The same session also ran the discriminating correctness check — the `leads_category_breakdown` RPC's output compared bucket-by-bucket against an independent client-side reduction of all 1,209 leads using `dealValueFor` — with **0 mismatches across all four groupings**, which simultaneously proves the SQL mirrors the JS rules exactly and that speculative paging neither duplicates nor drops rows. **⚠️ READ THE NEXT BULLET BEFORE TRUSTING THAT VERIFICATION** — it was run as the owner, and the owner is the one role that cannot see the bug this option shipped with.
+
+- **A `.range()` past the end of a result set is an ERROR from PostgREST, not an empty page — and that blanked every dashboard figure for every non-owner role for three days (reported and fixed 2026-09-07).** PostgREST answers an out-of-range offset with **416 Range Not Satisfiable / `PGRST103`** ("An offset of 1000 was requested, but there are only 3 rows") whenever an exact count was requested — which every `fetchAllRows` caller does. `speculativePages` asks for rows 1000–1999 *before* knowing whether they exist, and **the three tables it is set on only exceed 1,000 rows FOR THE OWNER**: under RLS a sales executive sees a few dozen leads and a coordinator sees their team's, so for every non-owner role that speculative page was always out of range. `fetchAllRows` propagated the 416 as a failure of the whole query, so `fetchLeadsForBreakdown()` returned `data: null` — and **Dashboard, Today, My Team, the Sales Exec Profile and the sales funnel rendered every figure as zero** (open pipeline ₹0, every stage bucket empty, every category card empty). Activity counts and All Leads still showed real numbers, because neither query sets `speculativePages` — that split is the fingerprint of this bug. **The fix, in two parts.** (1) `fetchAllRows` now **discards a speculative page once page 0's count proves it was never needed** — whatever came back. Deliberately NOT an error-code test, and the reason is measured: the out-of-range page on `leads` returned 416/`PGRST103`, but the one on `stage_history` returned **`57014` "canceling statement due to statement timeout"**, because PostgREST must compute the exact count before it can call a range unsatisfiable and that count is slow under that table's own-leads RLS. The same missed guess surfaces as two different errors depending on the table, so matching on either code would have left the sales funnel blank for exactly the roles the fix exists for. Asking "did we need this page?" is right for every table and every future failure mode. `isRangeNotSatisfiable()` remains as the fallback for a caller that omitted the count, and for a page that goes out of range mid-walk because rows were deleted concurrently — skipping that hides no rows, whereas failing would blank the screen over a concurrent delete. Page 0 is never covered by either rule: an offset of 0 is always satisfiable, so a genuine first-page failure still surfaces. (2) **`speculativePages` was removed from all three call sites**, and should not be re-added without a role-aware reason. Its premise — "this table is known to exceed one page" — is an OWNER-SCOPE fact: ROW-COUNTS.md counts the whole table, but RLS is what each viewer actually queries. It was also not the free wasted request the option assumed. Measured live on the exec session: the exact count is ~1s of that query's ~2.4s, and on a real Dashboard load **all 19 requests fire in one burst and the heaviest six all died at ~8,3xx ms — Supabase's 8s `statement_timeout`** — with the duplicate `leads` and `stage_history` pages sitting right there among them, so the doomed guess was helping starve the real page 0. Against that, the owner's measured saving was ~150-300ms. **Verified live** (Raghav Gupta, `sales_executive`, 86 leads under RLS): Open pipeline went **₹0 → ₹1.19Cr / 67 leads**, Stale leads **0 → 17**, Needs Attention **0 → 24**, and the ₹1.19Cr matches an independent `sumOpenPipelineValue` over the 86 rows exactly.
+
+- **⚠️ STILL OPEN, found while fixing the above: `stage_history` reads are near the 8s statement timeout for a sales executive, and the sales funnel's "avg days in stage" column is blank because of it.** `fetchStageHistoryForFunnel` measured **5.5s idle and timed out (57014) under a real Dashboard load** — for 88 rows. The funnel still renders its stage COUNTS (it seeds those from `breakdownLeads`), so the card looks populated; only the avg-days figures are missing, which is why this hid behind the bigger bug. **The diagnosis, and it is the interesting part: an exec's queries are slow in proportion to the rows they CANNOT see, not the rows they can.** `leads` SELECT is four permissive policies OR'd together, and Postgres short-circuits an OR — so for a rep's own row the first test (`owner_employee_id = current_employee_id()`) matches and it is cheap, but for each of the ~1,100 rows belonging to someone else all four are evaluated, including `is_my_team_member()` and `is_my_managed_member()`, two `SECURITY DEFINER` functions that each query `employees` **per row**. That is why the OWNER (1,209 visible rows) is fast and an exec (86 visible rows) is slow, which looks backwards until you see it. `stage_history` pays it twice over — its own policy runs `EXISTS (SELECT 1 FROM leads ...)`, and the `leads(owner_employee_id)` embed runs it again. **The likely fix is a migration, so it needs the owner to run it and has NOT been attempted:** hoist the no-arg helpers into `(SELECT current_employee_role())` form (Supabase's documented RLS optimisation — all four helpers are already `STABLE`, but a bare call in a policy is still evaluated per row) and guard each team predicate behind a cheap role test, e.g. `OR (current_employee_role() = 'sales_coordinator' AND is_my_team_member(owner_employee_id))`, so the whole branch folds to a constant `false` for an exec instead of calling into `employees` a thousand times. Load the `supabase-postgres-best-practices` skill before writing it, and re-measure as a SALES EXEC, not as the owner. **Two lessons worth more than the fix.** (1) **The test suite was green throughout, because `fakeTable` in `fetchAllRows.test.js` modelled an out-of-range page as an empty array** — the fake server was wrong in exactly the way that mattered, so two tests literally named "is harmless when the table turns out to fit in one page" and "is harmless on an empty table" both passed while the real thing was catastrophic. The helper now returns a real 416; those two tests plus two new named regression cases all fail without the fix. **When a helper models a server, the model is load-bearing — check it against the real one's error behaviour, not just its happy path.** (2) **Row counts differ per role, so a perf change gated on row counts MUST be verified as the role with the FEWEST rows, not the most.** Verifying as the owner is verifying the one case that is guaranteed to work. This is the row-count sibling of the role × breakpoint rule at the top of this file, and note it also predates this fix: `LeadsListCard.jsx`'s own comment already recorded reproducing a live 416 from a stale page number, which is the same server behaviour that was then modelled away in the tests.
 - **📄 `PERFORMANCE.md` (repo root, 2026-09-04) is the standing reference for anything performance-related — read it before adding a screen, a dashboard card, or a query.** It records the measured diagnosis of the "everything is slow" investigation (the cause was 32 *concurrent* requests starving each other, NOT slow queries — the same `leads` fetch measured 868ms alone and 5,143ms during a real page load), what was fixed, and six rules for keeping it fast as the CRM grows. The two that matter most: **never download rows just to reduce them in the browser** (aggregate in Postgres — see `leads_category_breakdown`), and **`fetchAllRows()` is a transitional escape hatch, not the goal** — it is O(table size) and every new use should be questioned rather than copied. It also lists what was deliberately left undone and the triggers for reaching for the next tier (TanStack Query, materialized views, rollup tables, `pg_stat_statements`, partitioning).
 - **Read caching + in-flight de-duplication live in `src/lib/queryCache.js`** (added 2026-09-04). The heavy company-wide reads (`fetchLeadsForBreakdown`, `fetchLastActivityPerLead`, the three stage-history feeds, `fetchClosureForecast`, `fetchLossReasons`, `fetchCategoryBreakdown`, `fetchTargetsForPeriod`, `fetchActiveSalesExecs`, the two date-scoped Dashboard queries) are wrapped in `cachedQuery()` **inside their own query modules**, so no call site changed. Two effects: identical requests issued at the same moment collapse into one (which is what kills React StrictMode's dev double-fetch and two screens asking the same question at once), and switching between screens that share data no longer refetches for 90s. Measured on a real owner session: cold Dashboard **32 requests → 19**, **6.4s → 3.6s**; revisiting a screen **~250ms**. **A cache key MUST encode every argument that changes the result** — the date- and owner-scoped queries build their keys from their arguments for exactly this reason. **Errors are never cached** (a dropped connection must not be replayed for 90s). **Invalidation is done ONCE, at the transport layer** (`supabaseFetch.js` drops the cache after any successful non-GET, excluding `/rpc/` which is a read here) — deliberately not per call site, for the same reason `lead_change_log` is trigger-written: `leads` alone is written from eight different paths and "remember to invalidate" fails the first time someone adds a ninth. `AuthContext`'s `signOut` clears the cache **before** ending the session, since these are shared office machines and the cached payloads are whole-company aggregates. If this app outgrows the module, adopt **TanStack Query** rather than growing it — the API deliberately mirrors its vocabulary so that swap is mechanical.
 - **A query with no `.limit()` does NOT mean "all rows" — PostgREST caps every response at `max-rows` (1,000 on this project). Anything that means "every row" must page, via `fetchAllRows()` (`src/lib/fetchAllRows.js`).** The cap applies whether or not the query asked for a limit, and nothing in the response says it was applied: no error, no flag, just a shorter array. This shipped as a reported bug (2026-09-04). `leads` had grown to 1,204 rows after the five legacy imports, so every screen built on `fetchLeadsForBreakdown` — Dashboard, Home/OwnerToday/CoordinatorToday, My Team, EmployeeProfile, Needs Attention, the funnel, every category breakdown and every drill-down — was reducing 1,000 of 1,204 leads and presenting the result as the whole company: **₹3.16 Cr of open pipeline missing (14%), 10 leads missing from Negotiation, 24 from Won**. **The failure mode is what makes this worth remembering.** Those queries had no `ORDER BY` either, so Postgres returned heap order, and an UPDATE writes a new tuple version at the **end** of the heap — so *editing* a lead moved it to the back of the physical order and pushed it past the cap. The owner added a quote value to a lead sitting at Negotiation and it disappeared from the pipeline drill-down: the act of curating the record is what hid it. Reproduced exactly before fixing (lead #482 "MR. Vineet", physical position **1203 of 1204** — dead last — and all 204 dropped leads had been edited), and confirmed fixed in the same drill-down afterwards. `fetchAllRows` does both halves of the fix and both are required: it pages until the rows run out, **and** it appends a deterministic `id` order, because `.range()` paging with no `ORDER BY` gives no guarantee that two OFFSET queries walk the same order — pages can silently repeat or skip rows. Two things to get right when using it: pass `{ count: 'exact' }` in the `.select()` (paging then costs exactly `ceil(total / cap)` requests instead of one extra round trip — forgetting it is slow, never wrong), and pass `{ ascending: false }` whenever the caller's own sort is descending **and** a consumer reduces the result with "first row per key wins" (`mostRecentLeadByParty`, `computeOrderValueActuals`/`computeWonCountActuals`) — an ascending tiebreaker would hand those the *oldest* of a set of rows sharing a timestamp, and the legacy imports wrote whole sheets inside one transaction, so shared timestamps are the norm here, not an edge case. **First applied to the twelve Dashboard-facing queries the live bug actually hit, then swept across the WHOLE app the same day** once the owner made clear that a silent-data-loss bug surfacing only because they happened to cross-check one lead by name was unacceptable on its own — the fix couldn't stop at the screen that got caught. A dedicated static test, `queryPaging.test.js`, scans every `.js`/`.jsx` file in `src/` for a `.from(<table>)` chain with no `.limit()`/`.range()`/`.single()`/`.maybeSingle()`/count-only `head: true`/`fetchAllRows()` wrapper (a lightweight text scan keyed to a top-level `export function`'s real body when one exists, a generous line window otherwise — not a real parser, see its own header comment) — running it found **16 more unpaged queries the original fix had missed**, everywhere from `dayReviewQueries.js`'s day-scoped fetches to `employeeQueries.js`'s `fetchManagers`/`fetchActiveSalesExecs` to two duplicated inline `areas` lookups in `LeadDetail.jsx` and `SiteSearchOrCreate.jsx` (consolidated into `fetchAreas()`, new `src/lib/lookupQueries.js`) to a plain "Accompanied by" employee list in `ActivityLog.jsx`. Every one of those is now wrapped too — the standing rule going forward is that **every** query in this app that can return more than one row goes through `fetchAllRows()`, full stop, not a per-table judgment call about whether today's row count makes it safe (wrapping a table with 8 rows costs exactly one request, identical to not wrapping it, so there is no size threshold below which skipping it is cheaper). The same sweep also caught a second instance of the tiebreak bug described above, in `dayReviewQueries.js`'s `fetchPriorStages` (its consumer, `priorStageMap`, takes the first row per lead on a most-recent-first sort — now tie-broken descending, same fix as `fetchWonStageHistory`/`fetchLeadsForParties`). **A second, independent layer sits in `supabaseFetch.js`** (the one fetch every Supabase call in this app already goes through, see the retry/timeout bullet below) — a dev-only runtime check that inspects the response `Content-Range` header on any GET whose URL carries no `limit`/`offset` param (i.e., nobody called `.limit()`/`.range()`/went through `fetchAllRows`) and `console.warn`s by name the moment PostgREST's cap silently truncates it, so a *future* unbounded query announces itself the first time anyone runs it locally rather than waiting for a table to cross 1,000 rows in production. Verified live: fires exactly once on a deliberately naked `supabase.from('leads').select()`, stays silent on every already-fixed call. Pinned by `fetchAllRows.test.js` (11 cases), `queryPaging.test.js` (the static scan itself), and 8 new cases in `supabaseFetch.test.js` for the runtime warning. **Five tables are already past the cap** — `stage_history` 1,591, `parties` 1,358, `lead_change_log` 1,265, `sites` 1,206, `leads` 1,204 — with `activities` (900) next; see `ROW-COUNTS.md`. **This is a correctness patch, not the architecture** — it still downloads the whole company to reduce it in the browser, which this file's Today section already flags as wanting Postgres views/RPCs. That remains the right end state and is unchanged by this; what changed is that the client-side reduction is now performed on all the rows instead of an arbitrary 1,000 of them.

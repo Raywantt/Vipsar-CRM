@@ -47,11 +47,22 @@ export default defineConfig({
         ],
       },
       injectManifest: {
-        // App shell only: built JS/CSS/HTML + icons + self-hosted fonts. No
-        // runtimeCaching rules are added for the Supabase API, so those
-        // requests always hit the network and are never served (or
-        // silently failed) from cache.
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,woff2}'],
+        // NOTHING IS PRECACHED ANY MORE (2026-09-07). injectionPoint:
+        // undefined tells workbox not to look for self.__WB_MANIFEST in
+        // src/sw.js at all — without it the build FAILS, because the default
+        // injection point is mandatory and src/sw.js no longer references it.
+        //
+        // This used to carry globPatterns for the whole app shell. It was
+        // removed because that precache was the cause of the stale-app bug
+        // (a refresh was answered from the stored copy and never reached the
+        // network) while buying nothing: Supabase calls were never cached, so
+        // the app was not usable offline regardless, and vercel.json already
+        // serves /assets/* as immutable so the browser's own cache keeps the
+        // JS/CSS. See src/sw.js's header for the full reasoning.
+        //
+        // The service worker is still built and deployed — it carries the
+        // push-notification handlers for follow-up reminders.
+        injectionPoint: undefined,
       },
     }),
   ],

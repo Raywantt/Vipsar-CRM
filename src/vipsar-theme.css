@@ -2440,3 +2440,77 @@ a.vip-day-log-party:hover { text-decoration: underline; }
   color: var(--vip-faint);
   white-space: nowrap;
 }
+
+/* ============================================================
+   26. UPDATE BAR
+   The held-back half of the auto-update flow (src/lib/appUpdate.js +
+   UpdateBanner.jsx). Almost nobody sees this: a new build reloads
+   silently whenever nothing is being typed, and this only appears while
+   a rep is genuinely mid-form or a save is still on the wire.
+
+   Pinned to the BOTTOM rather than the top, unlike .vip-offline: the top
+   edge is where the offline banner already lives (it sits under
+   .vip-header at z-index 19), and the two can be true at the same
+   moment — a rep loses signal while an update waits. Stacking them would
+   push the header content down twice.
+
+   z-index 70 puts it above every overlay in the app (drill-down 40/41,
+   FAB sheet 50/51, numpad 60/61) so it can't end up buried under a sheet
+   that was already open when the update landed.
+
+   The --vip-bottom-nav-h offset serves BOTH mobile cases, which is why it
+   is expressed that way rather than as a literal. On a tab route it clears
+   the bottom nav; on a drilled route (New Lead, Log Activity, Lead Detail)
+   the nav is hidden by .vip-drilled and a .vip-sticky-footer takes its
+   place — 81px against the nav's 82px, so the same offset lands the bar
+   flush above the Save button instead of over it. Measured live at 375px
+   on /leads/new: bar bottom 730px, footer top 731px. Worth re-measuring if
+   either height changes, since the two are near-equal by circumstance
+   rather than by a shared token.
+
+   Uses the --vip-shell family, which section 22 deliberately leaves
+   alone (the header and bottom nav are dark chrome in both themes), so
+   this needs no dark-mode block of its own.
+   ============================================================ */
+.vip-update-bar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--vip-bottom-nav-h) + env(safe-area-inset-bottom));
+  width: 100%;
+  max-width: var(--vip-app-max);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 16px;
+  background: var(--vip-shell);
+  border-top: 1px solid var(--vip-shell-line);
+}
+.vip-update-text { min-width: 0; }
+.vip-update-title { font-size: 13px; font-weight: 600; color: #fff; }
+.vip-update-sub { font-size: 11px; color: var(--vip-on-shell-dim); }
+.vip-update-bar .vip-btn {
+  flex: 0 0 auto;
+  min-height: 36px;
+  width: auto;
+  padding: 0 14px;
+  border-radius: var(--vip-r-control);
+  font-size: 13px;
+}
+
+/* At >=1024px the bottom nav is a left sidebar, not a bar, so there is no
+   bar height to clear — and the content column is offset by the collapsed
+   rail rather than centred on the viewport. Mirrors how .vip-header is
+   handled at this breakpoint (section 16). */
+@media (min-width: 1024px) {
+  .vip-update-bar {
+    left: var(--vip-sidebar-w-collapsed);
+    transform: none;
+    bottom: 0;
+    width: auto;
+    right: 0;
+    max-width: none;
+  }
+}

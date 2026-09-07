@@ -191,12 +191,18 @@ export function fetchLeadsForBreakdown() {
           'id, external_reference_id, current_stage, order_value, site_id, owner_employee_id, source_type, quote_sent, quote_sent_at, rfq_raised, rfq_raised_at, quote_value, closure_probability, estimated_close_date, next_followup_date, created_at, parties!party_id(name), sites(nickname, locality, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)',
           { count: 'exact' }
         ),
-      // `leads` is 1,209 rows (ROW-COUNTS.md) = 2 pages, and this query was
-      // MEASURED as Dashboard's critical path: page 1 ran 1,199→2,914ms and
-      // page 2 then ran 2,917→3,611ms, which was the page's entire load
-      // time. Firing page 2 alongside page 1 removes that second round trip.
-      // Raise this if `leads` passes 2,000 rows.
-      { speculativePages: 1 }
+      // speculativePages is DELIBERATELY NOT USED HERE — see the row-count
+      // note in fetchAllRows.js. The premise ("this table is known to
+      // exceed one page") is only ever true for the OWNER: under RLS a
+      // sales executive sees ~86 leads and a coordinator their team's, so
+      // for every other role the extra page is a request that cannot
+      // possibly return a row. Measured live on a real exec session
+      // (2026-09-07): it is not the free wasted request the option assumed
+      // — the exact count is ~1s of this query's ~2.4s, and the duplicate
+      // ran the full 8s to Supabase's statement_timeout inside a 19-request
+      // burst, alongside the real page 0, which then timed out too. The
+      // owner's measured saving was ~150-300ms; the cost to everyone else
+      // was a blank Dashboard.
     )
   )
 }
@@ -297,9 +303,18 @@ export function fetchStageHistoryForFunnel() {
           .from('stage_history')
           .select('lead_id, stage, changed_at, leads(owner_employee_id)', { count: 'exact' })
           .order('changed_at', { ascending: true }),
-      // stage_history is 1,591 rows (ROW-COUNTS.md) = 2 pages. Same
-      // second-round-trip saving as fetchLeadsForBreakdown above.
-      { speculativePages: 1 }
+      // speculativePages is DELIBERATELY NOT USED HERE — see the row-count
+      // note in fetchAllRows.js. The premise ("this table is known to
+      // exceed one page") is only ever true for the OWNER: under RLS a
+      // sales executive sees ~86 leads and a coordinator their team's, so
+      // for every other role the extra page is a request that cannot
+      // possibly return a row. Measured live on a real exec session
+      // (2026-09-07): it is not the free wasted request the option assumed
+      // — the exact count is ~1s of this query's ~2.4s, and the duplicate
+      // ran the full 8s to Supabase's statement_timeout inside a 19-request
+      // burst, alongside the real page 0, which then timed out too. The
+      // owner's measured saving was ~150-300ms; the cost to everyone else
+      // was a blank Dashboard.
     )
   )
 }

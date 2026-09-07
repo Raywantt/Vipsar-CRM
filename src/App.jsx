@@ -6,6 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import OfflineIndicator from './components/OfflineIndicator'
 import InstallPrompt from './components/InstallPrompt'
 import NotificationPrompt from './components/NotificationPrompt'
+import UpdateBanner from './components/UpdateBanner'
 import Login from './pages/Login'
 import Today from './pages/Today'
 import Profile from './pages/Profile'
@@ -27,6 +28,7 @@ function App() {
         <OfflineIndicator />
         <InstallPrompt />
         <NotificationPrompt />
+        <UpdateBanner />
         <ErrorBoundary>
         <Routes>
           <Route path="/login" element={<Login />} />
