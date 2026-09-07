@@ -34,6 +34,7 @@
 // vitest.config.js) and has no DOM to inspect. DOM and network reading is
 // confined to readEnvironment()/checkForUpdate(), which are glue.
 import { pendingWriteCount } from './supabaseFetch'
+import { storedAccessTokenExpired } from './supabaseClient'
 
 // How often a VISIBLE tab asks whether a new build exists. One conditional
 // request for the app's HTML (~1.2KB, answered 304 while unchanged because
@@ -94,6 +95,8 @@ const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
 // ---------------------------------------------------------------------------
 export function decideReload({
   pendingWrites = 0,
+  documentHidden = false,
+  authTokenExpired = false,
   editingFieldFocused = false,
   msSinceLastInput = Infinity,
   hasUnsavedInput = false,
@@ -103,6 +106,35 @@ export function decideReload({
   // than typing: the request is cancelled at the network layer, and for a POST
   // the row may or may not already have been written server-side. Never guess.
   if (pendingWrites > 0) return { reload: false, reason: 'save-in-flight' }
+
+  // NEVER RELOAD A HIDDEN PAGE. This looks like the safest possible moment —
+  // nobody is watching — and it is in fact the most dangerous one, which is
+  // why it gets its own rule rather than a comment.
+  //
+  // A phone that has just been pocketed freezes or discards the page shortly
+  // after it goes hidden. A reload issued into that window starts a fresh
+  // load which immediately asks auth-js to rotate an expired refresh token;
+  // the rotation reaches Supabase, the response never gets persisted because
+  // the page is suspended mid-flight, and the employee is signed out on their
+  // next open — the token they still hold has been consumed, and auth-js
+  // treats "Already Used" as a dead session. Reported 2026-09-07 as "after
+  // every update the app logs the user out".
+  //
+  // The pendingWrites guard above cannot see this: the dangerous request
+  // belongs to the NEXT page load, not this one. So the rule is simply not to
+  // start a load nobody is around to finish. The update is not lost — the
+  // visibilitychange handler applies it the moment the app is opened again,
+  // before the rep has touched anything.
+  if (documentHidden) return { reload: false, reason: 'page-hidden' }
+
+  // The same failure, reached without ever being hidden: if the stored access
+  // token has ALREADY expired, a fresh load has no choice but to rotate the
+  // refresh token before it can do anything, and any interruption of that
+  // rotation ends in a forced logout. Waiting lets auth-js rotate it here, on
+  // a live page, where the new token actually gets written to storage. It
+  // fails open (see storedAccessTokenExpired), and auto-refresh resolves it
+  // within seconds, so this defers an update rather than blocking one.
+  if (authTokenExpired) return { reload: false, reason: 'auth-refresh-pending' }
 
   // The cursor is in a field on a focused window — someone is typing this
   // instant. Note the caller pairs this with document.hasFocus(), so a field
@@ -236,6 +268,8 @@ export function initAppUpdate({ onDeferredChange } = {}) {
   function readEnvironment() {
     return {
       pendingWrites: pendingWriteCount(),
+      documentHidden: document.visibilityState === 'hidden',
+      authTokenExpired: storedAccessTokenExpired(),
       editingFieldFocused:
         document.hasFocus() && isEditableElement(document.activeElement),
       msSinceLastInput: lastInputAt === 0 ? Infinity : Date.now() - lastInputAt,
@@ -313,11 +347,11 @@ export function initAppUpdate({ onDeferredChange } = {}) {
       // touch anything.
       checkForUpdate()
       tryReload()
-    } else {
-      // And going away is the best moment to APPLY one — nobody is looking at
-      // the screen, so a reload costs nothing visually.
-      tryReload()
     }
+    // There is deliberately no `else` branch applying the update on the way
+    // out. Reloading a page that is being backgrounded is what was signing
+    // employees out — see the `page-hidden` rule in decideReload(). A pending
+    // update simply waits for the next time the app is opened.
   }
 
   function handleInput() {
@@ -339,7 +373,11 @@ export function initAppUpdate({ onDeferredChange } = {}) {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('online', handleOnline)
   window.addEventListener('focus', handleFocus)
-  window.addEventListener('blur', tryReload)
+  // Blur is NOT wired to tryReload for the same reason the hidden branch
+  // above is gone: on a phone, losing focus is the first half of being
+  // backgrounded, so reloading here would reopen the very window that strands
+  // a token rotation. It is only ever a few seconds until the rep looks at
+  // the app again, and `focus` picks it up then.
 
   syncPolling()
   checkForUpdate({ force: true })
@@ -362,7 +400,6 @@ export function initAppUpdate({ onDeferredChange } = {}) {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
     window.removeEventListener('online', handleOnline)
     window.removeEventListener('focus', handleFocus)
-    window.removeEventListener('blur', tryReload)
   }
 }
 

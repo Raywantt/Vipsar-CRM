@@ -26,6 +26,44 @@ function docWith(fields) {
 }
 
 describe('decideReload', () => {
+  // The 2026-09-07 forced-logout regression. Reloading a page that is being
+  // backgrounded strands an in-flight refresh-token rotation: the server
+  // consumes the token, the response is never persisted because the phone
+  // freezes the page, and auth-js signs the employee out on their next open.
+  // Both of these must stay false-returning for that not to come back.
+  it('refuses to reload a hidden page, however safe everything else looks', () => {
+    expect(decideReload({ documentHidden: true })).toEqual({
+      reload: false,
+      reason: 'page-hidden',
+    })
+  })
+
+  it('refuses to reload while the stored access token has already expired', () => {
+    expect(decideReload({ authTokenExpired: true })).toEqual({
+      reload: false,
+      reason: 'auth-refresh-pending',
+    })
+  })
+
+  it('still reports an in-flight save ahead of either auth rule', () => {
+    expect(
+      decideReload({ pendingWrites: 1, documentHidden: true, authTokenExpired: true }).reason
+    ).toBe('save-in-flight')
+  })
+
+  it('puts the hidden-page rule ahead of a focused field, so the real reason is reported', () => {
+    expect(
+      decideReload({ documentHidden: true, editingFieldFocused: true }).reason
+    ).toBe('page-hidden')
+  })
+
+  it('reloads normally on a visible page with a live token', () => {
+    expect(decideReload({ documentHidden: false, authTokenExpired: false })).toEqual({
+      reload: true,
+      reason: 'safe',
+    })
+  })
+
   it('reloads when nothing is in progress', () => {
     expect(decideReload()).toEqual({ reload: true, reason: 'safe' })
   })

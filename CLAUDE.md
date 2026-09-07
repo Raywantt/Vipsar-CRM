@@ -4356,8 +4356,53 @@ not run while the tab is hidden**. Reps pocket and re-open their phones
 constantly, so the focus check fires at exactly the moments that matter.
 `UPDATE_POLL_MS` is one named constant if this ever needs retuning.
 
-`visibilitychange` also *applies* a pending update when the tab goes hidden —
-nobody is looking, so the reload costs nothing visually.
+**⚠️ THE HIDDEN-PAGE RELOAD SIGNED PEOPLE OUT — fixed 2026-09-07, same day it
+shipped. Do not reintroduce it.** This module originally applied a pending
+update on `visibilitychange` → **hidden**, reasoning that "going away is the
+best moment to APPLY one — nobody is looking at the screen, so a reload costs
+nothing visually", and also reloaded on `blur`. That was wrong, and the way it
+was wrong is worth keeping: **the moment nobody is watching is the moment
+nothing is guaranteed to finish.** A phone that has just been pocketed freezes
+or discards the page seconds after it goes hidden. A reload issued into that
+window starts a fresh load which immediately asks auth-js to rotate an expired
+refresh token; the rotation reaches Supabase, but the response is never
+persisted because the page is suspended mid-flight. Refresh tokens are
+single-use, so the token still sitting in `localStorage` has now been consumed
+— and on the rep's next open Supabase answers "Invalid Refresh Token: Already
+Used". auth-js's `_callRefreshToken` treats that as non-retryable and, because
+the access token has also expired by then, calls `_removeSession()` outright.
+**Result: the login screen, after every single deploy.** Reported as "after
+every update the app logs the user out".
+
+Three things about that are worth generalising:
+* **The `pendingWrites` guard could not have caught it.** It is a real guard —
+  auth requests DO go through `supabaseFetch` (`createClient` hands
+  `global.fetch` to the auth client, confirmed in supabase-js's
+  `_initSupabaseAuthClient`), so an in-flight refresh does count. But the
+  dangerous request belonged to the **next** page load, not the one being
+  reloaded. A guard that inspects the current page cannot see a hazard you are
+  about to create in the following one.
+* **Nothing in this app's own code ever signed anyone out**, and confirming
+  that was most of the diagnosis: there is no `localStorage.clear()`, no
+  automatic `signOut()` (it is wired only to explicit buttons),
+  `ProtectedRoute` correctly waits on `loading` before redirecting, and a plain
+  `location.reload()` was verified live to preserve the session. When the app
+  is provably not doing it, read the auth library's own teardown conditions
+  rather than adding defensive code.
+* **The fix is two rules in `decideReload`, not a special case.**
+  `page-hidden` refuses to reload a hidden document at all, and
+  `auth-refresh-pending` refuses to reload while the stored access token has
+  ALREADY expired — that second one covers the same failure reached without
+  ever being hidden, since a fresh load in that state has no choice but to
+  rotate immediately. It reads `storedAccessTokenExpired()`
+  (`supabaseClient.js`), which **fails open** on anything unreadable: a wrong
+  `true` would hold every future update back forever, which is worse than the
+  bug. Both are ordered above the typing rules so the reason reported is the
+  real one, and both are pinned by regression tests.
+**Nothing is lost by waiting** — the update applies on the next
+`visibilitychange` → visible, i.e. the instant the rep opens the app, before
+they have touched anything. Verified live: a hidden page defers (banner shown,
+page intact) and reopening it reloads onto the new build still logged in.
 
 **`UpdateBanner.jsx` is the held-back case only, and most people will never see
 it.** It appears solely when `decideReload` says no, re-testing every 10s, and
