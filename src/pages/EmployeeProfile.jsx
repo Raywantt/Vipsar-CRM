@@ -9,7 +9,7 @@ import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQuerie
 import { fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
 import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp } from '../lib/followUpQueries'
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
-import { computeAttentionBuckets, STALE_DAYS, ATTENTION_DAYS, staleGateDays, buildLastStageChangeByLead } from '../lib/attention'
+import { computeStale7Bucket, STALE_DAYS, ATTENTION_DAYS, staleGateDays, buildLastStageChangeByLead } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageChipClass } from '../lib/statusColors'
@@ -89,7 +89,7 @@ function pctColor(p) {
 // `gate` is the age floored at HISTORY_STARTS_AT (attention.js); `days` stays
 // the real one and is what the row prints. Passing only `days` here would
 // paint 300+ legacy leads solid red on a screen whose own stale STAT, which
-// reads computeAttentionBuckets, correctly reports zero.
+// reads computeStale7Bucket, correctly reports zero.
 function touchColor(days, gate = days) {
   if (days == null) return NEUTRAL
   if (gate == null) return NEUTRAL
@@ -422,8 +422,14 @@ function EmployeeProfile() {
 
   const myLeads = breakdownLeads.filter((l) => l.owner_employee_id === execId)
   const myOpenLeads = myLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
-  const myAttention = computeAttentionBuckets(myLeads, lastActivityByLead, lastStageChangeByLead)
-  const staleBucket = myAttention.find((b) => b.key === 'stale')
+  // This page's own "Stale leads" stat and the "Leads assigned" card's
+  // sub-label both say "7+ days" (STALE_DAYS), not "14+ days"
+  // (ATTENTION_DAYS) — so this has to be the same STALE_DAYS-gated bucket
+  // RightNowStrip's dashboard tile uses, not computeAttentionBuckets()'s
+  // ATTENTION_DAYS-gated 'stale' entry. Both used to silently read the
+  // 14-day count under a 7-day label, the same mismatch found and fixed on
+  // the Dashboard — see src/lib/attention.js's computeStale7Bucket.
+  const staleBucket = computeStale7Bucket(myLeads, lastActivityByLead, lastStageChangeByLead)
 
   const myDecided = decidedStageHistory.filter((r) => r.leads?.owner_employee_id === execId)
   const winRate = myDecided.length ? Math.round((myDecided.filter((r) => r.stage === 'won').length / myDecided.length) * 100) : null

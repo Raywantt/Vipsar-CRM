@@ -359,6 +359,15 @@ export function fetchStageHistoryForFunnel() {
 // FAILS SOFT, same as fetchCategoryBreakdown: until the migration runs this
 // returns a "function not found" error and Dashboard falls back to the
 // existing client-side computeAttentionBuckets().
+//
+// No p_attention_days/p_stale_days/etc. passed here — every threshold param
+// relies on the SQL function's own default matching this app's JS constant
+// (attention.js's ATTENTION_DAYS/STALE_DAYS). That's an accepted, existing
+// drift risk (see Schema/migration_needs_attention_rpc.sql), not a new one:
+// retuning either constant needs the matching SQL DEFAULT changed too, in
+// whichever migration most recently redefined this function
+// (Schema/migration_stale_7day_tile.sql as of the p_stale_days/is_stale_7d
+// addition).
 export function fetchLeadsNeedingAttention() {
   const now = new Date()
   const today = todayISO()

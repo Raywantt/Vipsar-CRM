@@ -335,6 +335,98 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead, last
   return assembleBuckets({ stale, silentQuotes, followupsOverdue, slipped, pendingRfq })
 }
 
+// ---------------------------------------------------------------------------
+// The standalone "Stale Leads" tile (RightNowStrip) — gated on STALE_DAYS
+// (7), not ATTENTION_DAYS (14). This is a DIFFERENT question from the
+// 'stale' bucket inside computeAttentionBuckets() above: that one answers
+// "has this crossed the threshold for entering the Needs Attention queue?"
+// and is deliberately the later, more conservative number. This answers
+// "how many leads have gone quiet at all?" — the earlier threshold, per the
+// STALE_DAYS/ATTENTION_DAYS split's own original intent (see the constants'
+// header comment above).
+//
+// Before 2026-09-08 RightNowStrip's "Stale Leads" tile reused
+// computeAttentionBuckets()'s 'stale' bucket directly, so it silently showed
+// the ATTENTION_DAYS(14) count under a "Stale" label — which is why it always
+// read identical to Needs Attention's own stale row. Reported as confusing
+// (a lead reading as neglected at 7 days was never reflected anywhere as its
+// own number) and split out into this dedicated STALE_DAYS(7) computation.
+//
+// Same on_hold exclusion and stage-change-counts-as-a-touch rule as the
+// ATTENTION_DAYS bucket — a paused lead shouldn't read as neglected under
+// either threshold, so this reuses the exact same staleSinceTouch() gate,
+// just compared against STALE_DAYS instead of ATTENTION_DAYS.
+function buildStale7BucketShape(rows) {
+  const totalValue = rows.reduce((s, r) => s + r.value, 0)
+  return {
+    key: 'stale_7d',
+    title: `No activity in ${STALE_DAYS}+ days`,
+    sub: `${formatCurrencyCompact(totalValue)} at risk`,
+    count: rows.length,
+    color: '#b4232a',
+    note: `A lead lands here once it reaches ${STALE_DAYS}+ days without activity — earlier than the ${ATTENTION_DAYS}+ day Needs Attention queue.`,
+    listTitle: 'Oldest first',
+    listHint: 'no recent activity',
+    rows,
+  }
+}
+
+// Client-side path — mirrors the 'stale' branch inside computeAttentionBuckets
+// exactly, just gated at STALE_DAYS. Kept as a separate pass over openLeads
+// rather than folded into that function's own loop, since this bucket isn't
+// one of the five Needs Attention renders (the `.vip-dd-attn-grid` CSS is
+// fixed at `repeat(5, 1fr)` on the assumption assembleBuckets always produces
+// exactly five — see CLAUDE.md's Design system section) and has exactly one
+// consumer, RightNowStrip's "Stale Leads" tile.
+export function computeStale7Bucket(breakdownLeads, lastActivityByLead, lastStageChangeByLead = new Map()) {
+  const openLeads = breakdownLeads.filter(isOpen)
+  const rows = []
+  openLeads.forEach((lead) => {
+    if (lead.current_stage === 'on_hold') return
+    const imported = isImportedLead(lead)
+    const lastActivityAt = lastActivityByLead.get(lead.id) ?? null
+    const lastStageChangeAt = lastStageChangeByLead.get(lead.id) ?? null
+    const sinceTouch = staleSinceTouch(lastActivityAt, lastStageChangeAt, lead.created_at)
+    const touchAge = daysSince(sinceTouch)
+    const touchGate = queueAge(sinceTouch, imported)
+    if (touchGate != null && touchGate >= STALE_DAYS) {
+      rows.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge)))
+    }
+  })
+  return buildStale7BucketShape(sortByAgeDesc(rows))
+}
+
+// RPC-backed path — reads the `is_stale_7d` flag Postgres already decided
+// (Schema/migration_stale_7day_tile.sql), same "SQL owns the predicate, JS
+// owns the presentation" split the rest of this file's RPC path follows.
+// FAILS SOFT: a row from a not-yet-migrated database simply has no
+// `is_stale_7d` field, which reads as falsy here, so this returns a
+// correctly-shaped but empty (count: 0) bucket rather than throwing — same
+// "outstanding migration degrades to a quiet zero" shape the rest of this
+// app's optional RPCs already use. Once the migration runs, this becomes
+// accurate on the very next load with no other code change.
+export function computeStale7BucketFromRpc(rpcRows) {
+  const rows = []
+  ;(rpcRows ?? []).forEach((r) => {
+    if (!r.is_stale_7d) return
+    const lead = {
+      id: r.lead_id,
+      current_stage: r.current_stage,
+      quote_value: r.quote_value == null ? null : Number(r.quote_value),
+      order_value: r.order_value == null ? null : Number(r.order_value),
+      owner_employee_id: r.owner_id,
+      parties: { name: r.party },
+      employees: { name: r.owner_name },
+    }
+    const lastActivityAt = r.last_activity_at ?? null
+    const lastStageChangeAt = r.last_stage_change_at ?? null
+    const sinceTouch = staleSinceTouch(lastActivityAt, lastStageChangeAt, r.lead_created_at)
+    const touchAge = daysSince(sinceTouch)
+    rows.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge)))
+  })
+  return buildStale7BucketShape(sortByAgeDesc(rows))
+}
+
 // The presentation half, extracted 2026-09-05 so the client-side path above
 // and the RPC-backed path below produce BYTE-IDENTICAL buckets. Every title,
 // sub, colour, note and sort order lives here and nowhere else — the two

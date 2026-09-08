@@ -30,7 +30,14 @@ import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS } from '../lib/sourceTypeOptions'
 import { stageChipClass } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
-import { computeAttentionBuckets, computeAttentionBucketsFromRpc, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
+import {
+  computeAttentionBuckets,
+  computeAttentionBucketsFromRpc,
+  computeStale7Bucket,
+  computeStale7BucketFromRpc,
+  buildAgeingPanel,
+  buildLastStageChangeByLead,
+} from '../lib/attention'
 import { dealValueFor, sumOpenPipelineValue, sumOnHoldValue } from '../lib/pipelineValue'
 import {
   buildOrderValueAttainPanel,
@@ -756,7 +763,16 @@ function Dashboard() {
   const attentionBuckets = fastAttentionRows
     ? computeAttentionBucketsFromRpc(fastAttentionRows)
     : computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead)
-  const staleBucket = attentionBuckets.find((b) => b.key === 'stale')
+  // RightNowStrip's "Stale Leads" tile, gated on STALE_DAYS (7) — a
+  // deliberately DIFFERENT, earlier number than Needs Attention's own
+  // 'stale' entry inside attentionBuckets above (gated on ATTENTION_DAYS/14,
+  // the Needs Attention queue threshold). Computed the same fast-vs-fallback
+  // way as attentionBuckets, from the exact same underlying data — see
+  // src/lib/attention.js's own header comment on computeStale7Bucket for why
+  // these two used to (wrongly) show the same number.
+  const stale7Bucket = fastAttentionRows
+    ? computeStale7BucketFromRpc(fastAttentionRows)
+    : computeStale7Bucket(breakdownLeads, lastActivityByLead, lastStageChangeByLead)
   const weightedForecastValue = forecast.reduce(
     (s, l) => s + (Number(l.quote_value ?? 0) * (l.closure_probability ?? 0)) / 100,
     0
@@ -901,9 +917,12 @@ function Dashboard() {
               (see TIME-INDEPENDENT-METRICS-LOG.md for the full build log).
               Active/On-hold pipeline reuse REAL, already-fetched values
               (sumOpenPipelineValue/sumOnHoldValue over breakdownLeads — zero
-              new query); Stale leads reuses the exact same `staleBucket`
-              Needs Attention already computes. Completeness/gap/workload/
-              concentration are backed by `dashboard_snapshot_metrics()`. */}
+              new query); Stale leads uses `stale7Bucket` (STALE_DAYS/7 —
+              deliberately a DIFFERENT, earlier number than Needs Attention's
+              own 'stale' entry inside attentionBuckets, gated on
+              ATTENTION_DAYS/14 — see src/lib/attention.js's
+              computeStale7Bucket). Completeness/gap/workload/concentration
+              are backed by `dashboard_snapshot_metrics()`. */}
           <RightNowStrip
             showWorkload={seesOthersData}
             activeValue={openPipelineValue}
@@ -911,7 +930,7 @@ function Dashboard() {
             onHoldValue={onHoldValue}
             onHoldCount={onHoldLeadCount}
             onHoldAvgDays={numOrNull(snapshotMetrics?.on_hold_avg_days)}
-            staleCount={staleBucket.count}
+            staleCount={stale7Bucket.count}
             completenessPct={numOrNull(snapshotMetrics?.completeness_pct)}
             gapCount={numOrNull(snapshotMetrics?.followup_gap_count)}
             gapPct={numOrNull(snapshotMetrics?.followup_gap_pct)}
@@ -929,11 +948,11 @@ function Dashboard() {
             // via the Active Pipeline chip's own toggle, but this chip now
             // goes straight to the richer, purpose-built view.
             onOpenOnHold={handleOpenOnHoldInsights}
-            // Same exact call KpiSparkRow's own Stale leads tile used to
-            // make before this move — reusing `staleBucket` (already
-            // computed above for Needs Attention) and `buildAgeingPanel`
-            // directly, not a new computation.
-            onOpenStale={() => setPanel(buildAgeingPanel(staleBucket, scopeLabel, null, false))}
+            // Opens the STALE_DAYS(7) bucket, not Needs Attention's
+            // ATTENTION_DAYS(14) 'stale' entry — the count and its
+            // drill-down must show the same set of leads, so this has to
+            // read `stale7Bucket` too, not just the tile's own count above.
+            onOpenStale={() => setPanel(buildAgeingPanel(stale7Bucket, scopeLabel, null, false))}
             // Same pipeline panel again, defaulted to "Active" (the set
             // concentration is defined over) with concentrationMode on —
             // Milestone 6 panel 2. isSinglePersonScope reuses the exact

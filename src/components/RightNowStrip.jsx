@@ -13,10 +13,18 @@ import { formatCurrencyCompact } from '../lib/format'
 // Stale leads moved in here from KpiSparkRow — it's the same kind of
 // point-in-time snapshot as every other tile in this strip (not scoped to
 // the selected date range), so it no longer belongs below the date-range
-// selector KpiSparkRow sits under. It still uses the exact same
-// `staleBucket`/`buildAgeingPanel` computation Needs Attention's matching
-// row already relies on — this is a placement change, not a new metric or
-// a new query.
+// selector KpiSparkRow sits under.
+//
+// IT NO LONGER SHARES Needs Attention's bucket. Until 2026-09-08 this tile
+// read `staleBucket`, the exact same ATTENTION_DAYS(14)-gated 'stale' entry
+// Needs Attention's own "No activity in 14+ days" row shows — so the two
+// always displayed an identical number under a "Stale" label, which this
+// app's own STALE_DAYS(7)/ATTENTION_DAYS(14) split (see CLAUDE.md's Needs
+// Attention entry) defines as a different, earlier threshold. Reported live
+// (both tiles reading 72) and fixed: this tile now reads `stale7Bucket`
+// (src/lib/attention.js's computeStale7Bucket/computeStale7BucketFromRpc),
+// gated on STALE_DAYS instead — see Dashboard.jsx's own comment where that
+// bucket is computed.
 //
 // `showWorkload` hides the Workload tile entirely in single-person scope (a
 // sales exec, or a manager viewing "My numbers") — comparing one person's
@@ -71,7 +79,7 @@ function RightNowStrip({
       key: 'stale',
       label: 'Stale Leads',
       value: staleCount != null ? String(staleCount) : '—',
-      sub: 'no activity 14+ days',
+      sub: 'no activity 7+ days',
       onOpen: onOpenStale,
     },
     {

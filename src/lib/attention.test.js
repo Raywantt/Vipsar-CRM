@@ -1,5 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { computeAttentionBuckets, computeAttentionBucketsFromRpc, countDistinctLeads, buildAgeingPanel, STALE_DAYS, ATTENTION_DAYS, SILENT_QUOTE_DAYS, PENDING_RFQ_DAYS } from './attention'
+import {
+  computeAttentionBuckets,
+  computeAttentionBucketsFromRpc,
+  computeStale7Bucket,
+  computeStale7BucketFromRpc,
+  countDistinctLeads,
+  buildAgeingPanel,
+  STALE_DAYS,
+  ATTENTION_DAYS,
+  SILENT_QUOTE_DAYS,
+  PENDING_RFQ_DAYS,
+} from './attention'
 
 // Deliberately well past attention.js's HISTORY_STARTS_AT (2026-09-02) so the
 // legacy-import clamp is inert here and every threshold test below measures
@@ -262,6 +273,107 @@ describe('computeAttentionBucketsFromRpc — stale display matches the client-si
     const row = baseRpcRow({ is_stale: false, last_activity_at: daysAgo(400) })
     const [stale] = computeAttentionBucketsFromRpc([row])
     expect(stale.count).toBe(0)
+  })
+})
+
+// The dedicated STALE_DAYS(7) tile — deliberately a DIFFERENT, earlier
+// number from computeAttentionBuckets()'s ATTENTION_DAYS(14) 'stale' entry
+// above. Before 2026-09-08 RightNowStrip's "Stale Leads" tile just reused
+// that 14-day bucket, so the two always read identical — these tests pin
+// that they no longer do.
+describe('computeStale7Bucket', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('flags a lead untouched for STALE_DAYS, well before it would enter the ATTENTION_DAYS queue', () => {
+    const lastActivity = new Map([['lead-1', daysAgo(STALE_DAYS)]])
+    const bucket = computeStale7Bucket([baseLead()], lastActivity)
+    expect(bucket.key).toBe('stale_7d')
+    expect(bucket.count).toBe(1)
+  })
+
+  it('does not flag a lead touched more recently than STALE_DAYS', () => {
+    const lastActivity = new Map([['lead-1', daysAgo(STALE_DAYS - 1)]])
+    const bucket = computeStale7Bucket([baseLead()], lastActivity)
+    expect(bucket.count).toBe(0)
+  })
+
+  it('is a superset of the ATTENTION_DAYS bucket — anything stale enough to queue is also stale enough for this tile', () => {
+    const lastActivity = new Map([['lead-1', daysAgo(ATTENTION_DAYS)]])
+    const bucket = computeStale7Bucket([baseLead()], lastActivity)
+    expect(bucket.count).toBe(1)
+  })
+
+  it('never puts an on_hold lead in this bucket either, same rule as the ATTENTION_DAYS one', () => {
+    const lead = baseLead({ id: 'held', current_stage: 'on_hold', created_at: daysAgo(400) })
+    const bucket = computeStale7Bucket([lead], new Map())
+    expect(bucket.count).toBe(0)
+  })
+
+  it('excludes closed (won/lost) leads', () => {
+    const leads = [
+      baseLead({ id: 'won', current_stage: 'won', created_at: daysAgo(60) }),
+      baseLead({ id: 'lost', current_stage: 'lost', created_at: daysAgo(60) }),
+    ]
+    const bucket = computeStale7Bucket(leads, new Map())
+    expect(bucket.count).toBe(0)
+  })
+})
+
+describe('computeStale7BucketFromRpc', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function baseRpcRow(overrides = {}) {
+    return {
+      lead_id: 'r-1',
+      party: 'Test Party',
+      owner_name: 'Asha Rao',
+      owner_id: 'emp-1',
+      current_stage: 'calling',
+      quote_value: null,
+      order_value: null,
+      last_activity_at: daysAgo(STALE_DAYS),
+      last_stage_change_at: null,
+      lead_created_at: daysAgo(400),
+      is_stale_7d: true,
+      ...overrides,
+    }
+  }
+
+  it('trusts is_stale_7d for membership rather than re-deciding it client-side', () => {
+    const row = baseRpcRow({ is_stale_7d: false, last_activity_at: daysAgo(400) })
+    const bucket = computeStale7BucketFromRpc([row])
+    expect(bucket.count).toBe(0)
+  })
+
+  it('includes a row the server flagged, even one that would not qualify for the ATTENTION_DAYS bucket', () => {
+    const row = baseRpcRow({ is_stale_7d: true, last_activity_at: daysAgo(STALE_DAYS) })
+    const bucket = computeStale7BucketFromRpc([row])
+    expect(bucket.count).toBe(1)
+  })
+
+  // A row from a database that hasn't run migration_stale_7day_tile.sql yet
+  // has no `is_stale_7d` field at all — must degrade to "not stale" rather
+  // than throwing, so the tile reads an honest (if temporarily low) 0
+  // instead of crashing the page.
+  it('degrades to an empty bucket, not a crash, when is_stale_7d is absent (migration not yet run)', () => {
+    const row = baseRpcRow()
+    delete row.is_stale_7d
+    const bucket = computeStale7BucketFromRpc([row])
+    expect(bucket.count).toBe(0)
   })
 })
 
