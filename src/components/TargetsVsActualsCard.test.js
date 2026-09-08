@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from './TargetsVsActualsCard'
+import {
+  computeOrderValueActuals,
+  computeQuoteSentActuals,
+  computeScanningLeadsActuals,
+  computeWonCountActuals,
+  targetFor,
+} from './TargetsVsActualsCard'
 
 const range = { start: new Date(2026, 7, 1), end: new Date(2026, 7, 31, 23, 59, 59) }
 
@@ -77,6 +83,31 @@ describe('computeQuoteSentActuals', () => {
     const map = computeQuoteSentActuals(breakdownLeads, range, true)
     expect(map.get('e1')).toBe(2)
     expect(map.get('e2')).toBe(1)
+  })
+})
+
+describe('computeScanningLeadsActuals', () => {
+  it('counts leads whose source is scanning and created_at falls within range', () => {
+    const breakdownLeads = [
+      { owner_employee_id: 'e1', source_type: 'scanning', created_at: '2026-08-05T00:00:00Z' },
+      { owner_employee_id: 'e1', source_type: 'scanning', created_at: '2026-07-05T00:00:00Z' }, // outside range
+      { owner_employee_id: 'e1', source_type: 'lixil', created_at: '2026-08-05T00:00:00Z' }, // wrong source
+      { owner_employee_id: 'e2', source_type: 'scanning', created_at: null }, // no created_at
+    ]
+    expect(computeScanningLeadsActuals(breakdownLeads, range, false)).toBe(1)
+  })
+
+  it('when showByEmployee, buckets counts per owner, using "unassigned" for null', () => {
+    const breakdownLeads = [
+      { owner_employee_id: 'e1', source_type: 'scanning', created_at: '2026-08-05T00:00:00Z' },
+      { owner_employee_id: 'e1', source_type: 'scanning', created_at: '2026-08-06T00:00:00Z' },
+      { owner_employee_id: 'e2', source_type: 'scanning', created_at: '2026-08-06T00:00:00Z' },
+      { owner_employee_id: null, source_type: 'scanning', created_at: '2026-08-06T00:00:00Z' },
+    ]
+    const map = computeScanningLeadsActuals(breakdownLeads, range, true)
+    expect(map.get('e1')).toBe(2)
+    expect(map.get('e2')).toBe(1)
+    expect(map.get('unassigned')).toBe(1)
   })
 })
 

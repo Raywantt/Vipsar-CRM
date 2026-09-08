@@ -11,7 +11,7 @@ import { LOSS_REASON_OPTIONS } from './lossReasonOptions'
 import { stageChipClass, stageFg, TONE_NEUTRAL } from './statusColors'
 import { formatCurrencyCompact, formatTimeRange } from './format'
 import { parseTimestamp } from './dbTime'
-import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
+import { computeOrderValueActuals, computeScanningLeadsActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeFunnel } from '../components/SalesFunnelCard'
 import { dealValueFor } from './pipelineValue'
 
@@ -146,6 +146,60 @@ export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory
   }
 }
 
+// Mirrors wonEventsInRange above but for Scanning Leads — one event per lead
+// created inside the range whose source is Scanning, dated by creation
+// rather than a stage change.
+function scanningLeadEventsInRange(breakdownLeads, range) {
+  return breakdownLeads
+    .filter((l) => l.source_type === 'scanning' && l.created_at)
+    .map((l) => ({ createdAt: new Date(l.created_at), employeeId: l.owner_employee_id }))
+    .filter((e) => e.createdAt >= range.start && e.createdAt <= range.end)
+}
+
+// ---------- attain: scanning leads (company-wide or one exec) ----------
+export function buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads, range, employeeId, rangeLabel, scopeLabel = 'Company' }) {
+  const employee = employeeId ? employees.find((e) => e.id === employeeId) : null
+  const isCompanyScope = !employee && scopeLabel === 'Company'
+  const actualsByEmployee = computeScanningLeadsActuals(breakdownLeads, range, true)
+  const actual = employeeId
+    ? actualsByEmployee.get(employeeId) ?? 0
+    : [...actualsByEmployee.values()].reduce((s, v) => s + v, 0)
+  const target = employeeId ? targetFor(targets, employeeId, 'scanning_leads') : companyTargetFor(targets, employees, 'scanning_leads')
+
+  const events = scanningLeadEventsInRange(breakdownLeads, range).filter((e) => !employeeId || e.employeeId === employeeId)
+  const daily = dailyTotals(events, range, (e) => e.createdAt)
+  const pace = buildPaceChart(daily, target)
+
+  const contrib = employeeId || !isCompanyScope
+    ? []
+    : employees
+        .map((e) => ({ label: e.name, value: actualsByEmployee.get(e.id) ?? 0 }))
+        .filter((c) => c.value > 0)
+        .sort((a, b) => b.value - a.value)
+  const maxContrib = Math.max(1, ...contrib.map((c) => c.value))
+
+  return {
+    kind: 'attain',
+    eyebrow: employee ? `${employee.name} · scanning leads` : `${scopeLabel} · scanning leads`,
+    title: employee || !isCompanyScope ? 'New scanning leads against personal target' : 'New scanning leads against company target',
+    value: String(actual),
+    delta: target != null ? `of ${Math.round(target)} target` : null,
+    note: `${rangeLabel}. New leads captured with Scanning as the source, counted by lead owner.`,
+    stats: [
+      { label: 'Leads', value: String(actual), sub: rangeLabel, color: '#101617' },
+      { label: 'Target', value: target != null ? String(Math.round(target)) : '—', sub: 'for this period', color: '#485456' },
+      { label: 'Gap', value: target != null ? String(Math.max(0, Math.round(target) - actual)) : '—', sub: 'to target', color: '#b4232a' },
+    ],
+    pace,
+    contribTitle: 'Contribution by exec',
+    contrib: contrib.map((c) => ({
+      label: c.label,
+      value: String(c.value),
+      pct: `${Math.round((c.value / maxContrib) * 100)}%`,
+    })),
+  }
+}
+
 // ---------- attain: activity volume (company-wide for the owner, own-only for a sales exec) ----------
 export function buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel, scopeLabel = 'Company' }) {
   const actual = activities.length
@@ -193,19 +247,25 @@ export function buildActivitiesAttainPanel({ activities, targets, employees, ran
   }
 }
 
-// ---------- attain: one exec's blended attainment across all 5 metrics (heatmap "overall" column) ----------
-// Metrics here must match DashboardHeatmap's own COLS (ACTIVITY_METRIC_OPTIONS
-// + order_value) exactly — this panel is what that heatmap's "Overall" cell
-// opens, so a mismatch would show a different number than the cell itself.
-export function buildOverallAttainPanel({ employee, targets, activities, wonStageHistory, range, rangeLabel }) {
-  const metrics = [...ACTIVITY_METRIC_OPTIONS.map((t) => t.value), 'order_value']
+// ---------- attain: one exec's blended attainment across every targetable metric (heatmap "overall" column) ----------
+// Metrics here must match DashboardHeatmap's own COLS (scanning_leads +
+// ACTIVITY_METRIC_OPTIONS + order_value) exactly — this panel is what that
+// heatmap's "Overall" cell opens, so a mismatch would show a different
+// number than the cell itself.
+export function buildOverallAttainPanel({ employee, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel }) {
+  const metrics = ['scanning_leads', ...ACTIVITY_METRIC_OPTIONS.map((t) => t.value), 'order_value']
   const orderActual = computeOrderValueActuals(wonStageHistory, range, true).get(employee.id) ?? 0
+  const scanningActual = computeScanningLeadsActuals(breakdownLeads, range, true).get(employee.id) ?? 0
   const rows = metrics.map((metric) => {
     const target = targetFor(targets, employee.id, metric)
     const actual =
-      metric === 'order_value' ? orderActual : activities.filter((a) => a.employee_id === employee.id && a.activity_type === metric).length
+      metric === 'order_value'
+        ? orderActual
+        : metric === 'scanning_leads'
+          ? scanningActual
+          : activities.filter((a) => a.employee_id === employee.id && a.activity_type === metric).length
     return {
-      label: metric === 'order_value' ? 'Order value' : ACTIVITY_LABELS[metric],
+      label: metric === 'order_value' ? 'Order value' : metric === 'scanning_leads' ? 'Scanning Leads' : ACTIVITY_LABELS[metric],
       actual,
       target,
       pct: target ? Math.round((actual / target) * 100) : null,
@@ -217,11 +277,11 @@ export function buildOverallAttainPanel({ employee, targets, activities, wonStag
   return {
     kind: 'attain',
     eyebrow: `${employee.name} · overall`,
-    title: 'Blended attainment across all five targets',
+    title: `Blended attainment across all ${metrics.length} targets`,
     value: overallPct != null ? `${overallPct}%` : '—',
-    note: `${rangeLabel}. Simple average of whichever of the five metrics have a target set for ${employee.name.split(' ')[0]}.`,
+    note: `${rangeLabel}. Simple average of whichever of the ${metrics.length} metrics have a target set for ${employee.name.split(' ')[0]}.`,
     stats: [
-      { label: 'Overall', value: overallPct != null ? `${overallPct}%` : '—', sub: `${withTarget.length} of 5 have targets`, color: '#101617' },
+      { label: 'Overall', value: overallPct != null ? `${overallPct}%` : '—', sub: `${withTarget.length} of ${metrics.length} have targets`, color: '#101617' },
       { label: 'Order value', value: formatCurrencyCompact(orderActual), sub: rows.find((r) => r.label === 'Order value')?.target != null ? `of ${formatCurrencyCompact(rows.find((r) => r.label === 'Order value').target)}` : 'no target set', color: '#101617' },
     ],
     contribTitle: 'Line by line',

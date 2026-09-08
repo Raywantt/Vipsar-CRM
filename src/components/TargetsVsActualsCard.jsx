@@ -4,10 +4,10 @@ import { formatCurrencyCompact } from '../lib/format'
 import SetTargetForm from './SetTargetForm'
 import DashboardHeatmap from './DashboardHeatmap'
 
-// order_value/quote_sent/won_count are computed by their own dedicated
-// functions below (not tallied from activities), so they're excluded from
-// the activity-type tally's zero-init the same way order_value already was.
-const NON_ACTIVITY_METRICS = ['order_value', 'quote_sent', 'won_count']
+// order_value/scanning_leads are computed by their own dedicated functions
+// below (not tallied from activities), so they're excluded from the
+// activity-type tally's zero-init.
+const NON_ACTIVITY_METRICS = ['order_value', 'scanning_leads']
 
 function emptyMetricCounts() {
   return Object.fromEntries(METRIC_OPTIONS.filter((m) => !NON_ACTIVITY_METRICS.includes(m.value)).map((m) => [m.value, 0]))
@@ -67,11 +67,34 @@ export function computeOrderValueActuals(wonStageHistory, range, showByEmployee)
   return map
 }
 
+// "Scanning Leads" actual — new leads (not activities) whose source is
+// Scanning, dated by creation and attributed to the lead's owner. Same
+// breakdownLeads array and same "own row" shape as computeQuoteSentActuals
+// just below — no second query.
+export function computeScanningLeadsActuals(breakdownLeads, range, showByEmployee) {
+  const inRange = breakdownLeads.filter((l) => {
+    if (l.source_type !== 'scanning') return false
+    if (!l.created_at) return false
+    const createdAt = new Date(l.created_at)
+    return createdAt >= range.start && createdAt <= range.end
+  })
+
+  if (!showByEmployee) return inRange.length
+
+  const map = new Map()
+  inRange.forEach((l) => {
+    const key = l.owner_employee_id ?? 'unassigned'
+    map.set(key, (map.get(key) ?? 0) + 1)
+  })
+  return map
+}
+
 // "Offers sent" actual — leads has no per-quote log, just a single
 // quote_sent_at timestamp per lead, so this counts leads whose quote was
 // sent inside the range. breakdownLeads is the same unbounded, RLS-scoped
 // array Dashboard.jsx already fetches for the category-breakdown cards
-// (fetchLeadsForBreakdown) — no second query.
+// (fetchLeadsForBreakdown) — no second query. Exported for the Sales Exec
+// Profile's own "Offers sent" tile — not part of this card's METRIC_OPTIONS.
 export function computeQuoteSentActuals(breakdownLeads, range, showByEmployee) {
   const inRange = breakdownLeads.filter((l) => {
     if (!l.quote_sent_at) return false
@@ -94,7 +117,8 @@ export function computeQuoteSentActuals(breakdownLeads, range, showByEmployee) {
 // Same latestByLead reduction as computeOrderValueActuals, so a lead with
 // multiple 'won' rows (re-opened and re-won) is still counted once, and this
 // tile's count matches whatever the exec profile's funnel "Won" step shows
-// for the same range by construction.
+// for the same range by construction. Exported for the Sales Exec Profile's
+// own "Bookings" tile — dropped from this card's METRIC_OPTIONS 2026-09-08.
 export function computeWonCountActuals(wonStageHistory, range, showByEmployee) {
   const latestByLead = new Map()
   wonStageHistory.forEach((row) => {
@@ -176,6 +200,7 @@ function TargetsVsActualsCard({
             targets={targets}
             activities={activities}
             wonStageHistory={wonStageHistory}
+            breakdownLeads={breakdownLeads}
             range={range}
             rangeLabel={rangeLabel}
             onOpenLog={onOpenLog}
@@ -234,19 +259,19 @@ function TargetsVsActualsCard({
   )
 }
 
-function actualFor(m, { activityActuals, orderValueActuals, quoteSentActuals, wonCountActuals }, employeeId) {
+function actualFor(m, { activityActuals, orderValueActuals, scanningLeadsActuals }, employeeId) {
   if (m.value === 'order_value') return employeeId == null ? orderValueActuals : orderValueActuals.get(employeeId) ?? 0
-  if (m.value === 'quote_sent') return employeeId == null ? quoteSentActuals : quoteSentActuals.get(employeeId) ?? 0
-  if (m.value === 'won_count') return employeeId == null ? wonCountActuals : wonCountActuals.get(employeeId) ?? 0
+  if (m.value === 'scanning_leads') return employeeId == null ? scanningLeadsActuals : scanningLeadsActuals.get(employeeId) ?? 0
   return employeeId == null ? activityActuals[m.value] : activityActuals.get(employeeId)?.[m.value] ?? 0
 }
 
 // Same "mean of the metric ratios, each capped at 1.25" definition
 // EmployeeProfile.jsx's rank pill uses (blendedAttainment there) — scoped
-// here to all 8 METRIC_OPTIONS rather than that page's own 6 tiles, and
-// skipping any metric with no target set for this employee (same as each
-// metric row's own "no target set" fallback below) rather than treating a
-// missing target as a zero, which would unfairly drag the average down.
+// here to all 6 METRIC_OPTIONS rather than that page's own 6 tiles (a
+// different 6, see targetMetrics.js), and skipping any metric with no target
+// set for this employee (same as each metric row's own "no target set"
+// fallback below) rather than treating a missing target as a zero, which
+// would unfairly drag the average down.
 const ATTAINMENT_CAP = 1.25
 
 function blendedAttainmentFor(employeeId, actuals, targets) {
@@ -288,8 +313,8 @@ function TargetRow({ row }) {
 }
 
 // One collapsed row per exec (name · blended attainment · a single bar),
-// expanding to that person's 8 METRIC_OPTIONS rows on tap — replaces what
-// used to be employees.length × 8 flat rows shown unconditionally (see
+// expanding to that person's 6 METRIC_OPTIONS rows on tap — replaces what
+// used to be employees.length × 6 flat rows shown unconditionally (see
 // TargetsTable below: this only ever mounts on mobile now, paired with
 // DashboardHeatmap on desktop). Reuses .vip-detail-row, the same tap-to-
 // expand summary row Lead Detail's mobile collapsed sections already use,
@@ -337,8 +362,7 @@ function TargetsTable({ activities, wonStageHistory, breakdownLeads, targets, ra
   const actuals = {
     activityActuals: computeActivityActuals(activities, showByEmployee),
     orderValueActuals: computeOrderValueActuals(wonStageHistory, range, showByEmployee),
-    quoteSentActuals: computeQuoteSentActuals(breakdownLeads ?? [], range, showByEmployee),
-    wonCountActuals: computeWonCountActuals(wonStageHistory, range, showByEmployee),
+    scanningLeadsActuals: computeScanningLeadsActuals(breakdownLeads ?? [], range, showByEmployee),
   }
 
   if (!showByEmployee) {

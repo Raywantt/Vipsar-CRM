@@ -3,47 +3,45 @@ import { OLD_MEETING, NEW_MEETING } from './meetingBucket'
 
 // The targets table's metric_name is free text (no CHECK constraint), but
 // this dashboard only knows how to compute an "actual" for metrics that map
-// directly onto something measurable. Not every ACTIVITY_TYPES entry is
-// targetable — Office Day and Booking Update are process-tracking entries
-// rather than something a rep gets a quota for, so they're excluded here
-// (2026-08-09, per the owner) even though they're still loggable in
-// Activity Log. "Offers Sent" (quote_sent) was dropped from this list at
-// the same time — its computeQuoteSentActuals function stays exported for
-// the Sales Exec Profile's own "Offers sent" tile, which isn't driven by
-// this list. Bookings (won_count, see computeWonCountActuals in
-// TargetsVsActualsCard.jsx) is unaffected and stays.
-// Deliberately a closed list, not "suggested options + Other…" like
-// current_stage/site_stage — an arbitrary free-text metric here would have a
-// target but no computable actual, which defeats the point of this section.
-// Built from ACTIVITY_TYPES rather than redeclared so it can't drift out of
-// sync.
+// directly onto something measurable. Deliberately a closed list, not
+// "suggested options + Other…" like current_stage/site_stage — an arbitrary
+// free-text metric here would have a target but no computable actual, which
+// defeats the point of this section.
 //
-// Client Meeting joined this list when it was added (2026-08-17, per the
-// owner); Design Sheet deliberately did not — it's a deliverable that follows
-// from work already done rather than an outbound effort a rep gets a number
-// for, the same reasoning that keeps Office Day and Booking Update out. Both
-// are still logged, still counted in every activity total, and still shown on
-// Dashboard's Activity card either way — this list only controls what can
-// carry a TARGET.
-// Client Meeting was one targetable metric until 2026-09-07; it is now two,
-// Old Meetings and New Meetings, each carrying its own target and its own
-// heatmap column (the owner's ruling — a combined quota would have hidden the
-// very split the buckets exist to show). Any target row still keyed on the
-// retired 'client_meeting' metric no longer computes an actual and needs
-// re-entering against whichever of the two it was really meant for.
-const TARGETABLE_ACTIVITY_VALUES = ['site_visit', 'call', OLD_MEETING, NEW_MEETING, 'rfq_raised', 'architect_meeting']
+// REPLACED WHOLESALE 2026-09-08, per the owner — the prior six-metric list
+// (Site Visit/Call/Old Meeting/New Meeting/RFQ Raised/Architect Meeting +
+// Order Value + Bookings) is gone; this is the new set. Site Visit,
+// Architect Meeting and Bookings (won_count) were dropped; Scanning Leads
+// is new. computeWonCountActuals/computeQuoteSentActuals
+// (TargetsVsActualsCard.jsx) stay exported — the Sales Exec Profile's own
+// hardcoded 6-tile grid (Order value/Site visits/Calls made/RFQs raised/
+// Offers sent/Bookings) is a separate list, unaffected by this one.
+//
+// TARGETABLE_ACTIVITY_VALUES sets both membership AND order (ACTIVITY_TYPES'
+// own order puts Call ahead of the meeting buckets; this list wants the
+// meetings first) — ACTIVITY_METRIC_OPTIONS is built by looking each value
+// up in ACTIVITY_TYPES rather than filtering it, so a value/label typo here
+// still can't drift out of sync with the activities CHECK constraint.
+const TARGETABLE_ACTIVITY_VALUES = [OLD_MEETING, NEW_MEETING, 'call', 'rfq_raised']
 
-// Activity-type-shaped targetable metrics only (excludes order_value/
-// won_count, which are computed differently) — shared by DashboardHeatmap's
-// columns and buildOverallAttainPanel's blended-attainment calc
-// (drilldownBuilders.js) so the heatmap's inline "Overall %" and the panel
-// its cell opens can't drift into two different numbers for the same thing.
-export const ACTIVITY_METRIC_OPTIONS = ACTIVITY_TYPES.filter((a) => TARGETABLE_ACTIVITY_VALUES.includes(a.value))
+// Activity-type-shaped targetable metrics only (excludes scanning_leads/
+// order_value, which are computed from leads, not activities) — shared by
+// DashboardHeatmap's columns and buildOverallAttainPanel's blended-
+// attainment calc (drilldownBuilders.js) so the heatmap's inline "Overall %"
+// and the panel its cell opens can't drift into two different numbers for
+// the same thing.
+export const ACTIVITY_METRIC_OPTIONS = TARGETABLE_ACTIVITY_VALUES.map((v) => ACTIVITY_TYPES.find((a) => a.value === v))
 
+// Scanning Leads is the one metric here that isn't an activity at all — it
+// counts NEW LEADS (not activities logged against a lead) whose source is
+// Scanning, attributed to the lead's owner and dated by creation.
+// computeScanningLeadsActuals (TargetsVsActualsCard.jsx) reads it off
+// breakdownLeads, the same array computeQuoteSentActuals already reduces for
+// the Sales Exec Profile's "Offers sent" tile — no new query.
 export const METRIC_OPTIONS = [
+  { value: 'scanning_leads', label: 'Scanning Leads' },
   ...ACTIVITY_METRIC_OPTIONS,
-  { value: 'order_value', label: 'Order Value' },
-  { value: 'won_count', label: 'Bookings' },
+  { value: 'order_value', label: 'Order Value Booked' },
 ]
 
 export const METRIC_LABELS = Object.fromEntries(METRIC_OPTIONS.map((o) => [o.value, o.label]))

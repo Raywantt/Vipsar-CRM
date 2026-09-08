@@ -2833,29 +2833,55 @@ since it isn't part of the date-range-scoped report data.
   week/month/quarter check that could drift from it) — the card component
   has no `isTargetPeriod` branch of its own anymore, since it's structurally
   never mounted any other way. `metric_name` is a **closed** list
-  (`src/lib/targetMetrics.js`: `site_visit`/`call`/`client_meeting`/
-  `rfq_raised`/`architect_meeting` — see `ACTIVITY_METRIC_OPTIONS`, the
-  targetable subset of `ACTIVITY_TYPES` — plus `order_value` and
-  `won_count`), deliberately
+  (`src/lib/targetMetrics.js`), deliberately
   not the "suggested options + Other…" free-text pattern used for
   `current_stage`/`site_stage` — an arbitrary metric would have a target but
-  no computable actual, which defeats the section. **Design Sheet was added to
-  `ACTIVITY_TYPES` in 2026-08-17 but deliberately kept OUT of this list**, per
-  the owner — same reasoning as the three below. **Office Day, Booking
-  Update, and Offers Sent (`quote_sent`) were dropped from this list**
-  (2026-08-09, per the owner) — Office Day/Booking Update are process-
-  tracking entries rather than something a rep gets a quota for, and Offers
-  Sent went with them; all three are still loggable in Activity Log and
-  still count in `ActivityCountsCard`'s "Activity" tally (that card walks
-  `ACTIVITY_TYPES` directly, not this list) and `EmployeeProfile.jsx`'s own
-  hardcoded 6-tile grid (a separate list, unaffected — see the Sales Exec
-  Profile section) — only *targeting* them is gone. `DashboardHeatmap.jsx`'s
-  columns and `buildOverallAttainPanel`'s blended-attainment calc
-  (`drilldownBuilders.js`) both import `ACTIVITY_METRIC_OPTIONS` from the
-  same file rather than building their own filtered list, so the heatmap's
-  inline "Overall %" and the panel its own cell opens can't drift into two
-  different numbers for the same thing (the exact class of bug the Pipeline/
-  deal value rule elsewhere in this doc was written to avoid). Actuals for the four remaining activity-type metrics are a straight count
+  no computable actual, which defeats the section.
+  **Replaced wholesale 2026-09-08, per the owner — this is the current
+  six-metric list, in the order they render**: `scanning_leads` ("Scanning
+  Leads" — new leads, not activities, whose source is Scanning, counted by
+  lead owner via the new `computeScanningLeadsActuals` in
+  `TargetsVsActualsCard.jsx`, reading the same `breakdownLeads` array the
+  card already fetches — no new query), `client_meeting_old`/
+  `client_meeting_new` ("Old Meeting"/"New Meeting"), `call` ("Call"),
+  `rfq_raised` ("RFQ Raised"), and `order_value` (labelled "Order Value
+  Booked" here specifically — the underlying column and every other
+  screen's label are still plain "Order value", see the `order_value`
+  reads/writes named throughout this file). **Dropped in the same pass:
+  Site Visit, Architect Meeting, and Bookings (`won_count`)** — none of the
+  three are targetable from this card anymore, though all three are still
+  loggable/visible everywhere else (`EmployeeProfile.jsx`'s own hardcoded
+  6-tile grid — Order value/Site visits/Calls made/RFQs raised/Offers
+  sent/Bookings — is a separate list, unaffected; `computeQuoteSentActuals`/
+  `computeWonCountActuals` stay exported from `TargetsVsActualsCard.jsx`
+  purely for that grid). Any `targets` row still keyed on `site_visit`/
+  `architect_meeting`/`won_count` no longer computes an actual and needs
+  re-entering against one of the six above — the same "stranded target"
+  situation the Client Meeting bucket split already left behind (see the
+  Meeting buckets section). `ACTIVITY_METRIC_OPTIONS` (the four activity-
+  type metrics — Old/New Meeting, Call, RFQ Raised) is still exported for
+  `DashboardHeatmap.jsx`'s columns and `buildOverallAttainPanel`'s blended-
+  attainment calc to share, so a value/order edit here can't leave the
+  heatmap and its own drill-down disagreeing — `scanning_leads` and
+  `order_value` are added back on top of it at both of those call sites
+  (and inside `blendedAttainmentFor`/`ExecAttainmentRow` in
+  `TargetsVsActualsCard.jsx`) since neither is activity-shaped.
+  A new `buildScanningLeadsAttainPanel` (`drilldownBuilders.js`) is the
+  Scanning Leads column's own drill-down — pace chart + per-exec
+  contribution, same shape as the existing `buildOrderValueAttainPanel`,
+  built off the same `breakdownLeads` prop rather than a new fetch.
+  **Verified live** (owner session, 1440px and mobile): the heatmap renders
+  the 6 metric columns + Overall with real data: "+ Set a target"'s
+  dropdown offers exactly the six in this order; the Scanning Leads and
+  Overall drill-downs both open with correct numbers (Overall's copy is
+  templated off the real metric count now, not a hardcoded "five"); and the
+  mobile collapsed exec rows expand to the same six rows. **Not
+  independently verified**: the sales_exec's own (non-heatmap) bar-list
+  view — no exec session was logged in this pass — though it renders
+  through the identical `TargetRow`/`METRIC_OPTIONS` code path already
+  proven correct above, just fed by `showByEmployee: false` actuals instead
+  of a per-employee map.
+  Actuals for the four activity-type metrics are a straight count
   from the *same* `activities` array `ActivityCountsCard` already fetched
   for the period — no duplicate query. `order_value` has no timestamp of
   its own, so its actual is approximated via `stage_history`: sum
@@ -2865,7 +2891,8 @@ since it isn't part of the date-range-scoped report data.
   the query is pre-sorted `changed_at` desc) — a deliberate, discussed
   approximation, see DECISIONS.md. For the owner at ≥1024px, this is now
   `DashboardHeatmap.jsx` instead of a table — one row per exec, one column
-  per activity type plus Order value and a blended Overall column (both
+  per targetable metric (Scanning Leads, the four activity types, Order
+  value) plus a blended Overall column (both
   `targetFor`/`computeOrderValueActuals` exported from this file for the
   heatmap and the drill-down builders to share, so a lookup/total can't
   drift into a second definition), attainment-tinted per the mockup's
