@@ -379,6 +379,109 @@ export function fetchCategoryBreakdown(ownerIds = null) {
   )
 }
 
+// The "Right now" strip's one combined headline RPC — see
+// Schema/migration_time_independent_dashboard_metrics.sql and
+// TIME-INDEPENDENT-METRICS-LOG.md for the design history. Returns exactly
+// one row: on-hold count/value/avg-days, completeness %s, follow-up
+// coverage gap, workload spread, and pipeline concentration — one round
+// trip for the whole strip, per PERFORMANCE.md Rule 3.
+//
+// `ownerIds` (optional): same purpose and same rule as fetchCategoryBreakdown's
+// own parameter above — pass a real array ONLY for a sales_manager viewing
+// their My/Team scope (Dashboard.jsx's managerScope/inScope); every other
+// role passes nothing, since RLS alone already scopes the underlying leads
+// correctly. An empty array (a manager with zero reports, viewing "My
+// team") is a real, different value from null — it means "match nobody",
+// not "don't narrow" — so don't coalesce it away.
+//
+// p_tz_offset_minutes MUST be negated, matching fetchLeadsNeedingAttention's
+// own comment on this exact point: getTimezoneOffset() returns minutes
+// BEHIND UTC (-330 for IST), and the SQL side wants the offset it should
+// ADD to a naive timestamp to read it as UTC (+330 for IST) — passing the
+// raw value silently computes every on-hold lead's day-count 11 hours off
+// (backwards, not just imprecise), which is where this file's own Milestone
+// 5 log entry caught it: an earlier ad-hoc verification call in Milestone 3
+// used the un-negated form by mistake. Only on_hold_avg_days is affected —
+// the RPC's other fields don't depend on wall-clock time of day.
+//
+// Cache key buckets by day (today) since the underlying figures — the
+// on-hold day-counts especially — genuinely change daily, same reasoning
+// fetchLeadsNeedingAttention's own cache key already uses.
+export function fetchDashboardSnapshotMetrics(ownerIds = null) {
+  const now = new Date()
+  const today = todayISO()
+  const ownerKey = ownerIds ? [...ownerIds].sort((a, b) => a - b).join(',') : 'all'
+  return cachedQuery(`dashboard:snapshot:${today}:${ownerKey}`, () =>
+    supabase.rpc('dashboard_snapshot_metrics', {
+      p_owner_ids: ownerIds,
+      p_now: now.toISOString(),
+      p_tz_offset_minutes: -now.getTimezoneOffset(),
+      p_top_fraction: 0.1,
+    })
+  )
+}
+
+// The Follow-up coverage gap chip's own drill-down (Milestone 6 panel 3) —
+// row-level detail, fetched lazily only when that panel opens (per
+// PERFORMANCE.md Rule 1/Rule 3), unlike dashboard_snapshot_metrics()'s own
+// eager headline count. Same `ownerIds` rule as every other function here:
+// a real array only for a sales_manager's own My/Team toggle, null for
+// every other role.
+export function fetchFollowupGapDetail(ownerIds = null) {
+  const ownerKey = ownerIds ? [...ownerIds].sort((a, b) => a - b).join(',') : 'all'
+  return cachedQuery(`leads:followup-gap-detail:${ownerKey}`, () =>
+    supabase.rpc('leads_followup_gap_detail', { p_owner_ids: ownerIds })
+  )
+}
+
+// The On-Hold Pipeline chip's own drill-down (Milestone 6 panel 4) —
+// row-level detail, fetched lazily only when that panel opens. Needs
+// p_now/p_tz_offset_minutes for its own days_on_hold calculation, same
+// negated-offset convention as fetchDashboardSnapshotMetrics/
+// fetchLeadsNeedingAttention above (getTimezoneOffset() returns minutes
+// BEHIND UTC; the SQL side wants the offset it should ADD to a naive
+// timestamp to read it as UTC) — cache key buckets by day since that
+// figure genuinely changes daily.
+export function fetchOnHoldDetail(ownerIds = null) {
+  const now = new Date()
+  const today = todayISO()
+  const ownerKey = ownerIds ? [...ownerIds].sort((a, b) => a - b).join(',') : 'all'
+  return cachedQuery(`leads:on-hold-detail:${today}:${ownerKey}`, () =>
+    supabase.rpc('leads_on_hold_detail', {
+      p_owner_ids: ownerIds,
+      p_now: now.toISOString(),
+      p_tz_offset_minutes: -now.getTimezoneOffset(),
+    })
+  )
+}
+
+// The Team Workload Balance chip's own drill-down (Milestone 6 panel 5) —
+// per-employee rollup, already grouped server-side, so no row-level lead
+// list and no naive-timestamp handling at all (open_lead_count/
+// open_pipeline_value don't depend on wall-clock time of day). Same
+// `ownerIds` rule as every other function here — always null in practice,
+// since RightNowStrip's `showWorkload` prop hides this chip entirely in
+// single-person scope (a manager on "My" never sees it to click), but
+// threaded through anyway for consistency with every sibling fetch.
+export function fetchWorkloadByOwner(ownerIds = null) {
+  const ownerKey = ownerIds ? [...ownerIds].sort((a, b) => a - b).join(',') : 'all'
+  return cachedQuery(`leads:workload-by-owner:${ownerKey}`, () =>
+    supabase.rpc('leads_workload_by_owner', { p_owner_ids: ownerIds })
+  )
+}
+
+// The Lead Data Completeness chip's own drill-down (Milestone 6 panel 6,
+// the last one) — per-lead field-completeness detail, fetched lazily only
+// when the panel opens. No naive-timestamp handling needed, same as
+// fetchWorkloadByOwner — completeness_pct/has_* are computed from present-
+// vs-absent column values, not from any date.
+export function fetchCompletenessDetail(ownerIds = null) {
+  const ownerKey = ownerIds ? [...ownerIds].sort((a, b) => a - b).join(',') : 'all'
+  return cachedQuery(`leads:completeness-detail:${ownerKey}`, () =>
+    supabase.rpc('leads_completeness_detail', { p_owner_ids: ownerIds })
+  )
+}
+
 // loss_reasons SELECT is owner-only (see Schema/rls_policies.sql) — a sales
 // exec's query returns zero rows, full stop, so this is only ever called
 // for the owner (see LossReasonsCard's isOwner gate in Dashboard.jsx). The

@@ -1060,6 +1060,12 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-dd-owner-fill { display: block; height: 100%; }
 .vip-dd-owner-count { flex: 0 0 22px; text-align: right; font-size: 12px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
 .vip-dd-owner-value { flex: 0 0 62px; text-align: right; font-size: 11px; color: var(--vip-faint); font-variant-numeric: tabular-nums; }
+/* Workload panel's rows are the one place a .vip-dd-owner-row is itself the
+   clickable target (a <Link> to that employee's Sales Exec Profile), not
+   just a display rollup — needs its own no-underline/hover treatment since
+   the bare class has neither. */
+.vip-dd-owner-row-link { text-decoration: none; cursor: pointer; margin: 0 -4px; padding: 4px; border-radius: 6px; }
+.vip-dd-owner-row-link:hover { background: var(--vip-surface-soft); }
 
 .vip-dd-age-row {
   display: flex; gap: 11px; align-items: center; padding: 11px 0;
@@ -2520,4 +2526,62 @@ a.vip-day-log-party:hover { text-decoration: underline; }
     right: 0;
     max-width: none;
   }
+}
+
+/* ---------- 27. "Right now" strip (time-independent dashboard metrics)
+   Sits above Dashboard's date range selector, below the sales manager's
+   My-numbers/My-team toggle — see dashboard-time-independent-metrics-
+   prompt.md and TIME-INDEPENDENT-METRICS-LOG.md (repo root) for the full
+   design history. Six point-in-time pipeline metrics with no "when" to
+   filter by, so they don't belong among the range-scoped report cards
+   below (RightNowStrip.jsx).
+
+   Mobile (<1024px) and desktop (>=1024px) are DELIBERATELY different
+   designs here, not a shrunk copy of one another:
+     - Mobile: word-only chips, no numbers at all — tapping one opens its
+       own drill-down panel directly, where the real numbers live. Wraps
+       (flex-wrap), not a scroll rail, since word-length labels fit several
+       per row at this length.
+     - Desktop: reuses section 17's .vip-dd-kpi-tile for each individual
+       tile (label + headline number + one-line sub, no new per-tile CSS
+       needed), but NOT .vip-dd-kpi-grid for the outer grid itself — that
+       class hardcodes `repeat(6, ...)`, correct for KpiSparkRow (always
+       exactly 6 tiles) but wrong here: the Workload tile is hidden
+       whenever `showWorkload` is false (a sales exec, or a manager on "My
+       numbers"), so this strip is sometimes 5 tiles, not always 6. Reusing
+       the fixed-6 grid for a 5-tile row left a visible empty cell at the
+       end — caught live in the browser as a sales-exec session, exactly
+       the "wrong tile count in a fixed grid leaves a gap" trap this file's
+       Desktop layout section already warns about generically. Fixed the
+       same way DashboardHeatmap avoids the equivalent drift for its own
+       column count (--vip-heatmap-cols, set from the component instead of
+       typed here): .vip-rightnow-grid reads its column count from
+       --vip-rightnow-cols, set inline by RightNowStrip.jsx from its own
+       actual tile count, so the two can never disagree.
+
+   .vip-rightnow-chips carries NO unguarded `display` of its own — the flex
+   layout only exists inside the max-width query below, so it can never
+   collide with .vip-only-mobile's own `display: none` at >=1024px the way
+   .vip-leads-layout/.vip-daycards once did (see CLAUDE.md's Design system
+   section on this exact trap). Apply exactly one `display` declaration per
+   breakpoint, same rule that family of fixes already established. */
+.vip-rightnow { display: flex; flex-direction: column; gap: 10px; }
+
+@media (max-width: 1023.98px) {
+  .vip-rightnow-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+}
+.vip-rightnow-chip {
+  border: 1px solid var(--vip-line); border-radius: 999px; background: var(--vip-surface);
+  padding: 7px 13px; font: 600 12px var(--vip-sans); color: var(--vip-ink);
+  cursor: pointer; white-space: nowrap;
+}
+.vip-rightnow-chip:hover { background: var(--vip-surface-soft); }
+
+.vip-rightnow-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px;
+  background: var(--vip-line); border: 1px solid var(--vip-line);
+  border-radius: var(--vip-r-field); overflow: hidden;
+}
+@media (min-width: 1024px) {
+  .vip-rightnow-grid { grid-template-columns: repeat(var(--vip-rightnow-cols, 6), minmax(0, 1fr)); }
 }

@@ -15,6 +15,7 @@ import SalesFunnelCard from '../components/SalesFunnelCard'
 import LossReasonsCard from '../components/LossReasonsCard'
 import NeedsAttentionCard from '../components/NeedsAttentionCard'
 import KpiSparkRow from '../components/KpiSparkRow'
+import RightNowStrip from '../components/RightNowStrip'
 import DrilldownPanel from '../components/DrilldownPanel'
 import DayReviewCard from '../components/DayReviewCard'
 import { DayDateBar, DayKpiStrip } from '../components/DayReviewHeader'
@@ -41,6 +42,10 @@ import {
   buildCategoryMixPanel,
   buildLossPanel,
   buildLogPanel,
+  buildFollowupGapPanel,
+  buildOnHoldInsightsPanel,
+  buildWorkloadPanel,
+  buildCompletenessPanel,
 } from '../lib/drilldownBuilders'
 import {
   fetchActivityCounts,
@@ -49,6 +54,11 @@ import {
   fetchLeadsForBreakdown,
   fetchCategoryBreakdown,
   fetchLeadsNeedingAttention,
+  fetchDashboardSnapshotMetrics,
+  fetchFollowupGapDetail,
+  fetchOnHoldDetail,
+  fetchWorkloadByOwner,
+  fetchCompletenessDetail,
   fetchStageHistoryForFunnel,
   fetchLossReasons,
   fetchLastActivityPerLead,
@@ -76,6 +86,17 @@ function productCategory(lead) {
 }
 
 const RANGE_LABELS = { today: 'today', '15d': 'last 15 days', week: 'this week', month: 'this month', quarter: 'this quarter', custom: 'this range' }
+
+// dashboard_snapshot_metrics()'s numeric/bigint columns come back over
+// PostgREST as strings (avoiding JS float precision loss, same reasoning
+// fetchCategoryBreakdown's own Number(row.lead_count) coercion already
+// documents) — and several of them are genuinely NULL (on_hold_avg_days
+// with zero on-hold leads, workload_busiest_* with zero employees in
+// scope), so this stays null rather than coercing to 0 or NaN, matching
+// RightNowStrip's own "null renders as —" fallback.
+function numOrNull(v) {
+  return v == null ? null : Number(v)
+}
 
 function Dashboard() {
   const { employee } = useAuth()
@@ -147,6 +168,12 @@ function Dashboard() {
   // consumer is the client-side fallback — so on the normal path that
   // activities scan is never issued at all.
   const [attentionRpcFailed, setAttentionRpcFailed] = useState(false)
+  // The "Right now" strip's headline numbers (dashboard_snapshot_metrics()) —
+  // null while loading/unavailable, in which case RightNowStrip's own `??
+  // '—'` fallbacks render, same "fails soft" shape as attentionRows/
+  // categoryBreakdown above. Re-fetched whenever the manager's My/Team scope
+  // changes (see the effect below) — every other role fetches once.
+  const [snapshotMetrics, setSnapshotMetrics] = useState(null)
   const [allFunnelStageHistory, setFunnelStageHistory] = useState([])
   const [allLossReasons, setLossReasons] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
@@ -204,6 +231,21 @@ function Dashboard() {
         : allEmployees.filter((e) => managedIds.has(e.id)),
     [allEmployees, isManager, managerScope, employee?.id, managedIds]
   )
+
+  // For dashboard_snapshot_metrics()'s p_owner_ids — same rule
+  // fetchCategoryBreakdown's own docstring states: a real array ONLY for a
+  // sales_manager (whose My/Team toggle RLS alone can't express), null for
+  // every other role, since RLS already scopes those correctly. An empty
+  // array (a manager with zero reports, on "My team") is deliberately kept
+  // as `[]`, not coalesced to null — it means "match nobody", a real and
+  // different answer from "don't narrow at all".
+  const snapshotOwnerIds = !isManager
+    ? null
+    : managerScope === 'my'
+    ? employee?.id != null
+      ? [employee.id]
+      : []
+    : [...managedIds]
 
   const activities = useMemo(() => allActivities.filter((r) => inScope(r.employee_id)), [allActivities, inScope])
   const targets = useMemo(() => allTargets.filter((r) => inScope(r.employee_id)), [allTargets, inScope])
@@ -447,6 +489,28 @@ function Dashboard() {
       active = false
     }
   }, [])
+
+  // The "Right now" strip's snapshot — unlike fetchCategoryBreakdown above,
+  // THIS one is wired to the manager's own My/Team toggle (via
+  // snapshotOwnerIds), because dashboard_snapshot_metrics() was built with a
+  // real p_owner_ids parameter for exactly that purpose (see its migration's
+  // own header) — there's no "not wired for a manager" caveat to carry
+  // forward here. Deps list the primitives snapshotOwnerIds is built from
+  // (mirroring inScope's own useCallback deps just above) rather than
+  // snapshotOwnerIds itself, since that's a fresh array literal every render
+  // and would refire this effect on every render if used directly.
+  useEffect(() => {
+    let active = true
+    fetchDashboardSnapshotMetrics(snapshotOwnerIds).then(({ data, error }) => {
+      if (!active) return
+      if (error || !data?.[0]) return
+      setSnapshotMetrics(data[0])
+    })
+    return () => {
+      active = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isManager, managerScope, employee?.id, managedIds])
 
   useEffect(() => {
     let active = true
@@ -722,6 +786,46 @@ function Dashboard() {
     setPanel(buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows: data ?? [] }))
   }
 
+  // Follow-up coverage gap's own drill-down — row-level detail, fetched
+  // only when this panel actually opens (unlike the eager snapshot count
+  // already shown on the chip). Milestone 6 panel 3.
+  async function handleOpenFollowupGap() {
+    const { data, error: gapError } = await fetchFollowupGapDetail(snapshotOwnerIds)
+    if (gapError) return
+    setPanel(buildFollowupGapPanel(data ?? [], scopeLabel, !seesOthersData))
+  }
+
+  // On-hold pipeline insights — Milestone 6 panel 4. Repoints the On-Hold
+  // Pipeline chip here, replacing panel 1's interim connection (the generic
+  // pipeline panel's "On hold" toggle position) — exactly the plan recorded
+  // in that panel's own log entry, done as part of building this one
+  // rather than as a separate follow-up.
+  async function handleOpenOnHoldInsights() {
+    const { data, error: onHoldError } = await fetchOnHoldDetail(snapshotOwnerIds)
+    if (onHoldError) return
+    setPanel(buildOnHoldInsightsPanel(data ?? [], scopeLabel, !seesOthersData))
+  }
+
+  // Team workload balance — Milestone 6 panel 5. No isSinglePersonScope arg,
+  // unlike every sibling handler above: RightNowStrip's own `showWorkload`
+  // prop already hides this chip entirely in single-person scope, so this
+  // handler is simply never reachable there — nothing left for the builder
+  // to gate on.
+  async function handleOpenWorkload() {
+    const { data, error: workloadError } = await fetchWorkloadByOwner(snapshotOwnerIds)
+    if (workloadError) return
+    setPanel(buildWorkloadPanel(data ?? [], scopeLabel))
+  }
+
+  // Lead data completeness — Milestone 6 panel 6, the final panel of this
+  // feature. Same isSinglePersonScope arg as panels 3/4 (the owner-breakdown
+  // section is meaningless for one person's own leads).
+  async function handleOpenCompleteness() {
+    const { data, error: completenessError } = await fetchCompletenessDetail(snapshotOwnerIds)
+    if (completenessError) return
+    setPanel(buildCompletenessPanel(data ?? [], scopeLabel, !seesOthersData))
+  }
+
   return (
     <div className="vip-wide vip-pad-fab-overhang">
       <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
@@ -790,6 +894,71 @@ function Dashboard() {
             </Link>
           )}
 
+          {/* "Right now" strip — point-in-time pipeline metrics with no date
+              range to filter by, so they sit above the range selector rather
+              than among the range-scoped cards below. Built across
+              dashboard-time-independent-metrics-prompt.md's 7 milestones
+              (see TIME-INDEPENDENT-METRICS-LOG.md for the full build log).
+              Active/On-hold pipeline reuse REAL, already-fetched values
+              (sumOpenPipelineValue/sumOnHoldValue over breakdownLeads — zero
+              new query); Stale leads reuses the exact same `staleBucket`
+              Needs Attention already computes. Completeness/gap/workload/
+              concentration are backed by `dashboard_snapshot_metrics()`. */}
+          <RightNowStrip
+            showWorkload={seesOthersData}
+            activeValue={openPipelineValue}
+            activeLeadCount={openLeadCount}
+            onHoldValue={onHoldValue}
+            onHoldCount={onHoldLeadCount}
+            onHoldAvgDays={numOrNull(snapshotMetrics?.on_hold_avg_days)}
+            staleCount={staleBucket.count}
+            completenessPct={numOrNull(snapshotMetrics?.completeness_pct)}
+            gapCount={numOrNull(snapshotMetrics?.followup_gap_count)}
+            gapPct={numOrNull(snapshotMetrics?.followup_gap_pct)}
+            workloadBusiestName={snapshotMetrics?.workload_busiest_name ?? null}
+            workloadBusiestCount={numOrNull(snapshotMetrics?.workload_busiest_count)}
+            workloadLightestName={snapshotMetrics?.workload_lightest_name ?? null}
+            workloadLightestCount={numOrNull(snapshotMetrics?.workload_lightest_count)}
+            concentrationPct={numOrNull(snapshotMetrics?.concentration_pct)}
+            onOpenActive={() => setPanel(buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel }))}
+            // Repointed at the real On-hold pipeline insights panel
+            // (Milestone 6 panel 4) — this used to open the generic
+            // pipeline panel's "On hold" toggle position as an interim
+            // stand-in (panel 1's own note); that toggle position still
+            // exists inside buildPipelinePanel for anyone who reaches it
+            // via the Active Pipeline chip's own toggle, but this chip now
+            // goes straight to the richer, purpose-built view.
+            onOpenOnHold={handleOpenOnHoldInsights}
+            // Same exact call KpiSparkRow's own Stale leads tile used to
+            // make before this move — reusing `staleBucket` (already
+            // computed above for Needs Attention) and `buildAgeingPanel`
+            // directly, not a new computation.
+            onOpenStale={() => setPanel(buildAgeingPanel(staleBucket, scopeLabel, null, false))}
+            // Same pipeline panel again, defaulted to "Active" (the set
+            // concentration is defined over) with concentrationMode on —
+            // Milestone 6 panel 2. isSinglePersonScope reuses the exact
+            // boolean that already means "more than one person's data is
+            // in view" for every role (seesOthersData), per the role-matrix
+            // rule confirmed in Milestone 1: drop the top-10% cutoff and
+            // list every one of this scope's own active leads when it's
+            // just one person's.
+            onOpenConcentration={() =>
+              setPanel(
+                buildPipelinePanel({
+                  breakdownLeads,
+                  funnelStageHistory,
+                  scopeLabel,
+                  initialScope: 'active',
+                  concentrationMode: true,
+                  isSinglePersonScope: !seesOthersData,
+                })
+              )
+            }
+            onOpenGap={handleOpenFollowupGap}
+            onOpenWorkload={handleOpenWorkload}
+            onOpenCompleteness={handleOpenCompleteness}
+          />
+
           <DateRangeSelector
             preset={preset}
             onPresetChange={setPreset}
@@ -828,20 +997,16 @@ function Dashboard() {
           {!range && <p className="vip-empty">Pick both a start and end date.</p>}
 
           {/* KpiSparkRow now renders at every width — its own vip-dd-kpi-grid
-              is 2 columns on mobile, widening to 6 at ≥1024px (section 16's
-              override) — replacing the plainer 4-tile vip-kpi-grid mobile
-              used to fall back to. */}
+              is 2 columns on mobile, widening to 4 at ≥1024px via the
+              vip-dd-kpi-grid-4 modifier (Open pipeline and Stale leads moved
+              out to RightNowStrip, see that component's own header comment
+              and KpiSparkRow's — this band is 4 tiles now, not 6). */}
           {!loading && range && (
             <>
               <KpiSparkRow
                 orderValueActual={wonThisRange}
                 activitiesCount={activities.length}
-                openPipelineValue={openPipelineValue}
-                openLeadCount={openLeadCount}
-                onHoldValue={onHoldValue}
-                onHoldLeadCount={onHoldLeadCount}
                 winRatePct={winRatePct}
-                staleCount={staleBucket.count}
                 weightedForecast={weightedForecastValue}
                 wonStageHistory={wonStageHistory}
                 activitiesTrendWindow={activitiesTrendWindow}
@@ -850,9 +1015,7 @@ function Dashboard() {
                   setPanel(buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId: null, rangeLabel, scopeLabel }))
                 }
                 onOpenActivities={() => setPanel(buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel, scopeLabel }))}
-                onOpenPipeline={() => setPanel(buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel }))}
                 onOpenWinRate={() => setPanel(buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel, scopeLabel }))}
-                onOpenStale={() => setPanel(buildAgeingPanel(staleBucket, scopeLabel, null, false))}
                 onOpenForecast={() => setPanel(buildForecastPanel({ forecast, scopeLabel }))}
               />
             </>

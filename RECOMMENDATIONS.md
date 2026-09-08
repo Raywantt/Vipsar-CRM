@@ -42,3 +42,29 @@ schema change, not a client-side fix. Reasonable to defer past the pilot,
 where the current cap's failure mode (a common surname search silently
 missing results past the 50th match, with an unhelpful "refine your
 search" message) is a real but survivable rough edge at pilot scale.
+
+## 2. A user-selectable Top-N toggle for Pipeline concentration (2026-09-08)
+
+**What**: the "Right now" strip's Pipeline concentration metric (see
+`TIME-INDEPENDENT-METRICS-LOG.md`'s Milestone 6 entry) is fixed at "top 10%
+of active leads by value" for v1, with no way to switch to a fixed count
+(Top 5, Top 10) instead. A toggle — Top 5 / Top 10 / Top 10% — was discussed
+while building this panel and deliberately deferred rather than built now.
+
+**Why it's worth doing eventually**: a fixed 10% reads very differently at
+different team sizes — for the owner's company-wide ~674 active leads it
+means ~68 leads, a genuinely useful "how top-heavy is the whole pipeline"
+question; for a small team it can mean 1–2 leads, which stops being a
+concentration question and starts just being "the biggest deal or two." A
+fixed-count option (Top 5/Top 10) would give a consistent, comparable
+number regardless of scope size, which a percentage-of-scope cannot.
+
+**Why not now**: this is a UI/UX decision (which framing is more useful),
+not a technical blocker — `leads_open_deal_ranking()`
+(`Schema/migration_time_independent_dashboard_metrics.sql`) already returns
+every active lead ranked by value, so a Top-5/Top-10 cut is a client-side
+`.slice()` change, no migration needed. Deferred simply because the brief
+for this feature fixed the rule at 10% for v1 and asked that a toggle be
+logged here rather than built in the same pass — worth revisiting once the
+product owner has seen the concentration panel in front of real, varied-size
+teams and has an opinion on whether 10% alone reads well at every scale.

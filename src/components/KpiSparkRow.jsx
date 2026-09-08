@@ -4,10 +4,10 @@ import { startOfWeek } from '../lib/dateRanges'
 
 // Buckets real events into 8 calendar weeks (Monday–Sunday, same boundary
 // dateRanges.js's own startOfWeek uses for the 'week' preset), oldest
-// first — used only for the sparkline bars below; KPI tiles whose data has
-// no stored history (Open pipeline, Stale leads, Weighted forecast are
-// point-in-time snapshots, nothing is kept over time) simply render without
-// one rather than fabricate a trend that isn't backed by anything. The
+// first — used only for the sparkline bars below; a KPI tile whose data has
+// no stored history (Weighted forecast is a point-in-time snapshot, nothing
+// is kept over time) simply renders without one rather than fabricate a
+// trend that isn't backed by anything. The
 // current (last) bucket runs Monday through *now*, not through Sunday —
 // deliberately matching the still-in-progress 'week' preset range exactly,
 // so this bucket's total is always the same figure the tile prints above it
@@ -158,28 +158,32 @@ function Sparkline({ series }) {
   )
 }
 
-// The 6-tile KPI band (mockup's top row) — three tiles have a real weekly
-// trend to show (order value, activities, win rate all have per-event
-// timestamps to bucket); the other three are point-in-time snapshots and
-// render value-only. Every tile opens its own drill-down via `onOpenPanel`.
+// The 4-tile KPI band — three tiles have a real weekly trend to show (order
+// value, activities, win rate all have per-event timestamps to bucket); the
+// fourth (Weighted forecast) is a point-in-time snapshot and renders
+// value-only. Every tile opens its own drill-down via `onOpenPanel`.
+//
+// Open pipeline and Stale leads used to sit here too — both are also
+// point-in-time snapshots, exactly like Weighted forecast, which made their
+// placement below the date-range selector misleading (the selector implies
+// every tile above it is scoped to the chosen period, and these two never
+// were). Moved out to `RightNowStrip` (Active/On-Hold Pipeline and Stale
+// Leads chips respectively), which exists specifically for metrics that
+// don't depend on the selected range — see that component's own header
+// comment. Open pipeline in particular would have been a second, redundant
+// rendering of the same figure RightNowStrip's Active/On-Hold Pipeline
+// chips already cover.
 function KpiSparkRow({
   orderValueActual,
   activitiesCount,
-  openPipelineValue,
-  openLeadCount,
-  onHoldValue,
-  onHoldLeadCount,
   winRatePct,
-  staleCount,
   weightedForecast,
   wonStageHistory,
   activitiesTrendWindow,
   decidedStageHistory,
   onOpenOrderValue,
   onOpenActivities,
-  onOpenPipeline,
   onOpenWinRate,
-  onOpenStale,
   onOpenForecast,
 }) {
   const eightWeeksAgo = new Date()
@@ -205,36 +209,17 @@ function KpiSparkRow({
       onOpen: onOpenActivities,
     },
     {
-      label: 'Open pipeline',
-      value: formatCurrencyCompact(openPipelineValue),
-      series: null,
-      // How many leads that rupee figure is spread across — reuses the
-      // delta slot (up: null renders it plain/muted, no up/down tint) so
-      // the count sits inline beside the value rather than needing its own
-      // row. Point-in-time like the value itself, not a trend.
-      delta: openLeadCount != null ? { label: `${openLeadCount} lead${openLeadCount === 1 ? '' : 's'}`, up: null } : null,
-      // On-hold leads are paused, not actively worked, so their value is no
-      // longer folded into the figure above (owner's call, 2026-08-20) —
-      // shown as its own line instead, only when at least one lead is
-      // actually on hold. Reuses .vip-dd-kpi-sub (normally a tile's
-      // no-delta fallback caption) since it's the same "small, faint,
-      // descriptive" treatment this needs.
-      sub: onHoldLeadCount > 0 ? `On hold · ${formatCurrencyCompact(onHoldValue)} (${onHoldLeadCount})` : null,
-      onOpen: onOpenPipeline,
-    },
-    {
       label: 'Win rate',
       value: winRatePct != null ? `${winRatePct}%` : '—',
       series: winRateSeries,
       delta: weekOverWeekWinRate(decidedStageHistory),
       onOpen: onOpenWinRate,
     },
-    { label: 'Stale leads', value: String(staleCount), series: null, delta: null, onOpen: onOpenStale },
     { label: 'Weighted forecast', value: formatCurrencyCompact(weightedForecast), series: null, delta: null, onOpen: onOpenForecast },
   ]
 
   return (
-    <div className="vip-dd-kpi-grid">
+    <div className="vip-dd-kpi-grid vip-dd-kpi-grid-4">
       {tiles.map((t) => (
         <button key={t.label} type="button" className="vip-dd-kpi-tile" onClick={t.onOpen}>
           <div className="vip-dd-kpi-label">{t.label}</div>

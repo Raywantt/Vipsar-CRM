@@ -14,6 +14,8 @@ import { parseTimestamp } from './dbTime'
 import { computeOrderValueActuals, computeScanningLeadsActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeFunnel } from '../components/SalesFunnelCard'
 import { dealValueFor } from './pipelineValue'
+import { daysSince } from './dateMath'
+import { getInitials } from './initials'
 
 const CLOSED_STAGES = ['won', 'lost']
 
@@ -437,22 +439,136 @@ export function buildStageLeadsPanel({ breakdownLeads, stage, scopeLabel = 'Comp
 // stage) was computed but never actually rendered by PipelineBody. Removed
 // (2026-08-09, at the user's request) along with Sales funnel's "Details"
 // link entirely, rather than keeping a mode param with one caller.
-export function buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel = 'Company' }) {
-  const openLeads = breakdownLeads.filter((l) => !CLOSED_STAGES.includes(l.current_stage ?? 'calling'))
-  const openTotal = openLeads.reduce((s, l) => s + dealValueFor(l), 0)
+//
+// Gained an Active/On-hold toggle (2026-09-08, the time-independent-metrics
+// feature's metric #1 — see TIME-INDEPENDENT-METRICS-LOG.md's Milestone 6
+// entry). `computePipelineScope` below builds the value/note/stageRows/
+// topLeads for one lead subset; `buildPipelinePanel` now calls it three
+// times (all/active/onHold) and attaches all three under `scopeViews`, so
+// PipelineBody can switch between them with local state and zero new
+// queries — the brief's own "re-slices the already-loaded lead array
+// client-side" instruction. `stats[1..3]` (Reached Calling/Won/Lost,
+// all-time) and `convRows` are deliberately NOT part of `scopeViews` — both
+// describe the lifetime funnel (from `funnelStageHistory`/`computeFunnel`),
+// not which CURRENTLY OPEN leads are toggled into view, so they stay
+// constant across all three positions. The top-level `value`/`note`/
+// `stageRows`/`topLeads`/`stats[0]` fields mirror the 'all' scope exactly,
+// unchanged from before this pass — every existing caller that reads those
+// fields directly (KpiSparkRow's Open pipeline tile, Pipeline by stage's
+// Details link) keeps seeing exactly what it always has.
+// `topLeadsCount`/`withCumulative` back the Pipeline concentration metric
+// (2026-09-08, Milestone 6 panel 2) — see buildPipelinePanel's own comment
+// for when these are set to anything other than the "top 5, no cumulative"
+// default every other entry point still gets.
+function computePipelineScope(leads, stages, breakdownLeads, scopeLabel, noteSuffix, { topLeadsCount = 5, withCumulative = false } = {}) {
+  const total = leads.reduce((s, l) => s + dealValueFor(l), 0)
 
-  const stageRows = LEAD_STAGE_OPTIONS.filter((s) => !CLOSED_STAGES.includes(s)).map((stage) => {
-    const stageLeads = openLeads.filter((l) => (l.current_stage ?? 'calling') === stage)
+  const stageRows = stages.map((stage) => {
+    const stageLeads = leads.filter((l) => (l.current_stage ?? 'calling') === stage)
     return {
       label: stageLabel(stage),
       count: stageLeads.length,
       value: formatCurrencyCompact(stageLeads.reduce((s, l) => s + dealValueFor(l), 0)),
       color: stageFg(stage),
-      // Clicking this row opens that stage's own lead list, one level deeper.
+      // Clicking this row opens that stage's own lead list, one level
+      // deeper — always drawn from the FULL breakdownLeads (every open
+      // lead at that stage), not just this scope's subset, since a stage
+      // drill-down is unambiguous regardless of which toggle led to it.
       drill: buildStageLeadsPanel({ breakdownLeads, stage, scopeLabel }),
     }
   })
   const maxStage = Math.max(1, ...stageRows.map((r) => r.count))
+
+  const ranked = [...leads].sort((a, b) => dealValueFor(b) - dealValueFor(a))
+  let runningValue = 0
+  const topLeads = ranked.slice(0, topLeadsCount).map((l) => {
+    const leadValue = dealValueFor(l)
+    runningValue += leadValue
+    return {
+      leadId: l.id,
+      party: l.parties?.name ?? l.sites?.nickname ?? '(no party)',
+      stage: stageLabel(l.current_stage ?? 'calling'),
+      chipClass: stageChipClass(l.current_stage ?? 'calling'),
+      ownerId: l.owner_employee_id ?? null,
+      owner: l.employees?.name ?? 'Unassigned',
+      value: formatCurrencyCompact(leadValue),
+      // Only computed when asked for — a plain top-5 list (every entry
+      // point except Concentration) has no "share of total" framing to
+      // offer, and total could be 0 for an empty on-hold/active scope.
+      cumulativePct: withCumulative ? `${total > 0 ? Math.round((runningValue / total) * 100) : 0}%` : null,
+    }
+  })
+
+  return {
+    value: formatCurrencyCompact(total),
+    note: `${leads.length} ${noteSuffix}`,
+    statsOpen: { label: 'Open value', value: formatCurrencyCompact(total), sub: `${leads.length} leads`, color: '#101617' },
+    stageRows: stageRows.map((r) => ({ ...r, pct: `${Math.round((r.count / maxStage) * 100)}%` })),
+    topLeads,
+    topLeadsTotal: leads.length,
+    // Raw (unformatted) value of the topLeads slice — needed by
+    // buildPipelinePanel's concentration header, which needs to do
+    // arithmetic on it, not just display the already-formatted `value`
+    // above (that's the WHOLE scope's total, not the top slice's).
+    topLeadsValue: runningValue,
+    scopeTotalValue: total,
+  }
+}
+
+// `concentrationMode`/`isSinglePersonScope` back metric #7 (Pipeline
+// concentration, Milestone 6 panel 2) — see TIME-INDEPENDENT-METRICS-LOG.md.
+// Concentration is defined over the ACTIVE set only (same on-hold exclusion
+// already flagged for veto in Milestone 2's log entry — un-vetoed, treated
+// as confirmed), so this only ever changes `scopeViews.active`'s own
+// topLeads shape; `all`/`onHold` are untouched by these two params. In
+// multi-person scope this shows the top 10% of active leads by value
+// (rounded up to at least 1, mirroring dashboard_snapshot_metrics()'s own
+// `p_top_fraction` rule so the chip and this panel can't disagree on which
+// leads are "top"); in single-person scope there is no meaningful "top 10%
+// of 6" framing, so it drops the cutoff entirely and lists every one of
+// that scope's own active leads, ranked, per the brief's own instruction.
+export function buildPipelinePanel({
+  breakdownLeads,
+  funnelStageHistory,
+  scopeLabel = 'Company',
+  initialScope = 'all',
+  concentrationMode = false,
+  isSinglePersonScope = false,
+}) {
+  const openLeads = breakdownLeads.filter((l) => !CLOSED_STAGES.includes(l.current_stage ?? 'calling'))
+  const activeLeads = openLeads.filter((l) => (l.current_stage ?? 'calling') !== 'on_hold')
+  const onHoldLeads = openLeads.filter((l) => (l.current_stage ?? 'calling') === 'on_hold')
+
+  const stagesAll = LEAD_STAGE_OPTIONS.filter((s) => !CLOSED_STAGES.includes(s))
+  const stagesActive = stagesAll.filter((s) => s !== 'on_hold')
+
+  const activeTopLeadsOptions = concentrationMode
+    ? {
+        topLeadsCount: isSinglePersonScope ? activeLeads.length : Math.max(1, Math.ceil(activeLeads.length * 0.1)),
+        withCumulative: true,
+      }
+    : undefined
+
+  const scopeViews = {
+    all: computePipelineScope(openLeads, stagesAll, breakdownLeads, scopeLabel, "open leads, across every stage that isn't won or lost."),
+    active: computePipelineScope(
+      activeLeads,
+      stagesActive,
+      breakdownLeads,
+      scopeLabel,
+      'active leads — open, excluding anything on hold.',
+      activeTopLeadsOptions
+    ),
+    // No stage bar chart for on-hold — every one of these leads shares the
+    // one bucket, so a multi-stage bar list would be 8 empty rows and one
+    // full one. `PipelineBody` already hides that section when stageRows is
+    // empty (see `panel.stageRows?.length > 0` there), so this degrades to
+    // just the stats + biggest-leads list — a reasonable stand-in until
+    // Milestone 6's own On-hold pipeline insights panel (duration buckets,
+    // hold reasons, owner breakdown) replaces this toggle position outright
+    // per the brief's "don't build two UIs for the same slice" instruction.
+    onHold: computePipelineScope(onHoldLeads, [], breakdownLeads, scopeLabel, 'leads currently on hold.'),
+  }
 
   const funnel = computeFunnel(funnelStageHistory, breakdownLeads)
   // 'lost' is a parallel exit a lead can hit from any stage, not the next
@@ -486,34 +602,550 @@ export function buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLa
     })
   }
 
-  const topLeads = [...openLeads]
-    .sort((a, b) => dealValueFor(b) - dealValueFor(a))
-    .slice(0, 5)
-    .map((l) => ({
-      leadId: l.id,
-      party: l.parties?.name ?? l.sites?.nickname ?? '(no party)',
-      stage: stageLabel(l.current_stage ?? 'calling'),
-      chipClass: stageChipClass(l.current_stage ?? 'calling'),
-      ownerId: l.owner_employee_id ?? null,
-      owner: l.employees?.name ?? 'Unassigned',
-      value: formatCurrencyCompact(dealValueFor(l)),
-    }))
+  // ⚠️ Real bug, fixed the same day it shipped: the first version of this
+  // panel reused the "Open pipeline by stage" title/eyebrow/value/note/stats
+  // verbatim for the Concentration entry point too — reported directly
+  // ("concentration drill down shows open pipeline???"), and rightly so: a
+  // user tapping a distinct "Concentration" tile landed on a header reading
+  // "Open pipeline by stage" with an unrelated stage bar chart and
+  // stage-to-stage conversion cards above the one section that actually
+  // answered their question. "Extend the existing section rather than
+  // duplicating it" (the brief's own instruction) meant reuse the ROW/LIST
+  // RENDERING code, not present the whole generic pipeline panel with a
+  // concentration afterthought at the bottom. Concentration mode now gets
+  // its OWN header content (below) and — see PipelineBody in
+  // DrilldownPanel.jsx — hides the toggle, stage bars and conversion cards
+  // entirely, leaving only the ranked, cumulative-% list a "Concentration"
+  // tap actually promised.
+  const concentrationHeader = concentrationMode
+    ? (() => {
+        const topN = scopeViews.active.topLeads.length
+        const topValue = scopeViews.active.topLeadsValue
+        const activeTotal = scopeViews.active.scopeTotalValue
+        const activeCount = scopeViews.active.topLeadsTotal
+        const pct = activeTotal > 0 ? Math.round((topValue / activeTotal) * 100) : 0
+        const restCount = activeCount - topN
+        const restValue = activeTotal - topValue
+        // A 4th stat, deliberately — StatsGrid's shared .vip-dd-stats class
+        // is a fixed 2-col (mobile) / 4-col (desktop) grid every OTHER
+        // 'pipeline' stats array already fills exactly (Open value/Reached
+        // Calling/Won/Lost). Shipping 3 here left a visible empty cell at
+        // both widths — caught live in the browser, the same "wrong tile
+        // count in a fixed grid" trap this codebase has hit more than once
+        // before (DashboardHeatmap's column count, the Report grid pairing
+        // rule). "Rest of pipeline" is also genuinely informative, not
+        // filler: it's the direct complement of the headline % — in
+        // single-person scope every active lead is already in the top
+        // slice, so this correctly reads as 0 leads / ₹0 / 0%, which is the
+        // honest answer, not a rounding artifact.
+        return {
+          eyebrow: `${scopeLabel} · concentration`,
+          title: 'Pipeline concentration',
+          value: `${pct}%`,
+          note: isSinglePersonScope
+            ? `All ${activeCount} of your active leads, ranked by value.`
+            : `Top ${topN} of ${activeCount} active leads (top 10%) hold ${pct}% of active pipeline value.`,
+          stats: [
+            { label: 'Leads counted', value: String(topN), sub: isSinglePersonScope ? 'all active leads' : `of ${activeCount} active`, color: '#101617' },
+            { label: 'Value held', value: formatCurrencyCompact(topValue), sub: 'combined', color: '#101617' },
+            { label: 'Rest of pipeline', value: formatCurrencyCompact(restValue), sub: `${restCount} leads · ${100 - pct}%`, color: '#485456' },
+            { label: 'Active pipeline total', value: formatCurrencyCompact(activeTotal), sub: `${activeCount} leads`, color: '#101617' },
+          ],
+        }
+      })()
+    : null
 
   return {
     kind: 'pipeline',
-    eyebrow: `${scopeLabel} · open pipeline`,
-    title: 'Open pipeline by stage',
-    value: formatCurrencyCompact(openTotal),
-    note: `${openLeads.length} open leads, across every stage that isn't won or lost.`,
-    stats: [
-      { label: 'Open value', value: formatCurrencyCompact(openTotal), sub: `${openLeads.length} leads`, color: '#101617' },
+    eyebrow: concentrationHeader?.eyebrow ?? `${scopeLabel} · open pipeline`,
+    title: concentrationHeader?.title ?? 'Open pipeline by stage',
+    // Mirrors scopeViews.all exactly when not in concentration mode — see
+    // this function's own header comment for why every pre-existing caller
+    // is unaffected.
+    value: concentrationHeader?.value ?? scopeViews.all.value,
+    note: concentrationHeader?.note ?? scopeViews.all.note,
+    stats: concentrationHeader?.stats ?? [
+      scopeViews.all.statsOpen,
       { label: 'Reached Calling', value: String(funnel[0]?.reached ?? 0), sub: 'all-time', color: '#101617' },
       { label: 'Reached Won', value: String(funnel.find((f) => f.stage === 'won')?.reached ?? 0), sub: 'all-time', color: '#1f6f4a' },
       { label: 'Reached Lost', value: String(funnel.find((f) => f.stage === 'lost')?.reached ?? 0), sub: 'all-time', color: '#b4232a' },
     ],
-    stageRows: stageRows.map((r) => ({ ...r, pct: `${Math.round((r.count / maxStage) * 100)}%` })),
+    stageRows: scopeViews.all.stageRows,
     convRows,
-    topLeads,
+    topLeads: scopeViews.all.topLeads,
+    // New: the segmented All/Active/On-hold toggle's own data, and which
+    // position PipelineBody should reset to when this panel (re)opens —
+    // 'all' for every existing caller, 'onHold' for the "Right now" strip's
+    // On-Hold Pipeline chip (RightNowStrip.jsx's onOpenOnHold), 'active'
+    // for its Concentration chip (see concentrationMode below). Note
+    // PipelineBody hides the toggle outright when concentrationMode is
+    // true — see this function's own note above on why switching away from
+    // "Active" would contradict the concentration-specific header above.
+    scopeViews,
+    initialScope,
+    // Tells PipelineBody to render the cumulative-% column and the wider
+    // (top-10%-or-all) row count on the 'active' scope's own leads list,
+    // AND to hide the toggle/stage-bars/conversion-cards sections that
+    // belong to the general "Open pipeline by stage" view, not this one.
+    concentrationMode,
+  }
+}
+
+// ---------- follow-up coverage gap (metric #5, Milestone 6 panel 3) ----------
+// Reuses the `ageing` KIND's RENDERING (AgeingBody in DrilldownPanel.jsx
+// already supports a swipe-to-set-a-follow-up action per row and a bulk
+// "set a follow-up on all N" button — exactly the fix this metric points
+// at) but builds its own panel object here rather than calling
+// attention.js's buildAgeingPanel(). Deliberate: that function backs the
+// already-shipped, already-tested Needs Attention feature
+// (attention.test.js), and this metric's own owner-dropdown + stage-chip
+// filters (see AgeingBody's `showListFilters` gate below) are NOT
+// something Needs Attention's five buckets asked for or should suddenly
+// grow as a side effect of this one. Reusing the render path without
+// reusing the builder keeps this new metric from leaking behaviour into
+// that unrelated, already-verified screen — the same reasoning that kept
+// Milestone 5's dashboard_snapshot_metrics() rewrite from calling back into
+// the five detail functions once that coupling turned out to cost too much.
+//
+// `allowLogCall: false` — "log a call" credits whoever clicks, which is
+// the wrong fix for a lead with no follow-up at all (per the brief).
+// `queueActions: true` — the swipe/bulk "Set date" action IS the point of
+// this panel, unlike Dashboard's own Needs Attention buckets which pass
+// `queueActions: false` deliberately (a read-only company view).
+//
+// `rows` are `leads_followup_gap_detail()`'s raw rows (lead_id, party,
+// owner_id, owner_name, stage, value, last_activity_at) — see
+// Schema/migration_time_independent_dashboard_metrics.sql. On-hold leads
+// are already excluded at the SQL layer (per FOLLOWUPS.md Rule 8.2 — they
+// always carry a mandatory hold-review reminder, so they can't genuinely be
+// gapped), so nothing here needs to re-check that.
+export function buildFollowupGapPanel(rows, scopeLabel = 'Company', isSinglePersonScope = false) {
+  const ageRows = rows
+    .map((r) => {
+      const age = daysSince(r.last_activity_at)
+      return {
+        leadId: r.lead_id,
+        party: r.party,
+        stage: stageLabel(r.stage),
+        chipClass: stageChipClass(r.stage),
+        last: age != null ? `Last activity ${age}d ago` : 'No activity logged since created',
+        age: age ?? 0,
+        rawValue: Number(r.value ?? 0),
+        ownerId: r.owner_id ?? null,
+        owner: r.owner_name ?? 'Unassigned',
+      }
+    })
+    .sort((a, b) => b.age - a.age)
+
+  const owners = new Map()
+  ageRows.forEach((r) => {
+    const key = r.ownerId ?? 'unassigned'
+    if (!owners.has(key)) owners.set(key, { id: r.ownerId, name: r.owner, count: 0, value: 0 })
+    const entry = owners.get(key)
+    entry.count += 1
+    entry.value += r.rawValue
+  })
+  const ownerList = [...owners.values()].sort((a, b) => b.count - a.count)
+  const maxOwnerCount = Math.max(1, ...ownerList.map((o) => o.count))
+
+  const totalValue = ageRows.reduce((s, r) => s + r.rawValue, 0)
+  const ages = ageRows.map((r) => r.age).sort((a, b) => a - b)
+
+  return {
+    kind: 'ageing',
+    eyebrow: `${scopeLabel} · follow-up gap`,
+    title: 'Leads with no follow-up set',
+    value: String(ageRows.length),
+    note: 'Currently-open leads (excluding on-hold) with no open follow-up reminder at all.',
+    queueActions: true,
+    allowLogCall: false,
+    viewerEmployeeId: null,
+    stats: [
+      { label: 'Value involved', value: formatCurrencyCompact(totalValue), sub: `across ${ageRows.length} lead${ageRows.length === 1 ? '' : 's'}`, color: '#7a6413' },
+      { label: 'Oldest', value: ages.length ? `${ages[ages.length - 1]}d` : '—', sub: 'longest since touch', color: '#7a6413' },
+      { label: 'Median age', value: ages.length ? `${ages[Math.floor(ages.length / 2)]}d` : '—', sub: 'typical', color: '#7a6413' },
+      { label: 'Owners involved', value: String(ownerList.length), sub: 'sales execs', color: '#101617' },
+    ],
+    ownerTitle: 'Whose leads these are',
+    // Empty in single-person scope (per the role-matrix rule — one owner
+    // makes both the rollup and its own filter meaningless), which also
+    // hides the owner dropdown below (AgeingBody gates it on
+    // ownerRows.length > 0).
+    ownerRows: isSinglePersonScope
+      ? []
+      : ownerList.map((o) => ({
+          id: o.id,
+          initials: getInitials(o.name),
+          name: o.name,
+          count: o.count,
+          value: formatCurrencyCompact(o.value),
+          pct: `${Math.round((o.count / maxOwnerCount) * 100)}%`,
+          color: o.count >= 3 ? '#b4232a' : o.count >= 2 ? '#7a6413' : '#9aa5a6',
+        })),
+    listTitle: 'Longest since last touch first',
+    listHint: 'no open follow-up',
+    ageRows: ageRows.map((r) => ({
+      leadId: r.leadId,
+      party: r.party,
+      stage: r.stage,
+      chipClass: r.chipClass,
+      last: r.last,
+      age: `${r.age}d`,
+      value: formatCurrencyCompact(r.rawValue),
+      initials: getInitials(r.owner),
+      ownerId: r.ownerId,
+      owner: r.owner,
+    })),
+    // AgeingBody-only flag: opts into the owner dropdown + stage filter
+    // chips this metric's own spec asks for. Every EXISTING `ageing` caller
+    // (Needs Attention's five buckets, Today's work queue, the KPI row's
+    // Stale leads tile — all still built via attention.js's
+    // buildAgeingPanel, untouched by this pass) leaves this unset, so they
+    // keep rendering exactly as before.
+    showListFilters: true,
+  }
+}
+
+// ---------- on-hold pipeline insights (metric #3, Milestone 6 panel 4) ----------
+// A GENUINELY NEW kind (`onHoldInsights`), not another `ageing` reuse like
+// panel 3's coverage-gap panel. Deliberate: this metric needs duration
+// buckets and a sort toggle that `ageing`/AgeingBody has no shape for, and
+// per the brief it must be READ-ONLY — no swipe-to-act, no bulk button
+// ("a hold is a deliberate pause, not a queue to clear, unlike the ageing
+// kind it's modeled on"). Bolting three more caller-specific flags onto
+// AgeingBody to fake this shape would repeat the exact mistake
+// buildPipelinePanel's own `mode` param was removed for once it only ever
+// had one real caller left — better to give this its own small, honest
+// shape than keep growing a shared component's surface for one consumer.
+//
+// Duration bucket cutoffs are the exact ones confirmed in Milestone 1
+// (TIME-INDEPENDENT-METRICS-LOG.md) — contiguous, no gaps, every on-hold
+// lead lands in exactly one. Deliberately NOT reusing attention.js's
+// STALE_DAYS/ATTENTION_DAYS constants, per the brief: this measures time
+// since entering on_hold (via stage_history), a different question from
+// time since last activity.
+const ON_HOLD_BUCKETS = [
+  { key: 'lt1m', label: '< 1 month', min: 0, max: 29 },
+  { key: '1to3m', label: '1–3 months', min: 30, max: 89 },
+  { key: '3to6m', label: '3–6 months', min: 90, max: 179 },
+  { key: '6to12m', label: '6–12 months', min: 180, max: 359 },
+  { key: '12mPlus', label: '12+ months', min: 360, max: Infinity },
+]
+
+function onHoldBucketFor(days) {
+  return ON_HOLD_BUCKETS.find((b) => days >= b.min && days <= b.max) ?? ON_HOLD_BUCKETS[ON_HOLD_BUCKETS.length - 1]
+}
+
+// `rows` are leads_on_hold_detail()'s raw rows (lead_id, party, owner_id,
+// owner_name, value, on_hold_reason, on_hold_since, days_on_hold,
+// resume_date) — see Schema/migration_time_independent_dashboard_metrics.sql.
+export function buildOnHoldInsightsPanel(rows, scopeLabel = 'Company', isSinglePersonScope = false) {
+  const shaped = rows.map((r) => {
+    const days = r.days_on_hold ?? 0
+    const bucket = onHoldBucketFor(days)
+    const reason = r.on_hold_reason && r.on_hold_reason.trim() ? r.on_hold_reason.trim() : null
+    return {
+      leadId: r.lead_id,
+      party: r.party,
+      ownerId: r.owner_id ?? null,
+      owner: r.owner_name ?? 'Unassigned',
+      rawValue: Number(r.value ?? 0),
+      days,
+      bucketKey: bucket.key,
+      bucketLabel: bucket.label,
+      reason,
+      // Plain DATE column — same UTC-midnight-then-locale-format pattern
+      // buildForecastPanel's own `close` field already uses for
+      // estimated_close_date, deliberately not a new date-formatting
+      // helper for one more DATE column of the same shape.
+      resumeDate: r.resume_date ? new Date(r.resume_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : null,
+    }
+  })
+
+  const totalValue = shaped.reduce((s, r) => s + r.rawValue, 0)
+  const avgDays = shaped.length ? Math.round(shaped.reduce((s, r) => s + r.days, 0) / shaped.length) : 0
+  const oldestDays = shaped.length ? Math.max(...shaped.map((r) => r.days)) : 0
+
+  const bucketCounts = ON_HOLD_BUCKETS.map((b) => {
+    const inBucket = shaped.filter((r) => r.bucketKey === b.key)
+    return {
+      key: b.key,
+      label: b.label,
+      count: inBucket.length,
+      value: formatCurrencyCompact(inBucket.reduce((s, r) => s + r.rawValue, 0)),
+    }
+  })
+  const maxBucketCount = Math.max(1, ...bucketCounts.map((b) => b.count))
+
+  const owners = new Map()
+  shaped.forEach((r) => {
+    const key = r.ownerId ?? 'unassigned'
+    if (!owners.has(key)) owners.set(key, { id: r.ownerId, name: r.owner, count: 0, value: 0 })
+    const entry = owners.get(key)
+    entry.count += 1
+    entry.value += r.rawValue
+  })
+  const ownerList = [...owners.values()].sort((a, b) => b.count - a.count)
+  const maxOwnerCount = Math.max(1, ...ownerList.map((o) => o.count))
+
+  return {
+    kind: 'onHoldInsights',
+    eyebrow: `${scopeLabel} · on-hold pipeline`,
+    title: 'On-hold pipeline insights',
+    value: String(shaped.length),
+    note: shaped.length
+      ? `${shaped.length} lead${shaped.length === 1 ? '' : 's'} on hold, averaging ${avgDays}d parked.`
+      : 'Nothing is currently on hold.',
+    stats: [
+      { label: 'Value on hold', value: formatCurrencyCompact(totalValue), sub: `across ${shaped.length} lead${shaped.length === 1 ? '' : 's'}`, color: '#485456' },
+      { label: 'Avg. days parked', value: shaped.length ? `${avgDays}d` : '—', sub: 'mean', color: '#485456' },
+      { label: 'Oldest hold', value: shaped.length ? `${oldestDays}d` : '—', sub: 'longest parked', color: '#485456' },
+      { label: 'Owners involved', value: String(ownerList.length), sub: 'sales execs', color: '#101617' },
+    ],
+    // Display-only breakdown (not a filter, unlike panel 3's stage chips) —
+    // the brief lists duration buckets and the owner dropdown/sort toggle
+    // as separate things, so buckets stay informational for this pass.
+    buckets: bucketCounts.map((b) => ({ ...b, pct: `${Math.round((b.count / maxBucketCount) * 100)}%` })),
+    ownerTitle: 'Whose leads these are',
+    // Empty in single-person scope — one owner makes the rollup and its own
+    // dropdown filter meaningless, same role-matrix rule every other panel
+    // in this feature already follows.
+    ownerRows: isSinglePersonScope
+      ? []
+      : ownerList.map((o) => ({
+          id: o.id,
+          initials: getInitials(o.name),
+          name: o.name,
+          count: o.count,
+          value: formatCurrencyCompact(o.value),
+          pct: `${Math.round((o.count / maxOwnerCount) * 100)}%`,
+          color: o.count >= 3 ? '#7a6413' : '#9aa5a6',
+        })),
+    rows: shaped.map((r) => ({
+      leadId: r.leadId,
+      party: r.party,
+      ownerId: r.ownerId,
+      owner: r.owner,
+      value: formatCurrencyCompact(r.rawValue),
+      rawValue: r.rawValue,
+      days: r.days,
+      sub: r.reason ? `${r.bucketLabel} · ${r.reason}` : r.bucketLabel,
+      resumeDate: r.resumeDate ?? '—',
+    })),
+  }
+}
+
+// ---------- team workload balance (metric #6, Milestone 6 panel 5) ----------
+// A GENUINELY NEW kind (`workload`) — and a real inversion of every panel
+// built so far in this feature. Panels 3/4 treat the owner breakdown as a
+// SECONDARY rollup sitting below a lead-level row list; this metric's whole
+// point is the owner breakdown, so it IS the primary content and there is
+// no lead-level list at all — per the brief, tapping a row opens that
+// exec's existing Sales Exec Profile (/employees/:id) instead of building
+// a redundant list here.
+//
+// Sortable by count or by value in the Body (not this builder) — "busiest"
+// isn't always the same person by both measures. Both percentages are
+// precomputed here against their own metric's max so the Body never has to
+// re-derive them on every toggle flip.
+//
+// `rows` are leads_workload_by_owner()'s raw rows (owner_id, owner_name,
+// open_lead_count, open_pipeline_value) — already grouped server-side, one
+// row per employee who owns at least one open lead (on-hold included, see
+// that function's own header comment for the flagged workload-vs-active
+// definition difference); an employee with zero open leads never appears.
+//
+// NEVER called in single-person scope — RightNowStrip's own `showWorkload`
+// prop hides the chip entirely there (a lone employee has nothing to
+// compare their own workload against), so unlike every other builder in
+// this file there is no `isSinglePersonScope` param to gate a section on.
+export function buildWorkloadPanel(rows, scopeLabel = 'Company') {
+  const shaped = rows.map((r) => ({
+    id: r.owner_id ?? null,
+    name: r.owner_name ?? 'Unassigned',
+    count: Number(r.open_lead_count ?? 0),
+    rawValue: Number(r.open_pipeline_value ?? 0),
+  }))
+
+  const busiest = shaped.length ? [...shaped].sort((a, b) => b.count - a.count)[0] : null
+  const lightest = shaped.length ? [...shaped].sort((a, b) => a.count - b.count)[0] : null
+  const totalLeads = shaped.reduce((s, o) => s + o.count, 0)
+  const totalValue = shaped.reduce((s, o) => s + o.rawValue, 0)
+  const avgCount = shaped.length ? Math.round(totalLeads / shaped.length) : 0
+
+  const maxCount = Math.max(1, ...shaped.map((o) => o.count))
+  const maxValue = Math.max(1, ...shaped.map((o) => o.rawValue))
+
+  return {
+    kind: 'workload',
+    eyebrow: `${scopeLabel} · team workload`,
+    title: 'Team workload balance',
+    value: String(shaped.length),
+    // Three distinct cases, not two — collapsing the single-employee case
+    // into the same "evenly" branch as a genuine multi-employee tie read as
+    // nonsense ("1 employee currently holds open leads, evenly.", caught
+    // live testing a real one-person coordinator team on port 5182).
+    note:
+      shaped.length === 1
+        ? `${shaped[0].name} is the only one currently holding open leads (${shaped[0].count}).`
+        : busiest && lightest && busiest.id !== lightest.id
+          ? `${busiest.name} carries the most open leads (${busiest.count}); ${lightest.name} carries the least (${lightest.count}).`
+          : shaped.length
+            ? `${shaped.length} employees are evenly loaded, ${shaped[0].count} open lead${shaped[0].count === 1 ? '' : 's'} each.`
+            : 'No one currently holds an open lead.',
+    stats: [
+      { label: 'Employees', value: String(shaped.length), sub: 'with open leads', color: '#101617' },
+      { label: 'Avg. per person', value: shaped.length ? String(avgCount) : '—', sub: 'open leads', color: '#485456' },
+      { label: 'Busiest', value: busiest ? String(busiest.count) : '—', sub: busiest ? busiest.name : '—', color: '#7a6413' },
+      { label: 'Total pipeline', value: formatCurrencyCompact(totalValue), sub: `${totalLeads} lead${totalLeads === 1 ? '' : 's'}`, color: '#101617' },
+    ],
+    // Sorted by count desc by default (matches leads_workload_by_owner()'s
+    // own ORDER BY) — the Body's toggle re-sorts client-side from this same
+    // array rather than re-fetching.
+    ownerRows: shaped.map((o) => ({
+      id: o.id,
+      initials: getInitials(o.name),
+      name: o.name,
+      count: o.count,
+      rawValue: o.rawValue,
+      value: formatCurrencyCompact(o.rawValue),
+      countPct: `${Math.round((o.count / maxCount) * 100)}%`,
+      valuePct: `${Math.round((o.rawValue / maxValue) * 100)}%`,
+    })),
+  }
+}
+
+// ---------- lead data completeness (metric #4, Milestone 6 panel 6 — the final panel) ----------
+// The exact 6 fields leads_completeness_detail() checks (see that function's
+// own header comment in the migration for why architect fields are
+// deliberately excluded — not every deal has one, and folding them in would
+// unfairly penalize leads that genuinely don't need one).
+const COMPLETENESS_FIELDS = [
+  { key: 'client_name', label: 'Client name', hasKey: 'has_client_name' },
+  { key: 'client_number', label: 'Client number', hasKey: 'has_client_number' },
+  { key: 'address', label: 'Address', hasKey: 'has_address' },
+  { key: 'pincode', label: 'Pincode', hasKey: 'has_pincode' },
+  { key: 'site_stage', label: 'Site stage', hasKey: 'has_site_stage' },
+  { key: 'product', label: 'Product', hasKey: 'has_product' },
+]
+
+// A GENUINELY NEW kind (`completeness`) — reuses rendering PRIMITIVES from
+// two different existing kinds rather than either one's whole identity:
+// the field bars below reuse `loss`'s `.vip-dd-stage-*` row shape (a
+// count/value bar list is a count/value bar list, whether the count is
+// "leads lost to this reason" or "leads missing this field"), and the
+// per-lead rows reuse `loss`'s own `.vip-dd-lead-row` shape (party + a
+// `.vip-dd-hint` detail line + owner + a right-aligned figure). Neither
+// panel is reused wholesale — this is exactly the "reuse primitives, never
+// borrow a whole panel's identity" rule this file's own Concentration fix
+// (Milestone 6 panel 2) exists to enforce.
+//
+// `rows` are leads_completeness_detail()'s raw rows (lead_id, party,
+// owner_id, owner_name, has_client_name, has_client_number, has_address,
+// has_pincode, has_site_stage, has_product, missing_fields, completeness_pct)
+// — one row per currently-open lead, already scoped by the caller's RLS/
+// p_owner_ids.
+export function buildCompletenessPanel(rows, scopeLabel = 'Company', isSinglePersonScope = false) {
+  const shaped = rows.map((r) => ({
+    leadId: r.lead_id,
+    // The RPC's own generic fallback chain lands on the literal string
+    // '(no party)' when nothing resolves (see its header comment) — this
+    // panel is specifically about data completeness, and "client name" is
+    // one of the six fields being measured, so a more informative label
+    // fits this one context better than the generic fallback every other
+    // panel's party column uses unchanged.
+    party: r.party && r.party !== '(no party)' ? r.party : 'No client linked yet',
+    ownerId: r.owner_id ?? null,
+    owner: r.owner_name ?? 'Unassigned',
+    missingFields: r.missing_fields ?? [],
+    rawPct: Number(r.completeness_pct ?? 0),
+  }))
+
+  const total = shaped.length
+  const blendedPct = total ? Math.round(shaped.reduce((s, r) => s + r.rawPct, 0) / total) : null
+  const fullyComplete = shaped.filter((r) => r.rawPct >= 100).length
+
+  // Computed straight off the raw `has_*` booleans (not off `shaped`, which
+  // only carries the derived/display fields) — one field-completeness % per
+  // field, matching dashboard_snapshot_metrics()'s own *_pct scalars exactly
+  // (same rows, same formula), though this panel always recomputes fresh
+  // from its own detail rows rather than trusting the snapshot's cached
+  // scalar, same "one definition, fetched lazily" split every sibling panel
+  // in this feature already follows.
+  const fieldStats = COMPLETENESS_FIELDS.map((f) => {
+    const completeCount = rows.filter((r) => r[f.hasKey]).length
+    const missing = total - completeCount
+    const pct = total ? Math.round((completeCount / total) * 100) : 0
+    return { key: f.key, label: f.label, pct: `${pct}%`, rawPct: pct, count: completeCount, missing }
+  })
+  const worstField = fieldStats.length ? [...fieldStats].sort((a, b) => b.missing - a.missing)[0] : null
+
+  const owners = new Map()
+  shaped.forEach((r) => {
+    const key = r.ownerId ?? 'unassigned'
+    if (!owners.has(key)) owners.set(key, { id: r.ownerId, name: r.owner, count: 0, sumPct: 0 })
+    const entry = owners.get(key)
+    entry.count += 1
+    entry.sumPct += r.rawPct
+  })
+  // Worst-first (ascending avg %) — the point of this rollup is spotting
+  // whose leads need cleanup, not celebrating whoever's tidiest, so the
+  // employee most worth following up with sorts to the top.
+  const ownerList = [...owners.values()]
+    .map((o) => ({ ...o, avgPct: Math.round(o.sumPct / o.count) }))
+    .sort((a, b) => a.avgPct - b.avgPct)
+
+  return {
+    kind: 'completeness',
+    eyebrow: `${scopeLabel} · data completeness`,
+    title: 'Lead data completeness',
+    value: blendedPct != null ? `${blendedPct}%` : '—',
+    note: total
+      ? `${total} open lead${total === 1 ? '' : 's'} checked across 6 fields.${
+          worstField && worstField.missing > 0
+            ? ` ${worstField.label} is missing most often (${worstField.missing} lead${worstField.missing === 1 ? '' : 's'}).`
+            : ' Every field is complete on every open lead.'
+        }`
+      : 'No open leads to check right now.',
+    stats: [
+      { label: 'Leads checked', value: String(total), sub: 'currently open', color: '#101617' },
+      { label: 'Avg. completeness', value: blendedPct != null ? `${blendedPct}%` : '—', sub: 'across 6 fields', color: '#485456' },
+      { label: 'Fully complete', value: String(fullyComplete), sub: 'all 6 fields set', color: '#1f6f4a' },
+      { label: 'Worst field', value: worstField && worstField.missing > 0 ? worstField.label : '—', sub: worstField && worstField.missing > 0 ? `${worstField.missing} missing` : 'none missing', color: '#b4232a' },
+    ],
+    fieldStats,
+    ownerTitle: 'Average completeness by owner',
+    // Empty in single-person scope, same role-matrix rule every other
+    // owner rollup in this feature already follows — one person has
+    // nothing to compare their own completeness against.
+    ownerRows: isSinglePersonScope
+      ? []
+      : ownerList.map((o) => ({
+          id: o.id,
+          initials: getInitials(o.name),
+          name: o.name,
+          count: o.count,
+          value: `${o.avgPct}%`,
+          pct: `${o.avgPct}%`,
+          color: o.avgPct >= 80 ? '#1f6f4a' : o.avgPct >= 50 ? '#7a6413' : '#b4232a',
+        })),
+    // Only fields with at least one missing lead get a filter chip — a
+    // "Missing product" chip that matches zero rows is the same pointless-
+    // control failure mode panel 4's empty-state fix already exists to
+    // avoid, just for a filter chip instead of a whole section.
+    fieldFilters: fieldStats.filter((f) => f.missing > 0).map((f) => ({ key: f.key, label: f.label, missing: f.missing })),
+    rows: shaped.map((r) => ({
+      leadId: r.leadId,
+      party: r.party,
+      ownerId: r.ownerId,
+      owner: r.owner,
+      missingFields: r.missingFields,
+      missingSummary: r.missingFields.length
+        ? `Missing: ${r.missingFields.map((k) => COMPLETENESS_FIELDS.find((f) => f.key === k)?.label ?? k).join(', ')}`
+        : 'All fields complete',
+      pctLabel: `${Math.round(r.rawPct)}%`,
+      rawPct: r.rawPct,
+    })),
   }
 }
 

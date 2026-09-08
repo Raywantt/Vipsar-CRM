@@ -8,6 +8,7 @@ import { createFollowUp } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { todayISO, toISODate } from '../lib/followupDates'
 import ShowMoreRows from './ShowMoreRows'
+import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 
 // Chunk size for ShowMoreRows in every drill-down body below that renders an
 // otherwise-unbounded list (a Needs Attention bucket, every lead at one
@@ -228,13 +229,51 @@ function AgeingBody({ panel }) {
   const [dateSheet, setDateSheet] = useState(null) // leadId | 'bulk' | null
   const [dateValue, setDateValue] = useState('')
   const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
+  // Owner dropdown + stage chips — opt-in via panel.showListFilters (see
+  // buildFollowupGapPanel in drilldownBuilders.js). Every OTHER `ageing`
+  // caller (Needs Attention's five buckets, Today's work queue, the KPI
+  // row's Stale leads tile) leaves this unset, so these two filters and
+  // the state below have no effect on those screens at all.
+  const [ownerFilter, setOwnerFilter] = useState('')
+  const [stageFilter, setStageFilter] = useState('')
 
   useEffect(() => {
     setRows(panel.ageRows)
     setMessages({})
     setDateSheet(null)
     setVisibleCount(ROW_CHUNK)
+    setOwnerFilter('')
+    setStageFilter('')
   }, [panel])
+
+  // Also resets the paging window on either filter — narrowing should
+  // start from the top of THAT list, not wherever the unfiltered one had
+  // scrolled to (same reasoning StageLeadsBody's own owner filter already
+  // documents).
+  useEffect(() => {
+    setVisibleCount(ROW_CHUNK)
+  }, [ownerFilter, stageFilter])
+
+  // Ordered by the canonical funnel sequence (LEAD_STAGE_OPTIONS), not by
+  // whatever order Set() happened to encounter them in the age-sorted row
+  // list — a filter row is a fixed reference a rep scans repeatedly, and it
+  // reading in a different order every time this panel opens is confusing
+  // on its own, never mind not matching the stage chip order every other
+  // stage picker in this app already uses (LeadStageSection, LeadsListCard).
+  const stagesPresent = panel.showListFilters
+    ? LEAD_STAGE_OPTIONS.map(stageLabel).filter((label) => panel.ageRows.some((r) => r.stage === label))
+    : []
+  // 'unassigned' sentinel, not a bare empty string — unlike StageLeadsBody's
+  // own owner filter (whose owners list always excludes unassigned leads,
+  // see buildStageLeadsPanel), this one's ownerRows CAN include a real
+  // `id: null` entry for unassigned leads, and value="" would otherwise
+  // collide with "All owners"'s own empty-string value below.
+  const filteredRows = panel.showListFilters
+    ? rows.filter(
+        (r) =>
+          (!ownerFilter || String(r.ownerId ?? 'unassigned') === ownerFilter) && (!stageFilter || r.stage === stageFilter)
+      )
+    : rows
 
   async function handleLogCall(r) {
     setBusyLeadId(r.leadId)
@@ -257,7 +296,12 @@ function AgeingBody({ panel }) {
   // the list for the rows that actually succeeded.
   async function handleSaveDate() {
     if (!dateValue || !dateSheet) return
-    const targets = dateSheet === 'bulk' ? rows : rows.filter((r) => r.leadId === dateSheet)
+    // Bulk targets the CURRENTLY VISIBLE (filtered) set, not every row in
+    // the panel — narrowing to one owner or stage and then tapping "Set a
+    // follow-up on all N" should mean those N, matching what the button
+    // itself now says (see the bulk button below, which reads
+    // filteredRows.length).
+    const targets = dateSheet === 'bulk' ? filteredRows : rows.filter((r) => r.leadId === dateSheet)
     const assignee = panel.viewerEmployeeId
 
     const results = await Promise.all(
@@ -311,21 +355,62 @@ function AgeingBody({ panel }) {
         </div>
       )}
 
+      {panel.showListFilters && (panel.ownerRows.length > 0 || stagesPresent.length > 1) && (
+        <div className="vip-dd-section">
+          {panel.ownerRows.length > 0 && (
+            <div className="vip-stack-s" style={{ gap: 6, marginBottom: 10 }}>
+              <div className="vip-fact-label">Owner</div>
+              <select className="vip-select" value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
+                <option value="">All owners ({rows.length})</option>
+                {panel.ownerRows.map((o) => (
+                  <option key={o.id ?? 'unassigned'} value={o.id ?? 'unassigned'}>
+                    {o.name} ({o.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {stagesPresent.length > 1 && (
+            <div className="vip-stack-s" style={{ gap: 6 }}>
+              <div className="vip-fact-label">Stage</div>
+              <div className="vip-chip-wrap">
+                <button type="button" className="vip-chip-select" aria-pressed={stageFilter === ''} onClick={() => setStageFilter('')}>
+                  All
+                </button>
+                {stagesPresent.map((stage) => (
+                  <button
+                    key={stage}
+                    type="button"
+                    className="vip-chip-select"
+                    aria-pressed={stageFilter === stage}
+                    onClick={() => setStageFilter(stage)}
+                  >
+                    {stage}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="vip-dd-section">
         <div className="vip-dd-section-head">
           <div className="vip-dd-section-title">{panel.listTitle}</div>
           <div className="vip-dd-hint">
-            {panel.queueActions
+            {panel.showListFilters && filteredRows.length !== rows.length
+              ? `${filteredRows.length} of ${rows.length}`
+              : panel.queueActions
               ? panel.allowLogCall !== false
                 ? 'swipe a row to log a call'
                 : 'swipe a row to set a follow-up'
               : panel.listHint}
           </div>
         </div>
-        {rows.length === 0 ? (
-          <p className="vip-empty">Nothing in this queue right now.</p>
+        {filteredRows.length === 0 ? (
+          <p className="vip-empty">{rows.length === 0 ? 'Nothing in this queue right now.' : 'No leads match this filter.'}</p>
         ) : panel.queueActions ? (
-          rows.slice(0, visibleCount).map((r) => (
+          filteredRows.slice(0, visibleCount).map((r) => (
             <SwipeAgeRow
               key={r.leadId}
               r={r}
@@ -340,15 +425,15 @@ function AgeingBody({ panel }) {
             />
           ))
         ) : (
-          rows.slice(0, visibleCount).map((r) => (
+          filteredRows.slice(0, visibleCount).map((r) => (
             <Link key={r.leadId} to={`/leads/${r.leadId}`} className="vip-dd-age-row">
               <AgeRowContent r={r} />
             </Link>
           ))
         )}
         <ShowMoreRows
-          shown={Math.min(visibleCount, rows.length)}
-          total={rows.length}
+          shown={Math.min(visibleCount, filteredRows.length)}
+          total={filteredRows.length}
           noun="leads"
           onShowMore={() => setVisibleCount((v) => v + ROW_CHUNK)}
         />
@@ -372,9 +457,9 @@ function AgeingBody({ panel }) {
         </div>
       )}
 
-      {panel.queueActions && rows.length > 0 && (
+      {panel.queueActions && filteredRows.length > 0 && (
         <button type="button" className="vip-btn" onClick={() => { setDateSheet('bulk'); setDateValue('') }}>
-          Set a follow-up on all {rows.length}
+          Set a follow-up on all {filteredRows.length}
         </button>
       )}
     </div>
@@ -432,16 +517,95 @@ function AttainBody({ panel }) {
 // clicking one drills one level deeper into that stage's own lead list
 // (panel.stageRows[].drill, prebuilt by buildPipelinePanel), pushed onto
 // DrilldownPanel's stack so "‹ Back" comes back here.
+// SCOPE_LABELS/order for the All/Active/On-hold toggle — see
+// buildPipelinePanel's own header comment (drilldownBuilders.js) for why
+// convRows/stats[1..3] stay constant while value/note/stageRows/topLeads
+// switch with this.
+const PIPELINE_SCOPES = [
+  { key: 'all', label: 'All' },
+  { key: 'active', label: 'Active' },
+  { key: 'onHold', label: 'On hold' },
+]
+
 function PipelineBody({ panel, onDrill }) {
+  const [scope, setScope] = useState(panel.initialScope ?? 'all')
+  const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
+
+  // Reset to the panel's own default scope whenever a NEW pipeline panel
+  // opens (not on every re-render) — same reset-on-panel-change pattern
+  // StageLeadsBody already uses for its own owner filter, so reopening this
+  // panel (or opening a different one entirely) never carries over a stale
+  // toggle position from last time.
+  useEffect(() => {
+    setScope(panel.initialScope ?? 'all')
+  }, [panel])
+
+  // Also resets on the scope itself — every entry point except
+  // Concentration only ever has 5 rows here, so this mostly matters for
+  // Concentration's own wider list (up to "all" in single-person scope).
+  useEffect(() => {
+    setVisibleCount(ROW_CHUNK)
+  }, [panel, scope])
+
+  const view = panel.scopeViews?.[scope] ?? panel
+  // Concentration is a genuinely different, focused view — not "Open
+  // pipeline by stage" with an extra section. It has its own header
+  // (title/value/note/stats, set in buildPipelinePanel), so the toggle
+  // (there's nothing to toggle TO that would still match that header), the
+  // stage bar chart, and the stage-to-stage conversion cards are all
+  // beside the point here and are hidden outright — see this file's own
+  // Milestone 6 log entry for the real user-facing bug this replaced.
+  const isConcentration = !!panel.concentrationMode
+  const leadsTitle = isConcentration
+    ? 'Ranked by value'
+    : scope === 'onHold'
+    ? 'Biggest on-hold leads'
+    : scope === 'active'
+    ? 'Biggest active leads'
+    : 'Biggest open leads'
+
   return (
     <div className="vip-dd-section-stack">
-      {panel.stageRows?.length > 0 && (
+      {/* The header above (value/note/StatsGrid, rendered once by the
+          parent DrilldownPanel from `panel` itself) intentionally does NOT
+          react to this toggle — same precedent StageLeadsBody's own owner
+          filter already set (that filter narrows the row list below
+          without touching the header stats either). Making the header
+          reactive would mean lifting this scope state up into the generic,
+          panel-kind-agnostic wrapper, which every other kind would then
+          carry the cost of for a feature only this one uses. The toggle's
+          own effect is fully visible in the sections below instead — the
+          value/lead-count line right under it, plus the stage bars and
+          leads list resizing to match. */}
+      {panel.scopeViews && !isConcentration && (
+        <>
+          <div className="vip-seg-mini" role="tablist" aria-label="Which leads to show">
+            {PIPELINE_SCOPES.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                role="tab"
+                aria-selected={scope === s.key}
+                className={scope === s.key ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setScope(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <div className="vip-dd-hint">
+            {view.value} · {view.note}
+          </div>
+        </>
+      )}
+
+      {!isConcentration && view.stageRows?.length > 0 && (
         <div className="vip-dd-section">
           <div className="vip-dd-section-head">
             <div className="vip-dd-section-title">Where the value is sitting</div>
             <div className="vip-dd-hint">count · value · tap a stage for its leads</div>
           </div>
-          {panel.stageRows.map((s) => (
+          {view.stageRows.map((s) => (
             <button key={s.label} type="button" className="vip-dd-stage-row" onClick={() => s.drill && onDrill(s.drill)}>
               <span className="vip-dd-stage-label">{s.label}</span>
               <span className="vip-dd-stage-track">
@@ -454,7 +618,7 @@ function PipelineBody({ panel, onDrill }) {
         </div>
       )}
 
-      {panel.convRows?.length > 0 && (
+      {!isConcentration && panel.convRows?.length > 0 && (
         <div className="vip-dd-section">
           <div className="vip-dd-section-head">
             <div className="vip-dd-section-title">Stage-to-stage conversion</div>
@@ -480,20 +644,33 @@ function PipelineBody({ panel, onDrill }) {
         </div>
       )}
 
-      {panel.topLeads?.length > 0 && (
+      {view.topLeads?.length > 0 && (
         <div className="vip-dd-section">
           <div className="vip-dd-section-head">
-            <div className="vip-dd-section-title">Biggest open leads</div>
-            <div className="vip-dd-hint">by value</div>
+            <div className="vip-dd-section-title">{leadsTitle}</div>
+            <div className="vip-dd-hint">
+              {isConcentration
+                ? `${view.topLeads.length} of ${view.topLeadsTotal} · value · running % of active pipeline`
+                : 'by value'}
+            </div>
           </div>
-          {panel.topLeads.map((t) => (
+          {view.topLeads.slice(0, visibleCount).map((t) => (
             <Link key={t.leadId} to={`/leads/${t.leadId}`} className="vip-dd-lead-row">
               <span className="vip-dd-lead-party">{t.party}</span>
               <span className={t.chipClass}>{t.stage}</span>
               <EmployeeLink id={t.ownerId} name={t.owner} className="vip-dd-lead-owner" />
               <span className="vip-dd-lead-value">{t.value}</span>
+              {t.cumulativePct != null && <span className="vip-dd-lead-value">{t.cumulativePct}</span>}
             </Link>
           ))}
+          {view.topLeads.length > visibleCount && (
+            <ShowMoreRows
+              shown={Math.min(visibleCount, view.topLeads.length)}
+              total={view.topLeads.length}
+              noun="leads"
+              onShowMore={() => setVisibleCount((v) => v + ROW_CHUNK)}
+            />
+          )}
         </div>
       )}
     </div>
@@ -651,6 +828,230 @@ function ForecastBody({ panel }) {
         <ShowMoreRows
           shown={Math.min(visibleCount, panel.fcRows.length)}
           total={panel.fcRows.length}
+          noun="leads"
+          onShowMore={() => setVisibleCount((v) => v + ROW_CHUNK)}
+        />
+      </div>
+    </div>
+  )
+}
+
+const WORKLOAD_SORTS = [
+  { key: 'count', label: 'By lead count' },
+  { key: 'value', label: 'By pipeline value' },
+]
+
+// Genuinely new kind (buildWorkloadPanel in drilldownBuilders.js) — and a
+// real inversion of every panel above it: the owner breakdown IS the whole
+// body here, not a rollup sitting under a lead-level row list, since this
+// metric has no lead-level list at all. Per the brief, each row links
+// straight to that employee's own Sales Exec Profile instead of opening a
+// redundant lead list. A plain `<Link>` is used rather than EmployeeLink —
+// EmployeeLink exists for a name that has to nest INSIDE an already-linked
+// row (a lead, a party); these rows have no outer link to nest inside, so
+// the whole row is the link, same as `.vip-dd-age-row` elsewhere in this
+// file. "Unassigned" (o.id null) renders as a plain, non-clickable row —
+// there's no profile to send it to.
+function WorkloadBody({ panel }) {
+  const [sortBy, setSortBy] = useState('count')
+
+  useEffect(() => {
+    setSortBy('count')
+  }, [panel])
+
+  const sorted = [...panel.ownerRows].sort((a, b) => (sortBy === 'value' ? b.rawValue - a.rawValue : b.count - a.count))
+
+  return (
+    <div className="vip-dd-section-stack">
+      {sorted.length > 0 && (
+        <div className="vip-dd-section">
+          <div className="vip-seg-mini" role="tablist" aria-label="Sort by">
+            {WORKLOAD_SORTS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                role="tab"
+                aria-selected={sortBy === s.key}
+                className={sortBy === s.key ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setSortBy(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="vip-dd-section">
+        {sorted.length === 0 && <p className="vip-empty">No one currently holds an open lead.</p>}
+        {sorted.map((o) => {
+          const pct = sortBy === 'value' ? o.valuePct : o.countPct
+          const rowContent = (
+            <>
+              <span className="vip-dd-avatar">{o.initials}</span>
+              <span className="vip-dd-owner-name">{o.name}</span>
+              <span className="vip-dd-owner-track">
+                <span className="vip-dd-owner-fill" style={{ width: pct, background: '#7a6413' }} />
+              </span>
+              <span className="vip-dd-owner-count">{o.count}</span>
+              <span className="vip-dd-owner-value">{o.value}</span>
+            </>
+          )
+          return o.id ? (
+            <Link key={o.id} to={`/employees/${o.id}`} className="vip-dd-owner-row vip-dd-owner-row-link">
+              {rowContent}
+            </Link>
+          ) : (
+            <div key="unassigned" className="vip-dd-owner-row">
+              {rowContent}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+const ON_HOLD_SORTS = [
+  { key: 'age', label: 'Longest parked' },
+  { key: 'value', label: 'Highest value' },
+]
+
+// Genuinely new kind (buildOnHoldInsightsPanel in drilldownBuilders.js) —
+// deliberately read-only, no swipe/bulk actions (a hold is a deliberate
+// pause, not a queue to clear, per the brief). Row layout reuses the
+// existing .vip-dd-fc-* classes verbatim (ForecastBody's own party/owner/
+// slot/value/date row shape already fits: party+sub, owner, a middle slot
+// repurposed here to show days-parked instead of win probability, value,
+// and a date column repurposed to show the resume date instead of an
+// estimated close date) — no new CSS needed for the row itself.
+function OnHoldInsightsBody({ panel }) {
+  const [ownerFilter, setOwnerFilter] = useState('')
+  const [sortBy, setSortBy] = useState('age')
+  const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
+
+  useEffect(() => {
+    setOwnerFilter('')
+    setSortBy('age')
+    setVisibleCount(ROW_CHUNK)
+  }, [panel])
+
+  useEffect(() => {
+    setVisibleCount(ROW_CHUNK)
+  }, [ownerFilter, sortBy])
+
+  const filtered = ownerFilter ? panel.rows.filter((r) => String(r.ownerId ?? 'unassigned') === ownerFilter) : panel.rows
+  const sorted = [...filtered].sort((a, b) => (sortBy === 'value' ? b.rawValue - a.rawValue : b.days - a.days))
+
+  return (
+    <div className="vip-dd-section-stack">
+      {/* Every one of these sections gates on panel.rows.length, not just
+          panel.buckets.length — the builder always produces 5 bucket
+          entries regardless of how many leads are on hold (each just reads
+          0 when empty), so without this an empty on-hold pipeline showed a
+          wall of five all-zero bars plus a pointless sort toggle above its
+          own "Nothing is currently on hold" message. Caught live in the
+          browser as a real sales_executive session with zero on-hold
+          leads — the same "reads as a wall of zeros" failure mode
+          CLAUDE.md's Today section already records for an earlier screen. */}
+      {panel.rows.length > 0 && panel.buckets?.length > 0 && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-title">How long leads have been parked</div>
+          {panel.buckets.map((b) => (
+            <div key={b.key} className="vip-dd-owner-row">
+              <span className="vip-dd-owner-name">{b.label}</span>
+              <span className="vip-dd-owner-track">
+                <span className="vip-dd-owner-fill" style={{ width: b.pct, background: '#7a6413' }} />
+              </span>
+              <span className="vip-dd-owner-count">{b.count}</span>
+              <span className="vip-dd-owner-value">{b.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {panel.rows.length > 0 && panel.ownerRows.length > 0 && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-title">{panel.ownerTitle}</div>
+          {panel.ownerRows.map((o) => (
+            <div key={o.name} className="vip-dd-owner-row">
+              <span className="vip-dd-avatar">{o.initials}</span>
+              <span className="vip-dd-owner-name">{o.name}</span>
+              <span className="vip-dd-owner-track">
+                <span className="vip-dd-owner-fill" style={{ width: o.pct, background: o.color }} />
+              </span>
+              <span className="vip-dd-owner-count">{o.count}</span>
+              <span className="vip-dd-owner-value">{o.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* The owner-filter + sort-toggle row itself: pointless with nothing
+          to filter or sort, so the whole section is skipped rather than
+          showing a live "Longest parked / Highest value" toggle over an
+          empty list. */}
+      {panel.rows.length > 0 && (
+        <div className="vip-dd-section">
+          {panel.ownerRows.length > 0 && (
+            <div className="vip-stack-s" style={{ gap: 6, marginBottom: 10 }}>
+              <div className="vip-fact-label">Owner</div>
+              <select className="vip-select" value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
+                <option value="">All owners ({panel.rows.length})</option>
+                {panel.ownerRows.map((o) => (
+                  <option key={o.id ?? 'unassigned'} value={o.id ?? 'unassigned'}>
+                    {o.name} ({o.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="vip-seg-mini" role="tablist" aria-label="Sort by">
+            {ON_HOLD_SORTS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                role="tab"
+                aria-selected={sortBy === s.key}
+                className={sortBy === s.key ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setSortBy(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="vip-dd-section">
+        {sorted.length > 0 && (
+          <div className="vip-dd-fc-head-row">
+            <span>Lead</span>
+            <span>Owner</span>
+            <span>Days</span>
+            <span>Value</span>
+            <span>Resumes</span>
+          </div>
+        )}
+        {sorted.length === 0 ? (
+          <p className="vip-empty">{ownerFilter ? 'Nothing on hold for this owner.' : 'Nothing is currently on hold.'}</p>
+        ) : (
+          sorted.slice(0, visibleCount).map((r) => (
+            <Link key={r.leadId} to={`/leads/${r.leadId}`} className="vip-dd-fc-row">
+              <span className="vip-dd-fc-party-col">
+                <span className="vip-dd-fc-party">{r.party}</span>
+                <span className="vip-dd-hint">{r.sub}</span>
+              </span>
+              <EmployeeLink id={r.ownerId} name={r.owner} className="vip-dd-fc-owner" />
+              <span className="vip-dd-fc-prob">{r.days}d</span>
+              <span className="vip-dd-fc-value">{r.value}</span>
+              <span className="vip-dd-fc-close">{r.resumeDate}</span>
+            </Link>
+          ))
+        )}
+        <ShowMoreRows
+          shown={Math.min(visibleCount, sorted.length)}
+          total={sorted.length}
           noun="leads"
           onShowMore={() => setVisibleCount((v) => v + ROW_CHUNK)}
         />
@@ -1140,6 +1541,145 @@ function DaySheetBody({ panel, onDrill }) {
   )
 }
 
+// Genuinely new kind (buildCompletenessPanel in drilldownBuilders.js) — the
+// final panel of this feature. Reuses PRIMITIVES from two different existing
+// kinds rather than either one's whole identity: the field bars below reuse
+// `loss`'s `.vip-dd-stage-*` row shape (LossBody, above), and the per-lead
+// rows reuse `loss`'s own `.vip-dd-lead-row` shape — see the builder's own
+// header comment for why that's the right level of reuse, not a shortcut.
+function CompletenessBody({ panel }) {
+  const [ownerFilter, setOwnerFilter] = useState('')
+  const [fieldFilter, setFieldFilter] = useState('')
+  const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
+
+  useEffect(() => {
+    setOwnerFilter('')
+    setFieldFilter('')
+    setVisibleCount(ROW_CHUNK)
+  }, [panel])
+
+  useEffect(() => {
+    setVisibleCount(ROW_CHUNK)
+  }, [ownerFilter, fieldFilter])
+
+  const filteredRows = panel.rows.filter((r) => {
+    if (ownerFilter && String(r.ownerId ?? 'unassigned') !== ownerFilter) return false
+    if (fieldFilter && !r.missingFields.includes(fieldFilter)) return false
+    return true
+  })
+
+  return (
+    <div className="vip-dd-section-stack">
+      {/* Gated on panel.rows.length, same "don't show a wall of meaningless
+          bars when there's nothing to check" rule panel 4's own empty-state
+          fix established — a zero-open-lead scope would otherwise show six
+          0%-complete-looking bars that mean nothing. */}
+      {panel.rows.length > 0 && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-title">Field completeness</div>
+          {panel.fieldStats.map((f) => (
+            <div key={f.key} className="vip-dd-stage-row">
+              <span className="vip-dd-stage-label">{f.label}</span>
+              <span className="vip-dd-stage-track">
+                <span className="vip-dd-stage-fill" style={{ width: f.pct }} />
+              </span>
+              <span className="vip-dd-stage-count">{f.count}</span>
+              <span className="vip-dd-stage-value">{f.pct}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {panel.rows.length > 0 && panel.ownerRows.length > 0 && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-title">{panel.ownerTitle}</div>
+          {panel.ownerRows.map((o) => (
+            <div key={o.name} className="vip-dd-owner-row">
+              <span className="vip-dd-avatar">{o.initials}</span>
+              <span className="vip-dd-owner-name">{o.name}</span>
+              <span className="vip-dd-owner-track">
+                <span className="vip-dd-owner-fill" style={{ width: o.pct, background: o.color }} />
+              </span>
+              <span className="vip-dd-owner-count">{o.count}</span>
+              <span className="vip-dd-owner-value">{o.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Owner dropdown + field-filter chips — pointless controls over an
+          empty list, so the whole section is skipped rather than shown
+          disabled, same treatment panels 3/4 already give this exact
+          situation. */}
+      {panel.rows.length > 0 && (panel.ownerRows.length > 0 || panel.fieldFilters.length > 0) && (
+        <div className="vip-dd-section">
+          {panel.ownerRows.length > 0 && (
+            <div className="vip-stack-s" style={{ gap: 6, marginBottom: 10 }}>
+              <div className="vip-fact-label">Owner</div>
+              <select className="vip-select" value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
+                <option value="">All owners ({panel.rows.length})</option>
+                {panel.ownerRows.map((o) => (
+                  <option key={o.id ?? 'unassigned'} value={o.id ?? 'unassigned'}>
+                    {o.name} ({o.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {panel.fieldFilters.length > 0 && (
+            <div className="vip-stack-s" style={{ gap: 6 }}>
+              <div className="vip-fact-label">Missing field</div>
+              <div className="vip-chip-wrap">
+                <button type="button" className="vip-chip-select" aria-pressed={fieldFilter === ''} onClick={() => setFieldFilter('')}>
+                  All
+                </button>
+                {panel.fieldFilters.map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    className="vip-chip-select"
+                    aria-pressed={fieldFilter === f.key}
+                    onClick={() => setFieldFilter(f.key)}
+                  >
+                    Missing {f.label} ({f.missing})
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">Leads</div>
+          <div className="vip-dd-hint">
+            {filteredRows.length !== panel.rows.length ? `${filteredRows.length} of ${panel.rows.length}` : `${panel.rows.length} total`}
+          </div>
+        </div>
+        {filteredRows.length === 0 ? (
+          <p className="vip-empty">{panel.rows.length === 0 ? 'No open leads to check right now.' : 'No leads match this filter.'}</p>
+        ) : (
+          filteredRows.slice(0, visibleCount).map((r) => (
+            <Link key={r.leadId} to={`/leads/${r.leadId}`} className="vip-dd-lead-row">
+              <span className="vip-dd-lead-party">{r.party}</span>
+              <span className="vip-dd-hint">{r.missingSummary}</span>
+              <EmployeeLink id={r.ownerId} name={r.owner} className="vip-dd-lead-owner" />
+              <span className="vip-dd-lead-value">{r.pctLabel}</span>
+            </Link>
+          ))
+        )}
+        <ShowMoreRows
+          shown={Math.min(visibleCount, filteredRows.length)}
+          total={filteredRows.length}
+          noun="leads"
+          onShowMore={() => setVisibleCount((v) => v + ROW_CHUNK)}
+        />
+      </div>
+    </div>
+  )
+}
+
 const BODIES = {
   log: LogBody,
   ageing: AgeingBody,
@@ -1153,6 +1693,9 @@ const BODIES = {
   forecast: ForecastBody,
   mix: MixBody,
   loss: LossBody,
+  onHoldInsights: OnHoldInsightsBody,
+  workload: WorkloadBody,
+  completeness: CompletenessBody,
 }
 
 // `panel` (the prop) is always the root of the drill-down; `stack` holds any
