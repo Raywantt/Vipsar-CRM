@@ -64,8 +64,6 @@ const STAGE_NEXT_ACTION = {
   calling: 'First call due',
   presentation: 'Book presentation',
   joinery_follow_up: 'Joinery follow up',
-  measurements: 'Take measurements',
-  design_discussion: 'Discuss design',
   rfq: 'Raise RFQ',
   quote_submission: 'Submit quote',
   negotiation: 'Close negotiation',

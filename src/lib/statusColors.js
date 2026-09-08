@@ -11,8 +11,6 @@ export const STAGE_FG = {
   calling: '#2E6DA4',
   presentation: '#235A8C',
   joinery_follow_up: '#1B4870',
-  measurements: '#123457',
-  design_discussion: '#92650B',
   rfq: '#7A5209',
   quote_submission: '#634006',
   negotiation: '#1F7A3D',

@@ -7,13 +7,11 @@ import { FUNNEL_SEQUENCE, stageRank, isBackwardStageMove } from './stageProgress
 // if this file is changed, that trigger has to change with it.
 
 describe('FUNNEL_SEQUENCE', () => {
-  it('is the 8 sequential stages, excluding the off-funnel three', () => {
+  it('is the 6 sequential stages, excluding the off-funnel three', () => {
     expect(FUNNEL_SEQUENCE).toEqual([
       'calling',
       'presentation',
       'joinery_follow_up',
-      'measurements',
-      'design_discussion',
       'rfq',
       'quote_submission',
       'negotiation',

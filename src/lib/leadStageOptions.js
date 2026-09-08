@@ -4,17 +4,23 @@
 // Shared by LeadStageSection (the editor) and the dashboard's Stage
 // breakdown, so they can't drift apart.
 //
-// Grouped New (calling → measurements) / Warm (design discussion → quote
+// Grouped New (calling → joinery follow up) / Warm (RFQ raised → quote
 // submission) / Hot (negotiation) funnel, plus the independent `on_hold`
 // stage (reachable from any of the above — see LeadStageSection.jsx) and
 // the two terminal stages. Order here is the canonical stage order used by
 // the chip picker, the Kanban board, and the stage-breakdown table/funnel.
+//
+// `measurements` and `design_discussion` were retired 2026-09-08 (the
+// owner's ruling) — every lead sitting at `measurements` moved to
+// `joinery_follow_up`, and every lead at `design_discussion` moved to `rfq`
+// (see Schema/migration_retire_measurements_design_discussion.sql for the
+// one-time data migration; a lead's stage is still free text at the DB
+// layer, so nothing here needed a constraint change). `rfq`'s label became
+// "RFQ Raised" in the same pass.
 export const LEAD_STAGE_OPTIONS = [
   'calling',
   'presentation',
   'joinery_follow_up',
-  'measurements',
-  'design_discussion',
   'rfq',
   'quote_submission',
   'negotiation',
@@ -30,9 +36,7 @@ export const LEAD_STAGE_LABELS = {
   calling: 'Calling',
   presentation: 'Presentation',
   joinery_follow_up: 'Joinery follow up',
-  measurements: 'Measurements to be taken',
-  design_discussion: 'Design discussion',
-  rfq: 'RFQ',
+  rfq: 'RFQ Raised',
   quote_submission: 'Quote submission',
   negotiation: 'Negotiation',
   on_hold: 'On hold',

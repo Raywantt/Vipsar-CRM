@@ -5,7 +5,7 @@ import { ACTIVITY_TYPES, LOGGABLE_ACTIVITY_TYPES, ACTIVITY_LABELS } from './acti
 
 describe('meetingTypeForStage', () => {
   it('buckets everything below RFQ as a new meeting', () => {
-    for (const stage of ['calling', 'presentation', 'joinery_follow_up', 'measurements', 'design_discussion']) {
+    for (const stage of ['calling', 'presentation', 'joinery_follow_up']) {
       expect(meetingTypeForStage(stage)).toBe(NEW_MEETING)
     }
   })

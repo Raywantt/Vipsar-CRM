@@ -457,8 +457,6 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 .vip-chip-calling            { background: #eaf2fc; color: #2e6da4; }
 .vip-chip-presentation       { background: #d6e7fa; color: #235a8c; }
 .vip-chip-joinery_follow_up  { background: #bfd9f6; color: #1b4870; }
-.vip-chip-measurements       { background: #a3c7f0; color: #123457; }
-.vip-chip-design_discussion  { background: #fdf1d6; color: #92650b; }
 .vip-chip-rfq                { background: #fbe6b3; color: #7a5209; }
 .vip-chip-quote_submission   { background: #f7d688; color: #634006; }
 .vip-chip-negotiation        { background: #d9f0de; color: #1f7a3d; }
@@ -1893,8 +1891,6 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
 :root[data-theme="dark"] .vip-chip-calling            { background: #16283a; color: #7ab2e6; }
 :root[data-theme="dark"] .vip-chip-presentation       { background: #17324a; color: #8dc2ef; }
 :root[data-theme="dark"] .vip-chip-joinery_follow_up  { background: #142a42; color: #6fa8dd; }
-:root[data-theme="dark"] .vip-chip-measurements       { background: #112238; color: #5f95cf; }
-:root[data-theme="dark"] .vip-chip-design_discussion  { background: #362c14; color: #e3b354; }
 :root[data-theme="dark"] .vip-chip-rfq                { background: #3a2c10; color: #e0ab3f; }
 :root[data-theme="dark"] .vip-chip-quote_submission   { background: #3d2c0a; color: #dba52c; }
 :root[data-theme="dark"] .vip-chip-negotiation        { background: #16321f; color: #6fce8c; }
@@ -1941,8 +1937,6 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   :root:not([data-theme="light"]) .vip-chip-calling            { background: #16283a; color: #7ab2e6; }
   :root:not([data-theme="light"]) .vip-chip-presentation       { background: #17324a; color: #8dc2ef; }
   :root:not([data-theme="light"]) .vip-chip-joinery_follow_up  { background: #142a42; color: #6fa8dd; }
-  :root:not([data-theme="light"]) .vip-chip-measurements       { background: #112238; color: #5f95cf; }
-  :root:not([data-theme="light"]) .vip-chip-design_discussion  { background: #362c14; color: #e3b354; }
   :root:not([data-theme="light"]) .vip-chip-rfq                { background: #3a2c10; color: #e0ab3f; }
   :root:not([data-theme="light"]) .vip-chip-quote_submission   { background: #3d2c0a; color: #dba52c; }
   :root:not([data-theme="light"]) .vip-chip-negotiation        { background: #16321f; color: #6fce8c; }
