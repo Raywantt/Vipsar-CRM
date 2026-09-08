@@ -4,12 +4,12 @@ import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
-import { fetchActivityCounts, fetchDecidedStageHistory, fetchLastActivityPerLead, fetchLeadsForBreakdown } from '../lib/dashboardQueries'
+import { fetchActivityCounts, fetchDecidedStageHistory, fetchLastActivityPerLead, fetchLeadsForBreakdown, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
 import { fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
 import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp } from '../lib/followUpQueries'
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
-import { computeAttentionBuckets, STALE_DAYS, ATTENTION_DAYS, staleGateDays } from '../lib/attention'
+import { computeAttentionBuckets, STALE_DAYS, ATTENTION_DAYS, staleGateDays, buildLastStageChangeByLead } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageChipClass } from '../lib/statusColors'
@@ -205,6 +205,7 @@ function EmployeeProfile() {
   const [decidedStageHistory, setDecidedStageHistory] = useState([])
   const [targets, setTargets] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
+  const [lastStageChangeByLead, setLastStageChangeByLead] = useState(new Map())
   const [activityLog, setActivityLog] = useState([])
   const [followUps, setFollowUps] = useState([])
   const [followUpError, setFollowUpError] = useState(null)
@@ -368,7 +369,8 @@ function EmployeeProfile() {
       period ? fetchTargetsForPeriod(period) : Promise.resolve({ data: [], error: null }),
       fetchLastActivityPerLead(),
       fetchActivityLogForEmployee(execId),
-    ]).then(([act, leads, won, decided, tgt, lastAct, log]) => {
+      fetchStageHistoryForFunnel(),
+    ]).then(([act, leads, won, decided, tgt, lastAct, log, stageHist]) => {
       if (!active) return
       setActivities(act.data ?? [])
       setBreakdownLeads(leads.data ?? [])
@@ -381,6 +383,7 @@ function EmployeeProfile() {
         if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
       })
       setLastActivityByLead(map)
+      setLastStageChangeByLead(buildLastStageChangeByLead(stageHist.data))
       setActivityLog(log.data ?? [])
       setLoading(false)
     })
@@ -419,7 +422,7 @@ function EmployeeProfile() {
 
   const myLeads = breakdownLeads.filter((l) => l.owner_employee_id === execId)
   const myOpenLeads = myLeads.filter((l) => !['won', 'lost'].includes(l.current_stage ?? 'calling'))
-  const myAttention = computeAttentionBuckets(myLeads, lastActivityByLead)
+  const myAttention = computeAttentionBuckets(myLeads, lastActivityByLead, lastStageChangeByLead)
   const staleBucket = myAttention.find((b) => b.key === 'stale')
 
   const myDecided = decidedStageHistory.filter((r) => r.leads?.owner_employee_id === execId)

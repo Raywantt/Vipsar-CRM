@@ -362,12 +362,23 @@ function LeadDetail() {
   // fallback for leads paused before migration_followups_rebuild.sql ran.
   const holdReason = lead?.on_hold_reason ?? holdReview?.notes ?? null
   const isOpen = !['won', 'lost'].includes(stage)
+  const isLost = stage === 'lost'
   const touchDays = daysBetween(lastActivityAt, Date.now())
   // hasTouch: whether there's any real "last touched" fact to report at all
   // (real bug fixed here — see daysBetween's own comment). A lead with
   // neither activity nor a created_at can't honestly be called stale OR
   // active; it renders as unknown (TONE_NEUTRAL), not as either extreme.
   const hasTouch = touchDays != null
+  // Staleness is only a meaningful question for a lead that's both open and
+  // not paused. A decided deal (won/lost) isn't something to chase, and a
+  // held lead was deliberately taken off the clock by On Hold's own flow —
+  // showing either one a red "Needs attention · 180d no touch" pill (or the
+  // "Last touch" deal stat colored the same way) reads as exactly the
+  // neglect warning it isn't. staleGateDays already excludes on_hold from
+  // ever gating "stale" (see attention.js), but the health pill/deal-stat
+  // color and copy below still need this guard directly, since they render
+  // even when the gate comes back "not stale".
+  const showTouchHealth = isOpen && !isOnHold
   // Every threshold below tests touchGate (floored at HISTORY_STARTS_AT) while
   // every label still prints the real touchDays. A legacy lead therefore reads
   // "Active" until its floored age crosses the line, then reports its true age
@@ -378,7 +389,7 @@ function LeadDetail() {
   // disagreed with the rest of the app: 7 days read as "Cooling" here but was
   // what the queue itself called stale. Settled 2026-08-10 — 7 days is stale,
   // 14 is when it needs attention.
-  const touchColor = !hasTouch
+  const touchColor = !showTouchHealth || !hasTouch
     ? TONE_NEUTRAL
     : touchGate >= ATTENTION_DAYS
       ? TONE_BAD
@@ -387,15 +398,19 @@ function LeadDetail() {
         : TONE_GOOD
   const isAtRisk = isOpen && !isOnHold && hasTouch && touchGate >= ATTENTION_DAYS
 
-  const statusLabel = isWon ? 'Customer' : isOnHold ? 'On hold' : isAtRisk ? 'At risk' : 'Open lead'
+  const statusLabel = isWon ? 'Customer' : isLost ? 'Lost' : isOnHold ? 'On hold' : isAtRisk ? 'At risk' : 'Open lead'
   const statusStyle = isWon
     ? { bg: TONE_GOOD_SOFT, fg: TONE_GOOD }
-    : isOnHold
+    : isLost
+      ? { bg: TONE_BAD_SOFT, fg: TONE_BAD }
+      : isOnHold
       ? { bg: TONE_NEUTRAL_SOFT, fg: TONE_NEUTRAL }
       : isAtRisk
         ? { bg: TONE_BAD_SOFT, fg: TONE_BAD }
         : { bg: 'var(--vip-canvas-2)', fg: 'var(--vip-body)' }
-  const healthLabel = !hasTouch
+  const healthLabel = !showTouchHealth
+    ? null
+    : !hasTouch
     ? 'No activity on record'
     : touchGate >= ATTENTION_DAYS
       ? `Needs attention · ${touchDays}d no touch`
@@ -507,8 +522,19 @@ function LeadDetail() {
       // on a lead with no activity and no created_at, touchDays was a fake
       // ~20687 (days since the Unix epoch, from new Date(null)). See
       // daysBetween's own comment.
-      value: hasTouch ? `${touchDays}d` : '—',
-      sub: hasTouch ? `ago · by ${(lead.employees?.name ?? 'unassigned').split(' ')[0]}` : 'no activity on record',
+      //
+      // Also unguarded against isOpen/isOnHold: a decided (won/lost) or
+      // paused lead isn't something to chase, so this tile no longer shows a
+      // staleness-colored day count for either — same reasoning as the
+      // health pill above.
+      value: showTouchHealth && hasTouch ? `${touchDays}d` : '—',
+      sub: showTouchHealth
+        ? hasTouch
+          ? `ago · by ${(lead.employees?.name ?? 'unassigned').split(' ')[0]}`
+          : 'no activity on record'
+        : isOnHold
+          ? 'on hold'
+          : 'closed',
       color: touchColor,
     },
   ]
@@ -703,7 +729,9 @@ function LeadDetail() {
             <div className="vip-profile-name-row">
               <span className="vip-profile-name">{leadTitle}</span>
               <span className="vip-pill" style={{ background: statusStyle.bg, color: statusStyle.fg }}>{statusLabel}</span>
-              <span className="vip-pill" style={{ background: healthStyle.bg, color: healthStyle.fg }}>{healthLabel}</span>
+              {healthLabel && (
+                <span className="vip-pill" style={{ background: healthStyle.bg, color: healthStyle.fg }}>{healthLabel}</span>
+              )}
             </div>
             {leadSubtitle && <span className="vip-profile-sub">{leadSubtitle}</span>}
           </div>

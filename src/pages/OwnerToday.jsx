@@ -3,8 +3,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
-import { fetchLeadsForBreakdown, fetchLastActivityPerLead } from '../lib/dashboardQueries'
-import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
+import { fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
+import { computeAttentionBuckets, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
 import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import DayReviewCard from '../components/DayReviewCard'
@@ -44,6 +44,7 @@ function OwnerToday() {
   const [dayData, setDayData] = useState(null)
   const [breakdownLeads, setBreakdownLeads] = useState(null)
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
+  const [lastStageChangeByLead, setLastStageChangeByLead] = useState(new Map())
 
   const [panel, setPanel] = useState(null)
   const [selectedExecId, setSelectedExecId] = useState(null)
@@ -81,16 +82,19 @@ function OwnerToday() {
   useEffect(() => {
     if (!employee?.id) return
     let active = true
-    Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead()]).then(([leadsRes, activityRes]) => {
-      if (!active) return
-      setBreakdownLeads(leadsRes.data ?? [])
-      const map = new Map()
-      ;(activityRes.data ?? []).forEach((row) => {
-        const existing = map.get(row.lead_id)
-        if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-      })
-      setLastActivityByLead(map)
-    })
+    Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead(), fetchStageHistoryForFunnel()]).then(
+      ([leadsRes, activityRes, stageRes]) => {
+        if (!active) return
+        setBreakdownLeads(leadsRes.data ?? [])
+        const map = new Map()
+        ;(activityRes.data ?? []).forEach((row) => {
+          const existing = map.get(row.lead_id)
+          if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
+        })
+        setLastActivityByLead(map)
+        setLastStageChangeByLead(buildLastStageChangeByLead(stageRes.data))
+      }
+    )
     return () => {
       active = false
     }
@@ -115,7 +119,9 @@ function OwnerToday() {
   const dayTotals = buildDayTotals(dayRows)
   const dayKpis = dayData ? buildDayKpis(dayData, dayRows, false) : []
 
-  const attentionBuckets = breakdownLeads ? computeAttentionBuckets(breakdownLeads, lastActivityByLead) : null
+  const attentionBuckets = breakdownLeads
+    ? computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead)
+    : null
 
   // Just the 2 most urgent categories, matching CoordinatorToday's own
   // scope — confirmed with the owner rather than defaulting to all 5, to

@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
 import { useAuth } from '../contexts/AuthContext'
 import { fetchTeamMembers } from '../lib/employeeQueries'
-import { fetchLeadsForBreakdown, fetchLastActivityPerLead } from '../lib/dashboardQueries'
-import { computeAttentionBuckets, countDistinctLeads } from '../lib/attention'
+import { fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
+import { computeAttentionBuckets, countDistinctLeads, buildLastStageChangeByLead } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
@@ -40,6 +40,7 @@ function MyTeam() {
   const [employees, setEmployees] = useState([])
   const [leads, setLeads] = useState([])
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
+  const [lastStageChangeByLead, setLastStageChangeByLead] = useState(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [roleFilter, setRoleFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'roleFilter', '')
@@ -47,28 +48,32 @@ function MyTeam() {
 
   useEffect(() => {
     let active = true
-    Promise.all([fetchTeamMembers(), fetchLeadsForBreakdown(), fetchLastActivityPerLead()]).then(
-      ([teamRes, leadsRes, activityRes]) => {
-        if (!active) return
-        setLoading(false)
-        if (teamRes.error) {
-          setError(errorMessage(teamRes.error))
-          return
-        }
-        setEmployees(
-          isManager
-            ? (teamRes.data ?? []).filter((e) => e.manager_id === employee?.id)
-            : (teamRes.data ?? [])
-        )
-        setLeads(leadsRes.data ?? [])
-        const map = new Map()
-        ;(activityRes.data ?? []).forEach((row) => {
-          const existing = map.get(row.lead_id)
-          if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-        })
-        setLastActivityByLead(map)
+    Promise.all([
+      fetchTeamMembers(),
+      fetchLeadsForBreakdown(),
+      fetchLastActivityPerLead(),
+      fetchStageHistoryForFunnel(),
+    ]).then(([teamRes, leadsRes, activityRes, stageRes]) => {
+      if (!active) return
+      setLoading(false)
+      if (teamRes.error) {
+        setError(errorMessage(teamRes.error))
+        return
       }
-    )
+      setEmployees(
+        isManager
+          ? (teamRes.data ?? []).filter((e) => e.manager_id === employee?.id)
+          : (teamRes.data ?? [])
+      )
+      setLeads(leadsRes.data ?? [])
+      const map = new Map()
+      ;(activityRes.data ?? []).forEach((row) => {
+        const existing = map.get(row.lead_id)
+        if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
+      })
+      setLastActivityByLead(map)
+      setLastStageChangeByLead(buildLastStageChangeByLead(stageRes.data))
+    })
     return () => {
       active = false
     }
@@ -100,11 +105,11 @@ function MyTeam() {
     const map = new Map()
     employees.forEach((emp) => {
       const empLeads = leads.filter((l) => l.owner_employee_id === emp.id)
-      const buckets = computeAttentionBuckets(empLeads, lastActivityByLead)
+      const buckets = computeAttentionBuckets(empLeads, lastActivityByLead, lastStageChangeByLead)
       map.set(emp.id, countDistinctLeads(buckets))
     })
     return map
-  }, [employees, leads, lastActivityByLead])
+  }, [employees, leads, lastActivityByLead, lastStageChangeByLead])
 
   const roles = useMemo(() => [...new Set(employees.map((e) => e.role))].sort(), [employees])
 

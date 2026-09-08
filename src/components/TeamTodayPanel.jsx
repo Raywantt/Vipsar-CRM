@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
-import { fetchLeadsForBreakdown, fetchLastActivityPerLead } from '../lib/dashboardQueries'
-import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
+import { fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
+import { computeAttentionBuckets, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
 import { rescheduleFollowUp } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import DayReviewCard from './DayReviewCard'
@@ -58,6 +58,7 @@ function TeamTodayPanel({
   const [dayData, setDayData] = useState(null)
   const [breakdownLeads, setBreakdownLeads] = useState(null)
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
+  const [lastStageChangeByLead, setLastStageChangeByLead] = useState(new Map())
 
   const [panel, setPanel] = useState(null)
   const [selectedExecId, setSelectedExecId] = useState(null)
@@ -88,16 +89,19 @@ function TeamTodayPanel({
   useEffect(() => {
     if (!employee?.id) return
     let active = true
-    Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead()]).then(([leadsRes, activityRes]) => {
-      if (!active) return
-      setBreakdownLeads(leadsRes.data ?? [])
-      const map = new Map()
-      ;(activityRes.data ?? []).forEach((row) => {
-        const existing = map.get(row.lead_id)
-        if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-      })
-      setLastActivityByLead(map)
-    })
+    Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead(), fetchStageHistoryForFunnel()]).then(
+      ([leadsRes, activityRes, stageRes]) => {
+        if (!active) return
+        setBreakdownLeads(leadsRes.data ?? [])
+        const map = new Map()
+        ;(activityRes.data ?? []).forEach((row) => {
+          const existing = map.get(row.lead_id)
+          if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
+        })
+        setLastActivityByLead(map)
+        setLastStageChangeByLead(buildLastStageChangeByLead(stageRes.data))
+      }
+    )
     return () => {
       active = false
     }
@@ -107,7 +111,9 @@ function TeamTodayPanel({
   const dayTotals = buildDayTotals(dayRows)
   const dayKpis = dayData ? buildDayKpis(dayData, dayRows, false) : []
 
-  const attentionBuckets = breakdownLeads ? computeAttentionBuckets(breakdownLeads, lastActivityByLead) : null
+  const attentionBuckets = breakdownLeads
+    ? computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead)
+    : null
 
   // Mapped over attentionKeys rather than filtering the buckets, so the
   // caller's chosen ORDER is what renders. A key with no matching bucket is

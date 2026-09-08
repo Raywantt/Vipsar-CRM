@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { computeAttentionBuckets, countDistinctLeads, buildAgeingPanel, STALE_DAYS, ATTENTION_DAYS, SILENT_QUOTE_DAYS, PENDING_RFQ_DAYS } from './attention'
+import { computeAttentionBuckets, computeAttentionBucketsFromRpc, countDistinctLeads, buildAgeingPanel, STALE_DAYS, ATTENTION_DAYS, SILENT_QUOTE_DAYS, PENDING_RFQ_DAYS } from './attention'
 
 // Deliberately well past attention.js's HISTORY_STARTS_AT (2026-09-02) so the
 // legacy-import clamp is inert here and every threshold test below measures
@@ -172,6 +172,96 @@ describe('computeAttentionBuckets', () => {
     ]
     const [stale] = computeAttentionBuckets(leads, new Map())
     expect(stale.rows.map((r) => r.leadId)).toEqual(['b', 'c', 'a'])
+  })
+
+  // A lead on hold is deliberately paused — no length of pause should read
+  // as neglect, however many months it's been held.
+  it('never puts an on_hold lead in the stale bucket, no matter how long it has sat untouched', () => {
+    const lead = baseLead({ id: 'held', current_stage: 'on_hold', created_at: daysAgo(400) })
+    const [stale] = computeAttentionBuckets([lead], new Map())
+    expect(stale.count).toBe(0)
+  })
+
+  // The clock resets to the day of the resume, not to wherever it stood
+  // before the pause — a stage change away from on_hold is a touch.
+  it('does not flag a lead as stale immediately after it resumes from hold', () => {
+    const lead = baseLead({ id: 'resumed', current_stage: 'calling', created_at: daysAgo(400) })
+    const lastStageChange = new Map([['resumed', daysAgo(1)]]) // resumed yesterday
+    const [stale] = computeAttentionBuckets([lead], new Map(), lastStageChange)
+    expect(stale.count).toBe(0)
+  })
+
+  it('flags a resumed lead as stale again once ATTENTION_DAYS have passed since the resume', () => {
+    const lead = baseLead({ id: 'resumed-stale', current_stage: 'calling', created_at: daysAgo(400) })
+    const lastStageChange = new Map([['resumed-stale', daysAgo(ATTENTION_DAYS)]])
+    const [stale] = computeAttentionBuckets([lead], new Map(), lastStageChange)
+    expect(stale.count).toBe(1)
+    expect(stale.rows[0].last).toContain('Stage changed')
+  })
+
+  it('prefers a real logged activity over the stage change when the activity is more recent', () => {
+    const lead = baseLead({ id: 'active-after-resume', current_stage: 'calling', created_at: daysAgo(400) })
+    const lastActivity = new Map([['active-after-resume', daysAgo(ATTENTION_DAYS - 1)]])
+    const lastStageChange = new Map([['active-after-resume', daysAgo(200)]]) // resumed long ago
+    const [stale] = computeAttentionBuckets([lead], lastActivity, lastStageChange)
+    expect(stale.count).toBe(0)
+  })
+})
+
+describe('computeAttentionBucketsFromRpc — stale display matches the client-side path', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function baseRpcRow(overrides = {}) {
+    return {
+      lead_id: 'r-1',
+      party: 'Test Party',
+      owner_name: 'Asha Rao',
+      owner_id: 'emp-1',
+      current_stage: 'calling',
+      quote_value: null,
+      order_value: null,
+      last_activity_at: null,
+      last_stage_change_at: null,
+      lead_created_at: daysAgo(400),
+      quote_sent_at: null,
+      next_followup_date: null,
+      estimated_close_date: null,
+      rfq_raised_at: null,
+      is_stale: true,
+      is_silent_quote: false,
+      is_followup_overdue: false,
+      is_slipped: false,
+      is_pending_rfq: false,
+      ...overrides,
+    }
+  }
+
+  it('reports the age from last_stage_change_at, not the stale-before-resume last_activity_at', () => {
+    const row = baseRpcRow({ last_activity_at: daysAgo(400), last_stage_change_at: daysAgo(ATTENTION_DAYS) })
+    const [stale] = computeAttentionBucketsFromRpc([row])
+    expect(stale.rows[0].age).toBe(ATTENTION_DAYS)
+    expect(stale.rows[0].last).toContain('Stage changed')
+  })
+
+  it('reports the age from last_activity_at when it is the more recent signal', () => {
+    const row = baseRpcRow({ last_activity_at: daysAgo(ATTENTION_DAYS), last_stage_change_at: daysAgo(200) })
+    const [stale] = computeAttentionBucketsFromRpc([row])
+    expect(stale.rows[0].age).toBe(ATTENTION_DAYS)
+    expect(stale.rows[0].last).toContain('Last activity')
+  })
+
+  it('trusts is_stale for membership rather than re-deciding it client-side', () => {
+    // Server said not stale — even with an old-looking date, no row appears.
+    const row = baseRpcRow({ is_stale: false, last_activity_at: daysAgo(400) })
+    const [stale] = computeAttentionBucketsFromRpc([row])
+    expect(stale.count).toBe(0)
   })
 })
 

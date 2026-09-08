@@ -29,7 +29,7 @@ import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS } from '../lib/sourceTypeOptions'
 import { stageChipClass } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
-import { computeAttentionBuckets, computeAttentionBucketsFromRpc, buildAgeingPanel } from '../lib/attention'
+import { computeAttentionBuckets, computeAttentionBucketsFromRpc, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
 import { dealValueFor, sumOpenPipelineValue, sumOnHoldValue } from '../lib/pipelineValue'
 import {
   buildOrderValueAttainPanel,
@@ -243,6 +243,15 @@ function Dashboard() {
   const funnelStageHistory = useMemo(
     () => allFunnelStageHistory.filter((r) => inScope(r.leads?.owner_employee_id)),
     [allFunnelStageHistory, inScope]
+  )
+  // Reused for the client-side attention-buckets fallback below — a stage
+  // change is a touch for staleness purposes (see attention.js), and this
+  // page already fetches every stage_history row for the Sales funnel card,
+  // so this is a plain reduction of data already on the page, not a new
+  // query.
+  const lastStageChangeByLead = useMemo(
+    () => buildLastStageChangeByLead(funnelStageHistory),
+    [funnelStageHistory]
   )
   const lossReasons = useMemo(
     () => allLossReasons.filter((r) => inScope(r.leads?.owner_employee_id)),
@@ -682,7 +691,7 @@ function Dashboard() {
   // reduction over every lead, unchanged.
   const attentionBuckets = fastAttentionRows
     ? computeAttentionBucketsFromRpc(fastAttentionRows)
-    : computeAttentionBuckets(breakdownLeads, lastActivityByLead)
+    : computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead)
   const staleBucket = attentionBuckets.find((b) => b.key === 'stale')
   const weightedForecastValue = forecast.reduce(
     (s, l) => s + (Number(l.quote_value ?? 0) * (l.closure_probability ?? 0)) / 100,

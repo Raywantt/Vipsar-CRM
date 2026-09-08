@@ -3,14 +3,14 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
-import { fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead } from '../lib/dashboardQueries'
+import { fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { fetchWonStageHistory, fetchTargetsForPeriod } from '../lib/targetQueries'
 import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp } from '../lib/followUpQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildSignificantEntries, buildDaySheetPanel } from '../lib/dayReview'
 import { todayISO } from '../lib/followupDates'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
-import { computeAttentionBuckets, buildAgeingPanel } from '../lib/attention'
+import { computeAttentionBuckets, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
 import { formatCurrencyCompact } from '../lib/format'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
@@ -95,6 +95,7 @@ function Home({ embedded = false }) {
   // neither actually depends on period).
   const [breakdownLeads, setBreakdownLeads] = useState(null)
   const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
+  const [lastStageChangeByLead, setLastStageChangeByLead] = useState(new Map())
 
   useEffect(() => {
     if (!employee?.id) return
@@ -123,16 +124,19 @@ function Home({ embedded = false }) {
   useEffect(() => {
     if (!employee?.id) return
     let active = true
-    Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead()]).then(([leadsRes, activityRes]) => {
-      if (!active) return
-      setBreakdownLeads(leadsRes.data ?? [])
-      const map = new Map()
-      ;(activityRes.data ?? []).forEach((row) => {
-        const existing = map.get(row.lead_id)
-        if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-      })
-      setLastActivityByLead(map)
-    })
+    Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead(), fetchStageHistoryForFunnel()]).then(
+      ([leadsRes, activityRes, stageRes]) => {
+        if (!active) return
+        setBreakdownLeads(leadsRes.data ?? [])
+        const map = new Map()
+        ;(activityRes.data ?? []).forEach((row) => {
+          const existing = map.get(row.lead_id)
+          if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
+        })
+        setLastActivityByLead(map)
+        setLastStageChangeByLead(buildLastStageChangeByLead(stageRes.data))
+      }
+    )
     return () => {
       active = false
     }
@@ -149,6 +153,7 @@ function Home({ embedded = false }) {
     ? computeAttentionBuckets(
         breakdownLeads.filter((l) => l.owner_employee_id === employee?.id),
         lastActivityByLead,
+        lastStageChangeByLead,
       )
     : null
 

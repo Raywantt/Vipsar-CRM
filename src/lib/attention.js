@@ -157,11 +157,69 @@ function inheritedDatePasses(dateStr, imported) {
 // lead object should pass it; passing nothing means "app-created", i.e. no
 // clamp, which is the behaviour every screen had before this rule existed.
 export function staleGateDays(lastActivityAt, createdAt, lead = null) {
+  // A lead paused on hold is deliberately not being worked right now — no
+  // length of pause should read as neglect on any of these surfaces. -1 (a
+  // real number, not null) reads as "not stale" against every threshold
+  // below without falling into the "unknown date" fallback callers already
+  // have for a genuine null.
+  if (lead?.current_stage === 'on_hold') return -1
   return queueAge(lastActivityAt ?? createdAt ?? null, isImportedLead(lead))
 }
 
 function isOpen(lead) {
   return !CLOSED_STAGES.includes(lead.current_stage ?? 'calling')
+}
+
+// The later of two dates, null-safe — used to fold a stage change into
+// "when was this lead last touched" alongside its last logged activity.
+// Neither in => null; one missing => the other; both present => the later.
+function laterOf(a, b) {
+  const ta = a ? new Date(a).getTime() : NaN
+  const tb = b ? new Date(b).getTime() : NaN
+  if (Number.isNaN(ta) && Number.isNaN(tb)) return null
+  if (Number.isNaN(ta)) return b
+  if (Number.isNaN(tb)) return a
+  return ta >= tb ? a : b
+}
+
+// Reduces raw stage_history rows (lead_id, changed_at) to one row per lead —
+// its most recent stage change of any kind, regardless of what it was to or
+// from. Shared by every screen that derives Needs Attention's stale bucket
+// client-side (fetchStageHistoryForFunnel already fetches this data for the
+// Sales funnel card), so "what counts as a touch" can't drift between them
+// the way STALE_DAYS/ATTENTION_DAYS almost did — see computeAttentionBuckets'
+// own note on why a stage change counts as a touch at all.
+export function buildLastStageChangeByLead(stageHistoryRows) {
+  const map = new Map()
+  ;(stageHistoryRows ?? []).forEach((row) => {
+    const existing = map.get(row.lead_id)
+    if (!existing || new Date(row.changed_at) > new Date(existing)) {
+      map.set(row.lead_id, row.changed_at)
+    }
+  })
+  return map
+}
+
+// The stale bucket's "since touch" reference. A stage change is as real a
+// touch as a logged activity — LeadDetail's own health pill has always
+// worked this way (its `lastActivityAt` already folds every stage_history
+// row into the same "most recent" calc as its activities) — so the lead
+// that pauses on hold and later resumes gets a fresh reference date from
+// the very stage_history row that moved it off hold, rather than picking
+// the staleness clock back up from wherever it stopped before the pause.
+// Shared by the client-side and RPC-backed paths so both display the exact
+// same age and description for a stale row — see CLAUDE.md's Needs
+// Attention entry on why the two must never drift.
+function staleSinceTouch(lastActivityAt, lastStageChangeAt, createdAt) {
+  return laterOf(lastActivityAt, lastStageChangeAt) ?? createdAt
+}
+
+function staleDescription(lastActivityAt, lastStageChangeAt, touchAge) {
+  const stageIsLatest =
+    lastStageChangeAt && (!lastActivityAt || new Date(lastStageChangeAt) > new Date(lastActivityAt))
+  if (stageIsLatest) return `Stage changed ${touchAge}d ago`
+  if (lastActivityAt) return `Last activity ${touchAge}d ago`
+  return `No activity since created, ${touchAge}d ago`
 }
 
 function leadValue(lead) {
@@ -198,7 +256,7 @@ function sortByAgeDesc(rows) {
 // already on `breakdownLeads` (see fetchLeadsForBreakdown) plus
 // `lastActivityByLead` (see fetchLastActivityPerLead) — no inferred/narrative
 // content, just the filters the CRM already tracks made visible in one place.
-export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
+export function computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead = new Map()) {
   const openLeads = breakdownLeads.filter(isOpen)
   // Today as a plain local YYYY-MM-DD, NOT an instant.
   //
@@ -225,13 +283,22 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead) {
     // real one — see HISTORY_STARTS_AT for why the two differ.
     const imported = isImportedLead(lead)
     const lastActivityAt = lastActivityByLead.get(lead.id) ?? null
-    const sinceTouch = lastActivityAt ?? lead.created_at
-    const touchAge = daysSince(sinceTouch)
-    const touchGate = queueAge(sinceTouch, imported)
-    if (touchGate != null && touchGate >= ATTENTION_DAYS) {
-      stale.push(
-        toRow(lead, touchAge, lastActivityAt ? `Last activity ${touchAge}d ago` : `No activity since created, ${touchAge}d ago`)
-      )
+    const lastStageChangeAt = lastStageChangeByLead.get(lead.id) ?? null
+
+    // Stale bucket only: a lead currently on hold is deliberately paused, so
+    // no length of pause is "neglect" — it's excluded outright, however many
+    // months it's been held, rather than given a floored/reset age the way
+    // an imported lead's pre-history is. The moment it resumes (any stage
+    // change away from on_hold — see staleSinceTouch above), it re-enters
+    // this bucket's normal ATTENTION_DAYS clock starting from that day, not
+    // from wherever the clock stood before the pause.
+    if (lead.current_stage !== 'on_hold') {
+      const sinceTouch = staleSinceTouch(lastActivityAt, lastStageChangeAt, lead.created_at)
+      const touchAge = daysSince(sinceTouch)
+      const touchGate = queueAge(sinceTouch, imported)
+      if (touchGate != null && touchGate >= ATTENTION_DAYS) {
+        stale.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge)))
+      }
     }
 
     if (lead.quote_sent && lead.quote_sent_at) {
@@ -377,11 +444,17 @@ export function computeAttentionBucketsFromRpc(rpcRows) {
     }
 
     if (r.is_stale) {
+      // is_stale is already decided server-side (on-hold leads excluded,
+      // the reset-on-resume rule applied via last_stage_change_at) — this
+      // only rebuilds the same display age/description the client-side
+      // path would show for an identical lead, via the same shared
+      // staleSinceTouch/staleDescription helpers, so the two can't render
+      // differently for the same underlying facts.
       const lastActivityAt = r.last_activity_at ?? null
-      const touchAge = daysSince(lastActivityAt ?? r.lead_created_at)
-      stale.push(
-        toRow(lead, touchAge, lastActivityAt ? `Last activity ${touchAge}d ago` : `No activity since created, ${touchAge}d ago`)
-      )
+      const lastStageChangeAt = r.last_stage_change_at ?? null
+      const sinceTouch = staleSinceTouch(lastActivityAt, lastStageChangeAt, r.lead_created_at)
+      const touchAge = daysSince(sinceTouch)
+      stale.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge)))
     }
     if (r.is_silent_quote) {
       const quoteAge = daysSince(r.quote_sent_at)
