@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
-import { fetchLeadsList, fetchLastActivityPerLead, resolveLeadsSearchFilter, LEADS_PAGE_SIZE } from '../lib/dashboardQueries'
+import {
+  fetchLeadsList,
+  fetchLastActivityPerLead,
+  resolveLeadsSearchFilter,
+  LEADS_PAGE_SIZE,
+  SITE_STAGE_UNSET,
+} from '../lib/dashboardQueries'
 import { MIN_QUERY_LENGTH } from '../lib/searchQueries'
-import { stageChipClass, stageFg } from '../lib/statusColors'
+import { stageChipClass } from '../lib/statusColors'
 import { STALE_DAYS, staleGateDays } from '../lib/attention'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
+import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
 import { formatCurrencyCompact } from '../lib/format'
 import NumPadInput from './NumPadInput'
-import { dealValueFor, dealValueOrNull } from '../lib/pipelineValue'
+import { dealValueOrNull } from '../lib/pipelineValue'
 import EmployeeLink from './EmployeeLink'
 import { errorMessage } from '../lib/errorMessage'
 
@@ -50,7 +57,7 @@ function partyLabel(lead) {
 
 // Desktop's dedicated Site column, now that Party/Site render separately
 // there instead of falling back into one combined line the way the mobile
-// grouped view's single-line row still does.
+// list's single row still does.
 function siteLabel(lead) {
   return lead.sites?.nickname || lead.sites?.locality || '—'
 }
@@ -72,8 +79,7 @@ function formatValueChip(min, max) {
 // header can't end up calling the same list two different things.
 // A single lead's value for DISPLAY. dealValueOrNull returns null when the lead
 // carries neither a quote nor an order value, and an unpriced deal must read
-// '—' rather than ₹0 — see pipelineValue.js. Group and header totals keep using
-// dealValueFor, because summing genuinely does treat an unknown value as zero.
+// '—' rather than ₹0 — see pipelineValue.js.
 function formatLeadValue(lead) {
   const v = dealValueOrNull(lead)
   return v == null ? '—' : formatCurrencyCompact(v)
@@ -86,6 +92,7 @@ const FILTERS_STORAGE_KEY = 'vip-filters:leads-list'
 function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, managerScope, onManagerScopeChange }) {
   const [employeeFilter, setEmployeeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'employeeFilter', '')
   const [stageFilter, setStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'stageFilter', '')
+  const [siteStageFilter, setSiteStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'siteStageFilter', '')
   const [sourceFilter, setSourceFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'sourceFilter', '')
   const [statusFilter, setStatusFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'statusFilter', '')
   const [minValueInput, setMinValueInput] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'minValueInput', '')
@@ -169,6 +176,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
       effectiveEmployeeId,
       effectiveEmployeeIds,
       stageFilter,
+      siteStageFilter,
       sourceFilter,
       statusFilter,
       minValue,
@@ -190,6 +198,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
         employeeId: effectiveEmployeeId,
         employeeIds: effectiveEmployeeIds,
         stage: stageFilter || null,
+        siteStage: siteStageFilter || null,
         source: sourceFilter || null,
         status: statusFilter || null,
         minValue: minValue !== '' ? Number(minValue) : null,
@@ -220,6 +229,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     effectiveEmployeeId,
     effectiveEmployeeIds,
     stageFilter,
+    siteStageFilter,
     sourceFilter,
     statusFilter,
     minValue,
@@ -229,9 +239,9 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     setPage,
   ])
 
-  // Powers the mobile grouped view's recency line ("touched today"/"Nd
-  // silent") — independent of the filters above (last-activity data doesn't
-  // change per filter), so fetched once rather than refetched alongside leads.
+  // Powers the "last touch" / recency line — independent of the filters
+  // above (last-activity data doesn't change per filter), so fetched once
+  // rather than refetched alongside leads.
   useEffect(() => {
     let active = true
     fetchLastActivityPerLead().then(({ data, error }) => {
@@ -251,55 +261,44 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
 
   // `leads` is already server-filtered, server-searched (resolveLeadsSearchFilter)
   // and server-paginated by the fetch effect above — no client-side
-  // re-filtering needed or done here anymore.
-
-  // Mobile's grouped-by-stage default (LEAD_STAGE_OPTIONS order first, then
-  // any free-text "Other…" stage present in the data), scoped to just the
-  // current page — desktop keeps the flat list below unchanged.
-  const groups = useMemo(() => {
-    const byStage = new Map()
-    leads.forEach((lead) => {
-      const stage = lead.current_stage ?? 'calling'
-      if (!byStage.has(stage)) byStage.set(stage, [])
-      byStage.get(stage).push(lead)
-    })
-    const order = [...LEAD_STAGE_OPTIONS, ...[...byStage.keys()].filter((s) => !LEAD_STAGE_OPTIONS.includes(s))]
-    return order
-      .filter((stage) => byStage.has(stage))
-      .map((stage) => {
-        const rows = byStage.get(stage)
-        return { stage, rows, value: rows.reduce((s, l) => s + dealValueFor(l), 0) }
-      })
-  }, [leads])
+  // re-filtering, and no client-side grouping either: the mobile list is a
+  // flat, one-row-per-lead list now (the owner's call, 2026-09-09). The old
+  // grouped-by-stage view spent a full sticky header on every stage present
+  // in the page, which on a mixed page meant more header than list; the
+  // stage is a chip on the row itself instead.
 
   function clearAllFilters() {
     setEmployeeFilter('')
     setStageFilter('')
+    setSiteStageFilter('')
     setSourceFilter('')
-    setStatusFilter('')
     setMinValueInput('')
     setMaxValueInput('')
   }
 
+  // Status is deliberately NOT one of these — it's a permanently visible
+  // segmented control in the toolbar at both widths, so a chip restating it
+  // would be duplicate chrome. These chips only ever summarise facets that
+  // are hidden behind the mobile disclosure.
   const activeChips = useMemo(() => {
     const chips = []
     if (showOwnerFilter && employeeFilter) {
       const emp = employees.find((e) => String(e.id) === employeeFilter)
       if (emp) chips.push({ key: 'owner', label: `Owner: ${emp.name.split(' ')[0]}`, onRemove: () => setEmployeeFilter('') })
     }
-    if (stageFilter) chips.push({ key: 'stage', label: `Stage: ${stageFilter}`, onRemove: () => setStageFilter('') })
+    if (stageFilter) chips.push({ key: 'stage', label: `Stage: ${stageLabel(stageFilter)}`, onRemove: () => setStageFilter('') })
+    if (siteStageFilter) {
+      chips.push({
+        key: 'siteStage',
+        label: `Site: ${siteStageFilter === SITE_STAGE_UNSET ? 'Not set' : siteStageFilter}`,
+        onRemove: () => setSiteStageFilter(''),
+      })
+    }
     if (sourceFilter) {
       chips.push({
         key: 'source',
         label: `Source: ${SOURCE_TYPE_LABELS[sourceFilter] ?? sourceFilter}`,
         onRemove: () => setSourceFilter(''),
-      })
-    }
-    if (statusFilter) {
-      chips.push({
-        key: 'status',
-        label: statusFilter === 'active' ? 'Active only' : 'Won or lost only',
-        onRemove: () => setStatusFilter(''),
       })
     }
     const valueLabel = formatValueChip(minValueInput, maxValueInput)
@@ -321,182 +320,177 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     employeeFilter,
     employees,
     stageFilter,
+    siteStageFilter,
     sourceFilter,
-    statusFilter,
     minValueInput,
     maxValueInput,
     setEmployeeFilter,
     setStageFilter,
+    setSiteStageFilter,
     setSourceFilter,
-    setStatusFilter,
     setMinValueInput,
     setMaxValueInput,
   ])
 
-  // The five facets, shared verbatim between mobile's disclosure panel and
-  // desktop's persistent rail (see the two render blocks below) — one set
-  // of controls, two places it can appear, so they can't drift apart.
+  // Each facet is defined ONCE here and composed into two arrangements
+  // below — a permanently-visible horizontal toolbar at >=1024px, and a
+  // disclosure panel on a phone (where six controls in a row is not a
+  // layout). Same "one definition, two placements" rule the previous
+  // rail/panel split already followed, just per-field instead of one
+  // monolithic block, so a field can move between the two arrangements
+  // without being duplicated.
   //
   // managerScope/onManagerScopeChange are only ever passed for a sales
   // manager — RLS alone can't say "just my own" vs "just my team's" for
   // that role, since both are legitimately visible to them (see
-  // ownerScopeIds above). Rendered as the first facet in this same rail
-  // rather than a separate control above the card, alongside the other
-  // ways this screen already narrows what's shown.
+  // ownerScopeIds above).
   const isTeamScope = managerScope === 'team'
-  const filterFields = (
+
+  const scopeField = onManagerScopeChange && (
+    <div className="vip-filter-field">
+      <span className="vip-fact-label">Whose leads</span>
+      <div className="vip-seg vip-seg-outline">
+        <button
+          type="button"
+          className={managerScope === 'my' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+          onClick={() => onManagerScopeChange('my')}
+        >
+          Mine
+        </button>
+        <button
+          type="button"
+          className={isTeamScope ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+          onClick={() => onManagerScopeChange('team')}
+        >
+          Team
+        </button>
+      </div>
+    </div>
+  )
+
+  // Owner is a plain dropdown at every team size now. It used to switch to
+  // segmented buttons for a team of <=4, which read as a different KIND of
+  // control sitting among five dropdowns; one shape for one job is what
+  // makes a filter row scannable.
+  const ownerField = showOwnerFilter && employees.length > 0 && (
+    <div className="vip-filter-field">
+      <span className="vip-fact-label">Owner</span>
+      <select className="vip-select" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
+        <option value="">All owners</option>
+        {employees.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+
+  // Was a wrap of nine tappable stage chips — the tallest thing in the old
+  // filter rail by a wide margin, and the specific complaint that started
+  // this redesign. One dropdown, same nine options.
+  const stageField = (
+    <div className="vip-filter-field">
+      <span className="vip-fact-label">Lead stage</span>
+      <select className="vip-select" value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
+        <option value="">All stages</option>
+        {LEAD_STAGE_OPTIONS.map((stage) => (
+          <option key={stage} value={stage}>
+            {stageLabel(stage)}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+
+  const siteStageField = (
+    <div className="vip-filter-field">
+      <span className="vip-fact-label">Site stage</span>
+      <select className="vip-select" value={siteStageFilter} onChange={(e) => setSiteStageFilter(e.target.value)}>
+        <option value="">All site stages</option>
+        {SITE_STAGE_OPTIONS.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+        <option value={SITE_STAGE_UNSET}>Not set</option>
+      </select>
+    </div>
+  )
+
+  const sourceField = (
+    <div className="vip-filter-field">
+      <span className="vip-fact-label">Source</span>
+      <select className="vip-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+        <option value="">All sources</option>
+        {SOURCE_TYPE_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+
+  const valueField = (
+    <div className="vip-filter-field vip-filter-field-wide">
+      <span className="vip-fact-label">Quote value (₹)</span>
+      <div className="vip-grid-2">
+        <NumPadInput
+          variant="decimal"
+          label="Min quote value"
+          type="number"
+          min="0"
+          placeholder="Min"
+          value={minValueInput}
+          onChange={(e) => setMinValueInput(e.target.value)}
+        />
+        <NumPadInput
+          variant="decimal"
+          label="Max quote value"
+          type="number"
+          min="0"
+          placeholder="Max"
+          value={maxValueInput}
+          onChange={(e) => setMaxValueInput(e.target.value)}
+        />
+      </div>
+    </div>
+  )
+
+  // "Which slice of the pipeline am I looking at" is the one question asked
+  // on nearly every visit, so it sits in the toolbar's top row at BOTH
+  // widths rather than behind the mobile disclosure with the rest.
+  // "Inactive" was renamed "Closed" — it always meant won-or-lost, and
+  // "inactive" reads like a dormant lead, which is what the Stale label
+  // elsewhere in this app actually means.
+  const statusField = (
+    <div className="vip-seg vip-seg-outline vip-leads-status">
+      {[
+        ['', 'All'],
+        ['active', 'Active'],
+        ['inactive', 'Closed'],
+      ].map(([value, label]) => (
+        <button
+          key={label}
+          type="button"
+          className={statusFilter === value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+          onClick={() => setStatusFilter(value)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+
+  const hiddenFacets = (
     <>
-      {onManagerScopeChange && (
-        <div className="vip-stack-s" style={{ gap: 6 }}>
-          <div className="vip-fact-label">Whose leads</div>
-          <div className="vip-seg vip-seg-outline">
-            <button
-              type="button"
-              className={managerScope === 'my' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-              onClick={() => onManagerScopeChange('my')}
-            >
-              My leads
-            </button>
-            <button
-              type="button"
-              className={isTeamScope ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-              onClick={() => onManagerScopeChange('team')}
-            >
-              Team leads
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showOwnerFilter && employees.length > 0 && (
-        <div className="vip-stack-s" style={{ gap: 6 }}>
-          <div className="vip-fact-label">Owner</div>
-          {/* Team leads always gets a dropdown rather than the segmented
-              buttons below, even when the team is small enough that the
-              buttons would otherwise fit — a manager asked for a dropdown
-              here specifically. Owner/coordinator are unaffected
-              (isTeamScope is false whenever managerScope is unset). */}
-          {employees.length <= 4 && !isTeamScope ? (
-            <div className="vip-seg vip-seg-outline">
-              <button
-                type="button"
-                className={employeeFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                onClick={() => setEmployeeFilter('')}
-              >
-                All
-              </button>
-              {employees.map((e) => (
-                <button
-                  key={e.id}
-                  type="button"
-                  className={employeeFilter === String(e.id) ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                  onClick={() => setEmployeeFilter(String(e.id))}
-                >
-                  {e.name.split(' ')[0]}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <select className="vip-select" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
-              <option value="">— All employees —</option>
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-      )}
-
-      <div className="vip-stack-s" style={{ gap: 6 }}>
-        <div className="vip-fact-label">Stage</div>
-        <div className="vip-chip-wrap">
-          <button
-            type="button"
-            className="vip-chip-select"
-            aria-pressed={stageFilter === ''}
-            onClick={() => setStageFilter('')}
-          >
-            All
-          </button>
-          {LEAD_STAGE_OPTIONS.map((stage) => (
-            <button
-              key={stage}
-              type="button"
-              className="vip-chip-select"
-              style={{ color: stageFg(stage) }}
-              aria-pressed={stageFilter === stage}
-              onClick={() => setStageFilter(stage)}
-            >
-              {stageLabel(stage)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="vip-stack-s" style={{ gap: 6 }}>
-        <div className="vip-fact-label">Source</div>
-        <select className="vip-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
-          <option value="">All sources</option>
-          {SOURCE_TYPE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="vip-stack-s" style={{ gap: 6 }}>
-        <div className="vip-fact-label">Status</div>
-        <div className="vip-seg vip-seg-outline">
-          <button
-            type="button"
-            className={statusFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-            onClick={() => setStatusFilter('')}
-          >
-            All
-          </button>
-          <button
-            type="button"
-            className={statusFilter === 'active' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-            onClick={() => setStatusFilter('active')}
-          >
-            Active
-          </button>
-          <button
-            type="button"
-            className={statusFilter === 'inactive' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-            onClick={() => setStatusFilter('inactive')}
-          >
-            Inactive
-          </button>
-        </div>
-      </div>
-
-      <div className="vip-stack-s" style={{ gap: 6 }}>
-        <div className="vip-fact-label">Quote value (₹)</div>
-        <div className="vip-grid-2">
-          <NumPadInput
-            variant="decimal"
-            label="Min quote value"
-            type="number"
-            min="0"
-            placeholder="Min"
-            value={minValueInput}
-            onChange={(e) => setMinValueInput(e.target.value)}
-          />
-          <NumPadInput
-            variant="decimal"
-            label="Max quote value"
-            type="number"
-            min="0"
-            placeholder="Max"
-            value={maxValueInput}
-            onChange={(e) => setMaxValueInput(e.target.value)}
-          />
-        </div>
-      </div>
+      {scopeField}
+      {ownerField}
+      {stageField}
+      {siteStageField}
+      {sourceField}
+      {valueField}
     </>
   )
 
@@ -547,166 +541,183 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     </div>
   )
 
+  const emptyOrLoading = loading ? (
+    <p className="vip-empty">Loading…</p>
+  ) : leads.length === 0 ? (
+    <p className="vip-empty">No leads match these filters.</p>
+  ) : null
+
   return (
     <div className="vip-card">
       <div className="vip-card-title">{title}</div>
 
-      <input
-        className="vip-input"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by party, site, or owner…"
-      />
-      {searchCapped && (
-        <p className="vip-form-note">
-          Showing the first 50 matches per category — refine your search for a complete list.
-        </p>
-      )}
+      {/* One toolbar, both widths: search + status always visible, the
+          remaining facets laid out beneath it (desktop) or folded behind a
+          Filters toggle (mobile). This replaced a 240px sticky left rail —
+          eight columns need the width far more than six permanently
+          on-screen dropdowns do. */}
+      <div className="vip-leads-toolbar">
+        <div className="vip-leads-toolbar-top">
+          <input
+            className="vip-input vip-leads-search"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by party, site, or owner…"
+          />
+          {statusField}
+        </div>
 
-      {/* Mobile: filters stay a disclosure panel behind a toggle — screen
-          real estate is too tight for a persistent rail at phone width. */}
-      <div className="vip-only-mobile vip-stack-s">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="vip-btn vip-btn-secondary vip-btn-sm"
-            style={{ width: 'auto' }}
-            onClick={() => setFiltersOpen((o) => !o)}
-          >
-            {filtersOpen ? 'Hide filters' : activeChips.length > 0 ? `Filters (${activeChips.length})` : 'Filters'}
-          </button>
+        {/* Desktop: every remaining facet, permanently visible in one row. */}
+        <div className="vip-only-desktop vip-leads-filterbar">
+          {hiddenFacets}
           {activeChips.length > 0 && (
-            <button type="button" className="vip-action-close" onClick={clearAllFilters}>
-              Clear all
+            <button type="button" className="vip-action-close vip-leads-clear" onClick={clearAllFilters}>
+              Clear filters
             </button>
           )}
         </div>
 
-        {!filtersOpen && activeChips.length > 0 && (
-          <div className="vip-chip-wrap">
-            {activeChips.map((chip) => (
-              <button key={chip.key} type="button" className="vip-filter-chip" onClick={chip.onRemove}>
-                {chip.label}
-                <span className="vip-filter-chip-x" aria-hidden="true">×</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {filtersOpen && (
-          <div className="vip-stack-s" style={{ paddingTop: 10, borderTop: '1px solid var(--vip-line-soft)' }}>
-            {filterFields}
-          </div>
-        )}
-
-        {listStatus}
-
-        {loading ? (
-          <p className="vip-empty">Loading…</p>
-        ) : leads.length === 0 ? (
-          <p className="vip-empty">No leads match these filters.</p>
-        ) : (
-          <>
-            <div className="vip-lead-groups">
-              {groups.map((group) => (
-                <div key={group.stage}>
-                  <div className="vip-lead-group-head">
-                    <span className="vip-lead-group-swatch" style={{ background: stageFg(group.stage) }} />
-                    <span className="vip-lead-group-name">{stageLabel(group.stage)}</span>
-                    <span className="vip-lead-group-count">{group.rows.length}</span>
-                    <span className="vip-lead-group-value">{formatCurrencyCompact(group.value)}</span>
-                  </div>
-                  {group.rows.map((lead) => {
-                    const recency = recencyInfo(lead, lastActivityByLead)
-                    return (
-                      <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-lead-row">
-                        <div className="vip-lead-row-main">
-                          <div className="vip-lead-row-party">{partyLabel(lead)}</div>
-                          <div className="vip-lead-row-sub">
-                            {[lead.sites?.nickname || lead.sites?.locality, SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </div>
-                        </div>
-                        <div className="vip-lead-row-side">
-                          <div className="vip-lead-row-value">{formatLeadValue(lead)}</div>
-                          <div className={recency.isStale ? 'vip-lead-row-recency vip-stale' : 'vip-lead-row-recency'}>{recency.label}</div>
-                        </div>
-                      </Link>
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
-            {paginationBar}
-          </>
-        )}
-      </div>
-
-      {/* Desktop: a persistent filter rail (not a disclosure — there's room
-          to just show every facet) beside a real-columned list (party · site
-          · owner · stage · source · value · last touch), replacing the old
-          three-line-per-row layout that used to sit in a 700px .vip-narrow
-          column with ~340px of empty gutter on each side at desktop width. */}
-      <div className="vip-only-desktop vip-leads-layout">
-        <aside className="vip-leads-rail">
-          <div className="vip-leads-rail-head">
-            <span className="vip-fact-label">Filters</span>
+        {/* Mobile: the same facets behind a toggle, with the active ones
+            summarised as removable chips while it's closed. */}
+        <div className="vip-only-mobile vip-stack-s">
+          <div className="vip-leads-toolbar-mobile">
+            <button
+              type="button"
+              className="vip-btn vip-btn-secondary vip-btn-sm"
+              style={{ width: 'auto' }}
+              onClick={() => setFiltersOpen((o) => !o)}
+            >
+              {filtersOpen ? 'Hide filters' : activeChips.length > 0 ? `Filters (${activeChips.length})` : 'Filters'}
+            </button>
             {activeChips.length > 0 && (
               <button type="button" className="vip-action-close" onClick={clearAllFilters}>
                 Clear all
               </button>
             )}
           </div>
-          {filterFields}
-        </aside>
 
-        <div className="vip-leads-main">
-          {listStatus}
+          {!filtersOpen && activeChips.length > 0 && (
+            <div className="vip-chip-wrap">
+              {activeChips.map((chip) => (
+                <button key={chip.key} type="button" className="vip-filter-chip" onClick={chip.onRemove}>
+                  {chip.label}
+                  <span className="vip-filter-chip-x" aria-hidden="true">×</span>
+                </button>
+              ))}
+            </div>
+          )}
 
-          {loading ? (
-            <p className="vip-empty">Loading…</p>
-          ) : leads.length === 0 ? (
-            <p className="vip-empty">No leads match these filters.</p>
-          ) : (
-            <>
-              <div className="vip-leadrow-head">
-                <span>Party</span>
-                <span>Site</span>
-                <span>Owner</span>
-                <span>Stage</span>
-                <span>Source</span>
-                <span className="vip-leadrow-num">Value</span>
-                <span className="vip-leadrow-num">Last touch</span>
-              </div>
+          {filtersOpen && <div className="vip-leads-filterpanel">{hiddenFacets}</div>}
+        </div>
+      </div>
+
+      {searchCapped && (
+        <p className="vip-form-note">
+          Showing the first 50 matches per category — refine your search for a complete list.
+        </p>
+      )}
+
+      {listStatus}
+
+      {/* Mobile: one flat row per lead. The stage rides along as a chip on
+          the row rather than as a section header above a group of them. */}
+      <div className="vip-only-mobile">
+        {emptyOrLoading ?? (
+          <>
+            <div className="vip-lead-list">
               {leads.map((lead) => {
                 const recency = recencyInfo(lead, lastActivityByLead)
+                const stage = lead.current_stage ?? 'calling'
                 return (
-                  <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-leadrow vip-clickable">
-                    <span className="vip-leadrow-cell vip-leadrow-party">{lead.parties?.name ?? '(no party)'}</span>
-                    <span className="vip-leadrow-cell">{siteLabel(lead)}</span>
-                    <span className="vip-leadrow-cell">
-                      <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />
-                    </span>
-                    <span>
-                      <span className={stageChipClass(lead.current_stage ?? 'calling')}>
-                        {stageLabel(lead.current_stage ?? 'calling')}
-                      </span>
-                    </span>
-                    <span className="vip-leadrow-cell">
-                      {SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type ?? '—'}
-                    </span>
-                    <span className="vip-leadrow-num">{formatLeadValue(lead)}</span>
-                    <span className={recency.isStale ? 'vip-leadrow-recency vip-stale' : 'vip-leadrow-recency'}>
-                      {recency.label}
-                    </span>
+                  <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-lead-row">
+                    <div className="vip-lead-row-main">
+                      <div className="vip-lead-row-party">{partyLabel(lead)}</div>
+                      {/* Both stages ride as tags, matching the two stage
+                          columns on desktop — the site stage was originally
+                          folded into the text line below, where a long site
+                          name (a full address, routinely 300px+) truncated
+                          it away on exactly the rows it was added for. A tag
+                          can't be truncated out by its neighbour's length. */}
+                      <div className="vip-lead-row-meta">
+                        <span className={stageChipClass(stage)}>{stageLabel(stage)}</span>
+                        {lead.sites?.site_stage && (
+                          <span className="vip-sitestage-tag">{lead.sites.site_stage}</span>
+                        )}
+                        <span className="vip-lead-row-sub">
+                          {[
+                            lead.sites?.nickname || lead.sites?.locality,
+                            SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="vip-lead-row-side">
+                      <div className="vip-lead-row-value">{formatLeadValue(lead)}</div>
+                      <div className={recency.isStale ? 'vip-lead-row-recency vip-stale' : 'vip-lead-row-recency'}>
+                        {recency.label}
+                      </div>
+                    </div>
                   </Link>
                 )
               })}
-              {paginationBar}
-            </>
-          )}
-        </div>
+            </div>
+            {paginationBar}
+          </>
+        )}
+      </div>
+
+      {/* Desktop: eight real columns across the card's full width. */}
+      <div className="vip-only-desktop vip-leads-main">
+        {emptyOrLoading ?? (
+          <>
+            <div className="vip-leadrow-head">
+              <span>Party</span>
+              <span>Site</span>
+              <span>Owner</span>
+              <span>Stage</span>
+              <span>Site stage</span>
+              <span>Source</span>
+              <span className="vip-leadrow-num">Value</span>
+              <span className="vip-leadrow-num">Last touch</span>
+            </div>
+            {leads.map((lead) => {
+              const recency = recencyInfo(lead, lastActivityByLead)
+              const siteStage = lead.sites?.site_stage
+              return (
+                <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-leadrow vip-clickable">
+                  <span className="vip-leadrow-cell vip-leadrow-party">{lead.parties?.name ?? '(no party)'}</span>
+                  <span className="vip-leadrow-cell">{siteLabel(lead)}</span>
+                  <span className="vip-leadrow-cell">
+                    <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />
+                  </span>
+                  <span>
+                    <span className={stageChipClass(lead.current_stage ?? 'calling')}>
+                      {stageLabel(lead.current_stage ?? 'calling')}
+                    </span>
+                  </span>
+                  {/* A neutral tag, never a coloured one: the lead stage
+                      beside it is the row's one colour-carrying signal, and
+                      a second tinted pill is exactly the noise this redesign
+                      set out to remove. */}
+                  <span className="vip-leadrow-cell">
+                    {siteStage ? <span className="vip-sitestage-tag">{siteStage}</span> : '—'}
+                  </span>
+                  <span className="vip-leadrow-cell">
+                    {SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type ?? '—'}
+                  </span>
+                  <span className="vip-leadrow-num">{formatLeadValue(lead)}</span>
+                  <span className={recency.isStale ? 'vip-leadrow-recency vip-stale' : 'vip-leadrow-recency'}>
+                    {recency.label}
+                  </span>
+                </Link>
+              )
+            })}
+            {paginationBar}
+          </>
+        )}
       </div>
     </div>
   )

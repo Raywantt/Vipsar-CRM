@@ -125,13 +125,35 @@ export async function resolveLeadsSearchFilter(term) {
 // tiebreaker makes it fully deterministic, since two leads can share a
 // `created_at` down to the second and a non-deterministic sort would
 // silently duplicate or drop rows across pages.
+// Sentinel for the Site stage facet's "Not set" option — a lead whose site
+// row exists but carries no stage yet (every lead has created a `sites` row
+// since 2026-08-17, so this is the honest "nobody has visited/recorded it"
+// bucket, and it's the one worth being able to pull up as a worklist). Not a
+// value that can ever be stored in the column itself.
+export const SITE_STAGE_UNSET = '__unset__'
+
 export function fetchLeadsList(filters = {}) {
-  const { employeeId, employeeIds, stage, source, status, minValue, maxValue, searchOr, page = 0 } = filters
+  const { employeeId, employeeIds, stage, siteStage, source, status, minValue, maxValue, searchOr, page = 0 } = filters
+
+  // Filtering on an EMBEDDED column needs `!inner`, or PostgREST keeps the
+  // parent lead row and merely nulls out the non-matching embed — i.e. the
+  // filter silently does nothing to the result set (and to `count`). The
+  // hint is applied only while the facet is active: making the embed inner
+  // unconditionally would drop any lead with no `sites` row at all from the
+  // unfiltered list, which is the opposite of what this screen is for.
+  //
+  // This is an equality filter on an embedded resource, which PostgREST
+  // supports directly — deliberately NOT the multi-step "resolve ids first,
+  // then .in()" shape resolveLeadsSearchFilter above uses. That shape exists
+  // because searching parties/sites by ILIKE can match hundreds of ids and
+  // blow up the request URL; one site stage would match a comparable number,
+  // so pushing the join down to Postgres is both simpler and bounded here.
+  const sitesEmbed = siteStage ? 'sites!inner(nickname, locality, site_stage)' : 'sites(nickname, locality, site_stage)'
 
   let query = supabase
     .from('leads')
     .select(
-      'id, external_reference_id, current_stage, source_type, order_value, quote_value, created_at, owner_employee_id, parties!party_id(name), sites(nickname, locality), employees!owner_employee_id(name)',
+      `id, external_reference_id, current_stage, source_type, order_value, quote_value, created_at, owner_employee_id, parties!party_id(name), ${sitesEmbed}, employees!owner_employee_id(name)`,
       { count: 'exact' }
     )
 
@@ -144,6 +166,8 @@ export function fetchLeadsList(filters = {}) {
   if (employeeId) query = query.eq('owner_employee_id', employeeId)
   else if (employeeIds) query = employeeIds.length ? query.in('owner_employee_id', employeeIds) : query.eq('id', -1)
   if (stage) query = query.eq('current_stage', stage)
+  if (siteStage === SITE_STAGE_UNSET) query = query.is('sites.site_stage', null)
+  else if (siteStage) query = query.eq('sites.site_stage', siteStage)
   if (source) query = query.eq('source_type', source)
   // "Active" mirrors fetchClosureForecast's own not-won-not-lost filter;
   // "Inactive" is literally the complement (won or lost) — a lead has no

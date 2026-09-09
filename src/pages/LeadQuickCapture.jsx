@@ -57,7 +57,6 @@ function LeadQuickCapture() {
   const [siteAddress, setSiteAddress] = useState('')
   const [siteNickname, setSiteNickname] = useState('')
   const [siteStage, setSiteStage] = useState('')
-  const [customSiteStage, setCustomSiteStage] = useState('')
   const [referralFrom, setReferralFrom] = useState(null)
   // Which TYPE of referrer "Referral from" is currently asking for — one of
   // REFERRER_TYPES ('client'/'builder'/'pmc'/'other') or the synthetic
@@ -131,11 +130,14 @@ function LeadQuickCapture() {
   // twice is a field that eventually disagrees with its own button. Gated on
   // the source so a value picked and then abandoned by switching source can't
   // be written by a lead that never showed the field.
-  const resolvedSiteStage = !isScanning
-    ? null
-    : siteStage === 'other'
-      ? customSiteStage.trim() || null
-      : siteStage || null
+  //
+  // There is deliberately NO "Other…" branch here (removed 2026-09-09, the
+  // owner's ruling: it "only brings ambiguity"). This screen can now only
+  // ever write one of SITE_STAGE_OPTIONS or null. Site details and Site Visit
+  // still carry their own Other… hatches, so `sites.site_stage` is not closed
+  // app-wide — see the site-stage sources note in CLAUDE.md before assuming
+  // an off-list value is impossible.
+  const resolvedSiteStage = !isScanning ? null : siteStage || null
 
   const resolvedReferralFrom = isReferral ? referralFrom : null
 
@@ -203,7 +205,6 @@ function LeadQuickCapture() {
     setSiteAddress('')
     setSiteNickname('')
     setSiteStage('')
-    setCustomSiteStage('')
     setReferralFrom(null)
     setReferrerType(REFERRER_TYPES[0])
     setFirmParty(null)
@@ -662,35 +663,28 @@ function LeadQuickCapture() {
 
       {/* Scanning-only and required: a rep standing at a site they just
           scanned can see what stage it's at, which is the whole point of
-          asking here rather than waiting for the first Site Visit. Same
-          preset-plus-Other… shape as Lead Detail's Site details dropdown,
-          off the one shared SITE_STAGE_OPTIONS list. */}
+          asking here rather than waiting for the first Site Visit. A CLOSED
+          list off the one shared SITE_STAGE_OPTIONS — the "Other…" option and
+          its free-text "Describe stage" box were removed 2026-09-09 (the
+          owner's ruling: it "only brings ambiguity"; a rep must pick one of
+          the five). Do NOT restore them here: one free-typed stage is enough
+          to re-fragment Dashboard's "Leads by site stage" card and to put a
+          value in the column that All Leads' Site stage filter cannot offer.
+          Lead Detail's Site details and Log Activity's Site Visit still have
+          their own hatches — that was left as a separate decision, not an
+          oversight. */}
       {isScanning && (
-        <>
-          <label className="vip-field">
-            Site stage *
-            <select className="vip-select" value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
-              <option value="">— Select a stage —</option>
-              {SITE_STAGE_OPTIONS.map((stage) => (
-                <option key={stage} value={stage}>
-                  {stage}
-                </option>
-              ))}
-              <option value="other">Other…</option>
-            </select>
-          </label>
-          {siteStage === 'other' && (
-            <label className="vip-field">
-              Describe stage *
-              <input
-                className="vip-input"
-                value={customSiteStage}
-                onChange={(e) => setCustomSiteStage(e.target.value)}
-                placeholder="e.g. shuttering"
-              />
-            </label>
-          )}
-        </>
+        <label className="vip-field">
+          Site stage *
+          <select className="vip-select" value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
+            <option value="">— Select a stage —</option>
+            {SITE_STAGE_OPTIONS.map((stage) => (
+              <option key={stage} value={stage}>
+                {stage}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
 
       {/* On an architect referral the label drops "architect" along with the

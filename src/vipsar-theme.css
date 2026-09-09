@@ -1710,26 +1710,20 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   font-size: 18px; cursor: pointer; display: grid; place-items: center;
 }
 
-/* --- Leads grouped by stage (mobile default, LeadsListCard.jsx) — full-
-   bleed rows breaking out of .vip-body's 16px gutter via negative margin,
-   unlike every other card on this screen. Desktop gets its own persistent-
-   rail + real-columns layout instead of this grouped view — see the
-   vip-leads-layout/vip-leadrow rules further below, not a flat .vip-row
-   list. */
+/* --- Leads list, mobile (LeadsListCard.jsx) — full-bleed rows breaking out
+   of .vip-body's 16px gutter via negative margin, unlike every other card
+   on this screen. Desktop gets its own eight-column layout instead — see
+   the vip-leadrow rules further below, not a flat .vip-row list.
+
+   This was a GROUPED list until 2026-09-09: one sticky, colour-swatched
+   section header per lead stage present on the page. On a real mixed page
+   that spent more vertical space on headers than on leads, which is the
+   complaint that started this redesign; the stage is a chip on the row
+   itself now (.vip-lead-row-meta below). The .vip-lead-group-* classes were
+   deleted rather than left unused — nothing else ever referenced them. */
 @media (max-width: 1023.98px) {
-  .vip-lead-groups { margin: 0 -16px; }
+  .vip-lead-list { margin: 0 -16px; }
 }
-.vip-lead-group-head {
-  position: sticky; top: var(--vip-header-h); z-index: 2;
-  display: flex; align-items: center; gap: 8px;
-  padding: 9px 16px;
-  background: var(--vip-canvas-2);
-  border-top: 1px solid var(--vip-line); border-bottom: 1px solid var(--vip-line);
-}
-.vip-lead-group-swatch { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 8px; }
-.vip-lead-group-name { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--vip-ink); }
-.vip-lead-group-count { font-size: 12px; color: var(--vip-muted); }
-.vip-lead-group-value { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
 
 .vip-lead-row {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -1737,61 +1731,124 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   text-decoration: none; cursor: pointer;
 }
 .vip-lead-row:hover { text-decoration: none; }
-.vip-lead-row-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vip-lead-row-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .vip-lead-row-party {
   font-size: 14.5px; font-weight: 600; color: var(--vip-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* Stage chip + the site/site-stage/source line, on one row. The chip must
+   not shrink and the text must be allowed to (a flex item defaults to
+   min-width:auto, so without the override the chip is what gets squeezed
+   and the ellipsis never engages). Field order in the JSX puts site stage
+   ahead of source deliberately, so the newly-added fact survives the
+   truncation on a narrow phone rather than being the first thing cut. */
+.vip-lead-row-meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.vip-lead-row-meta > .vip-chip,
+.vip-lead-row-meta > .vip-sitestage-tag { flex: 0 0 auto; padding: 2px 8px; font-size: 10.5px; }
 .vip-lead-row-sub {
+  flex: 1 1 auto; min-width: 0;
   font-size: 11.5px; color: var(--vip-faint);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.vip-lead-row-side { flex: 0 0 auto; text-align: right; }
+/* Capped so the one long recency string this app can produce ("no activity
+   on record", true of every legacy-imported lead) can't take a third of a
+   phone row away from the party name. It wraps to two lines instead. */
+.vip-lead-row-side { flex: 0 0 auto; max-width: 36%; text-align: right; }
 .vip-lead-row-value { font-size: 13px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
 .vip-lead-row-recency { font-size: 11px; color: var(--vip-faint); }
 .vip-lead-row-recency.vip-stale { color: var(--vip-lost); }
 
-/* --- All Leads / My Leads — desktop persistent filter rail + real columns
-   (LeadsListCard.jsx). Was wrapped in .vip-narrow (700px) despite showing
-   six columns' worth of data per row plus a five-facet filter panel — the
-   exact "picked the wrong width class, huge empty gutters" failure mode the
-   Design system section calls non-negotiable. Now .vip-wide, with a
-   persistent rail (no disclosure toggle — there's room to just show every
-   facet) beside real party/site/owner/stage/source/value/last-touch
-   columns instead of the old three-line-per-row layout. .vip-leads-layout
-   is applied on the same element as .vip-only-desktop (see the JSX), so —
-   same reasoning as .vip-dd-attn-grid above — it must NOT set `display` in
-   an unguarded base rule: .vip-only-desktop's own `display: none` and this
-   class's rule have equal specificity, and this one comes later in the
-   file, so an unguarded `display` here would silently win the cascade and
-   leak the desktop layout through below 1024px (caught in a static CSS
-   test harness before this shipped — the exact failure mode this class
-   exists to fix, reintroduced by the class meant to fix it). Only
-   `gap`/`flex-direction` are safe to set outside the media query below. */
-.vip-leads-layout { flex-direction: column; gap: 18px; }
-.vip-leads-rail { display: flex; flex-direction: column; gap: 14px; }
-.vip-leads-rail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* --- All Leads / My Leads (LeadsListCard.jsx) — a filter TOOLBAR above a
+   full-width table.
+
+   History, because both prior shapes were wrong in instructive ways: this
+   screen first sat in .vip-narrow (700px) despite showing six columns per
+   row plus a five-facet panel — the "wrong width class, huge empty gutters"
+   failure the Design system section calls non-negotiable. The fix then was
+   .vip-wide plus a 240px persistent left rail. That rail is now gone too
+   (2026-09-09): adding a Site stage column took the table to eight, and 240
+   permanently-parked pixels of dropdowns is a poor trade against eight
+   columns of actual leads. Filters run horizontally above the table
+   instead — the standard CRM list-view shape — which hands the table back
+   ~264px.
+
+   .vip-leads-filterbar and .vip-leads-main are each applied on the SAME
+   element as .vip-only-desktop (see the JSX), so — same reasoning as
+   .vip-dd-attn-grid and the old .vip-leads-layout before it — neither may
+   set `display` in an unguarded base rule: .vip-only-desktop's own
+   `display: none` has equal specificity and sits earlier in the file, so an
+   unguarded `display` here would win the cascade and leak the desktop
+   layout through below 1024px. .vip-leads-main sets none at all;
+   .vip-leads-filterbar's lives inside the min-width query at the bottom of
+   this block, where it belongs. */
+.vip-leads-toolbar { display: flex; flex-direction: column; gap: 10px; }
+.vip-leads-toolbar-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vip-leads-search { flex: 1 1 220px; min-width: 0; }
+.vip-leads-status { flex: 0 0 auto; }
+.vip-leads-toolbar-mobile { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vip-leads-filterpanel {
+  display: flex; flex-direction: column; gap: 12px;
+  padding-top: 10px; border-top: 1px solid var(--vip-line-soft);
+}
+/* One facet: its label stacked over its control. The same element is used in
+   BOTH arrangements, so its own rule stays layout-neutral and the track
+   sizing lives with the horizontal bar in the media query below.
+   That split is not tidiness — `flex: 1 1 150px` here applied a 150px
+   flex-BASIS along whichever axis the parent runs, and the mobile panel is a
+   COLUMN, so every facet became 150px TALL: ~90px of dead space under each
+   of five controls (seen in the browser, then fixed). Basis is only ever
+   meaningful for the row. */
+.vip-filter-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .vip-leads-main { min-width: 0; }
 
+/* Eight columns: party · site · owner · stage · site stage · source · value ·
+   last touch. The track sizes are MEASURED, not guessed — every cell on a
+   real page was cloned and allowed to size to its content, giving the widest
+   each column actually wants (party 202, site 401, owner 95, stage 112, site
+   stage 53, source 100, value 51, last touch 110). The mins below sit just
+   above the ones that must never truncate (owner names, stage pills, the
+   site-stage tag, money) and well below the two that always will (party and
+   especially site, where a full address is 400px and truncation is the
+   correct answer).
+   Budget: the mins plus 7x10px gaps plus the row's own 16px padding come to
+   828px, against the 843px this card has at a 1024px viewport — so the whole
+   table fits at the narrowest desktop width rather than relying on
+   .vip-leads-main's overflow-x. That scroll stays as a safety net for a
+   longer stage label or a very narrow zoom, not as the normal case. */
 .vip-leadrow-head, .vip-leadrow {
   display: grid;
-  grid-template-columns: minmax(140px, 1.6fr) minmax(110px, 1.2fr) minmax(100px, 1fr) 120px 108px 96px 92px;
-  gap: 12px;
+  grid-template-columns:
+    minmax(104px, 1.6fr) minmax(88px, 1.3fr) minmax(96px, 0.8fr)
+    116px 74px minmax(92px, 0.85fr) 76px 96px;
+  gap: 10px;
   align-items: center;
 }
+/* Horizontal padding matches .vip-leadrow's below, so the two grids stay
+   column-aligned — verified by comparing every cell's left edge, not by
+   eye. */
 .vip-leadrow-head {
-  padding-bottom: 8px; border-bottom: 1px solid var(--vip-line);
+  padding: 0 8px 8px; border-bottom: 1px solid var(--vip-line);
 }
 .vip-leadrow-head > span {
   font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--vip-muted);
 }
 .vip-leadrow-head > span.vip-leadrow-num { text-align: right; }
+/* The 8px inset is what gives the hover tint below room to breathe around
+   the first and last column instead of starting hard against their text.
+   It is padding rather than a negative margin on purpose: a negative margin
+   pushes the row 8px past .vip-leads-main's edge, and that container is
+   `overflow-x: auto`, so it produced a real 8px horizontal scrollbar on
+   every load (measured, then fixed). .vip-leadrow-head carries the same
+   padding so the two grids stay column-aligned. */
 .vip-leadrow {
-  padding: 11px 0; border-bottom: 1px solid var(--vip-line-soft);
+  padding: 11px 8px;
+  border-bottom: 1px solid var(--vip-line-soft);
+  border-radius: 6px;
   text-decoration: none;
 }
 .vip-leadrow:last-child { border-bottom: 0; }
-.vip-leadrow:hover { text-decoration: none; }
+/* A row is a link to the lead — say so on hover. */
+.vip-leadrow:hover { text-decoration: none; background: var(--vip-surface-soft); }
 .vip-leadrow-cell {
   font-size: 13px; color: var(--vip-body);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1816,13 +1873,27 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
 .vip-leadrow-recency { text-align: right; font-size: 12px; color: var(--vip-faint); }
 .vip-leadrow-recency.vip-stale { color: var(--vip-lost); }
 
+/* The site's construction stage. Deliberately a NEUTRAL tag, not one of the
+   coloured .vip-chip-<stage> pills — the lead stage in the column beside it
+   is this row's single colour-carrying signal, and a second tinted pill
+   next to it is the noise this redesign exists to remove. Built from
+   tokens, so section 22 repaints it in dark mode with nothing added there. */
+.vip-sitestage-tag {
+  display: inline-block; max-width: 100%;
+  padding: 2px 8px; border-radius: var(--vip-r-pill);
+  background: var(--vip-line-soft); color: var(--vip-body);
+  font-size: 11px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 @media (min-width: 1024px) {
-  .vip-leads-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; align-items: start; }
-  .vip-leads-rail {
-    position: sticky; top: calc(var(--vip-header-h) + 28px);
-    padding: 14px; border: 1px solid var(--vip-line-soft); border-radius: var(--vip-r-card);
-    background: var(--vip-surface);
-  }
+  .vip-leads-filterbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px; }
+  /* Basis sized so five facets fit one row on a 1180px card and six (a sales
+     manager's, which adds "Whose leads") wrap cleanly rather than squeeze. */
+  .vip-leads-filterbar > .vip-filter-field { flex: 1 1 150px; }
+  .vip-leads-filterbar > .vip-filter-field-wide { flex: 1 1 210px; }
+  /* Sits on the baseline of the controls beside it, not of their labels. */
+  .vip-leads-clear { flex: 0 0 auto; margin-bottom: 1px; }
   .vip-leads-main { overflow-x: auto; }
 }
 

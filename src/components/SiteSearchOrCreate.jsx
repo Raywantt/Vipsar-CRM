@@ -25,7 +25,6 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
 
   const [creating, setCreating] = useState(false)
   const [siteStage, setSiteStage] = useState('')
-  const [customStage, setCustomStage] = useState('')
   const [createError, setCreateError] = useState(null)
   const [saving, setSaving] = useState(false)
 
@@ -112,7 +111,8 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
     setCreateError(null)
     setSaving(true)
 
-    const resolvedStage = siteStage === 'other' ? customStage.trim() || null : siteStage || null
+    // Closed list — see the select below and CLAUDE.md's site-stage note.
+    const resolvedStage = siteStage || null
 
     const { data, error } = await supabase
       .from('sites')
@@ -237,15 +237,8 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
                       {stage}
                     </option>
                   ))}
-                  <option value="other">Other…</option>
                 </select>
               </label>
-              {siteStage === 'other' && (
-                <label className="vip-field">
-                  Describe stage
-                  <input className="vip-input" value={customStage} onChange={(e) => setCustomStage(e.target.value)} />
-                </label>
-              )}
 
               {createError && <p className="vip-error" role="alert">{createError}</p>}
 

@@ -16,11 +16,15 @@ function SiteDetailsSection({ site, areas, onSaved }) {
   const [areaId, setAreaId] = useState(site.area_id ?? '')
   const [address, setAddress] = useState([site.locality, site.house_no].filter(Boolean).join(', '))
   const [pincode, setPincode] = useState(site.pincode ?? '')
+  // A CLOSED list — the "Other…" option and its free-text box were removed
+  // 2026-09-09 (the owner's ruling) and `sites.site_stage` now carries a DB
+  // CHECK, so an off-list value can no longer be written from anywhere. A
+  // stored value that somehow isn't canonical falls back to "— Not specified
+  // —" rather than round-tripping through a text box; that is unreachable
+  // today (the column was audited to zero off-list rows before the constraint
+  // went on) and the constraint is what keeps it that way.
   const [siteStage, setSiteStage] = useState(
-    site.site_stage && SITE_STAGE_OPTIONS.includes(site.site_stage) ? site.site_stage : site.site_stage ? 'other' : ''
-  )
-  const [customStage, setCustomStage] = useState(
-    site.site_stage && !SITE_STAGE_OPTIONS.includes(site.site_stage) ? site.site_stage : ''
+    site.site_stage && SITE_STAGE_OPTIONS.includes(site.site_stage) ? site.site_stage : ''
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -31,7 +35,7 @@ function SiteDetailsSection({ site, areas, onSaved }) {
     setError(null)
     setSavedAt(null)
 
-    const resolvedStage = siteStage === 'other' ? customStage.trim() || null : siteStage || null
+    const resolvedStage = siteStage || null
 
     const { data, error } = await supabase
       .from('sites')
@@ -93,15 +97,8 @@ function SiteDetailsSection({ site, areas, onSaved }) {
               {stage}
             </option>
           ))}
-          <option value="other">Other…</option>
         </select>
       </label>
-      {siteStage === 'other' && (
-        <label className="vip-field">
-          Describe stage
-          <input className="vip-input" value={customStage} onChange={(e) => setCustomStage(e.target.value)} />
-        </label>
-      )}
 
       {error && <p className="vip-error" role="alert">{error}</p>}
       {savedAt && !error && <p className="vip-success" role="status" aria-live="polite">Saved.</p>}

@@ -1131,10 +1131,22 @@ exactly the reporting the field exists for.
   screen. `PartySearchOrCreate` now clamps the chosen type back into range
   whenever the offered list changes.
 * **Site stage** (scanning only, added 2026-08-17) — a **required** dropdown
-  directly below Site nickname, offering `SITE_STAGE_OPTIONS` plus the same
-  `Other…`-reveals-a-text-box escape hatch Lead Detail's Site details
-  dropdown has (a blank `Other…` keeps Save disabled, so the escape hatch
-  can't produce an empty stage). All three roles, both widths. The reason
+  directly below Site nickname, offering `SITE_STAGE_OPTIONS` and **nothing
+  else**. It used to carry the same `Other…`-reveals-a-text-box escape hatch
+  Lead Detail's Site details dropdown still has; **that was removed
+  2026-09-09 at the owner's ruling — it "only brings ambiguity", a rep must
+  pick one of the five. Don't restore it here.** One free-typed stage is
+  enough to re-fragment Dashboard's "Leads by site stage" card and to put a
+  value in the column that All Leads' new Site stage facet cannot offer —
+  which is exactly what the single `Finishing` row was (see the
+  sites-normalisation bullet in Conventions). `customSiteStage` state, the
+  `'other'` branch of `resolvedSiteStage`, and the "Describe stage" input are
+  all deleted, so this screen can now only ever write a canonical value or
+  null. **This closes ONE of the four write paths, not the column** — Site
+  details and Site Visit keep their hatches (a separate decision, deliberately
+  not bundled in), and `sites.site_stage` still has **no CHECK** at the
+  database layer, confirmed live by probe rather than read off the schema
+  file. All three roles, both widths. The reason
   it's asked here at all: a rep standing at a site they just scanned can see
   its stage, rather than it waiting for the first Site Visit.
   **It writes `sites.site_stage`, and there is deliberately no
@@ -1151,6 +1163,16 @@ exactly the reporting the field exists for.
   its own button. It's gated on `isScanning` so a stage picked and then
   abandoned by switching source can't be written by a lead that never showed
   the field. **No migration**: `site_stage` is free text with no CHECK.
+  **Verified live 2026-09-09** (owner session, 1440px and phone width) after
+  the `Other…` removal: the select offers exactly six entries (placeholder +
+  the five stages) with no `other` value anywhere on the form, no "Describe
+  stage" input renders in any state, Save stays **disabled** until a real
+  stage is picked and **re-disables** when it's cleared back to the
+  placeholder (so the required gate still holds without the old branch), and
+  the field still disappears on Lixil with Save re-enabling. Field order
+  unchanged (Client name → Address → Site nickname → Site stage → Other's
+  name), no console errors, no page overflow. No lead was actually submitted
+  — the gate was driven, not the write.
   (**Superseded 2026-08-17**: the site insert has no guard at all now — *every*
   lead creates a `sites` row, not just scanning ones. See the Site nickname
   bullet below for why that had to change.)
@@ -1181,6 +1203,15 @@ branch with the stored value intact in the text box, and
 `LeadsByCategoryCard` discovers any category outside `categoryOrder` as its
 own row, so nothing vanishes off the dashboard). Don't "clean up" the old
 values with a bulk UPDATE — they're what those sites were actually at.
+**Scope note (2026-09-09): that rule protects values PREDATING the
+2026-08-17 list change, not every off-list string.** A stage typed through
+the `Other…` escape hatch *after* that date is not a historical record of an
+older taxonomy — it's a rep free-typing a stage the current list already
+covers, and folding it in is correct. The single `Finishing` row was exactly
+that case (see the sites-normalisation bullet in Conventions), and
+`sites.site_stage` now holds **only** `SITE_STAGE_OPTIONS` values.
+Ask which kind you're looking at — the row's `created_at` answers it —
+before either cleaning up or refusing to.
 
 **Verified live** (2026-08-17, all three roles at 1280px and 375px, real
 sessions on the three-port setup): the dropdown appears only on Scanning and
@@ -3379,25 +3410,58 @@ since it isn't part of the date-range-scoped report data.
   class" failure the Design system section calls non-negotiable
   (`Dashboard.jsx`'s wrapper was a `activeTab === 'reports' ? 'vip-wide' :
   'vip-narrow'` ternary; it's unconditionally `vip-wide` now, for both
-  tabs). Desktop (`.vip-only-desktop`) now renders a persistent **filter
-  rail** (`vip-leads-rail`, sticky, all five facets always visible — no
-  toggle, there's room to just show them) beside real
-  party/site/owner/stage/source/value/last-touch **columns**
+  tabs). Desktop (`.vip-only-desktop`) then rendered a persistent 240px
+  **filter rail** beside real **columns**
   (`vip-leadrow-head`/`vip-leadrow`, a CSS grid, not a literal `<table>` —
   same "shape of a table, not the markup" spirit the Design system section
   already uses elsewhere) instead of the old three-line `.vip-row` per
-  lead. Owner/Stage/Source/Status/Quote value are all applied server-side
-  via the filters-object `fetchLeadsList({ employeeId, stage, source,
-  status, minValue, maxValue })` (`dashboardQueries.js`) — correct even
-  under the 100-row cap, unlike filtering client-side after the fact would
-  be. Mobile is untouched by this pass — still the Filters-toggle/
-  active-chip disclosure panel (`vip-filter-chip`) collapsing into small
-  removable chips plus "Clear all" when closed, feeding the same grouped-
-  by-stage rows described in the Mobile redesign section's own Leads list
-  bullet below. The filter *fields* themselves (`filterFields` in
-  `LeadsListCard.jsx`) are one shared block of JSX rendered in both the
-  mobile disclosure panel and the desktop rail, so the two can't drift
-  apart. **A real bug caught and fixed while building the rail**: giving
+  lead. Every facet is applied server-side
+  via the filters-object `fetchLeadsList({ employeeId, stage, siteStage,
+  source, status, minValue, maxValue })` (`dashboardQueries.js`) — correct
+  even under the row cap, unlike filtering client-side after the fact would
+  be.
+
+  **⚠️ THE RAIL IS GONE (2026-09-09) — the paragraph above describes the
+  previous shape, kept because its two bug stories still apply.** The owner's
+  brief was that the screen read as messy and below the standard of a
+  well-built CRM, that showing every lead stage ate space, and that Site
+  stage needed to be both a filter and a column. What changed:
+  * **Filters moved from a left rail to a horizontal toolbar above a
+    full-width table** — the standard CRM list-view shape. Adding Site stage
+    took the table to **eight** columns, and 240 permanently-parked pixels of
+    dropdowns is a poor trade against that; the table gained ~264px. Search
+    and a Status segmented control (All / **Active** / **Closed** — "Inactive"
+    was renamed, it always meant won-or-lost and "inactive" reads like a
+    dormant lead, which is what *stale* means everywhere else here) sit in a
+    permanently-visible top row at BOTH widths; the remaining facets are a
+    one-row `.vip-leads-filterbar` on desktop and stay behind the existing
+    Filters toggle on a phone.
+  * **The Stage facet is a dropdown, not a nine-chip cloud.** That wrap was
+    the tallest thing in the old rail and the specific complaint that started
+    this. Owner lost its ≤4-people segmented-button variant for the same
+    reason — a different *kind* of control sitting among five dropdowns is
+    what makes a filter row hard to scan.
+  * **Site stage** is a new facet (`SITE_STAGE_OPTIONS` plus a **Not set**
+    option, `SITE_STAGE_UNSET`) and a new column. See the `fetchLeadsList`
+    note below on the `!inner` embed the filter needs.
+  * **Column tracks are MEASURED, not guessed** — every cell on a real page
+    was cloned and sized to content first (party 202px, site 401, owner 95,
+    stage 112, site stage 53, source 100, value 51, last touch 110). The mins
+    sit just above what must never truncate and well below site, where a full
+    address is 400px and truncating is correct. All eight fit at a 1024px
+    viewport without touching `.vip-leads-main`'s `overflow-x`, which is now
+    a safety net rather than the normal case.
+  * **The site stage renders as a NEUTRAL tag** (`.vip-sitestage-tag`), never
+    a coloured pill. The lead stage beside it is the row's one
+    colour-carrying signal; a second tinted pill next to it is exactly the
+    noise this pass set out to remove.
+  * **`filterFields` is gone as one monolithic block** — each facet is its
+    own const (`stageField`, `siteStageField`, …) composed into the two
+    arrangements. Still one definition per field, so the drift the old shared
+    block guarded against is still impossible; it just lets a field sit in
+    the toolbar at one width and the panel at the other.
+
+  **A real bug caught and fixed while building the rail**: giving
   `.vip-leads-layout` an unguarded base `display: flex` (outside the
   `≥1024px` media query) collided with `.vip-only-desktop`'s own
   unconditional `display: none` at equal specificity — since
@@ -3431,6 +3495,70 @@ since it isn't part of the date-range-scoped report data.
   instead, not leads (see the Profile section below); `dashboardQueries.js`
   no longer exports a `deleteLead` (removed as dead code once its one
   caller, `DeleteLeadSection.jsx`, was deleted).
+
+  **The Site stage filter needs `sites!inner(...)`, and that hint is
+  load-bearing.** `site_stage` lives on the embedded `sites` row, and
+  PostgREST applied to a plain embed keeps the parent lead and merely nulls
+  the non-matching embed — i.e. the filter silently does nothing to the rows
+  OR to `count`. `fetchLeadsList` therefore swaps its select string to the
+  `!inner` form only *while the facet is active*: making the embed inner
+  unconditionally would drop every lead with no `sites` row from the
+  unfiltered list. This is a plain equality filter on an embedded resource,
+  which PostgREST supports directly — deliberately NOT the "resolve ids
+  first, then `.in()`" shape `resolveLeadsSearchFilter` uses. That shape
+  exists because an ILIKE over parties/sites can match hundreds of ids and
+  blow up the request URL; one site stage would match a comparable number
+  (Plaster alone is 317 of 1,234 live leads), so pushing the join down to
+  Postgres is both simpler and bounded here. **`Not set` is
+  `.is('sites.site_stage', null)`** — a site row exists but carries no stage,
+  which since 2026-08-17 (every lead creates its `sites` row) is the honest
+  "nobody has recorded it yet" worklist, 572 leads live. A free-text value
+  outside `SITE_STAGE_OPTIONS` still **renders fine as a tag but is not
+  offered in the dropdown** — same degradation `SiteDetailsSection`'s
+  `Other…` branch already gives it. **As of 2026-09-09 no such value exists**
+  (see the sites-normalisation bullet in Conventions), so the facet currently
+  covers 100% of the data; the fallback stays because the `Other…` box can
+  re-create one at any time.
+
+  **Two CSS traps this pass hit, both found in the browser:**
+  * **`flex: 1 1 150px` on a facet set its HEIGHT in the mobile panel.** The
+    same `.vip-filter-field` renders in a horizontal bar (desktop) and a
+    vertical column (mobile), and flex-basis follows whichever axis the
+    parent runs — so every facet became 150px tall, ~90px of dead space under
+    each of five controls. The basis now lives on
+    `.vip-leads-filterbar > .vip-filter-field` inside the ≥1024px query, and
+    the facet's own rule is layout-neutral. **Generalise it: a class shared
+    between a row and a column container must not carry a flex basis.**
+  * **A negative margin inside an `overflow-x: auto` container is a
+    scrollbar.** The row's hover tint was first inset with
+    `margin: 0 -8px`, which pushed it 8px past `.vip-leads-main` and produced
+    a real 8px horizontal scroll on every load (measured). It's padding on
+    both the row and the header now, so the two grids stay column-aligned —
+    verified by comparing every cell's left edge, not by eye.
+
+  **Verified live 2026-09-09** (owner session, real database, 1440px / 1024px
+  / 375px, light and dark): the rail is gone and the filter bar is one row at
+  1440 and two at 1024, with **six** facets (a sales manager's extra "Whose
+  leads") still fitting one row at 1440 and adding no third row at 1024 —
+  measured by injecting the sixth field, since no manager session was
+  available. All eight columns fit at 1024 with **zero** table scroll and
+  zero page overflow, header and rows column-aligned at both widths, and no
+  stage chip, site-stage tag or owner name truncating. The Site stage filter
+  was checked against the query directly *before* driving the UI — 1,234 all
+  / 317 Plaster / 55 DPC / 572 Not set, every returned row genuinely carrying
+  that stage, zero false rows, and composing correctly with Status (Plaster +
+  Active = 212) — then through the real control, which reported the same 317.
+  Also exercised: Clear filters (and its button correctly disappearing),
+  pagination (Page 1 of 25 → 2, `51–100 of 1234`), **a filter change while on
+  page 2 correctly resetting to page 1 with no 416** (the race guard still
+  holds with `siteStageFilter` added to `filtersKey`), and the empty state in
+  both breakpoint blocks. Dark mode: the new tag measures **8.49:1** against
+  its card. No console errors; 267 tests pass. **Not verified: a real
+  `sales_executive`, `sales_coordinator` or `sales_manager` session** — both
+  role ports were logged out and credentials can't be typed (see Local
+  environment notes). Those roles differ here only in which facets render
+  (an exec loses Owner → four facets, strictly fewer; a manager gains one,
+  measured above), so the risk is low, but the matrix isn't closed.
 * `ACTIVITY_TYPES`/`ACTIVITY_LABELS` live in `src/lib/activityTypes.js`
   (canonical, kept in sync with the `activities.activity_type` CHECK) —
   `ActivityLog.jsx` imports from there instead of defining its own copy.
@@ -3858,7 +3986,23 @@ function.
   unconditional btn-row, plus a `canEdit`-only 48px ⇄ button) replaces the
   desktop btn-row below 1024px, opening the exact same `LeadQuickActions`
   as a `FabSheet`-style bottom sheet instead of always-inline.
-* **Leads list** (`LeadsListCard.jsx`) — mobile default is grouped by stage:
+* **Leads list** (`LeadsListCard.jsx`) — **⚠️ the grouped-by-stage view this
+  bullet describes was REPLACED BY A FLAT LIST on 2026-09-09** (the owner's
+  call: showing every lead stage ate space). `.vip-lead-groups` and the
+  `.vip-lead-group-*` classes are **deleted**, not merely unused — nothing
+  else referenced them. Each lead is now one `.vip-lead-row` carrying its
+  stage as a chip plus a neutral `.vip-sitestage-tag`, both inside
+  `.vip-lead-row-meta`, with `site · source` as the text line beside them.
+  **The two stages are tags rather than text for a measured reason**: site
+  stage started out folded into that text line, where a long site name (a
+  full address, routinely 300px+) truncated it away on exactly the rows it
+  was added for — a tag can't be truncated out by its neighbour's length.
+  `.vip-lead-row-side` is capped at 36% so the one long recency string this
+  app produces ("no activity on record", true of every legacy-imported lead)
+  can't take a third of the row from the party name. See the Dashboard
+  section's own LeadsListCard bullet for the desktop half of the same pass.
+  The rest of this bullet is the historical record:
+  mobile default *was* grouped by stage:
   sticky `.vip-lead-group-head` (stage colour square via `stageFg()`,
   count, summed value) over full-bleed `.vip-lead-row`s (breaking out of
   `.vip-body`'s 16px gutter via `.vip-lead-groups`'s negative margin,
@@ -4814,6 +4958,9 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 - **⚠️ `Schema/migration_leads_category_breakdown_rpc.sql` is OUTSTANDING (written 2026-09-04, not yet run against the live database, and NOT YET VERIFIED LIVE even once it is)** — the one genuinely architectural piece of the same performance pass: a new `leads_category_breakdown()` RPC that does the counting/summing for Dashboard's Leads-by-area/site-stage/product cards and Pipeline-by-stage server-side, instead of downloading every lead in the company (with 4 joined tables) and reducing it in the browser (`fetchLeadsForBreakdown()`/`dealValueFor()`/the `areaCategory`/`siteStageCategory`/`productCategory` functions at the top of `Dashboard.jsx`). **Deliberately narrow, by design, not by oversight** — Needs Attention's five buckets (`src/lib/attention.js`) were NOT ported to SQL in this pass; that logic has a legacy-import date clamp (`HISTORY_STARTS_AT`), two different day thresholds, and calendar-string date comparisons that have each been a real bug in this codebase before, and porting it blind with no live database to check the numbers against was judged too risky. Needs Attention and every drill-down panel keep reading the full per-lead fetch, unchanged. **Security is the load-bearing property of this migration**: the function is `SECURITY INVOKER` (Postgres's default, stated explicitly), NOT `SECURITY DEFINER` like every other function in this schema — it must run under the calling employee's own RLS, or a sales exec calling it would see the whole company's leads. See the migration file's own header comment before touching this function again. `src/lib/dashboardQueries.js`'s `fetchCategoryBreakdown()` and `Dashboard.jsx`'s `fastCategoryBreakdown`/`categoryBreakdown` fail SOFT — until the migration runs, calling the RPC just errors and every consumer falls back to the exact client-side computation that existed before this change (`LeadsByCategoryCard.jsx`'s new `aggregated` prop is optional; every call site still passes `leads`/`getCategory` too). A `sales_manager` viewing their own "Team" scope deliberately never uses the fast path at all (see `fastCategoryBreakdown`'s own comment in `Dashboard.jsx`) — the RPC's RLS-scoped result can't replicate that role's client-side My/Team toggle without also passing the right `owner_employee_id` list, which wasn't exercised against a manager with real leads (none exist yet) and was judged not worth the risk this pass; every other role has no such toggle, so plain RLS scoping is already correct. **Run the migration, then have a real sales_executive AND a real owner session confirm the four fast-path cards show the exact same numbers as before** (the migration file's own STEP 3 verification note has the specific check) before trusting this in front of real users — full build passes and all 153 existing tests pass unchanged, but nothing here has been checked against a live database yet.
 - **⚠️ `Schema/migration_territory_others.sql` is OUTSTANDING (written 2026-08-19, not yet run against the live database)** — it widens `leads_office_territory_check` to add a fifth value, `others`, alongside the four named offices, for the "Others" button added to New Lead's territory tap-select the same day. Until it runs, picking "Others" and saving fails with `new row for relation "leads" violates check constraint "leads_office_territory_check"`, surfaced inline on the form like any other save error — every other office keeps working, and nothing else in the app reads this column differently. Safe to re-run (`DROP CONSTRAINT IF EXISTS` before the `ADD CONSTRAINT`), independent of every other migration in the folder. **Confirm this has actually been run before relying on "Others" saving** — same "don't trust the file's presence" rule as every other migration in this file.
 - **✅ `Schema/migration_normalize_site_stage.sql` was RUN LIVE 2026-09-01** — a **data** migration (it rewrites rows, unlike almost everything else in this folder; it touches no policy, trigger, function or constraint and is independent of every other migration). `sites.site_stage` is free text with an `Other…` escape hatch on both Site details and Site Visit, so the same real stage had been typed several ways: 262 sites held **12 distinct values collapsing to 6**. This was not cosmetic — Dashboard's "Leads by site stage" groups on the raw string, so it rendered 13 buckets and **reported wrong numbers**: `PLASTER` 63 + `Plaster` 20 + `PLASTERING` 5 were three separate rows, so Plaster displayed as 20 and ranked fourth when it is really 88 and ranks first. Likewise `S.F SLAB`+`SF Slab` → 35, `F.F SLAB`+`FF Slab` → 26, `FLOORING`+`Flooring` → 29. Verified live after running: **6 distinct values, zero off `SITE_STAGE_OPTIONS`, all 262 rows still present** (the migration only ever moves rows between buckets). The card dropped 619px→372px and the Reports view 3229px→2982px as a side effect. Matching is an explicit value list, **not** an `UPPER()`/regex fold — `FF Slab` vs `F.F SLAB` differ by punctuation as well as case, and `PLASTERING` is a different word from `PLASTER`, so a generic fold would either miss them or over-merge. Safe to re-run (already-correct rows don't match their own WHERE clause; a re-run changes 0 rows). **The underlying hazard is NOT fixed** — `site_stage` is still free text with no CHECK, and the `Other…` box on both screens can re-create variants at any time. If this recurs, the fix is a constraint or a normalising trigger, not another cleanup pass; don't just re-run this file and consider it handled. Note the one non-stage value the migration deliberately refused to guess at (someone had typed a note into the stage field) was resolved by the owner directly, not by this file.
+- **🛑 `Schema/migration_site_stage_check.sql` is OUTSTANDING (written 2026-09-09, not yet run)** — closes `sites.site_stage` to the five `SITE_STAGE_OPTIONS` values plus NULL, via `sites_site_stage_check`. The owner's ruling: *"i do not want any other site stage other than the standard 5 that we are providing."* This is the constraint `migration_normalize_site_stage.sql` explicitly said its own data cleanup could not substitute for (*"if this recurs, the fix is a constraint or a normalising trigger, not another cleanup pass"*) — and it did recur, once, as the `Finishing` row below. **Nothing blocks it**: the column was audited live immediately before the file was written — 1,236 sites = 662 exactly canonical + 574 NULL, with zero off-list values, zero empty strings, zero whitespace-only or untrimmed values and zero case variants — so STEP 0 should return no rows. **NULL stays legal** (46% of sites, and "not visited yet" is a real state); the **empty string is deliberately refused**, since every write path already normalises `''` to NULL and allowing both would give "unknown" two spellings that group as separate dashboard buckets. **⚠️ Two-sided, like `leads.office_territory`**: a sixth stage needs BOTH this CHECK and `src/lib/siteStageOptions.js` changed — `siteStageClosedList.test.js` fails in CI if they drift. **Until it runs, the app-side closure below is the only guard**, which is enough for the UI but not for imports or hand-written SQL (the five `Schema/import_*_legacy.sql` files INSERT `site_stage` directly — that is where the original `PLASTER`/`S.F SLAB` variants came from). Independent of every other migration; must run after `migration_normalize_site_stage.sql` (live). Safe to re-run. **Its VERIFY section's step 2 is the one that matters** — a transaction-wrapped UPDATE to a junk value that must fail with `23514`; creating the constraint proves it exists, not that it bites.
+- **✅ All four `sites.site_stage` write paths were closed app-side 2026-09-09** — the `Other…` option, the free-text "Describe stage" input, and (the important one) the `=== 'other'` branch that actually wrote the typed string were removed from `LeadQuickCapture.jsx` (New Lead, Scanning), `SiteDetailsSection.jsx` (Lead Detail), `ActivityLog.jsx` (Site Visit) and `SiteSearchOrCreate.jsx` (unmounted, closed anyway so a future mount can't reopen it). **Removing the `<option>` without the branch would have been cosmetic** — the branch is what produced the value. The two edit screens now seed their dropdown from the stored value and fall back to "— Not specified —" for anything non-canonical, so **on any environment whose data is NOT clean, clean it BEFORE deploying this**, or saving one of those forms silently nulls a legacy value. Verified live for New Lead and Lead Detail (owner session, both widths: six options, no `other` value, no Describe-stage box in any state, Save gate still closing when the required stage is cleared). **`/activity` could not be driven** — it is `sales_executive`/`sales_coordinator`/`sales_manager`-only and no such session was available — so `src/lib/siteStageClosedList.test.js` pins all four files by source scan instead (24 cases; same static-scan approach `queryPaging.test.js` uses, and confirmed to actually fail when a hatch is reintroduced, not just to pass today).
+- **✅ `sites.site_stage` — the single `Finishing` row was folded into `Flooring` on 2026-09-09, at the owner's direction. No migration file: it was ONE row, applied from a real owner session.** Worth recording because the reasoning nearly went the other way. `CLAUDE.md`'s site-stage section carries a standing "don't clean up the old values with a bulk UPDATE — they're what those sites were actually at" rule, and `Finishing` matches the retired `foundation`/`structure`/`finishing`/`completed` list, so it looks exactly like a value that rule protects. **It wasn't**: the row (`sites.id` 1372, *Patel nagar, near mittra eye care, phagwara*, lead #1401 / Dr. Ritika joshi, owned by Aanchal Tripathi) was **created 2026-09-04** — after the 2026-08-17 list change *and* after `migration_normalize_site_stage.sql` ran on 2026-09-01, which is why that file's own 12-value census never mentions it. So it was never a historical record of an older taxonomy; it was the `Other…` escape hatch being used for a stage the current list already covers. **`created_at` is what tells the two apart — check it before either cleaning up or refusing to.** Measured before and after from the owner session rather than assumed: 1,236 sites, 7 distinct values → 6, `Flooring` 46 → 47, zero rows matching `/finish/i`, total unchanged (this moved a row between buckets, it never deleted one), and **zero values left outside `SITE_STAGE_OPTIONS`** — the column is fully canonical for the first time. Confirmed through the app too: `fetchLeadsList({siteStage:'Flooring'})` returns 47 and lead #1401 now carries `Flooring`. The `UPDATE` used `.select()` deliberately — an RLS-rejected UPDATE without one is a silent 0-row no-op (see the coordinator `sites` bug in the Sales Coordinator section), so a refusal would otherwise have been indistinguishable from success. **The underlying hazard is unchanged and this does not fix it**: `site_stage` is still free text with no CHECK and an `Other…` box on two screens, so variants can reappear — the standing advice from `migration_normalize_site_stage.sql` still applies (if it recurs at volume, the answer is a constraint or a normalising trigger, not another cleanup pass).
 - **✅ `Schema/migration_referral_employee.sql` was RUN LIVE 2026-08-19** and is no longer outstanding — it adds the nullable `leads.referred_by_employee_id` column for New Lead's "Referral from" field, which as of the same day can credit a referral to one of our own employees instead of an outside party (see the LeadQuickCapture section's own bullet — that bullet also covers the field's final UI shape, a type-first dropdown, after two earlier designs were tried and reverted the same day). Independent of every other migration in the folder — no policy, trigger or function touched, and no CHECK needed (plain nullable FK, `ON DELETE SET NULL`). Safe to re-run (`ADD COLUMN IF NOT EXISTS`).
 - **✅ `Schema/migration_client_meeting_design_sheet.sql` was RUN LIVE 2026-08-17** and verified both by the file's own introspection query and behaviourally. It widens **two** CHECK constraints for the `client_meeting`/`design_sheet` activity types: `activities.activity_type` (Log Activity's two new buttons) and `follow_ups.activity_type` (`FollowUpForm`'s "Type of follow-up" chip picker reads the same `ACTIVITY_TYPES` list, so it offers both as chips on *any* reminder — a failure with nothing to do with Log Activity, which is exactly why that half is easy to forget). Both constraint definitions now list the two new values. **The need for it was proven before running, not assumed**: submitting a Design Sheet against a real lead returned `new row for relation "activities" violates check constraint "activities_activity_type_check"`, which also confirmed the constraint name section 1 assumes; it failed cleanly as an inline error with no partial write. **Both halves then proven after running**: a Client Meeting and a Design Sheet both saved clean against lead #159, and a reminder tagged Design Sheet saved and survived a real page reload (Home's Tomorrow row). Independent of every other migration (no policy, trigger or function touched), safe to re-run, and it only widens what's allowed — no existing row changed. Adding a ninth activity type needs this same two-constraint treatment.
 - **✅ `Schema/migration_architect_firm_link.sql` was RUN LIVE 2026-08-17.** It adds `parties.firm_party_id` (a self-reference, architect → the `firm` party they work under, `ON DELETE SET NULL` so deleting a firm never deletes its architects), a `parties_firm_not_self` CHECK, an index, and a backfill promoting each distinct `firm_name` to a real `firm` party and linking its architects (case- and trim-insensitive, deliberately not fuzzy — merging `Kapoor & Assoc` with `Kapoor and Assoc` would be a guess about the real world). Verified by its own output: both existing firm names became real firm parties with their architects linked, and a firm party that already existed was **not** duplicated. `firm_name` is deliberately **not** dropped — it stays as a read-only fallback for anything the backfill couldn't match, and nothing writes to it anymore. Safe to re-run.

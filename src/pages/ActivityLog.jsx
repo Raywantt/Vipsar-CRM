@@ -112,7 +112,6 @@ function ActivityLog() {
   // SiteDetailsSection already uses, synced to whichever lead/site is
   // currently selected by the effect below.
   const [siteStage, setSiteStage] = useState('')
-  const [customStage, setCustomStage] = useState('')
   // RFQ Raised only — shown as a hint before submit (see the effect below)
   // and re-resolved fresh inside handleSubmit itself for the actual write,
   // since the on_hold branch needs an async lookup this can't wait on.
@@ -194,18 +193,12 @@ function ActivityLog() {
   // Keeps the Site stage field in sync with whichever lead is currently
   // selected (search pick, preselected-from-Lead-Detail, or reset back to
   // none) — same derivation SiteDetailsSection uses for its own initial value.
+  // A CLOSED list — "Other…" and its free-text box were removed 2026-09-09
+  // (the owner's ruling) and sites.site_stage now carries a DB CHECK, so a
+  // non-canonical stored value can no longer exist to fall back FROM.
   useEffect(() => {
     const stage = selectedLead?.sites?.site_stage
-    if (stage && SITE_STAGE_OPTIONS.includes(stage)) {
-      setSiteStage(stage)
-      setCustomStage('')
-    } else if (stage) {
-      setSiteStage('other')
-      setCustomStage(stage)
-    } else {
-      setSiteStage('')
-      setCustomStage('')
-    }
+    setSiteStage(stage && SITE_STAGE_OPTIONS.includes(stage) ? stage : '')
   }, [selectedLead])
 
   // The firm belongs to the architect, not to this activity — so it follows
@@ -526,7 +519,7 @@ function ActivityLog() {
       }
 
       if (isSiteVisit && selectedLead.sites?.id) {
-        const resolvedSiteStage = siteStage === 'other' ? customStage.trim() || null : siteStage || null
+        const resolvedSiteStage = siteStage || null
         if (resolvedSiteStage !== (selectedLead.sites.site_stage ?? null)) {
           const { error: siteUpdateError } = await supabase
             .from('sites')
@@ -809,15 +802,8 @@ function ActivityLog() {
                       {stage}
                     </option>
                   ))}
-                  <option value="other">Other…</option>
                 </select>
               </label>
-              {siteStage === 'other' && (
-                <label className="vip-field">
-                  Describe stage
-                  <input className="vip-input" value={customStage} onChange={(e) => setCustomStage(e.target.value)} />
-                </label>
-              )}
             </>
           )}
 
