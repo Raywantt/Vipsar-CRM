@@ -11,7 +11,7 @@ import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, reschedule
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeStale7Bucket, STALE_DAYS, ATTENTION_DAYS, staleGateDays, buildLastStageChangeByLead } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
-import { ACTIVITY_LABELS } from '../lib/activityTypes'
+import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageChipClass, attainmentTone } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
 import { formatCurrencyCompact } from '../lib/format'
@@ -27,7 +27,6 @@ import { errorMessage } from '../lib/errorMessage'
 const GOOD = '#0f6b6b'
 const OK = '#b8791f'
 const BAD = '#b4232a'
-const BLUE = '#3f7d9e'
 // Same muted grey attention.js's ownerRows use for "not enough to alarm
 // over" — reused here for "no data to judge at all", not a new token.
 const NEUTRAL = '#9aa5a6'
@@ -51,13 +50,6 @@ const METRIC_TILES = [
   { key: 'rfq_raised', label: 'RFQs raised' },
   { key: 'quote_sent', label: 'Offers sent' },
   { key: 'won_count', label: 'Bookings' },
-]
-
-const CHART_SERIES = [
-  { key: 'call', label: 'Calls', color: GOOD },
-  { key: 'site_visit', label: 'Site visits', color: BLUE },
-  { key: 'quote_sent', label: 'Offers sent', color: OK },
-  { key: 'won_count', label: 'Bookings', color: '#101617' },
 ]
 
 const STAGE_NEXT_ACTION = {
@@ -483,42 +475,45 @@ function EmployeeProfile() {
     }
   })
 
-  // Activity mix chart
+  // Activity mix — redesigned 2026-09-09. Was a 4-series stacked bar mixing
+  // 2 real activity types (Calls/Site visits) with 2 derived business facts
+  // (Offers sent = quote_sent_at, Bookings = a won stage transition, neither
+  // of which is a loggable activity_type at all). Reported as not matching
+  // what's actually loggable — there are 8 tappable activities on Log
+  // Activity (LOGGABLE_ACTIVITY_TYPES), 9 once Client Meeting's Old/New
+  // split is counted the way every other reporting surface counts it (see
+  // meetingBucket.js). A 9-series stacked bar was considered and rejected:
+  // for a real exec (Vishal, Q3) Calls alone is ~80% of logged volume, so
+  // the other 8 slivers become unreadable — the same "past ~7-8 categories,
+  // stop adding hues" rule ActivityCountsCard's own plain bar-list already
+  // follows. This is that same shape, in two parts: a single-colour volume
+  // TREND (still bucketed by working day/ISO week/calendar month) answers
+  // "how much, over time"; the full 9-row breakdown below it, unbucketed and
+  // sorted high to low, answers "what mix". Both read the exact same
+  // `activities` array, just partitioned two different ways, so the two
+  // totals can't disagree the way the old chart's total once silently did.
   const buckets = range ? buildChartBuckets(preset, range) : []
-  const chartBuckets = buckets.map((b) => {
-    const segs = CHART_SERIES.map((s) => {
-      let value = 0
-      if (s.key === 'call' || s.key === 'site_visit') {
-        // parseTimestamp, not raw new Date() — activities.created_at is a
-        // naive TIMESTAMP (see src/lib/dbTime.js's header comment), so a
-        // plain new Date() would misread it as local time and could bucket
-        // an early-morning entry into the previous day.
-        value = activities.filter(
-          (a) => a.employee_id === execId && a.activity_type === s.key && inBucket(parseTimestamp(a.created_at), b)
-        ).length
-      } else if (s.key === 'quote_sent') {
-        // quote_sent_at is a plain DATE column (no time-of-day, no zone
-        // ambiguity), so it needs no parseTimestamp here.
-        value = breakdownLeads.filter((l) => l.owner_employee_id === execId && l.quote_sent_at && inBucket(l.quote_sent_at, b)).length
-      } else {
-        const won = new Map()
-        wonStageHistory.forEach((row) => {
-          if (!row.leads || row.leads.owner_employee_id !== execId) return
-          if (!won.has(row.lead_id)) won.set(row.lead_id, row)
-        })
-        // stage_history.changed_at is the same naive TIMESTAMP type as
-        // activities.created_at above.
-        value = [...won.values()].filter((row) => inBucket(parseTimestamp(row.changed_at), b)).length
-      }
-      return { ...s, value }
-    })
-    return { label: b.label, total: segs.reduce((s, seg) => s + seg.value, 0), segs }
-  })
+  const myActivities = activities.filter((a) => a.employee_id === execId)
+  const chartBuckets = buckets.map((b) => ({
+    label: b.label,
+    // parseTimestamp, not raw new Date() — activities.created_at is a naive
+    // TIMESTAMP (see src/lib/dbTime.js's header comment), so a plain
+    // new Date() would misread it as local time and could bucket an
+    // early-morning entry into the previous day.
+    total: myActivities.filter((a) => inBucket(parseTimestamp(a.created_at), b)).length,
+  }))
   const rawMax = Math.max(1, ...chartBuckets.map((b) => b.total))
   const tick = Math.max(1, Math.ceil(rawMax / 4 / 5) * 5)
   const niceMax = tick * 4
   const CHART_H = 176
   const gridLines = [0, 1, 2, 3, 4].map((k) => ({ value: tick * k, bottom: ((tick * k) / niceMax) * CHART_H }))
+  const typeBreakdown = ACTIVITY_TYPES.map((t) => ({
+    value: t.value,
+    label: t.label,
+    count: myActivities.filter((a) => a.activity_type === t.value).length,
+  })).sort((a, b) => b.count - a.count)
+  const maxTypeCount = Math.max(1, ...typeBreakdown.map((t) => t.count))
+  const totalActivityCount = myActivities.length
   const chartHasActivity = chartBuckets.some((b) => b.total > 0)
 
   // Leads assigned
@@ -704,7 +699,7 @@ function EmployeeProfile() {
               <div className="vip-card">
                 <div className="vip-card-head">
                   <div className="vip-card-title">Activity mix · by {preset === 'week' ? 'day' : preset === 'month' ? 'week' : 'month'}</div>
-                  <span className="vip-card-note">{chartBuckets.reduce((s, b) => s + b.total, 0)} activities · {formatCurrencyCompact(bookedValue)} booked</span>
+                  <span className="vip-card-note">{totalActivityCount} activities logged</span>
                 </div>
                 <div className="vip-chart">
                   <div className="vip-chart-yaxis">
@@ -723,14 +718,7 @@ function EmployeeProfile() {
                           <div key={b.label} className="vip-chart-col">
                             <span className="vip-chart-total">{b.total}</span>
                             <span className="vip-chart-stack">
-                              {[...b.segs].reverse().map((s) => {
-                                const h = (s.value / niceMax) * CHART_H
-                                return (
-                                  <span key={s.key} className="vip-chart-seg" style={{ height: `${h}px`, background: s.color, color: h >= 15 ? '#fff' : 'transparent' }}>
-                                    {s.value > 0 ? s.value : ''}
-                                  </span>
-                                )
-                              })}
+                              <span className="vip-chart-seg" style={{ height: `${(b.total / niceMax) * CHART_H}px`, background: 'var(--vip-teal)' }} />
                             </span>
                           </div>
                         ))}
@@ -743,15 +731,23 @@ function EmployeeProfile() {
                     </div>
                   </div>
                 </div>
-                <div className="vip-chart-legend">
-                  {CHART_SERIES.map((s) => (
-                    <span key={s.key} className="vip-chart-legend-item">
-                      <span className="vip-chart-swatch" style={{ background: s.color }} />
-                      {s.label}
-                      <b style={{ fontWeight: 600, color: 'var(--vip-ink)' }}>{chartBuckets.reduce((sum, b) => sum + (b.segs.find((seg) => seg.key === s.key)?.value ?? 0), 0)}</b>
-                    </span>
-                  ))}
-                </div>
+
+                {/* Unbucketed, whole-period, sorted high to low — the "what
+                    mix" half. See this block's own header comment above for
+                    why this replaced the old 4-series stack. */}
+                {chartHasActivity && (
+                  <div className="vip-stack-s vip-section-split">
+                    {typeBreakdown.map((t) => (
+                      <div key={t.value} className="vip-bar-row">
+                        <div className="vip-bar-label">{t.label}</div>
+                        <div className="vip-bar-track">
+                          <div className="vip-bar-fill" style={{ width: `${(t.count / maxTypeCount) * 100}%` }} />
+                        </div>
+                        <div className="vip-bar-count">{t.count}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="vip-card">

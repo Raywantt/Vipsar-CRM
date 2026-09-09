@@ -2128,41 +2128,61 @@ rows — **deliberately did not** touch `DashboardHeatmap.jsx`, which builds
 its own column list straight from `ACTIVITY_TYPES` rather than
 `METRIC_OPTIONS`, so the existing heatmap is unaffected.
 
-Below the tiles: an **Activity mix** stacked bar chart (Calls/Site
-visits/Offers sent/Bookings, bucketed by working day/ISO week/calendar
-month depending on the period filter — geometry follows the handoff's
-exact spec: a 176px bar scale inside a 200px plot box, segments separated
-by an inset shadow rather than a gap so heights stay exact).
+Below the tiles: **Activity mix** — **redesigned 2026-09-09**, at the
+owner's request, into two stacked halves inside one card rather than a
+single multi-series chart. A single-colour volume **trend bar** (bucketed
+by working day/ISO week/calendar month depending on the period filter,
+same 176px-scale-in-a-200px-box geometry the original chart used) answers
+"how much, over time"; a full, unbucketed, high-to-low **breakdown list**
+underneath it (`ActivityCountsCard`'s own `.vip-bar-row` idiom, reused
+rather than reinvented) answers "what mix". Both read the exact same
+`myActivities` array (this exec's own rows in the selected period),
+partitioned two different ways, so the two totals structurally cannot
+disagree.
 
-**Real bug found and fixed 2026-09-09 — the Calls and Site visits series
-always rendered zero, for every exec, at every period.** Reported live
-against Vishal Kumar (55 calls / 7 site visits that month per his own
-metric tiles, chart showed 0/0 for both, "1 activities" total instead of
-63). Root cause: `fetchActivityCounts()` (`src/lib/dashboardQueries.js`),
-shared with `ActivityCountsCard`/`TargetsVsActualsCard`/`DashboardHeatmap`
-— none of which need a timestamp, only a count — never selected
-`created_at` at all, so every `inBucket(a.created_at, bucket)` check in
-this chart compared `undefined` and silently failed for every row, for
-every employee, always. The metric tiles above the chart read the exact
-same `activities` array without going through `inBucket` (they just
-`.length` the whole filtered array, no date sub-bucketing), which is why
-they showed the correct 55/7 while the chart directly below showed 0/0 —
-the discrepancy between two numbers on the same screen is what made this
-reportable rather than just quietly wrong. Fixed by adding `created_at` to
-that query's select — harmless for its other three consumers, which never
-read the field. **A second, smaller bug rode along and was fixed in the
-same pass**: once real data started flowing, `inBucket` was still doing a
-raw `new Date(a.created_at)` on `activities.created_at` and
-`stage_history.changed_at` (`won_count`'s series) — both naive `TIMESTAMP`
-columns per the Day Review section's Timestamps paragraph — instead of
-`parseTimestamp()`, so an activity logged in the first ~5.5 hours of the
-local day (IST) could bucket into the previous day. `quote_sent`'s series
-(`leads.quote_sent_at`, a plain `DATE` column) needed no such fix. Verified
-live against Vishal Kumar across Week/Month/Quarter: the chart's own
-"N activities" note, the sum of its column totals, and the sum of its
-legend now agree with each other and with the metric tiles at every
-preset (Week: 25 = 22 calls + 3 visits; Month: 63 = 55 + 7 + 1 offer;
-Quarter: 281 = 250 + 16 + 13 + 2 bookings).
+**Why it isn't one 9-colour stacked bar** (the shape it replaced): the
+breakdown is now the full loggable taxonomy — all 9 `ACTIVITY_TYPES`
+(`src/lib/activityTypes.js`, the 8 tappable Log Activity buttons with
+Client Meeting counted as its real Old/New split — see the Meeting
+buckets section) — and for a real exec that's rarely an even mix. Checked
+against Vishal Kumar's own Q3 numbers before deciding: Calls alone was
+~80% of his logged volume, which leaves the other 8 categories as
+hairline slivers in a stacked bar — a real instance of the "past ~7-8
+categories, a chart doesn't help" rule, not a hypothetical. A trend line
+(one colour, unambiguous) plus a sorted list (every category gets a full
+row no matter how small its count) was chosen over two other considered
+shapes: a 9-tile small-multiples grid (keeps each type's own trend, but
+by far the most screen space and build cost) and a donut (wrong past ~5-6
+slices for the same reason as the stacked bar). **Two things this chart
+used to show are deliberately gone from it**: "Offers sent" and
+"Bookings" were never real `activity_type` values to begin with — they
+were `leads.quote_sent_at` and a won-stage transition, i.e. the same
+derived facts the metric tiles above already show under those exact
+names. Folding them into "the activity mix" alongside genuinely logged
+activities was the original design's own category error; they stay
+exactly where they already were (the metric tiles, `SetTargetForm`'s
+targets), just no longer duplicated here. Verified live against Vishal
+Kumar at 1440px, 375px and dark mode across Week/Month/Quarter: the
+trend bar's column totals, the card's own "N activities logged" note, and
+the sum of all 9 breakdown rows agree at every preset (Week 33, Month 80,
+Quarter 306), and a period with zero activity hides the breakdown list
+entirely rather than showing 9 rows of zero under the chart's own
+existing "No activity logged in this period" message.
+
+> Historical: this chart previously rendered Calls/Site visits/Offers
+> sent/Bookings as one 4-series stack, and shipped a real bug the same
+> day it was first audited — the Calls and Site visits series always
+> rendered zero, for every exec, at every period, because
+> `fetchActivityCounts()` never selected `created_at` at all, so every
+> `inBucket(a.created_at, bucket)` check silently compared `undefined`.
+> Caught live against Vishal Kumar (55 calls / 7 site visits that month
+> per his own metric tiles, chart showed 0/0). Fixed by adding
+> `created_at` to that query's select, plus switching `inBucket`'s naive-
+> `TIMESTAMP` comparisons to `parseTimestamp()` (see the Day Review
+> section's Timestamps paragraph) so an early-morning entry couldn't
+> bucket into the previous day. Superseded by the redesign above the same
+> week, but the underlying `fetchActivityCounts()`/`parseTimestamp` fixes
+> are still exactly what the new trend bar relies on.
 
 A **Leads
 assigned** table (this exec's open leads, worst-touch-first, each row
