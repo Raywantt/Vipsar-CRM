@@ -126,7 +126,7 @@ export async function resolveLeadsSearchFilter(term) {
 // `created_at` down to the second and a non-deterministic sort would
 // silently duplicate or drop rows across pages.
 export function fetchLeadsList(filters = {}) {
-  const { employeeId, stage, source, status, minValue, maxValue, searchOr, page = 0 } = filters
+  const { employeeId, employeeIds, stage, source, status, minValue, maxValue, searchOr, page = 0 } = filters
 
   let query = supabase
     .from('leads')
@@ -135,7 +135,14 @@ export function fetchLeadsList(filters = {}) {
       { count: 'exact' }
     )
 
+  // employeeId (exact) wins over employeeIds (a scope, e.g. a sales
+  // manager's team) whenever both are supplied — a specific pick inside a
+  // scope narrows further, it doesn't get overridden by the scope. An empty
+  // employeeIds (a manager with zero reports) must still narrow to nothing
+  // rather than falling through to "no filter at all", the same trick
+  // resolveLeadsSearchFilter uses for a term that matches nothing.
   if (employeeId) query = query.eq('owner_employee_id', employeeId)
+  else if (employeeIds) query = employeeIds.length ? query.in('owner_employee_id', employeeIds) : query.eq('id', -1)
   if (stage) query = query.eq('current_stage', stage)
   if (source) query = query.eq('source_type', source)
   // "Active" mirrors fetchClosureForecast's own not-won-not-lost filter;

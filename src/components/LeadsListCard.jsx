@@ -83,7 +83,7 @@ function formatLeadValue(lead) {
 // fresh nav-link visit — see usePersistedFilterState's own header comment.
 const FILTERS_STORAGE_KEY = 'vip-filters:leads-list'
 
-function LeadsListCard({ showOwnerFilter, employees, title }) {
+function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, managerScope, onManagerScopeChange }) {
   const [employeeFilter, setEmployeeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'employeeFilter', '')
   const [stageFilter, setStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'stageFilter', '')
   const [sourceFilter, setSourceFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'sourceFilter', '')
@@ -148,12 +148,26 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
   // this mounts.
   const lastFiltersKeyRef = useRef(null)
 
+  // ownerScopeIds (a sales manager's My-leads/Team-leads toggle, see
+  // Dashboard.jsx) restricts the query to a SET of owners rather than the
+  // single one `employeeFilter`'s dropdown picks — RLS alone can't express
+  // "just my own" vs "just my team's" for a manager, since both are
+  // legitimately visible to them. A scope of exactly one id (My leads) always
+  // wins over whatever `employeeFilter` happens to hold — there's nothing
+  // else it could mean. A wider scope (Team leads) only applies when no
+  // specific team member is picked; picking one narrows further, the same
+  // way an owner's or coordinator's employeeFilter always has.
+  const singleOwnerScope = ownerScopeIds && ownerScopeIds.length === 1
+  const effectiveEmployeeId = singleOwnerScope ? ownerScopeIds[0] : employeeFilter || null
+  const effectiveEmployeeIds = !singleOwnerScope && ownerScopeIds && !employeeFilter ? ownerScopeIds : null
+
   useEffect(() => {
     let active = true
     setLoading(true)
 
     const filtersKey = JSON.stringify([
-      employeeFilter,
+      effectiveEmployeeId,
+      effectiveEmployeeIds,
       stageFilter,
       sourceFilter,
       statusFilter,
@@ -173,7 +187,8 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
       setSearchCapped(searchResult?.capped ?? false)
 
       const { data, error, count } = await fetchLeadsList({
-        employeeId: employeeFilter || null,
+        employeeId: effectiveEmployeeId,
+        employeeIds: effectiveEmployeeIds,
         stage: stageFilter || null,
         source: sourceFilter || null,
         status: statusFilter || null,
@@ -201,7 +216,18 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
     // setPage comes from usePersistedFilterState, which wraps useState —
     // stable across renders same as any useState setter, listed for the
     // linter only.
-  }, [employeeFilter, stageFilter, sourceFilter, statusFilter, minValue, maxValue, debouncedSearch, page, setPage])
+  }, [
+    effectiveEmployeeId,
+    effectiveEmployeeIds,
+    stageFilter,
+    sourceFilter,
+    statusFilter,
+    minValue,
+    maxValue,
+    debouncedSearch,
+    page,
+    setPage,
+  ])
 
   // Powers the mobile grouped view's recency line ("touched today"/"Nd
   // silent") — independent of the filters above (last-activity data doesn't
@@ -310,12 +336,47 @@ function LeadsListCard({ showOwnerFilter, employees, title }) {
   // The five facets, shared verbatim between mobile's disclosure panel and
   // desktop's persistent rail (see the two render blocks below) — one set
   // of controls, two places it can appear, so they can't drift apart.
+  //
+  // managerScope/onManagerScopeChange are only ever passed for a sales
+  // manager — RLS alone can't say "just my own" vs "just my team's" for
+  // that role, since both are legitimately visible to them (see
+  // ownerScopeIds above). Rendered as the first facet in this same rail
+  // rather than a separate control above the card, alongside the other
+  // ways this screen already narrows what's shown.
+  const isTeamScope = managerScope === 'team'
   const filterFields = (
     <>
+      {onManagerScopeChange && (
+        <div className="vip-stack-s" style={{ gap: 6 }}>
+          <div className="vip-fact-label">Whose leads</div>
+          <div className="vip-seg vip-seg-outline">
+            <button
+              type="button"
+              className={managerScope === 'my' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+              onClick={() => onManagerScopeChange('my')}
+            >
+              My leads
+            </button>
+            <button
+              type="button"
+              className={isTeamScope ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+              onClick={() => onManagerScopeChange('team')}
+            >
+              Team leads
+            </button>
+          </div>
+        </div>
+      )}
+
       {showOwnerFilter && employees.length > 0 && (
         <div className="vip-stack-s" style={{ gap: 6 }}>
           <div className="vip-fact-label">Owner</div>
-          {employees.length <= 4 ? (
+          {/* Team leads always gets a dropdown rather than the segmented
+              buttons below, even when the team is small enough that the
+              buttons would otherwise fit — a manager asked for a dropdown
+              here specifically. Owner/coordinator are unaffected
+              (isTeamScope is false whenever managerScope is unset). */}
+          {employees.length <= 4 && !isTeamScope ? (
             <div className="vip-seg vip-seg-outline">
               <button
                 type="button"

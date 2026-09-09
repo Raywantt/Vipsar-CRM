@@ -239,6 +239,30 @@ function Dashboard() {
     [allEmployees, isManager, managerScope, employee?.id, managedIds]
   )
 
+  // All Leads' own owner scoping for a manager — RLS alone can't express
+  // "my leads only" vs "my team's leads only" (a manager's `leads` SELECT is
+  // legitimately own-OR-team, same reason `inScope`/`snapshotOwnerIds` exist
+  // above), so LeadsListCard needs an explicit set of owner ids to restrict
+  // its server-side query to. Memoized so its reference is stable across
+  // renders that don't actually change the scope — LeadsListCard's fetch
+  // effect depends on it, and a fresh array every render would refetch on
+  // every keystroke elsewhere on the page. `null` for every non-manager
+  // role, same as snapshotOwnerIds, since RLS already scopes those correctly
+  // with nothing further to say. An empty array (a manager with zero
+  // reports, on "Team leads") is deliberately kept as `[]`, not coalesced to
+  // null — see fetchLeadsList's own handling of employeeIds.
+  const leadsOwnerScopeIds = useMemo(
+    () =>
+      !isManager
+        ? null
+        : managerScope === 'my'
+        ? employee?.id != null
+          ? [employee.id]
+          : []
+        : [...managedIds],
+    [isManager, managerScope, employee?.id, managedIds]
+  )
+
   // For dashboard_snapshot_metrics()'s p_owner_ids — same rule
   // fetchCategoryBreakdown's own docstring states: a real array ONLY for a
   // sales_manager (whose My/Team toggle RLS alone can't express), null for
@@ -1243,7 +1267,23 @@ function Dashboard() {
         </>
       )}
 
-      {activeTab === 'leads' && <LeadsListCard showOwnerFilter={seesOthersData} employees={employees} title={leadsTitle} />}
+      {activeTab === 'leads' && (
+        <LeadsListCard
+          showOwnerFilter={seesOthersData}
+          employees={employees}
+          title={leadsTitle}
+          ownerScopeIds={leadsOwnerScopeIds}
+          // A manager's leads are legitimately own-OR-team under RLS (see
+          // the switch's own comment on the Reports tab above), so All
+          // Leads needs its own My/Team say-so too — rendered by the card
+          // itself, in the filter rail alongside Owner/Stage/Source/etc.,
+          // rather than as a second control floating above the card.
+          // Shares the same `managerScope` state as the Reports switch
+          // deliberately, not a second flag — see that switch's comment.
+          managerScope={isManager ? managerScope : null}
+          onManagerScopeChange={isManager ? setManagerScope : null}
+        />
+      )}
 
       {/* FOLLOWUPS.md Rule 5 / Rule 8 — the app's first view of every reminder
           rather than only the handful due today. Scoping is RLS's job, so the
