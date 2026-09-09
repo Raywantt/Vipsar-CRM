@@ -2132,7 +2132,39 @@ Below the tiles: an **Activity mix** stacked bar chart (Calls/Site
 visits/Offers sent/Bookings, bucketed by working day/ISO week/calendar
 month depending on the period filter — geometry follows the handoff's
 exact spec: a 176px bar scale inside a 200px plot box, segments separated
-by an inset shadow rather than a gap so heights stay exact), a **Leads
+by an inset shadow rather than a gap so heights stay exact).
+
+**Real bug found and fixed 2026-09-09 — the Calls and Site visits series
+always rendered zero, for every exec, at every period.** Reported live
+against Vishal Kumar (55 calls / 7 site visits that month per his own
+metric tiles, chart showed 0/0 for both, "1 activities" total instead of
+63). Root cause: `fetchActivityCounts()` (`src/lib/dashboardQueries.js`),
+shared with `ActivityCountsCard`/`TargetsVsActualsCard`/`DashboardHeatmap`
+— none of which need a timestamp, only a count — never selected
+`created_at` at all, so every `inBucket(a.created_at, bucket)` check in
+this chart compared `undefined` and silently failed for every row, for
+every employee, always. The metric tiles above the chart read the exact
+same `activities` array without going through `inBucket` (they just
+`.length` the whole filtered array, no date sub-bucketing), which is why
+they showed the correct 55/7 while the chart directly below showed 0/0 —
+the discrepancy between two numbers on the same screen is what made this
+reportable rather than just quietly wrong. Fixed by adding `created_at` to
+that query's select — harmless for its other three consumers, which never
+read the field. **A second, smaller bug rode along and was fixed in the
+same pass**: once real data started flowing, `inBucket` was still doing a
+raw `new Date(a.created_at)` on `activities.created_at` and
+`stage_history.changed_at` (`won_count`'s series) — both naive `TIMESTAMP`
+columns per the Day Review section's Timestamps paragraph — instead of
+`parseTimestamp()`, so an activity logged in the first ~5.5 hours of the
+local day (IST) could bucket into the previous day. `quote_sent`'s series
+(`leads.quote_sent_at`, a plain `DATE` column) needed no such fix. Verified
+live against Vishal Kumar across Week/Month/Quarter: the chart's own
+"N activities" note, the sum of its column totals, and the sum of its
+legend now agree with each other and with the metric tiles at every
+preset (Week: 25 = 22 calls + 3 visits; Month: 63 = 55 + 7 + 1 offer;
+Quarter: 281 = 250 + 16 + 13 + 2 bookings).
+
+A **Leads
 assigned** table (this exec's open leads, worst-touch-first, each row
 linking to `/leads/:id`), and a right rail of **Conversion funnel**
 (computed bottom-up per the handoff's formula so it can't contradict the

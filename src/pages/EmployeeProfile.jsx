@@ -489,8 +489,16 @@ function EmployeeProfile() {
     const segs = CHART_SERIES.map((s) => {
       let value = 0
       if (s.key === 'call' || s.key === 'site_visit') {
-        value = activities.filter((a) => a.employee_id === execId && a.activity_type === s.key && inBucket(a.created_at, b)).length
+        // parseTimestamp, not raw new Date() — activities.created_at is a
+        // naive TIMESTAMP (see src/lib/dbTime.js's header comment), so a
+        // plain new Date() would misread it as local time and could bucket
+        // an early-morning entry into the previous day.
+        value = activities.filter(
+          (a) => a.employee_id === execId && a.activity_type === s.key && inBucket(parseTimestamp(a.created_at), b)
+        ).length
       } else if (s.key === 'quote_sent') {
+        // quote_sent_at is a plain DATE column (no time-of-day, no zone
+        // ambiguity), so it needs no parseTimestamp here.
         value = breakdownLeads.filter((l) => l.owner_employee_id === execId && l.quote_sent_at && inBucket(l.quote_sent_at, b)).length
       } else {
         const won = new Map()
@@ -498,7 +506,9 @@ function EmployeeProfile() {
           if (!row.leads || row.leads.owner_employee_id !== execId) return
           if (!won.has(row.lead_id)) won.set(row.lead_id, row)
         })
-        value = [...won.values()].filter((row) => inBucket(row.changed_at, b)).length
+        // stage_history.changed_at is the same naive TIMESTAMP type as
+        // activities.created_at above.
+        value = [...won.values()].filter((row) => inBucket(parseTimestamp(row.changed_at), b)).length
       }
       return { ...s, value }
     })

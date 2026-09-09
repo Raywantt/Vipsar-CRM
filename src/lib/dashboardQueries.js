@@ -22,12 +22,21 @@ import { todayISO } from './followupDates'
 // queries serve both the owner (sees everyone) and a sales exec (sees only
 // their own rows) — no role branching needed here.
 
+// `created_at` is selected for EmployeeProfile.jsx's Activity mix chart,
+// which buckets these same rows by working day/ISO week/calendar month —
+// ActivityCountsCard/TargetsVsActualsCard/DashboardHeatmap only ever count
+// rows, so it's an unused extra column for them, not a behaviour change.
+// Real bug found and fixed 2026-09-09: this column was missing entirely, so
+// every `inBucket(a.created_at, ...)` check in the chart compared `undefined`
+// and always failed — the Calls/Site visits chart series silently rendered
+// zero for every employee regardless of real activity (reported live on
+// Vishal Kumar: 55 calls / 7 site visits this month, chart showed 0/0).
 export function fetchActivityCounts(range) {
   return cachedQuery(`activities:counts:${range.start.toISOString()}:${range.end.toISOString()}`, () =>
     fetchAllRows(() =>
       supabase
         .from('activities')
-        .select('activity_type, employee_id, rfq_kind, employees!employee_id(name)', { count: 'exact' })
+        .select('activity_type, employee_id, rfq_kind, created_at, employees!employee_id(name)', { count: 'exact' })
         .gte('created_at', range.start.toISOString())
         .lte('created_at', range.end.toISOString())
     )
