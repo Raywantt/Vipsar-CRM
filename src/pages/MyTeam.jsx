@@ -35,6 +35,13 @@ function MyTeam() {
   // JS. Nothing sensitive rides on it: the per-card stats below come from
   // fetchLeadsForBreakdown(), which IS RLS-scoped, so a manager could not
   // see another team's numbers even if this filter were removed.
+  //
+  // fetchTeamMembers() used to `.neq('role', 'owner')` server-side, which
+  // meant a co-owner account never appeared here at all (reported
+  // 2026-09-09 — "show other owners also in my team"). The only row that
+  // must never appear is the viewer's own, so that exclusion now happens
+  // here, by id, rather than by role — a second owner shows up like any
+  // other employee.
   const { employee } = useAuth()
   const isManager = employee?.role === 'sales_manager'
   const [employees, setEmployees] = useState([])
@@ -60,11 +67,8 @@ function MyTeam() {
         setError(errorMessage(teamRes.error))
         return
       }
-      setEmployees(
-        isManager
-          ? (teamRes.data ?? []).filter((e) => e.manager_id === employee?.id)
-          : (teamRes.data ?? [])
-      )
+      const roster = (teamRes.data ?? []).filter((e) => e.id !== employee?.id)
+      setEmployees(isManager ? roster.filter((e) => e.manager_id === employee?.id) : roster)
       setLeads(leadsRes.data ?? [])
       const map = new Map()
       ;(activityRes.data ?? []).forEach((row) => {

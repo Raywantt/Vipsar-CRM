@@ -2530,7 +2530,11 @@ a.vip-day-log-party:hover { text-decoration: underline; }
    DrilldownPanel's forecast header needed. */
 .vip-fu-exec-head,
 .vip-fu-exec-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px 60px;
+  /* Sized to each header label's own natural width (measured with its sort
+     arrow attached) plus a small click-target buffer — not round numbers —
+     because every spare pixel here is one the name column loses on a phone,
+     where it shares its row with a 24px avatar. */
+  display: grid; grid-template-columns: minmax(0, 1fr) 66px 44px 50px;
   gap: 8px; align-items: center; text-align: right;
 }
 .vip-fu-exec-head {
@@ -2546,7 +2550,8 @@ a.vip-day-log-party:hover { text-decoration: underline; }
 }
 .vip-fu-exec-row:hover { background: var(--vip-surface-soft); }
 .vip-fu-exec-row.vip-active { background: var(--vip-surface-soft); box-shadow: inset 2px 0 0 var(--vip-teal); }
-.vip-fu-exec-name { text-align: left; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vip-fu-exec-name { display: flex; align-items: center; gap: 8px; min-width: 0; text-align: left; font-weight: 600; }
+.vip-fu-exec-name > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .vip-fu-bucket-count {
   margin-left: 5px; font-size: 10px; font-weight: 700;

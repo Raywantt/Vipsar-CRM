@@ -153,10 +153,11 @@ needs before touching anything:
   tab now exists on the 4-tab mobile bar) and unhid `KpiSparkRow` at every
   width; the exec heatmap/source donut are still desktop-only by design
   (an owner-facing team comparison view, not meant for a phone).
-- **My Team** (`/team`, owner-only — see its own section below) is a card-
-  grid directory of the owner's non-owner employees (today, just
-  `sales_executive`), with a name search and a role filter, each card
-  linking to that employee's Sales Exec Profile. Its mobile entry point
+- **My Team** (`/team`, owner + sales_manager — see its own section below) is
+  a card-grid directory of every other employee (a co-owner included, since
+  2026-09-09 — see that section's own bullet; only the viewer's own row is
+  excluded), with a name search and a role filter, each card linking to that
+  employee's Sales Exec Profile. Its mobile entry point
   used to be a `HOME_TILES` tile on Home; since the Mobile redesign removed
   that tile grid entirely, it's now a `.vip-tile` row at the top of
   Dashboard instead (owner-only, mobile-only — see the Mobile redesign
@@ -2147,35 +2148,40 @@ The Mobile redesign pass added a third `.vip-team-stats` cell, **Needs
 attn.** (sum of that employee's `computeAttentionBuckets` counts) — see
 that section, not described again here.
 
-`/team`, **owner-only** (`ProtectedRoute allowedRoles={['owner']}` in
-`App.jsx` — a sales exec hitting this URL directly gets redirected to `/`,
+`/team`, **owner + sales_manager** (`ProtectedRoute allowedRoles={['owner',
+'sales_manager']}` in `App.jsx`, widened for the Sales Manager role — a
+sales exec/coordinator hitting this URL directly gets redirected to `/`,
 same as any other role mismatch; there's also no nav link pointing here for
-that role, so it's never surfaced to them). A card-
-grid directory of the owner's team, reachable from `BottomNav`'s desktop
-sidebar (a `.vip-nav-extra` link, with its own icon — `IconTeam` in
-`NavIcons.jsx`, a deliberately distinct 3-person glyph so it doesn't read
-as some other contacts/list destination in the sidebar) and, on mobile,
-from a `.vip-tile` row at the top of `Dashboard.jsx` (see the Mobile
-redesign section) so the owner can reach it on a phone too.
+those roles, so it's never surfaced to them). A card-grid directory,
+reachable from `BottomNav`'s desktop sidebar (a `.vip-nav-extra` link, with
+its own icon — `IconTeam` in `NavIcons.jsx`, a deliberately distinct
+3-person glyph so it doesn't read as some other contacts/list destination in
+the sidebar) and, on mobile, from a `.vip-tile` row at the top of
+`Dashboard.jsx` (see the Mobile redesign section) so the owner can reach it
+on a phone too.
 
 * **Data** — `fetchTeamMembers()` (`src/lib/employeeQueries.js`) selects
-  every employee row with `role != 'owner'` — "my team" is defined as the
-  owner's non-owner employees, not a raw dump of the whole `employees`
-  table (which would include the owner's own row, and any co-owner
-  accounts). Today that's only ever `sales_executive` rows, since those are
-  the only two roles this app has. `is_active` employees still show
+  every employee row, including other `owner` rows. **This used to
+  `.neq('role', 'owner')`, which meant a co-owner account never appeared
+  here at all** — reported 2026-09-09 ("show other owners also in my
+  team") and fixed by dropping that filter; the only row that must never
+  appear is the *viewer's own*, so `MyTeam.jsx` excludes it client-side by
+  id instead of by role. A `sales_manager` viewer still only ever sees their
+  own reports (`e.manager_id === employee.id`, applied after the
+  self-exclusion) — an owner row has no `manager_id`, so a co-owner never
+  surfaces for a manager viewer regardless. `is_active` employees still show
   (deactivate, never hide, same as everywhere else in this app) — an
   inactive row gets a muted "Inactive" pill next to their name instead of
   being filtered out.
 * **Search + role filter** — a plain client-side name search (`vip-input`,
   same pattern as Search's own party directory), plus a `vip-seg-outline`
   segmented control for role, built from `[...new Set(employees.map(e =>
-  e.role))]` rather than a hardcoded list — so if a role beyond
-  `sales_executive` ever gets added to the team, the filter grows on its
-  own with no code change here, same reasoning Search's dynamic
-  `party_type` filter already uses. `ROLE_LABELS` in `MyTeam.jsx` is the
-  one place a role gets a human-readable label; extend it, don't hardcode a
-  new label inline.
+  e.role))]` rather than a hardcoded list — so a role that wasn't in the
+  roster before (an `owner` co-account included) appears as its own filter
+  chip automatically, same reasoning Search's dynamic `party_type` filter
+  already uses. `roleLabel()`/`ROLE_LABELS` (`src/lib/roles.js`, not a local
+  map in `MyTeam.jsx`) is the one place a role gets a human-readable label;
+  extend it there, don't hardcode a new label inline.
 * **Per-card stats** — "Open leads" count and "Open pipeline" value, computed
   client-side from `fetchLeadsForBreakdown()` (`src/lib/dashboardQueries.js`)
   — the same unbounded, RLS-open-to-owner query Dashboard/EmployeeProfile

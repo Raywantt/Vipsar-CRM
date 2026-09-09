@@ -1290,7 +1290,13 @@ function Dashboard() {
           same component serves all three roles; `showTeam` only decides
           whether the per-exec counts table renders above the list. */}
       {activeTab === 'followups' && (
-        <FollowUpsCard range={range} rangeLabel={rangeLabel} viewer={employee} showTeam={seesOthersData} />
+        <FollowUpsCard
+          range={range}
+          rangeLabel={rangeLabel}
+          viewer={employee}
+          showTeam={seesOthersData}
+          employees={employees}
+        />
       )}
     </div>
   )

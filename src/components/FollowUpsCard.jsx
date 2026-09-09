@@ -14,6 +14,7 @@ import {
 } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
+import { getInitials } from '../lib/initials'
 import { TONE_BAD, TONE_WARN, TONE_GOOD, TONE_NEUTRAL } from '../lib/statusColors'
 
 // Dashboard's "Followups" category (?tab=followups) — the app's first place to
@@ -51,8 +52,20 @@ function bucketOf(f) {
 // was not work this person failed to do, and counting it would penalise them
 // for cancelling it. Same rule the Day Review's own daily column uses, so the
 // two surfaces can't disagree about the same word.
-export function buildExecCounts(rows) {
+//
+// `roster` seeds every employee the caller wants represented — Dashboard
+// passes its already-scoped `employees` list — with a zero row, BEFORE the
+// period's rows are folded in. Without this, an exec with no follow-up in
+// the selected period simply never appeared here at all, which read as "no
+// workload" when it actually meant "not shown" (reported 2026-09-09). A row
+// not in the roster (a reassigned/deactivated employee, or a self-reminder
+// for a viewer the roster doesn't include) still surfaces via the existing
+// fallback rather than being silently dropped.
+export function buildExecCounts(rows, roster = []) {
   const byExec = new Map()
+  roster.forEach((emp) => {
+    byExec.set(emp.id, { id: emp.id, name: emp.name, assigned: 0, done: 0, missed: 0 })
+  })
   rows.forEach((f) => {
     if (f.status === FOLLOW_UP_CANCELLED) return
     const id = f.assigned_to
@@ -64,10 +77,27 @@ export function buildExecCounts(rows) {
     if (f.status === FOLLOW_UP_DONE) e.done += 1
     else if (isMissed(f)) e.missed += 1
   })
-  return [...byExec.values()].sort((a, b) => b.assigned - a.assigned)
+  return [...byExec.values()]
 }
 
-function FollowUpsCard({ range, rangeLabel, viewer, showTeam }) {
+const EXEC_COLUMNS = [
+  { key: 'assigned', label: 'Assigned' },
+  { key: 'done', label: 'Done' },
+  { key: 'missed', label: 'Missed' },
+]
+
+// Same shape as DayReviewCard's own sortRows — high-to-low first tap, name as
+// the tiebreak, so two execs on the same count settle alphabetically rather
+// than by fetch order.
+function sortExecRows(rows, sortKey, dir) {
+  return rows.slice().sort((a, b) => {
+    const diff = a[sortKey] - b[sortKey]
+    if (diff !== 0) return dir === 'desc' ? -diff : diff
+    return a.name.localeCompare(b.name)
+  })
+}
+
+function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) {
   const navigate = useNavigate()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -76,6 +106,17 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam }) {
   const [bucket, setBucket] = useState('overdue')
   const [execFilter, setExecFilter] = useState('all')
   const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
+  const [execSortKey, setExecSortKey] = useState('assigned')
+  const [execSortDir, setExecSortDir] = useState('desc')
+
+  function toggleExecSort(key) {
+    if (key === execSortKey) {
+      setExecSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setExecSortKey(key)
+      setExecSortDir('desc')
+    }
+  }
 
   // A new bucket or exec filter is a different list — start it from the top
   // rather than keeping whatever depth the previous one was expanded to.
@@ -141,7 +182,12 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam }) {
     () => (endISO ? rows.filter((f) => f.due_date >= startISO && f.due_date <= endISO) : []),
     [rows, startISO, endISO]
   )
-  const execCounts = useMemo(() => buildExecCounts(inPeriod), [inPeriod])
+  const execCounts = useMemo(() => buildExecCounts(inPeriod, employees), [inPeriod, employees])
+  const sortedExecCounts = useMemo(
+    () => sortExecRows(execCounts, execSortKey, execSortDir),
+    [execCounts, execSortKey, execSortDir]
+  )
+  const execsWithWork = useMemo(() => execCounts.filter((e) => e.assigned > 0).length, [execCounts])
 
   const visible = useMemo(() => {
     const scoped = execFilter === 'all' ? rows : rows.filter((f) => String(f.assigned_to) === execFilter)
@@ -161,25 +207,52 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam }) {
       {showTeam && execCounts.length > 0 && (
         <div className="vip-card">
           <div className="vip-card-head">
-            <div className="vip-card-title">Follow-ups · {rangeLabel}</div>
-            <div className="vip-dd-hint">assigned · done · missed</div>
+            <div className="vip-card-title">Follow-ups by exec · {rangeLabel}</div>
+            <div className="vip-dd-hint">
+              {execsWithWork} of {execCounts.length} with open work · sorted by{' '}
+              {EXEC_COLUMNS.find((c) => c.key === execSortKey).label.toLowerCase()}
+            </div>
           </div>
           <div className="vip-fu-exec-head">
-            <span>Sales exec</span><span>Assigned</span><span>Done</span><span>Missed</span>
+            <span>Sales exec</span>
+            {EXEC_COLUMNS.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                className="vip-daytable-sort"
+                onClick={() => toggleExecSort(c.key)}
+                aria-label={`Sort by ${c.label}`}
+              >
+                {c.label}
+                {execSortKey === c.key && (
+                  <span className="vip-daytable-arrow">{execSortDir === 'desc' ? '↓' : '↑'}</span>
+                )}
+              </button>
+            ))}
           </div>
-          {execCounts.map((e) => (
-            <button
-              key={e.id}
-              type="button"
-              className={String(e.id) === execFilter ? 'vip-fu-exec-row vip-active' : 'vip-fu-exec-row'}
-              onClick={() => setExecFilter(String(e.id) === execFilter ? 'all' : String(e.id))}
-            >
-              <span className="vip-fu-exec-name">{e.name}</span>
-              <span>{e.assigned}</span>
-              <span style={{ color: e.done ? TONE_GOOD : TONE_NEUTRAL }}>{e.done}</span>
-              <span style={{ color: e.missed ? TONE_BAD : TONE_NEUTRAL }}>{e.missed || '—'}</span>
-            </button>
-          ))}
+          {sortedExecCounts.map((e) => {
+            const quiet = e.assigned === 0
+            const active = String(e.id) === execFilter
+            return (
+              <button
+                key={e.id}
+                type="button"
+                className={active ? 'vip-fu-exec-row vip-active' : 'vip-fu-exec-row'}
+                onClick={() => setExecFilter(active ? 'all' : String(e.id))}
+                title={quiet ? `${e.name} — no reminders in ${rangeLabel}` : e.name}
+              >
+                <span className="vip-fu-exec-name">
+                  <span className={quiet ? 'vip-dd-avatar vip-daytable-avatar-quiet' : 'vip-dd-avatar'}>
+                    {getInitials(e.name)}
+                  </span>
+                  <span className={quiet ? 'vip-daytable-quiet' : undefined}>{e.name}</span>
+                </span>
+                <span className={quiet ? 'vip-daytable-quiet' : undefined}>{e.assigned}</span>
+                <span style={{ color: e.done ? TONE_GOOD : TONE_NEUTRAL }}>{e.done}</span>
+                <span style={{ color: e.missed ? TONE_BAD : TONE_NEUTRAL }}>{e.missed}</span>
+              </button>
+            )
+          })}
           {execFilter !== 'all' && (
             <button type="button" className="vip-btn-link" onClick={() => setExecFilter('all')}>
               Clear filter

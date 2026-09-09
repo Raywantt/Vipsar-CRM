@@ -76,10 +76,11 @@ export function fetchEmployeeProfile(id) {
     .single()
 }
 
-// Every non-owner employee — "my team" from the owner's perspective — for
-// the My Team screen. Excludes owner rows entirely (an owner isn't part of
-// their own team roster); office_location/created_at included for the same
-// territory/tenure display EmployeeProfile already uses, is_active so a
+// Every employee — including co-owner accounts — for the My Team screen.
+// Used to `.neq('role', 'owner')`, which also hid a co-owner; the viewer's
+// own row is excluded client-side instead (MyTeam.jsx), since this query has
+// no notion of who's asking. office_location/created_at included for the
+// same territory/tenure display EmployeeProfile already uses, is_active so a
 // deactivated rep still shows (deactivate, never hide, matches Settings).
 export function fetchTeamMembers() {
   return fetchAllRows(() =>
@@ -88,7 +89,6 @@ export function fetchTeamMembers() {
       .select('id, name, mobile, role, coordinator_id, manager_id, office_location, is_active, created_at', {
         count: 'exact',
       })
-      .neq('role', 'owner')
       .order('name')
   )
 }

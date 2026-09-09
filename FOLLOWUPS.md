@@ -451,6 +451,22 @@ Agreed delivery: **fix the broken parts first, then the new views.**
    follow-ups for an owner or coordinator, exactly as All Leads already does.
 9. **Per-exec assigned / done / missed counts** for the selected period, in that
    view — **and** Day Review keeps its existing daily column. Both must agree.
+   ✅ **Built, then fixed 2026-09-09**: the table (`FollowUpsCard.jsx`'s
+   `buildExecCounts`) originally derived its rows only from the period's
+   `follow_ups` rows, so an exec with none in the selected period simply never
+   appeared — reported as "only shows execs which have any". `Dashboard.jsx`'s
+   already-scoped `employees` roster (the same list `LeadsListCard`'s owner
+   filter and every attainment drill-down already read) is now passed in as a
+   `roster` and seeds every exec with a zero row before the period's rows are
+   folded in, so the table always lists the full roster in scope (owner: the
+   whole company; coordinator/manager-on-team-view: their own team), sorted
+   with the quiet ones sinking to the bottom — the exact zero-row treatment
+   `DayReviewCard` already established, reused rather than reinvented (avatar
+   initials, muted name for a zero-assigned exec, sortable column headers).
+   Verified live as owner at 1440px and 375px: all 9 execs render (7 with
+   real counts, 2 test accounts at 0/0/0), sort toggles assigned/done/missed
+   correctly, clicking a zero-assigned exec still filters "All reminders" to
+   their all-time history below.
 10. **"Reminders I assigned"** (Rule 5.5).
 11. **Coordinator's Today screen** — currently a placeholder, so a coordinator has
     no personal reminder surface at all.
