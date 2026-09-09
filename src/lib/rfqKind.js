@@ -67,3 +67,78 @@ export function shouldAdvanceToRfq(currentStage) {
   const rank = stageRank(currentStage)
   return rank != null && rank < stageRank(REVISED_FROM_STAGE)
 }
+
+// ---------------------------------------------------------------------------
+// What Lead Detail's Sales progress card shows for RFQs.
+//
+// Replaces the old hand-maintained "RFQ raised" checkbox + date input
+// (removed 2026-09-09, the owner's call): now that logging an RFQ Raised
+// activity auto-advances the stage, the rep already tells the CRM when an
+// RFQ went out, so asking them again on this form was a second place to
+// record one fact — and the two could disagree.
+//
+// The rules, settled with the owner:
+//   * The FRESH date is the EARLIEST RFQ Raised activity NOT tagged
+//     'revised'. Excluding revisions from that calculation, rather than
+//     just taking the first row of any kind, is what makes the owner's
+//     stated invariant hold in every case: the fresh RFQ date cannot
+//     change however many revisions are logged afterwards. It also
+//     handles the lead whose very first LOGGED RFQ is itself a revision
+//     (real for a legacy lead already sitting past RFQ stage when the
+//     CRM first saw it) — that lead has no fresh RFQ on record and says
+//     so, rather than relabelling a revision as the fresh one.
+//   * The REVISED date is the LATEST activity explicitly tagged
+//     rfq_kind = 'revised', and moves forward with each new one.
+//     Untagged pre-2026-09-09 rows never produce one — no retroactive
+//     classification, the same rule migration_rfq_kind.sql
+//     applies to the data itself. A lead with three old untagged RFQs
+//     therefore shows one date, not a guessed revision.
+//   * With no RFQ activity at all, fall back to the lead's own stored
+//     rfq_raised_at / rfq_raised. The legacy imports wrote those columns
+//     directly on hundreds of leads whose RFQ was never logged as an
+//     activity, and those leads would otherwise go blank where they show a
+//     date today. `source` says which of the two answered, so the caller
+//     can word it honestly.
+//
+// Pure — takes rows already fetched for the activity timeline, makes no
+// query of its own. Dates are returned as the raw column values; the caller
+// formats them (an activity's created_at is a naive TIMESTAMP needing
+// parseTimestamp, the lead's rfq_raised_at is a plain DATE that must not go
+// near a Date at all — see dbTime.js).
+export function summariseRfqHistory(activities, lead) {
+  const rfqs = (activities ?? [])
+    .filter((a) => a.activity_type === 'rfq_raised')
+    .slice()
+    // The caller's own order isn't guaranteed (LeadDetail fetches activities
+    // newest-first), so sort here rather than trusting it. Ties keep their
+    // incoming order, which is fine: two RFQs sharing a timestamp are the
+    // same day's work either way.
+    .sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')))
+
+  if (rfqs.length === 0) {
+    if (lead?.rfq_raised_at) {
+      return { raised: true, source: 'lead', freshAt: lead.rfq_raised_at, revisedAt: null, revisedCount: 0 }
+    }
+    // rfq_raised true with no date is a real state in the Vipul import: the
+    // RFQ is a fact, the date isn't recorded anywhere. Say so rather than
+    // dropping the fact or inventing a day for it.
+    if (lead?.rfq_raised) {
+      return { raised: true, source: 'lead', freshAt: null, revisedAt: null, revisedCount: 0 }
+    }
+    return { raised: false, source: null, freshAt: null, revisedAt: null, revisedCount: 0 }
+  }
+
+  const revisions = rfqs.filter((a) => a.rfq_kind === REVISED_RFQ)
+  // Not rfqs[0] — see the FRESH rule above. Anything not tagged 'revised'
+  // counts, which is what keeps untagged legacy rows working, and what
+  // makes the fresh date immovable however many revisions arrive later.
+  const fresh = rfqs.find((a) => a.rfq_kind !== REVISED_RFQ)
+
+  return {
+    raised: true,
+    source: 'activity',
+    freshAt: fresh ? fresh.created_at ?? null : null,
+    revisedAt: revisions.length > 0 ? revisions[revisions.length - 1].created_at ?? null : null,
+    revisedCount: revisions.length,
+  }
+}

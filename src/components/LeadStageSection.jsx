@@ -58,6 +58,11 @@ function LeadStageSection({ lead, leadTitle, canMoveStageBackward = true, paused
   const [wonError, setWonError] = useState(null)
   const [wonSaved, setWonSaved] = useState(false)
 
+  // On a lead that is already won the same prompt is a CORRECTION rather
+  // than a closure — different copy, different button, and a write that
+  // touches order_value and nothing else. See handleConfirmWon.
+  const alreadyWon = lead.current_stage === 'won'
+
   // Writes current_stage (+ any extraFields, e.g. next_followup_date) and
   // stage_history together. Called directly for any stage that needs no
   // extra gating; for 'lost'/'on_hold' it's only called once their own
@@ -103,8 +108,17 @@ function LeadStageSection({ lead, leadTitle, canMoveStageBackward = true, paused
   // and 'on_hold' are withheld from applyStage until their own prompt is
   // confirmed — every other stage still applies immediately, unchanged.
   function requestStage(resolvedStage) {
-    if (!resolvedStage || resolvedStage === lead.current_stage || saving || savingLoss || savingOnHold || savingWon)
-      return
+    if (!resolvedStage || saving || savingLoss || savingOnHold || savingWon) return
+
+    // Re-tapping the stage a lead is ALREADY on is a no-op for every stage
+    // but one. 'won' is the exception: since the Order value field was
+    // removed from SalesProgressSection (2026-09-09), this prompt is the
+    // only place an owner can correct a booked figure at all — they have no
+    // access to /activity's Booking Update, which is how a rep or
+    // coordinator would fix it. Without this the Won chip rendered enabled
+    // and highlighted on an already-won lead and did nothing when tapped,
+    // so there was no path anywhere in the app.
+    if (resolvedStage === lead.current_stage && resolvedStage !== 'won') return
 
     // Picking a different chip discards whichever prompt is currently open
     // (lost/on_hold/won) instead of leaving it lingering on screen — nothing
@@ -256,6 +270,34 @@ function LeadStageSection({ lead, leadTitle, canMoveStageBackward = true, paused
     setSavingWon(true)
     setWonError(null)
 
+    if (alreadyWon) {
+      // A correction, not a closure. It must NOT go through applyStage:
+      // that writes a stage_history row, and booked value is attributed to
+      // the date of a lead's most recent 'won' row (fetchWonStageHistory /
+      // computeOrderValueActuals), so logging one today would silently move
+      // an old deal's value into this month's booked figure. Same reason
+      // the stage-round-trip workaround is the wrong answer here.
+      const { data, error } = await supabase
+        .from('leads')
+        .update({ order_value: value })
+        .eq('id', lead.id)
+        .select()
+        .single()
+
+      setSavingWon(false)
+
+      if (error) {
+        setWonError(errorMessage(error))
+        return
+      }
+
+      // No history row to hand back — nothing about the stage changed.
+      onStageChanged(data, null)
+      setWonPromptOpen(false)
+      setWonSaved(true)
+      return
+    }
+
     await applyStage('won', { order_value: value })
 
     setSavingWon(false)
@@ -392,8 +434,17 @@ function LeadStageSection({ lead, leadTitle, canMoveStageBackward = true, paused
       {wonPromptOpen && (
         <div className="vip-section-split vip-stack-s">
           <p style={{ margin: 0, fontSize: 13, color: 'var(--vip-body)' }}>
-            Marking this lead <strong>won</strong> — what was the deal worth? An order value is required before the
-            stage is saved.
+            {alreadyWon ? (
+              <>
+                This lead is already <strong>won</strong> — correcting its order value. The stage and its history
+                aren't touched.
+              </>
+            ) : (
+              <>
+                Marking this lead <strong>won</strong> — what was the deal worth? An order value is required before
+                the stage is saved.
+              </>
+            )}
           </p>
           <NumPadInput
             variant="decimal"
@@ -414,7 +465,7 @@ function LeadStageSection({ lead, leadTitle, canMoveStageBackward = true, paused
               onClick={handleConfirmWon}
               disabled={wonOrderValue === '' || Number(wonOrderValue) <= 0 || savingWon}
             >
-              {savingWon ? 'Saving…' : 'Save & mark won'}
+              {savingWon ? 'Saving…' : alreadyWon ? 'Save order value' : 'Save & mark won'}
             </button>
             <button
               type="button"

@@ -1,3 +1,5 @@
+import { parseTimestamp } from './dbTime'
+
 export function formatCurrency(value, options) {
   if (value == null) return '—'
   return `₹${Number(value).toLocaleString('en-IN', options)}`
@@ -43,4 +45,27 @@ export function formatTimeRange(start, end) {
   const till = formatClockTime(end)
   if (from && till) return `${from} – ${till}`
   return from ?? till ?? null
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// "5 Sep 2026", from either kind of date column in this schema.
+//
+// A DATE ('2026-09-05') is read straight off the string — no Date is
+// constructed, because `new Date('2026-09-05')` is UTC midnight and would
+// render as the previous day for any viewer west of UTC. A naive TIMESTAMP
+// goes through parseTimestamp first, for the reason dbTime.js exists.
+export function formatDateShort(value) {
+  if (!value) return null
+  const s = String(value)
+
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (dateOnly) {
+    const [, y, m, d] = dateOnly
+    return `${Number(d)} ${MONTHS[Number(m) - 1] ?? m} ${y}`
+  }
+
+  const parsed = parseTimestamp(s)
+  if (!parsed || Number.isNaN(parsed.getTime())) return null
+  return `${parsed.getDate()} ${MONTHS[parsed.getMonth()]} ${parsed.getFullYear()}`
 }

@@ -1751,6 +1751,114 @@ gated it either). `rfq_raised_at`/`quote_sent_at` don't have this problem
 — those date inputs are only rendered once their own checkbox is ticked,
 so the field's visibility already matches the save condition.
 
+**Card order (2026-09-09)** — `SalesProgressSection.jsx` reads in four
+groups, in the order a deal actually moves: **Product → RFQ → Quote →
+Closing** (Probability, Estimated close). Separated by
+`.vip-section-split`'s hairline rule, deliberately **without** group
+headings — four labels cost more height than they buy on a phone, where
+this card opens as a full-screen panel. Probability left Quote value's side
+in the same pass, since it describes the close rather than the quote.
+
+**The Order value field is GONE from this card (2026-09-09, the owner's
+ruling) — don't re-add it.** It was added earlier the same month to close a
+real gap (an owner had no way to record a deal's value outside the
+sales_executive-only Booking Update activity); the `won`-stage prompt in
+`LeadStageSection.jsx` closed that gap properly, by demanding the figure at
+the one moment it becomes a fact. Keeping the field as well meant asking for
+a booked value on every still-open lead — which is exactly how leads end up
+with `order_value` set while not `won`/`lost`, the state the Dashboard
+section's **Pipeline/deal value** bullet already records as an open process
+gap. `order_value` is absent from `handleSave`'s payload too, not just from
+the form, so saving this card leaves a booked lead's real figure untouched
+— verified live on won lead #504 (₹33,98,000 before and after a real Save).
+**Correcting an already-won lead's order value** is what
+`LeadStageSection.jsx`'s **won prompt doubles as** (2026-09-09, built right
+after the removal above exposed the gap). Re-tapping the Won chip on a lead
+already at `won` opens the same prompt, pre-filled, with correction copy and
+a **Save order value** button instead of "Save & mark won"; confirming
+UPDATEs `order_value` **and nothing else**.
+* **It must not route through `applyStage`, and that's the whole point.**
+  `applyStage` writes a `stage_history` row, and booked value is attributed
+  to the date of a lead's most recent `'won'` row
+  (`fetchWonStageHistory`/`computeOrderValueActuals`) — so logging one today
+  would silently move an old deal's value into this month's booked figure.
+  That is also why the obvious workaround (move the stage off `won` and back)
+  is the wrong answer and shouldn't be suggested to anyone.
+* **`requestStage`'s same-stage guard is now `won`-only.** It used to return
+  for *any* re-tap of the current stage, which is why the Won chip rendered
+  enabled and highlighted on a won lead and did nothing — the prompt never
+  opened at all. Every other stage still no-ops on a re-tap, deliberately.
+* `onStageChanged(data, null)` — `LeadDetail`'s handler already guards
+  `if (historyRow)`, so a correction merges the lead and appends nothing.
+
+Booking Update remains the other path, for an exec or coordinator; **the
+owner has no third one**, which is why this exists. **Verified live** on won
+lead #504 at both widths: the prompt opens pre-filled with the correction
+copy, saving ₹33,98,000 → ₹42,00,000 updated the lead and left
+`stage_history` at exactly its original one row, the whole page (Deal value,
+Quotes & orders, Products in scope) re-rendered without a reload, and the
+value was restored the same way. Regression-checked on #196
+(`negotiation`): a same-stage re-tap is still inert with no prompt and no
+write, and the Won chip still reads as a closure ("Save & mark won",
+pre-filled from `quote_value`) with Cancel writing nothing.
+
+**RFQ block — read-only now (2026-09-09).** The **RFQ raised checkbox and
+its date input are gone** from `SalesProgressSection.jsx`, at the owner's
+direction. Logging an RFQ Raised activity already stamps the date and
+auto-advances the stage (see the ActivityLog section's own bullet), so
+asking a rep to also tick a box was a second place to record one fact, and
+the two could disagree — in practice they did: `ActivityLog` rewrites
+`rfq_raised_at` to today on **every** RFQ, revised ones included, so that
+column holds the LATEST date while the card is meant to lead with the FIRST.
+In its place, two derived rows (`vip-kv-row`, above the Quote sent
+checkbox):
+* **Fresh RFQ · {date}** — the earliest RFQ Raised activity **not tagged
+  `revised`**. **This date never moves**, however many revisions are logged
+  afterwards — the owner's stated invariant, and the reason revisions are
+  excluded from the calculation rather than it simply taking the first row
+  of any kind. It also means a lead whose *very first logged* RFQ is a
+  revision (real for a legacy lead already past RFQ stage when the CRM first
+  saw it) shows **no fresh row at all** rather than relabelling that
+  revision as the fresh one.
+* **Revised RFQ · {date}** — only when revisions exist, showing the
+  **latest** one and moving forward with each new one (plus
+  `(N revisions)` from 2 up). The full list stays in the activity timeline
+  below; this row answers "where does this RFQ stand today".
+
+`summariseRfqHistory(activities, lead)` in `src/lib/rfqKind.js` is the rule,
+pure and pinned by 10 cases in `rfqKind.test.js` — including one that logs
+four successive revisions and asserts the fresh date is byte-identical after
+each. Three parts of it are
+decisions, not implementation detail:
+* **A revised row needs an explicit `rfq_kind = 'revised'` tag.** Untagged
+  pre-2026-09-09 activities never produce one, so a lead with three old RFQs
+  shows one date rather than a fresh/revised pair inferred from ordering —
+  the same no-retroactive-classification rule the migration applies to the
+  data itself.
+* **With no RFQ activity at all, it falls back to the lead's own
+  `rfq_raised_at`/`rfq_raised`.** The legacy imports wrote those columns
+  directly on hundreds of leads whose RFQ was never logged as an activity;
+  without the fallback every one of them would go blank where it shows a date
+  today. `rfq_raised` true with no date (real, in the Vipul import) renders
+  "date not recorded" rather than dropping the fact or inventing a day.
+  `source` on the returned object says which of the two answered.
+* **It never sorts by the caller's order** — `LeadDetail` fetches activities
+  newest-first, so trusting it would report the newest RFQ as the fresh one.
+
+**The columns themselves are untouched and still maintained** — `ActivityLog`
+writes both automatically, and Needs Attention's `pending_rfq` bucket
+(`attention.js`, plus the `leads_needing_attention()` RPC) still reads them.
+This form simply stopped writing them, which is why they're absent from
+`handleSave`'s update payload; leaving them in would have nulled a real
+`rfq_raised` on every save. Verified live (owner session, both widths) across
+all four states on real leads — #196 (3 untagged activities → the first one's
+date, no revised row), #185 (fallback to the stored date), #172 ("date not
+recorded"), #162 (the empty hint) — plus a real Save on #172 confirming
+`rfq_raised` survives it. The revised rows (one revision, three revisions,
+and revision-with-no-fresh) were exercised by mounting the real component
+against `summariseRfqHistory`'s own output, since no lead in the dev database
+carries a `revised`-tagged RFQ yet.
+
 `SalesProgressSection.jsx` also gained an **Order value** field (next to
 Quote value, same plain-number-input treatment, saved whenever non-empty
 independent of any checkbox — same reasoning as the `quote_value` fix just
@@ -2519,9 +2627,11 @@ architect party instead of a lead, and has its own picker (see below).
   tally is deliberately **not** filtered — "how much RFQ paperwork happened"
   and "how much fresh RFQ quota was hit" are different questions.
   Surfaced on `LeadActivityTimeline` ("RFQ Raised · Fresh"/"· Revised", blank
-  for an untagged legacy row) and as a real-history-derived stat on
-  `SalesProgressSection` ("Raised 3× via Log Activity · 1 revision") —
-  computed from the lead's own fetched activities, not a second query.
+  for an untagged legacy row) and, as of 2026-09-09, as the whole of
+  `SalesProgressSection`'s RFQ block — see the Lead Profile section's **RFQ
+  block** bullet, which replaced that card's hand-maintained RFQ checkbox and
+  date input outright. Both read the lead's own already-fetched activities,
+  not a second query.
   **⚠️ `Schema/migration_rfq_kind.sql` must run BEFORE this code is
   deployed, not after — unlike almost every other migration in this file.**
   `LeadDetail.jsx`'s activities `SELECT` and `dashboardQueries.js`'s

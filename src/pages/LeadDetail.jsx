@@ -23,6 +23,7 @@ import { formatCurrency, formatCurrencyCompact } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
 import { SOURCE_TYPE_LABELS as SOURCE_LABELS } from '../lib/sourceTypeOptions'
 import { attachFirms, linkPartiesAsSiteContacts } from '../lib/partyQueries'
+import { summariseRfqHistory } from '../lib/rfqKind'
 
 // Was a fourth hand-rolled copy of the source labels, which had already
 // drifted ('Other referral' vs the shared list's own wording). One list now —
@@ -959,21 +960,15 @@ function LeadDetail() {
     )
   }
 
-  // Counts real RFQ history off the same activities already fetched for the
-  // timeline — no separate query. rfqRevisedCount only ever counts rows
-  // explicitly tagged 'revised' (see rfqKind.js); a lead with only
-  // pre-2026-09-09 RFQ activities (rfq_kind null throughout, since there's
-  // no retroactive reclassification) shows "raised N×" with no revision
-  // count, which is the honest reflection of what was actually tracked.
-  const rfqActivities = activities.filter((a) => a.activity_type === 'rfq_raised')
-  const rfqRevisedCount = rfqActivities.filter((a) => a.rfq_kind === 'revised').length
+  // The lead's RFQ standing, off the same activities already fetched for the
+  // timeline — no separate query. See summariseRfqHistory for the rules.
+  const rfqSummary = summariseRfqHistory(activities, lead)
 
   const salesProgressEditor = (
     <SalesProgressSection
       lead={lead}
       products={products}
-      rfqCount={rfqActivities.length}
-      rfqRevisedCount={rfqRevisedCount}
+      rfq={rfqSummary}
       onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
     />
   )
