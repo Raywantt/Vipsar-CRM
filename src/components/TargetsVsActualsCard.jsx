@@ -13,6 +13,19 @@ function emptyMetricCounts() {
   return Object.fromEntries(METRIC_OPTIONS.filter((m) => !NON_ACTIVITY_METRICS.includes(m.value)).map((m) => [m.value, 0]))
 }
 
+// A revised RFQ is still real work, but not toward the RFQ-raised quota —
+// the owner's ruling (2026-09-09) is that the target measures fresh
+// sourcing progress, not how many times a quotation got redone. A row with
+// no rfq_kind at all (every activity logged before this shipped, since
+// there's no retroactive reclassification — see
+// Schema/migration_rfq_kind.sql) still counts, exactly as it did before
+// this distinction existed. ActivityCountsCard's own raw tally is
+// deliberately unaffected by this — "how much RFQ paperwork happened" and
+// "how much fresh RFQ quota was hit" are different questions.
+function countsTowardActivityMetric(a) {
+  return !(a.activity_type === 'rfq_raised' && a.rfq_kind === 'revised')
+}
+
 // activities is already scoped to the current period + role by the caller
 // (same array ActivityCountsCard uses) — just tally by activity_type, and by
 // employee_id too when showByEmployee.
@@ -20,7 +33,7 @@ function computeActivityActuals(activities, showByEmployee) {
   if (!showByEmployee) {
     const totals = emptyMetricCounts()
     activities.forEach((a) => {
-      if (a.activity_type in totals) totals[a.activity_type] += 1
+      if (a.activity_type in totals && countsTowardActivityMetric(a)) totals[a.activity_type] += 1
     })
     return totals
   }
@@ -29,7 +42,7 @@ function computeActivityActuals(activities, showByEmployee) {
     const key = a.employee_id ?? 'unassigned'
     if (!map.has(key)) map.set(key, emptyMetricCounts())
     const totals = map.get(key)
-    if (a.activity_type in totals) totals[a.activity_type] += 1
+    if (a.activity_type in totals && countsTowardActivityMetric(a)) totals[a.activity_type] += 1
   })
   return map
 }

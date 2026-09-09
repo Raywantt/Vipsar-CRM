@@ -176,7 +176,7 @@ function LeadDetail() {
           supabase
             .from('activities')
             .select(
-              'id, activity_type, notes, created_at, employee_id, employees!employee_id(name), accompanied_by_employee:employees!accompanied_by(name), logged_by_employee_id, logged_by:employees!logged_by_employee_id(name, role)',
+              'id, activity_type, rfq_kind, notes, created_at, employee_id, employees!employee_id(name), accompanied_by_employee:employees!accompanied_by(name), logged_by_employee_id, logged_by:employees!logged_by_employee_id(name, role)',
               { count: 'exact' }
             )
             .eq('lead_id', leadRow.id)
@@ -959,10 +959,21 @@ function LeadDetail() {
     )
   }
 
+  // Counts real RFQ history off the same activities already fetched for the
+  // timeline — no separate query. rfqRevisedCount only ever counts rows
+  // explicitly tagged 'revised' (see rfqKind.js); a lead with only
+  // pre-2026-09-09 RFQ activities (rfq_kind null throughout, since there's
+  // no retroactive reclassification) shows "raised N×" with no revision
+  // count, which is the honest reflection of what was actually tracked.
+  const rfqActivities = activities.filter((a) => a.activity_type === 'rfq_raised')
+  const rfqRevisedCount = rfqActivities.filter((a) => a.rfq_kind === 'revised').length
+
   const salesProgressEditor = (
     <SalesProgressSection
       lead={lead}
       products={products}
+      rfqCount={rfqActivities.length}
+      rfqRevisedCount={rfqRevisedCount}
       onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
     />
   )

@@ -8,6 +8,7 @@ import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import NumPadInput from '../components/NumPadInput'
 import { LOGGABLE_ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import { PICKABLE_MEETING, meetingTypeForStage } from '../lib/meetingBucket'
+import { FRESH_RFQ, RFQ_KIND_LABELS, rfqKindForStage, shouldAdvanceToRfq } from '../lib/rfqKind'
 import { stageLabel } from '../lib/leadStageOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLocationOptions'
@@ -21,6 +22,26 @@ import { errorMessage } from '../lib/errorMessage'
 function leadLabel(lead) {
   const place = lead.sites?.nickname || lead.sites?.locality
   return lead.parties?.name ?? place ?? `Lead #${lead.id}`
+}
+
+// Same derivation LeadDetail's Deal progress stepper and the
+// enforce_owner_only_stage_change() trigger already use for an on_hold
+// lead: the most recent stage it was at before pausing, falling back to
+// 'calling' when there's no stage_history at all. Every legacy-imported
+// lead currently on hold falls into that fallback — there's no data to say
+// what stage it paused at, so it can't be guessed at as anything but the
+// start of the funnel (which is what makes it classify as a fresh RFQ once
+// resumed, per rfqKindForStage).
+async function resolvePausedAtStage(leadId) {
+  const { data } = await supabase
+    .from('stage_history')
+    .select('stage')
+    .eq('lead_id', leadId)
+    .neq('stage', 'on_hold')
+    .order('changed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data?.stage ?? 'calling'
 }
 
 function ActivityLog() {
@@ -92,6 +113,10 @@ function ActivityLog() {
   // currently selected by the effect below.
   const [siteStage, setSiteStage] = useState('')
   const [customStage, setCustomStage] = useState('')
+  // RFQ Raised only — shown as a hint before submit (see the effect below)
+  // and re-resolved fresh inside handleSubmit itself for the actual write,
+  // since the on_hold branch needs an async lookup this can't wait on.
+  const [resolvedRfqKind, setResolvedRfqKind] = useState(null)
 
   const [employees, setEmployees] = useState([])
 
@@ -193,6 +218,31 @@ function ActivityLog() {
     setFirmParty(selectedArchitect?.firm ?? null)
   }, [selectedArchitect?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Says out loud what the CRM is about to decide before the rep taps Log
+  // it — same reasoning the Client Meeting hint below already follows.
+  // Async only because a lead currently on_hold needs a stage_history
+  // lookup to know what it paused at; every other case resolves instantly.
+  // This is display-only — handleSubmit resolves its own copy for the
+  // actual write, so a slow network never risks writing a stale guess.
+  useEffect(() => {
+    if (activityType !== 'rfq_raised' || !selectedLead) {
+      setResolvedRfqKind(null)
+      return
+    }
+    let cancelled = false
+    async function resolve() {
+      const stage =
+        selectedLead.current_stage === 'on_hold'
+          ? await resolvePausedAtStage(selectedLead.id)
+          : selectedLead.current_stage ?? 'calling'
+      if (!cancelled) setResolvedRfqKind(rfqKindForStage(stage))
+    }
+    resolve()
+    return () => {
+      cancelled = true
+    }
+  }, [activityType, selectedLead])
+
   const isOfficeDay = activityType === 'office_day'
   const isSiteVisit = activityType === 'site_visit'
   const isArchitectMeeting = activityType === 'architect_meeting'
@@ -231,6 +281,13 @@ function ActivityLog() {
   // when the hint is allowed to appear.
   const resolvedMeetingType =
     isClientMeeting && selectedLead ? meetingTypeForStage(selectedLead.current_stage) : null
+  const isRfqRaised = activityType === 'rfq_raised'
+  // Whether the CRM will also move this lead to RFQ Raised stage — only
+  // ever true for a lead genuinely sitting before it in the funnel right
+  // now (never on_hold/won/lost, see shouldAdvanceToRfq). Uses the lead's
+  // real current stage, not resolvedRfqKind's possibly-pausedAt-derived one.
+  const rfqWillAdvance =
+    isRfqRaised && selectedLead && resolvedRfqKind === FRESH_RFQ && shouldAdvanceToRfq(selectedLead.current_stage ?? 'calling')
   const canSubmit =
     Boolean(activityType) &&
     anchorSatisfied &&
@@ -340,6 +397,21 @@ function ActivityLog() {
     }
     const resolvedFirmParty = firmResult.data
 
+    // Resolved fresh here rather than trusting resolvedRfqKind (which only
+    // drives the on-screen hint) — this is the value that actually gets
+    // written, and the on_hold branch needs its own await regardless of
+    // whether the hint's effect has finished by the time Log it is tapped.
+    let finalRfqKind = null
+    let willAdvanceToRfq = false
+    if (activityType === 'rfq_raised' && selectedLead) {
+      const stageForClassification =
+        selectedLead.current_stage === 'on_hold'
+          ? await resolvePausedAtStage(selectedLead.id)
+          : selectedLead.current_stage ?? 'calling'
+      finalRfqKind = rfqKindForStage(stageForClassification)
+      willAdvanceToRfq = finalRfqKind === FRESH_RFQ && shouldAdvanceToRfq(selectedLead.current_stage ?? 'calling')
+    }
+
     const { data: activity, error: activityError } = await supabase
       .from('activities')
       .insert({
@@ -359,6 +431,14 @@ function ActivityLog() {
         start_time: isOfficeDay ? startTime || null : null,
         end_time: isOfficeDay ? endTime || null : null,
         meeting_location: isClientMeeting ? meetingLocation || null : null,
+        // Only ever included for an RFQ Raised submission — omitted
+        // entirely (not sent as null) for every other type, so this brand-
+        // new column can't break every OTHER activity insert if this ships
+        // before Schema/migration_rfq_kind.sql has been run. Matches the
+        // Architect Meeting precedent: until the migration runs, only RFQ
+        // Raised itself fails (a normal inline "column does not exist"
+        // error), nothing else in this form is affected.
+        ...(activityType === 'rfq_raised' ? { rfq_kind: finalRfqKind } : {}),
       })
       .select()
       .single()
@@ -385,12 +465,24 @@ function ActivityLog() {
       }
     }
 
+    // Set once the leads.current_stage write actually succeeds — drives the
+    // "Stage moved to RFQ Raised" confirmation on the success card. Declared
+    // outside the block below so it's still in scope when setResult reads it.
+    let stageMovedToRfq = false
+
     if (selectedLead) {
       const leadUpdates = {}
 
       if (activityType === 'rfq_raised') {
         leadUpdates.rfq_raised = true
         leadUpdates.rfq_raised_at = todayISO()
+        // The owner's request: recording a fresh RFQ also moves the lead to
+        // RFQ Raised stage, so the exec doesn't have to separately remember
+        // to flip the stage chip by hand. Never fires for a revised RFQ, or
+        // for an on_hold/won/lost lead — see shouldAdvanceToRfq.
+        if (willAdvanceToRfq) {
+          leadUpdates.current_stage = 'rfq'
+        }
       }
       if (activityType === 'booking_update' && orderValue !== '') {
         leadUpdates.order_value = Number(orderValue)
@@ -414,6 +506,22 @@ function ActivityLog() {
 
         if (leadUpdateError) {
           warnings.push(`Activity logged, but updating the lead failed: ${errorMessage(leadUpdateError)}`)
+        } else if (willAdvanceToRfq) {
+          stageMovedToRfq = true
+          // Same two-write shape LeadStageSection's applyStage always uses —
+          // stage_history is the only place the funnel reach-counts,
+          // avg-days-in-stage, and the Deal progress stepper's per-stage
+          // dates come from, so a bare current_stage update with no matching
+          // row here would silently go missing from all three. changed_by
+          // is the real actor (matters when a coordinator logs this on an
+          // exec's behalf), not actingForId.
+          const { error: stageHistoryError } = await supabase
+            .from('stage_history')
+            .insert({ lead_id: selectedLead.id, stage: 'rfq', changed_by: employee?.id ?? null })
+
+          if (stageHistoryError) {
+            warnings.push(`Stage moved to RFQ Raised, but logging the stage history failed: ${errorMessage(stageHistoryError)}`)
+          }
         }
       }
 
@@ -497,7 +605,7 @@ function ActivityLog() {
     }
 
     setSubmitting(false)
-    setResult({ activity, warnings })
+    setResult({ activity, warnings, stageMovedToRfq })
   }
 
   if (result) {
@@ -539,6 +647,12 @@ function ActivityLog() {
               <div className="vip-fact-value">{meetingLocationLabel(result.activity.meeting_location)}</div>
             </div>
           )}
+          {result.activity.rfq_kind && (
+            <div>
+              <div className="vip-fact-label">RFQ</div>
+              <div className="vip-fact-value">{RFQ_KIND_LABELS[result.activity.rfq_kind]}</div>
+            </div>
+          )}
           {isOfficeDay && formatTimeRange(result.activity.start_time, result.activity.end_time) && (
             <div>
               <div className="vip-fact-label">Time</div>
@@ -551,6 +665,7 @@ function ActivityLog() {
         {isOfficeDay && result.activity.work_summary && (
           <p className="vip-form-note">What you did: {result.activity.work_summary}</p>
         )}
+        {result.stageMovedToRfq && <p className="vip-form-note">Stage moved to RFQ Raised.</p>}
         {notes && <p className="vip-form-note">Notes: {notes}</p>}
         {result.warnings.map((w) => (
           <p key={w} className="vip-error" role="alert">
@@ -872,6 +987,14 @@ function ActivityLog() {
                       {stageLabel(selectedLead.current_stage ?? 'calling')}.
                     </div>
                   )}
+                </div>
+              )}
+              {/* Says out loud what the CRM is about to decide on the rep's
+                  behalf, same reasoning as the Client Meeting hint above. */}
+              {isRfqRaised && resolvedRfqKind && (
+                <div className="vip-field-hint">
+                  Logs as <b>{RFQ_KIND_LABELS[resolvedRfqKind]} RFQ</b>
+                  {rfqWillAdvance ? ' — the lead will move to RFQ Raised stage.' : '.'}
                 </div>
               )}
               {activityType === 'booking_update' && (

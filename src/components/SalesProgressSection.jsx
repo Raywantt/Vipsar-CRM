@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { errorMessage } from '../lib/errorMessage'
 import NumPadInput from './NumPadInput'
 
-function SalesProgressSection({ lead, products, onSaved }) {
+function SalesProgressSection({ lead, products, rfqCount = 0, rfqRevisedCount = 0, onSaved }) {
   const [productId, setProductId] = useState(lead.product_id ?? '')
   const [rfqRaised, setRfqRaised] = useState(lead.rfq_raised ?? false)
   const [rfqRaisedAt, setRfqRaisedAt] = useState(lead.rfq_raised_at ?? '')
@@ -128,6 +128,18 @@ function SalesProgressSection({ lead, products, onSaved }) {
             value={rfqRaisedAt ?? ''}
             onChange={(e) => setRfqRaisedAt(e.target.value)}
           />
+        )}
+        {/* From real activity history (Log Activity's "RFQ Raised" button),
+            not this checkbox — counts every RFQ raised against this lead
+            and how many of those were revisions the client asked for.
+            Pre-2026-09-09 activities have no rfq_kind at all (no
+            retroactive reclassification), so a lead with only old RFQs
+            shows a count with no revisions rather than a guessed one. */}
+        {rfqCount > 0 && (
+          <p className="vip-field-hint">
+            Raised {rfqCount}× via Log Activity
+            {rfqRevisedCount > 0 ? ` · ${rfqRevisedCount} revision${rfqRevisedCount === 1 ? '' : 's'}` : ''}
+          </p>
         )}
 
         <label className="vip-check">

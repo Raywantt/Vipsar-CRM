@@ -27,7 +27,7 @@ export function fetchActivityCounts(range) {
     fetchAllRows(() =>
       supabase
         .from('activities')
-        .select('activity_type, employee_id, employees!employee_id(name)', { count: 'exact' })
+        .select('activity_type, employee_id, rfq_kind, employees!employee_id(name)', { count: 'exact' })
         .gte('created_at', range.start.toISOString())
         .lte('created_at', range.end.toISOString())
     )

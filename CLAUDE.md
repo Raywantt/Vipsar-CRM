@@ -2477,6 +2477,65 @@ architect party instead of a lead, and has its own picker (see below).
   own Order value field, `LeadStageSection`'s won-stage prompt, and every
   dashboard/report label still read plain "Order value". Don't "fix" the
   others to match without asking.
+* **RFQ Raised is classified Fresh or Revised at the moment it's logged**
+  (`src/lib/rfqKind.js`, 2026-09-09, the owner's ruling) — a sales exec
+  re-requests a quotation whenever the client asks for changes, so a lead
+  often accumulates several RFQs before one is finalized. The first RFQ on a
+  lead is **fresh**; every one logged once the lead is already at RFQ Raised
+  stage or later (`rfq`/`quote_submission`/`negotiation`, or `won`/`lost` —
+  reaching either implies a quotation already happened) is **revised**. For
+  a lead currently `on_hold`, the classification uses the stage it actually
+  *paused* at (same derivation `LeadDetail`'s Deal progress stepper and the
+  `enforce_owner_only_stage_change()` trigger already use — most recent
+  non-`on_hold` `stage_history` row, falling back to `calling`), not the
+  literal `on_hold` value, which has no funnel rank. That fallback is also
+  what makes a legacy-imported on-hold lead with no stage history default to
+  fresh once it resumes and reaches RFQ Raised stage — there's no data to
+  say what it paused at, so it isn't guessed at as a revision.
+  **No retroactive classification** — every activity logged before this
+  shipped keeps `rfq_kind = NULL` (see
+  `Schema/migration_rfq_kind.sql`); only new RFQ Raised activities get
+  tagged.
+  **A fresh RFQ also auto-advances the lead's stage to RFQ Raised** — the
+  CRM records this instead of asking the exec to also flip the stage chip by
+  hand, and writes a real `stage_history` row alongside the `leads.current_stage`
+  update (same two-write shape `LeadStageSection`'s `applyStage` always
+  uses, `changed_by` the real actor — matters when a coordinator logs this on
+  an exec's behalf), so the funnel reach-counts/avg-days-in-stage/Deal
+  progress stepper all see it like any other stage change. This **never**
+  fires for a revised RFQ or for an `on_hold`/`won`/`lost` lead
+  (`shouldAdvanceToRfq`) — silently resuming a paused lead or reopening a
+  decided one as a side effect of logging an activity would contradict this
+  app's own deliberate reason-gating on those transitions. The success card
+  shows "Stage moved to RFQ Raised." when it happens, and a hint above the
+  Log it button ("Logs as **Fresh RFQ** — the lead will move to RFQ Raised
+  stage.") says so before the rep submits — same "say out loud what the CRM
+  is about to decide" reasoning the Client Meeting hint already uses.
+  **Only fresh RFQs count toward the RFQ Raised target/quota metric**
+  (`TargetsVsActualsCard.jsx`'s `computeActivityActuals` — a revised RFQ is
+  still real work, but not toward that quota, the owner's ruling) — a row
+  with no `rfq_kind` at all (everything pre-2026-09-09) still counts, same as
+  before this distinction existed. `ActivityCountsCard`'s own raw activity
+  tally is deliberately **not** filtered — "how much RFQ paperwork happened"
+  and "how much fresh RFQ quota was hit" are different questions.
+  Surfaced on `LeadActivityTimeline` ("RFQ Raised · Fresh"/"· Revised", blank
+  for an untagged legacy row) and as a real-history-derived stat on
+  `SalesProgressSection` ("Raised 3× via Log Activity · 1 revision") —
+  computed from the lead's own fetched activities, not a second query.
+  **⚠️ `Schema/migration_rfq_kind.sql` must run BEFORE this code is
+  deployed, not after — unlike almost every other migration in this file.**
+  `LeadDetail.jsx`'s activities `SELECT` and `dashboardQueries.js`'s
+  `fetchActivityCounts` (shared by Dashboard's Activity counts card AND
+  Targets vs. actuals) both now select the new `rfq_kind` column directly —
+  if it doesn't exist yet, Postgres refuses the whole query, not just the
+  RFQ-specific part of it, which breaks Lead Detail's activity timeline and
+  the entire Dashboard Reports view (a visible error banner, not a silently
+  missing feature) for every role. The write side is scoped safely — the
+  `activities` insert only includes the `rfq_kind` key at all when
+  `activityType === 'rfq_raised'` (every other activity type is completely
+  unaffected either way) — but the two reads above have no such guard, since
+  there's no clean way to conditionally select a column that might not
+  exist yet.
 * "Accompanied by" (optional, `employees` dropdown excluding yourself) only
   shows for Site Visit — going out to scan/visit a site is the one activity
   where bringing a colleague along is a normal, trackable thing; it doesn't
@@ -4634,6 +4693,7 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 - **`Schema/migration_sales_coordinator.sql` was run live on 2026-08-10** and is no longer outstanding — it adds the `sales_coordinator` role, `employees.coordinator_id`, `entered_by_role` on `leads`/`activities`, the `is_my_team_member()` helper, 13 `coordinator_team_*` policies, the narrowed `parties`/`sites` reads, and two new triggers (`validate_employee_role_assignment`, `enforce_coordinator_lock`); it also replaces `enforce_owner_only_stage_change()`, so it **must run after** `migration_backlog_2026_08_10.sql` or the backlog overwrites it back to owner-only. All 9 verification checks returned PASS. One ordering bug was found and fixed by running it live: `is_my_team_member()` is `LANGUAGE sql`, whose body Postgres validates at CREATE time, so defining it before `coordinator_id` existed failed the whole file on its first statement with `42703`. It's now STEP 3, after the column — don't move it back up, and prefer reordering over switching to plpgsql if a similar dependency appears (plpgsql's late binding hides the problem until runtime).
 - **✅ `Schema/migration_lead_edit_rights.sql` was RUN LIVE 2026-08-13** and verified behaviourally, not by introspection — see below. It is the database half of the shared-lead-edit-rights ruling: stage changes open to all three editing roles with a forward-only restriction on `sales_executive`, an `own_lead_insert` policy on `stage_history` so a rep can record the change, and the removal of `enforce_coordinator_lock()`. **If it ever needs re-running, run it after `migration_sales_coordinator.sql`** — that file (and `migration_backlog_2026_08_10.sql` behind it) installs the owner-only version of the same trigger, so running either afterwards silently reverts this. The function/trigger names are deliberately unchanged (`enforce_owner_only_stage_change`/`owner_only_stage_change`) despite now being historical — renaming would let an older file's re-run install a *second*, stricter trigger alongside this one instead of cleanly overwriting it. **Proven live against lead #159**: a sales exec moved `calling → joinery_follow_up` and it succeeded (history row written and attributed); the same exec's direct API attempt at `joinery_follow_up → calling` was refused with `23514` and the trigger's own message; the **On hold laundering route is closed** (`→ on_hold` allowed, then `on_hold → calling` refused, because the trigger resolves the pre-hold stage out of `stage_history`); a coordinator moved the same lead *backward* 3→2 successfully; and a coordinator edited `quote_value` on a lead whose `entered_by_role` was already `'sales_executive'` — the exact write the dropped lock used to refuse.
 - **✅ `Schema/migration_office_territory.sql` was RUN LIVE 2026-08-17** and is no longer outstanding. It adds `leads.office_territory` (nullable TEXT) and its CHECK of the four offices, for the New Lead screen's required territory tap-select (see the LeadQuickCapture section). Verified behaviourally rather than by introspection: two leads (#160, #161) saved through the real form with `Territory · Ludhiana` on the success card and no error — the failure this bullet used to describe (**every** New Lead save failing, every role and source, with `column "office_territory" of relation "leads" does not exist`) is gone. Independent of every other migration here: it touches no policy, trigger or function, so it can run before or after any of them, and it's safe to re-run. A fifth office needs **both** halves changed — the CHECK here *and* `src/lib/territoryOptions.js` — or the app offers a button that fails to save.
+- **🛑 `Schema/migration_rfq_kind.sql` is OUTSTANDING (written 2026-09-09, not yet run) — and, unlike almost every other migration in this file, it must run BEFORE this code is deployed, not after.** It adds a nullable `activities.rfq_kind` column (CHECK `IN ('fresh','revised')`, no backfill — see the ActivityLog section's own bullet for the full feature). The danger here is on the READ side, not the write side: `LeadDetail.jsx`'s activities query and `dashboardQueries.js`'s `fetchActivityCounts` (which `ActivityCountsCard` AND `TargetsVsActualsCard` both depend on) now `SELECT` this column directly — a missing column fails the WHOLE query, not just the part that wanted it, so until this runs, **Lead Detail's activity timeline and the entire Dashboard Reports view break with a visible error for every role**, not a gracefully-missing feature. The `activities` INSERT itself is scoped safely (`rfq_kind` is only included in the payload when logging an RFQ Raised activity, so every other activity type is unaffected regardless of migration status) — it's specifically the two SELECTs that have no such guard. Safe to re-run (`ADD COLUMN IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS` before `ADD CONSTRAINT`). **Run this first, confirm it succeeded, then deploy** — the usual "code can go out ahead of the migration and just have one feature not work yet" pattern does not apply here.
 - **⚠️ `Schema/migration_retire_measurements_design_discussion.sql` is OUTSTANDING (written 2026-09-08, not yet run against the live database)** — retires the `measurements` and `design_discussion` lead stages (owner's ruling): every lead at `measurements` moves to `joinery_follow_up`, every lead at `design_discussion` moves to `rfq` (see the Lead stage taxonomy section above). Pure data migration — `current_stage`/`stage_history.stage` are still free text, no CHECK to alter — plus a `CREATE OR REPLACE` of `enforce_owner_only_stage_change()` (the forward-only-for-exec/manager trigger) with the two removed from its own hardcoded funnel-sequence array, to keep it in step with `FUNNEL_SEQUENCE` in `src/lib/stageProgress.js`. **Must run after `migration_sales_manager.sql`** (already live) — that file installs the version of the trigger this one replaces; re-running `migration_sales_manager.sql`, `migration_lead_edit_rights.sql`, `migration_sales_coordinator.sql` or `migration_backlog_2026_08_10.sql` afterward would silently revert the trigger back to the 8-stage array, same reversion hazard those files already document for each other — re-run this file again to restore it. Until this runs: the app already stops offering `measurements`/`design_discussion` as pickable stages (removed from `LEAD_STAGE_OPTIONS`), so no new lead can be saved into either — but any live lead already sitting at one of them renders as a plain grey "Other…" chip with the raw old value as the label (same fallback the `new`/`hot`/`quote` rename left in place before its own migration ran), rather than moving to its new stage. Safe to re-run. `rfq`'s label changing to "RFQ Raised" needed no SQL at all — the value itself is untouched, only `LEAD_STAGE_LABELS.rfq` in the app.
 - **⚠️ `Schema/migration_employee_theme_preference.sql` is OUTSTANDING (written 2026-08-20, not yet run against the live database)** — it creates a new `employee_preferences` table (one row per employee, `own row only, no owner exception` RLS mirroring `push_subscriptions`) so the Profile → Appearance Light/Dark/System choice follows an employee's account across devices instead of only the browser it was set on (see the Design system section's Dark mode bullet). Deliberately not a column on `employees` — that table's `UPDATE` policy is owner-only with no self-update exception, so a column there would lock every non-owner out of saving their own preference. Until this runs, the feature degrades silently rather than breaking anything: `AuthContext.jsx`'s post-login fetch and `Profile.jsx`'s save-to-account call both treat the resulting `PGRST205` ("table not found") the same as any other failure — the existing device-local `localStorage` control keeps working exactly as before, with a small inline warning on save ("Saved on this device, but couldn't sync to your account."). Verified live against the real dev database pre-migration: no console error, no crash, the local theme still applies and persists. Safe to re-run (`CREATE TABLE IF NOT EXISTS`, `DROP POLICY IF EXISTS`), independent of every other migration in the folder.
 - **✅ `Schema/migration_targets_unique.sql` was RUN LIVE 2026-09-04**, same day it was written, and is no longer outstanding. It cleaned up the two duplicate-target groups found live (an employee ending up with several conflicting `targets` rows for the same employee/period/metric, because "Set a target" had always been a plain INSERT with no existing-row check) and added a `UNIQUE (employee_id, period_type, period_value, metric_name)` constraint. Verified behaviourally, not just by the migration's own STEP 0/verification queries (which the owner ran and confirmed matched the file's predicted output exactly): `targets` dropped from 18 rows to 15 with zero duplicate groups remaining; employee 33's week `order_value` target is now the single row the owner confirmed as correct (id 139, ₹50L — the highest id, i.e. the most recently created of the three); and `insertTarget()`'s `.upsert(..., { onConflict: 'employee_id,period_type,period_value,metric_name' })` (`src/lib/targetQueries.js`, see the Targets vs. actuals section) was exercised directly against the live database and now succeeds, updating that same row rather than erroring or inserting a new one. The Sales Exec Profile heatmap was reloaded and confirmed reading the corrected target live: Vipul Sharma's Order value cell now reads `19% · ₹9.4/50L`, where it read `38% · ₹9.4/25L` before the fix (same actual, correct target, correct attainment). Safe to re-run (the `DELETE` only ever removes a row with a higher-id sibling in its own group, so a second run deletes 0 rows now that the data is clean; the constraint uses `DROP CONSTRAINT IF EXISTS` first).

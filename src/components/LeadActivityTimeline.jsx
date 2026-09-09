@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
+import { RFQ_KIND_LABELS } from '../lib/rfqKind'
 import { stageLabel } from '../lib/leadStageOptions'
 import { parseTimestamp } from '../lib/dbTime'
 import ShowMoreRows from './ShowMoreRows'
@@ -40,7 +41,13 @@ function LeadActivityTimeline({ leadId, activities, stageHistory, ownerHistory =
       key: `activity-${a.id}`,
       at: a.created_at,
       kind: 'Activity',
-      title: ACTIVITY_LABELS[a.activity_type] ?? a.activity_type,
+      // rfq_kind is null on every row logged before this distinction
+      // existed (no retroactive reclassification) — those just render the
+      // plain label, unchanged.
+      title:
+        a.activity_type === 'rfq_raised' && a.rfq_kind
+          ? `${ACTIVITY_LABELS[a.activity_type]} · ${RFQ_KIND_LABELS[a.rfq_kind]}`
+          : ACTIVITY_LABELS[a.activity_type] ?? a.activity_type,
       by: a.employees?.name ?? 'Unknown',
       byId: a.employee_id,
       notes: a.notes,
