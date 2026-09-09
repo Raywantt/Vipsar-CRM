@@ -12,7 +12,7 @@ import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActua
 import { computeStale7Bucket, STALE_DAYS, ATTENTION_DAYS, staleGateDays, buildLastStageChangeByLead } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
-import { stageChipClass } from '../lib/statusColors'
+import { stageChipClass, attainmentTone } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
@@ -68,10 +68,6 @@ const STAGE_NEXT_ACTION = {
   quote_submission: 'Submit quote',
   negotiation: 'Close negotiation',
   on_hold: 'Follow up when due',
-}
-
-function pctColor(p) {
-  return p >= 100 ? GOOD : p >= 75 ? OK : BAD
 }
 
 // Reads the shared constants rather than repeating their values. Same fix
@@ -482,7 +478,7 @@ function EmployeeProfile() {
       display: m.money ? formatCurrencyCompact(actual) : String(actual),
       targetDisplay: target != null ? (m.money ? formatCurrencyCompact(target) : String(target)) : null,
       pct: p,
-      color: p != null ? pctColor(p) : 'var(--vip-muted)',
+      color: p != null ? attainmentTone(p) : 'var(--vip-muted)',
       gapLabel: target == null ? '— / no target' : gap > 0 ? `${m.money ? formatCurrencyCompact(gap) : gap} short` : 'target met',
     }
   })
@@ -641,7 +637,7 @@ function EmployeeProfile() {
       <div className="vip-profile-strip">
         <div className="vip-profile-strip-cell">
           <span className="vip-profile-strip-label">Attainment</span>
-          <span className="vip-profile-strip-value" style={{ color: att != null ? pctColor(att) : 'var(--vip-ink)' }}>{att != null ? `${att}%` : '—'}</span>
+          <span className="vip-profile-strip-value" style={{ color: att != null ? attainmentTone(att) : 'var(--vip-ink)' }}>{att != null ? `${att}%` : '—'}</span>
           <span className="vip-profile-strip-sub">this {preset}, 6 metrics</span>
         </div>
         <div className="vip-profile-strip-cell">
@@ -656,7 +652,7 @@ function EmployeeProfile() {
         </div>
         <div className="vip-profile-strip-cell">
           <span className="vip-profile-strip-label">Win rate</span>
-          <span className="vip-profile-strip-value" style={{ color: winRate != null ? pctColor(winRate + 30) : 'var(--vip-ink)' }}>{winRate != null ? `${winRate}%` : '—'}</span>
+          <span className="vip-profile-strip-value" style={{ color: winRate != null ? attainmentTone(winRate + 30) : 'var(--vip-ink)' }}>{winRate != null ? `${winRate}%` : '—'}</span>
           <span className="vip-profile-strip-sub">lifetime, all deals</span>
         </div>
         <div className="vip-profile-strip-cell">

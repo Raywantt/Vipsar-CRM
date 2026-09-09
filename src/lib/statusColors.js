@@ -59,6 +59,42 @@ export const TONE_WARN_SOFT = 'var(--vip-status-warn-soft)'
 export const TONE_BAD_SOFT = 'var(--vip-status-bad-soft)'
 export const TONE_NEUTRAL_SOFT = 'var(--vip-status-neutral-soft)'
 
+// Attainment scale — "how complete is this metric against its target", a
+// 6-step red-to-green gradient (see vipsar-theme.css's --vip-attain-1..6).
+// Was a 3-bucket GOOD/OK/BAD split (>=100/>=75/else) local to
+// EmployeeProfile.jsx, which meant a 60% and a 95% metric rendered the exact
+// same red — not enough range to actually read as a gradient. Kept separate
+// from TONE_GOOD/WARN/BAD above: those are a 3-state traffic light for a
+// lead's health (a different kind of question), and TONE_GOOD is teal, not
+// green, which doesn't fit a scale asked to stay red-to-green throughout.
+export function attainmentTone(pct) {
+  if (pct == null) return TONE_NEUTRAL
+  if (pct < 40) return 'var(--vip-attain-1)'
+  if (pct < 60) return 'var(--vip-attain-2)'
+  if (pct < 75) return 'var(--vip-attain-3)'
+  if (pct < 90) return 'var(--vip-attain-4)'
+  if (pct < 100) return 'var(--vip-attain-5)'
+  return 'var(--vip-attain-6)'
+}
+
+// Same bucket thresholds as attainmentTone() above, but for the Dashboard
+// heatmap's cells (DashboardHeatmap.jsx) — each cell tints a background plus
+// two differently-weighted text colors (the % and its sub-line), not just
+// one value's color, so it returns a vipsar-theme.css class
+// (.vip-dd-heat-1..6) instead of a single CSS-var string. Returns null for
+// "no target set" — the caller falls back to a neutral, un-tinted cell
+// (.vip-dd-heat-none) rather than reading an absent ratio as 0% and
+// painting it the worst possible color.
+export function attainmentHeatClass(pct) {
+  if (pct == null) return null
+  if (pct < 40) return 'vip-dd-heat-1'
+  if (pct < 60) return 'vip-dd-heat-2'
+  if (pct < 75) return 'vip-dd-heat-3'
+  if (pct < 90) return 'vip-dd-heat-4'
+  if (pct < 100) return 'vip-dd-heat-5'
+  return 'vip-dd-heat-6'
+}
+
 // Specifically "a deal was won" — the deeper green of the `won` stage, not
 // TONE_GOOD's teal. Distinct because "healthy" and "closed won" are different
 // claims and the design gives them different colours. Home.jsx's "Won this

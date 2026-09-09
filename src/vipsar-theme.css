@@ -102,6 +102,26 @@
   --vip-status-neutral:      #5f6a6c;
   --vip-status-neutral-soft: #eef0f0;
 
+  /* attainment scale — a 6-step red-to-green ramp for "how complete is this
+     metric against its target" (EmployeeProfile's 6 metric tiles + its
+     Attainment/Win rate head stats; the Dashboard heatmap's own
+     .vip-dd-heat-1..6 cells below share the same hue family, so the two
+     screens can't disagree about what "78% attainment" looks like).
+     Deliberately separate from the good/warn/bad tones above: those are a
+     3-state traffic light for a lead's health; this is a percentage
+     GRADIENT, so it needs enough steps that a 60% and a 95% don't read as
+     the same color. Hues follow ColorBrewer's RdYlGn diverging scale
+     (colorbrewer2.org — the standard reference palette for exactly this
+     "bad to good" use case), retuned to Tailwind-style 600/400 shades so
+     each one is legible as plain TEXT rather than a map fill. See
+     src/lib/statusColors.js's attainmentTone() for the bucket thresholds. */
+  --vip-attain-1: #dc2626;  /* <40% — red */
+  --vip-attain-2: #ea580c;  /* 40-59% — orange */
+  --vip-attain-3: #b45309;  /* 60-74% — amber */
+  --vip-attain-4: #4d7c0f;  /* 75-89% — lime */
+  --vip-attain-5: #15803d;  /* 90-99% — green */
+  --vip-attain-6: #16a34a;  /* >=100% — brighter green, the "hit target" reward tone */
+
   /* type */
   --vip-display: Archivo, system-ui, sans-serif;      /* headings, numbers */
   --vip-sans: 'IBM Plex Sans', system-ui, sans-serif; /* body, UI */
@@ -1255,6 +1275,42 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
 .vip-dd-heatmap-legend { display: flex; align-items: center; gap: 14px; padding-top: 3px; flex-wrap: wrap; }
 .vip-dd-legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--vip-muted); }
 
+/* Heatmap attainment cells — a 6-step red-to-green scale (was a 5-step
+   teal->tan->red scale where 3 of the 5 bands were near-identical teal
+   tints and read as one color at a glance; the green was then reworked a
+   second time — the first pass's solid #1b5e20 top-bucket fill read as a
+   drab, muddy forest green). Hues follow ColorBrewer's RdYlGn diverging
+   scale (colorbrewer2.org) — the standard reference palette for a
+   "bad to good" gradient — tinted down to pale Tailwind-style backgrounds
+   with a saturated foreground per bucket, same recipe as the
+   --vip-attain-1..6 tokens above (kept in sync so a 78% reads the same
+   color on this heatmap and on the Sales Exec Profile's tiles). Bucket
+   thresholds match src/lib/statusColors.js's attainmentHeatClass(). Bare
+   classes (not scoped under .vip-dd-heatmap-cell) so the same class also
+   colors the legend swatches below. Only the top bucket (>=100%) gets the
+   original design's solid "hit target" fill; the other five stay soft
+   tints, same visual language as before. */
+.vip-dd-heat-none { background: var(--vip-canvas); border-color: var(--vip-line); }
+.vip-dd-heat-none .vip-dd-heatmap-pct, .vip-dd-heat-none .vip-dd-heatmap-sub { color: var(--vip-muted); }
+.vip-dd-heat-1 { background: #fee2e2; border-color: #fecaca; }
+.vip-dd-heat-1 .vip-dd-heatmap-pct { color: #dc2626; }
+.vip-dd-heat-1 .vip-dd-heatmap-sub { color: #b91c1c; }
+.vip-dd-heat-2 { background: #ffedd5; border-color: #fed7aa; }
+.vip-dd-heat-2 .vip-dd-heatmap-pct { color: #ea580c; }
+.vip-dd-heat-2 .vip-dd-heatmap-sub { color: #c2410c; }
+.vip-dd-heat-3 { background: #fef3c7; border-color: #fde68a; }
+.vip-dd-heat-3 .vip-dd-heatmap-pct { color: #b45309; }
+.vip-dd-heat-3 .vip-dd-heatmap-sub { color: #92400e; }
+.vip-dd-heat-4 { background: #ecfccb; border-color: #d9f99d; }
+.vip-dd-heat-4 .vip-dd-heatmap-pct { color: #4d7c0f; }
+.vip-dd-heat-4 .vip-dd-heatmap-sub { color: #3f6212; }
+.vip-dd-heat-5 { background: #dcfce7; border-color: #bbf7d0; }
+.vip-dd-heat-5 .vip-dd-heatmap-pct { color: #15803d; }
+.vip-dd-heat-5 .vip-dd-heatmap-sub { color: #166534; }
+.vip-dd-heat-6 { background: #16a34a; border-color: #16a34a; }
+.vip-dd-heat-6 .vip-dd-heatmap-pct { color: #ffffff; }
+.vip-dd-heat-6 .vip-dd-heatmap-sub { color: #dcfce7; }
+
 /* Drill-down rows pack several fixed-width columns (owner, probability,
    value, date) that fit the mockup's 600px desktop panel but overflow a
    phone-width full-screen sheet — the per-row owner badge is the least
@@ -1886,6 +1942,13 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   --vip-status-neutral:      #9aa4a5;
   --vip-status-neutral-soft: #2a3134;
 
+  --vip-attain-1: #f87171;
+  --vip-attain-2: #fb923c;
+  --vip-attain-3: #fbbf24;
+  --vip-attain-4: #a3e635;
+  --vip-attain-5: #4ade80;
+  --vip-attain-6: #22c55e;
+
   color-scheme: dark;
 }
 :root[data-theme="dark"] .vip-chip-calling            { background: #16283a; color: #7ab2e6; }
@@ -1897,6 +1960,25 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
 :root[data-theme="dark"] .vip-chip-on_hold            { background: #262d30; color: #9aa4a5; }
 :root[data-theme="dark"] .vip-chip-won                { background: #123821; color: #57d187; }
 :root[data-theme="dark"] .vip-chip-lost               { background: #3a1c1e; color: #e2696d; }
+
+:root[data-theme="dark"] .vip-dd-heat-1 { background: #3f1d1d; border-color: #522626; }
+:root[data-theme="dark"] .vip-dd-heat-1 .vip-dd-heatmap-pct { color: #f87171; }
+:root[data-theme="dark"] .vip-dd-heat-1 .vip-dd-heatmap-sub { color: #dc9a9a; }
+:root[data-theme="dark"] .vip-dd-heat-2 { background: #3f2a17; border-color: #52371e; }
+:root[data-theme="dark"] .vip-dd-heat-2 .vip-dd-heatmap-pct { color: #fb923c; }
+:root[data-theme="dark"] .vip-dd-heat-2 .vip-dd-heatmap-sub { color: #dcac83; }
+:root[data-theme="dark"] .vip-dd-heat-3 { background: #3f341a; border-color: #524322; }
+:root[data-theme="dark"] .vip-dd-heat-3 .vip-dd-heatmap-pct { color: #fbbf24; }
+:root[data-theme="dark"] .vip-dd-heat-3 .vip-dd-heatmap-sub { color: #dcc083; }
+:root[data-theme="dark"] .vip-dd-heat-4 { background: #333f1a; border-color: #435222; }
+:root[data-theme="dark"] .vip-dd-heat-4 .vip-dd-heatmap-pct { color: #a3e635; }
+:root[data-theme="dark"] .vip-dd-heat-4 .vip-dd-heatmap-sub { color: #b8cf83; }
+:root[data-theme="dark"] .vip-dd-heat-5 { background: #1a3f28; border-color: #225233; }
+:root[data-theme="dark"] .vip-dd-heat-5 .vip-dd-heatmap-pct { color: #4ade80; }
+:root[data-theme="dark"] .vip-dd-heat-5 .vip-dd-heatmap-sub { color: #8fcfa8; }
+:root[data-theme="dark"] .vip-dd-heat-6 { background: #15803d; border-color: #15803d; }
+:root[data-theme="dark"] .vip-dd-heat-6 .vip-dd-heatmap-pct { color: #ffffff; }
+:root[data-theme="dark"] .vip-dd-heat-6 .vip-dd-heatmap-sub { color: #bbf7d0; }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -1932,6 +2014,13 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
     --vip-status-neutral:      #9aa4a5;
     --vip-status-neutral-soft: #2a3134;
 
+    --vip-attain-1: #f87171;
+    --vip-attain-2: #fb923c;
+    --vip-attain-3: #fbbf24;
+    --vip-attain-4: #a3e635;
+    --vip-attain-5: #4ade80;
+    --vip-attain-6: #22c55e;
+
     color-scheme: dark;
   }
   :root:not([data-theme="light"]) .vip-chip-calling            { background: #16283a; color: #7ab2e6; }
@@ -1943,6 +2032,25 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   :root:not([data-theme="light"]) .vip-chip-on_hold            { background: #262d30; color: #9aa4a5; }
   :root:not([data-theme="light"]) .vip-chip-won                { background: #123821; color: #57d187; }
   :root:not([data-theme="light"]) .vip-chip-lost               { background: #3a1c1e; color: #e2696d; }
+
+  :root:not([data-theme="light"]) .vip-dd-heat-1 { background: #3f1d1d; border-color: #522626; }
+  :root:not([data-theme="light"]) .vip-dd-heat-1 .vip-dd-heatmap-pct { color: #f87171; }
+  :root:not([data-theme="light"]) .vip-dd-heat-1 .vip-dd-heatmap-sub { color: #dc9a9a; }
+  :root:not([data-theme="light"]) .vip-dd-heat-2 { background: #3f2a17; border-color: #52371e; }
+  :root:not([data-theme="light"]) .vip-dd-heat-2 .vip-dd-heatmap-pct { color: #fb923c; }
+  :root:not([data-theme="light"]) .vip-dd-heat-2 .vip-dd-heatmap-sub { color: #dcac83; }
+  :root:not([data-theme="light"]) .vip-dd-heat-3 { background: #3f341a; border-color: #524322; }
+  :root:not([data-theme="light"]) .vip-dd-heat-3 .vip-dd-heatmap-pct { color: #fbbf24; }
+  :root:not([data-theme="light"]) .vip-dd-heat-3 .vip-dd-heatmap-sub { color: #dcc083; }
+  :root:not([data-theme="light"]) .vip-dd-heat-4 { background: #333f1a; border-color: #435222; }
+  :root:not([data-theme="light"]) .vip-dd-heat-4 .vip-dd-heatmap-pct { color: #a3e635; }
+  :root:not([data-theme="light"]) .vip-dd-heat-4 .vip-dd-heatmap-sub { color: #b8cf83; }
+  :root:not([data-theme="light"]) .vip-dd-heat-5 { background: #1a3f28; border-color: #225233; }
+  :root:not([data-theme="light"]) .vip-dd-heat-5 .vip-dd-heatmap-pct { color: #4ade80; }
+  :root:not([data-theme="light"]) .vip-dd-heat-5 .vip-dd-heatmap-sub { color: #8fcfa8; }
+  :root:not([data-theme="light"]) .vip-dd-heat-6 { background: #15803d; border-color: #15803d; }
+  :root:not([data-theme="light"]) .vip-dd-heat-6 .vip-dd-heatmap-pct { color: #ffffff; }
+  :root:not([data-theme="light"]) .vip-dd-heat-6 .vip-dd-heatmap-sub { color: #bbf7d0; }
 }
 
 /* ---------- 23. Day Review (Dashboard's Today period) -------------------

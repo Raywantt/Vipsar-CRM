@@ -4,6 +4,7 @@ import { ACTIVITY_METRIC_OPTIONS } from '../lib/targetMetrics'
 import { getInitials } from '../lib/initials'
 import { computeOrderValueActuals, computeScanningLeadsActuals, targetFor } from './TargetsVsActualsCard'
 import { buildOrderValueAttainPanel, buildOverallAttainPanel, buildScanningLeadsAttainPanel } from '../lib/drilldownBuilders'
+import { attainmentHeatClass } from '../lib/statusColors'
 
 // Driven off METRIC_OPTIONS' underlying pieces (see targetMetrics.js) rather
 // than raw ACTIVITY_TYPES, so a metric dropped from targeting (Office Day,
@@ -18,18 +19,6 @@ const COLS = [
   { value: 'order_value', label: 'Order value' },
   { value: 'overall', label: 'Overall' },
 ]
-
-// Literal 5-step attainment scale from the Claude Design mockup's own
-// `heatStyle()` — kept local since nothing else in the app needs this exact
-// palette.
-function heatStyle(pct) {
-  if (pct == null) return { bg: 'var(--vip-canvas)', border: 'var(--vip-line)', fg: 'var(--vip-muted)', subFg: 'var(--vip-muted)' }
-  if (pct >= 100) return { bg: '#0f6b6b', border: '#0f6b6b', fg: '#ffffff', subFg: '#cfe4e3' }
-  if (pct >= 85) return { bg: '#a9cfcb', border: '#93c2bd', fg: '#0b3f3f', subFg: '#3d6a68' }
-  if (pct >= 70) return { bg: '#dff0ef', border: '#cbe4e2', fg: '#0f6b6b', subFg: '#5f8785' }
-  if (pct >= 50) return { bg: '#f4f1e0', border: '#e6e0c4', fg: '#7a6413', subFg: '#96854a' }
-  return { bg: '#fbeaea', border: '#f2d6d6', fg: '#b4232a', subFg: '#b57a7d' }
-}
 
 // Exec x metric attainment grid (mockup's VipHeatmap) — one column per
 // targetable metric plus a blended "overall" column. Cell click opens the
@@ -125,22 +114,12 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, bre
               pct = Math.round((actual / target) * 100)
             }
 
-            const style = heatStyle(pct)
+            const heatClass = attainmentHeatClass(pct) ?? 'vip-dd-heat-none'
 
             return (
-              <button
-                key={c.value}
-                type="button"
-                className="vip-dd-heatmap-cell"
-                style={{ background: style.bg, borderColor: style.border }}
-                onClick={onClick}
-              >
-                <span className="vip-dd-heatmap-pct" style={{ color: style.fg }}>
-                  {pct != null ? `${pct}%` : '—'}
-                </span>
-                <span className="vip-dd-heatmap-sub" style={{ color: style.subFg }}>
-                  {sub}
-                </span>
+              <button key={c.value} type="button" className={`vip-dd-heatmap-cell ${heatClass}`} onClick={onClick}>
+                <span className="vip-dd-heatmap-pct">{pct != null ? `${pct}%` : '—'}</span>
+                <span className="vip-dd-heatmap-sub">{sub}</span>
               </button>
             )
           })}
@@ -150,19 +129,22 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, bre
       <div className="vip-dd-heatmap-legend">
         <span className="vip-dd-hint">Attainment</span>
         <span className="vip-dd-legend-item">
-          <span className="vip-dd-legend-swatch" style={{ background: '#0f6b6b' }} /> Hit target
+          <span className="vip-dd-legend-swatch vip-dd-heat-6" /> Hit target
         </span>
         <span className="vip-dd-legend-item">
-          <span className="vip-dd-legend-swatch" style={{ background: '#a9cfcb' }} /> 85–99%
+          <span className="vip-dd-legend-swatch vip-dd-heat-5" /> 90–99%
         </span>
         <span className="vip-dd-legend-item">
-          <span className="vip-dd-legend-swatch" style={{ background: '#dff0ef' }} /> 70–84%
+          <span className="vip-dd-legend-swatch vip-dd-heat-4" /> 75–89%
         </span>
         <span className="vip-dd-legend-item">
-          <span className="vip-dd-legend-swatch" style={{ background: '#f4f1e0' }} /> 50–69%
+          <span className="vip-dd-legend-swatch vip-dd-heat-3" /> 60–74%
         </span>
         <span className="vip-dd-legend-item">
-          <span className="vip-dd-legend-swatch" style={{ background: '#fbeaea' }} /> Below 50%
+          <span className="vip-dd-legend-swatch vip-dd-heat-2" /> 40–59%
+        </span>
+        <span className="vip-dd-legend-item">
+          <span className="vip-dd-legend-swatch vip-dd-heat-1" /> Below 40%
         </span>
       </div>
     </div>
