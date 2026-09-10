@@ -152,15 +152,20 @@ function inBucket(date, bucket) {
   return t >= bucket.start.getTime() && t <= bucket.end.getTime()
 }
 
-// Blended attainment = mean of the six metric ratios, each capped at 1.25,
+// Blended attainment = mean of the six metric ratios, each capped at 100%,
 // skipping metrics with no target set (same "skip when no target" rule
 // DashboardHeatmap's Overall column already uses) — per DATA_CONTRACT.md §3.
+// Capped at exactly 100%, not above it (owner's ruling, 2026-09-10, same
+// change applied to TargetsVsActualsCard.jsx's own ATTAINMENT_CAP — see that
+// file's comment): a metric already at or past its target contributes its
+// maximum, full credit, and no more, so overperforming on one metric can't
+// inflate this rank past what hitting every target outright would give.
 function blendedAttainment(actuals, targets, execId) {
   const ratios = METRIC_TILES.map((m) => {
     const t = targetFor(targets, execId, m.key)
     if (!t) return null
     const a = actuals[m.key]?.get(execId) ?? 0
-    return Math.min(a / t, 1.25)
+    return Math.min(a / t, 1)
   }).filter((r) => r != null)
   if (!ratios.length) return null
   return Math.round((ratios.reduce((s, r) => s + r, 0) / ratios.length) * 100)

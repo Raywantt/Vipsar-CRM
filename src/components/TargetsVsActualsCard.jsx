@@ -28,8 +28,13 @@ function countsTowardActivityMetric(a) {
 
 // activities is already scoped to the current period + role by the caller
 // (same array ActivityCountsCard uses) — just tally by activity_type, and by
-// employee_id too when showByEmployee.
-function computeActivityActuals(activities, showByEmployee) {
+// employee_id too when showByEmployee. Exported so DashboardHeatmap.jsx and
+// buildOverallAttainPanel (drilldownBuilders.js) can feed the exact same
+// per-employee actuals into blendedAttainmentFor below, instead of each
+// re-deriving its own copy of "how many of X did this exec log" — see that
+// function's own comment for why a second copy of this specifically caused
+// a real, reported discrepancy.
+export function computeActivityActuals(activities, showByEmployee) {
   if (!showByEmployee) {
     const totals = emptyMetricCounts()
     activities.forEach((a) => {
@@ -168,6 +173,17 @@ export function targetFor(targets, employeeId, metric) {
   return row ? Number(row.target_value) : null
 }
 
+// Same lookup as targetFor, but returns the ROW (for its `id`) rather than
+// just the numeric value — needed by the drill-down builders that attach a
+// "Cancel this target" option (buildLogPanel/buildOrderValueAttainPanel/
+// buildScanningLeadsAttainPanel), since deleting a target needs its id, not
+// its value. Only meaningful for a single-employee lookup (employeeId given)
+// — a company-wide aggregate has no one row to cancel, so callers in that
+// mode should never call this.
+export function targetRowFor(targets, employeeId, metric) {
+  return targets.find((t) => t.metric_name === metric && t.employee_id === employeeId) ?? null
+}
+
 // order_value is real money — never show paise. Every other metric here is
 // a count (site visits, calls, ...) — a target_value can be entered/stored
 // as a decimal (SetTargetForm's number input allows it), but a count should
@@ -192,6 +208,7 @@ function TargetsVsActualsCard({
   rangeLabel,
   onOpenLog,
   onOpenPanel,
+  canCancelTarget = false,
 }) {
   const [employeeFilter, setEmployeeFilter] = useState('')
   const [showTargetForm, setShowTargetForm] = useState(false)
@@ -218,6 +235,7 @@ function TargetsVsActualsCard({
             rangeLabel={rangeLabel}
             onOpenLog={onOpenLog}
             onOpenPanel={onOpenPanel}
+            canCancelTarget={canCancelTarget}
           />
         </div>
       )}
@@ -278,16 +296,36 @@ function actualFor(m, { activityActuals, orderValueActuals, scanningLeadsActuals
   return employeeId == null ? activityActuals[m.value] : activityActuals.get(employeeId)?.[m.value] ?? 0
 }
 
-// Same "mean of the metric ratios, each capped at 1.25" definition
+// Same "mean of the metric ratios, each capped at 100%" definition
 // EmployeeProfile.jsx's rank pill uses (blendedAttainment there) — scoped
 // here to all 6 METRIC_OPTIONS rather than that page's own 6 tiles (a
 // different 6, see targetMetrics.js), and skipping any metric with no target
 // set for this employee (same as each metric row's own "no target set"
 // fallback below) rather than treating a missing target as a zero, which
 // would unfairly drag the average down.
-const ATTAINMENT_CAP = 1.25
+//
+// Capped at exactly 1.0, not something above it (owner's ruling,
+// 2026-09-10, after this cap's own inconsistency was found and fixed —
+// see below): "Overall" answers how close each metric got to being fully
+// met, on average — a metric already at or past its target contributes
+// its maximum, full credit, and no more. Overperforming on one metric
+// (a real case: Raghav Gupta logged 9 RFQs against a target of 4, 225%)
+// still can't drag the blend down, but it also can't inflate it past what
+// hitting every target outright would already give.
+const ATTAINMENT_CAP = 1.0
 
-function blendedAttainmentFor(employeeId, actuals, targets) {
+// Exported (2026-09-10) after a reported/confirmed bug: DashboardHeatmap.jsx's
+// desktop "Overall" column and its buildOverallAttainPanel drill-down each
+// re-derived their OWN blended-attainment average with no cap at all, so an
+// exec with one metric wildly over target (the Raghav Gupta case above) had
+// that 225% pulled straight into the average instead of clamped first — the
+// desktop heatmap showed 63% Overall for him where this function (already
+// used by EmployeeProfile's rank pill and this card's own mobile
+// ExecAttainmentRow) shows 38% for the identical person/period. Both call
+// sites now import this instead of re-deriving it, so "Overall" can no
+// longer mean two different numbers depending on where you're looking at
+// it from.
+export function blendedAttainmentFor(employeeId, actuals, targets) {
   const ratios = []
   METRIC_OPTIONS.forEach((m) => {
     const target = targetFor(targets, employeeId, m.value)

@@ -2,7 +2,13 @@ import { ROLES, roleLabel } from '../lib/roles'
 import { useNavigate } from 'react-router-dom'
 import { ACTIVITY_METRIC_OPTIONS } from '../lib/targetMetrics'
 import { getInitials } from '../lib/initials'
-import { computeOrderValueActuals, computeScanningLeadsActuals, targetFor } from './TargetsVsActualsCard'
+import {
+  computeOrderValueActuals,
+  computeScanningLeadsActuals,
+  computeActivityActuals,
+  blendedAttainmentFor,
+  targetFor,
+} from './TargetsVsActualsCard'
 import { buildOrderValueAttainPanel, buildOverallAttainPanel, buildScanningLeadsAttainPanel } from '../lib/drilldownBuilders'
 import { attainmentHeatClass } from '../lib/statusColors'
 
@@ -26,10 +32,12 @@ const COLS = [
 // entries on demand (`onOpenLog`, async — see Dashboard.jsx); scanning
 // leads, order value and overall are built synchronously from state already
 // on the page.
-function DashboardHeatmap({ employees, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel, onOpenLog, onOpenPanel }) {
+function DashboardHeatmap({ employees, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel, onOpenLog, onOpenPanel, canCancelTarget = false }) {
   const navigate = useNavigate()
   const orderActuals = computeOrderValueActuals(wonStageHistory, range, true)
   const scanningActuals = computeScanningLeadsActuals(breakdownLeads, range, true)
+  const activityActuals = computeActivityActuals(activities, true)
+  const blendedActuals = { activityActuals, orderValueActuals: orderActuals, scanningLeadsActuals: scanningActuals }
 
   // The grid's column count is published to CSS rather than duplicated in the
   // stylesheet. COLS is derived from ACTIVITY_METRIC_OPTIONS, which has changed
@@ -72,12 +80,18 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, bre
               actual = orderActuals.get(emp.id) ?? 0
               target = targetFor(targets, emp.id, 'order_value')
               sub = target != null ? `₹${(actual / 100000).toFixed(1)}/${(target / 100000).toFixed(0)}L` : '—'
-              onClick = () => onOpenPanel(buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId: emp.id, rangeLabel }))
+              onClick = () =>
+                onOpenPanel(
+                  buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId: emp.id, rangeLabel, canCancelTarget })
+                )
             } else if (c.value === 'scanning_leads') {
               actual = scanningActuals.get(emp.id) ?? 0
               target = targetFor(targets, emp.id, 'scanning_leads')
               sub = target != null ? `${actual}/${Math.round(target)}` : String(actual)
-              onClick = () => onOpenPanel(buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads, range, employeeId: emp.id, rangeLabel }))
+              onClick = () =>
+                onOpenPanel(
+                  buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads, range, employeeId: emp.id, rangeLabel, canCancelTarget })
+                )
             } else if (c.value === 'overall') {
               actual = null
               target = null
@@ -95,21 +109,11 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, bre
 
             let pct = null
             if (c.value === 'overall') {
-              const metrics = ['scanning_leads', ...ACTIVITY_METRIC_OPTIONS.map((t) => t.value), 'order_value']
-              const ratios = metrics
-                .map((m) => {
-                  const t = targetFor(targets, emp.id, m)
-                  if (!t) return null
-                  const a =
-                    m === 'order_value'
-                      ? orderActuals.get(emp.id) ?? 0
-                      : m === 'scanning_leads'
-                        ? scanningActuals.get(emp.id) ?? 0
-                        : activities.filter((act) => act.employee_id === emp.id && act.activity_type === m).length
-                  return a / t
-                })
-                .filter((r) => r != null)
-              pct = ratios.length ? Math.round((ratios.reduce((s, r) => s + r, 0) / ratios.length) * 100) : null
+              // Same capped-at-100%-per-metric blend EmployeeProfile's rank
+              // pill and this card's own mobile row use — see
+              // blendedAttainmentFor's header comment for the bug this fixed.
+              const blended = blendedAttainmentFor(emp.id, blendedActuals, targets)
+              pct = blended == null ? null : Math.round(blended * 100)
             } else if (target) {
               pct = Math.round((actual / target) * 100)
             }

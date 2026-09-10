@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { monthPeriodValue, weekPeriodValue, quarterPeriodValue, periodForPreset } from './targetPeriods'
+import {
+  monthPeriodValue,
+  weekPeriodValue,
+  quarterPeriodValue,
+  periodForPreset,
+  periodValueForDate,
+  rangeForPeriodValue,
+  periodRangeLabel,
+  shiftPeriodValue,
+} from './targetPeriods'
 
 describe('monthPeriodValue', () => {
   it('formats as YYYY-MM with zero-padded month', () => {
@@ -50,5 +59,93 @@ describe('periodForPreset', () => {
     expect(periodForPreset('custom', date)).toBeNull()
     expect(periodForPreset('year', date)).toBeNull()
     expect(periodForPreset('bogus', date)).toBeNull()
+  })
+})
+
+describe('periodValueForDate', () => {
+  it('delegates to the matching *PeriodValue function per type, null for anything else', () => {
+    const date = new Date(2026, 7, 13)
+    expect(periodValueForDate('week', date)).toBe(weekPeriodValue(date))
+    expect(periodValueForDate('month', date)).toBe(monthPeriodValue(date))
+    expect(periodValueForDate('quarter', date)).toBe(quarterPeriodValue(date))
+    expect(periodValueForDate('year', date)).toBeNull()
+  })
+})
+
+// The Set-a-target UI (SetTargetForm.jsx) replaced a raw "type an ISO week/
+// quarter code" text field with this stepper + readable-label pair, exactly
+// to stop a rep/owner silently saving a target under the wrong period — the
+// reported bug this was built to rule out. These pin the underlying math.
+describe('rangeForPeriodValue', () => {
+  it('returns the Monday–Sunday span for a week period_value', () => {
+    const range = rangeForPeriodValue('week', '2026-W37')
+    expect(range.start.toISOString()).toBe('2026-09-07T00:00:00.000Z')
+    expect(range.end.toISOString()).toBe('2026-09-13T00:00:00.000Z')
+  })
+
+  it('returns the 1st–last-day span for a month period_value', () => {
+    const range = rangeForPeriodValue('month', '2026-02')
+    expect(range.start.toISOString()).toBe('2026-02-01T00:00:00.000Z')
+    expect(range.end.toISOString()).toBe('2026-02-28T00:00:00.000Z') // 2026 is not a leap year
+  })
+
+  it('returns the 3-month span for a quarter period_value', () => {
+    const range = rangeForPeriodValue('quarter', '2026-Q3')
+    expect(range.start.toISOString()).toBe('2026-07-01T00:00:00.000Z')
+    expect(range.end.toISOString()).toBe('2026-09-30T00:00:00.000Z')
+  })
+
+  it('round-trips with weekPeriodValue for every week across a full year (incl. week 53)', () => {
+    for (let i = -10; i <= 400; i += 1) {
+      const d = new Date(2026, 0, 1)
+      d.setDate(d.getDate() + i)
+      const pv = weekPeriodValue(d)
+      const range = rangeForPeriodValue('week', pv)
+      const localStart = new Date(range.start.getUTCFullYear(), range.start.getUTCMonth(), range.start.getUTCDate())
+      expect(weekPeriodValue(localStart)).toBe(pv)
+    }
+  })
+
+  it('returns null for a malformed value', () => {
+    expect(rangeForPeriodValue('week', 'not-a-week')).toBeNull()
+    expect(rangeForPeriodValue('month', '2026')).toBeNull()
+    expect(rangeForPeriodValue('quarter', '2026-Q5')).toBeNull()
+  })
+})
+
+describe('periodRangeLabel', () => {
+  it('formats a week within one month as "D – D Mon YYYY"', () => {
+    expect(periodRangeLabel('week', '2026-W37')).toBe('7 – 13 Sep 2026')
+  })
+
+  it('formats a week spanning two months as "D Mon – D Mon YYYY"', () => {
+    expect(periodRangeLabel('week', '2026-W36')).toBe('31 Aug – 6 Sep 2026')
+  })
+
+  it('formats a month as its full name and year', () => {
+    expect(periodRangeLabel('month', '2026-09')).toBe('September 2026')
+  })
+
+  it('formats a quarter with its Q label appended', () => {
+    expect(periodRangeLabel('quarter', '2026-Q3')).toBe('1 Jul – 30 Sep 2026 (Q3)')
+  })
+})
+
+describe('shiftPeriodValue', () => {
+  it('steps a week forward and backward by exactly one calendar week', () => {
+    expect(shiftPeriodValue('week', '2026-W37', 1)).toBe('2026-W38')
+    expect(shiftPeriodValue('week', '2026-W37', -1)).toBe('2026-W36')
+  })
+
+  it('steps a month forward across a year boundary', () => {
+    expect(shiftPeriodValue('month', '2026-12', 1)).toBe('2027-01')
+  })
+
+  it('steps a quarter forward across a year boundary', () => {
+    expect(shiftPeriodValue('quarter', '2026-Q4', 1)).toBe('2027-Q1')
+  })
+
+  it('is the inverse of itself (n steps forward then back returns the original)', () => {
+    expect(shiftPeriodValue('week', shiftPeriodValue('week', '2026-W37', 5), -5)).toBe('2026-W37')
   })
 })

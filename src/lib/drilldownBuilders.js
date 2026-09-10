@@ -11,7 +11,14 @@ import { LOSS_REASON_OPTIONS } from './lossReasonOptions'
 import { stageChipClass, stageFg, TONE_NEUTRAL } from './statusColors'
 import { formatCurrencyCompact, formatTimeRange } from './format'
 import { parseTimestamp } from './dbTime'
-import { computeOrderValueActuals, computeScanningLeadsActuals, targetFor } from '../components/TargetsVsActualsCard'
+import {
+  computeOrderValueActuals,
+  computeScanningLeadsActuals,
+  computeActivityActuals,
+  blendedAttainmentFor,
+  targetFor,
+  targetRowFor,
+} from '../components/TargetsVsActualsCard'
 import { computeFunnel } from '../components/SalesFunnelCard'
 import { dealValueFor } from './pipelineValue'
 import { daysSince } from './dateMath'
@@ -104,14 +111,18 @@ export function wonEventsInRange(wonStageHistory, range) {
 }
 
 // ---------- attain: order value (company-wide or one exec) ----------
-export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId, rangeLabel, scopeLabel = 'Company' }) {
+export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId, rangeLabel, scopeLabel = 'Company', canCancelTarget = false }) {
   const employee = employeeId ? employees.find((e) => e.id === employeeId) : null
   const isCompanyScope = !employee && scopeLabel === 'Company'
   const actualsByEmployee = computeOrderValueActuals(wonStageHistory, range, true)
   const actual = employeeId
     ? actualsByEmployee.get(employeeId) ?? 0
     : [...actualsByEmployee.values()].reduce((s, v) => s + v, 0)
-  const target = employeeId ? targetFor(targets, employeeId, 'order_value') : companyTargetFor(targets, employees, 'order_value')
+  // A single row (for its id, so "Cancel this target" can delete it) rather
+  // than targetFor's plain value — only meaningful in single-employee mode,
+  // a company-wide total has no one row to cancel.
+  const targetRow = employeeId ? targetRowFor(targets, employeeId, 'order_value') : null
+  const target = employeeId ? (targetRow ? Number(targetRow.target_value) : null) : companyTargetFor(targets, employees, 'order_value')
 
   const events = wonEventsInRange(wonStageHistory, range).filter((e) => !employeeId || e.employeeId === employeeId)
   const daily = dailyTotals(events, range, (e) => e.changedAt, (e) => e.value)
@@ -145,6 +156,7 @@ export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory
       value: formatCurrencyCompact(c.value),
       pct: `${Math.round((c.value / maxContrib) * 100)}%`,
     })),
+    cancelTarget: canCancelTarget && targetRow ? { id: targetRow.id } : null,
   }
 }
 
@@ -159,14 +171,15 @@ function scanningLeadEventsInRange(breakdownLeads, range) {
 }
 
 // ---------- attain: scanning leads (company-wide or one exec) ----------
-export function buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads, range, employeeId, rangeLabel, scopeLabel = 'Company' }) {
+export function buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads, range, employeeId, rangeLabel, scopeLabel = 'Company', canCancelTarget = false }) {
   const employee = employeeId ? employees.find((e) => e.id === employeeId) : null
   const isCompanyScope = !employee && scopeLabel === 'Company'
   const actualsByEmployee = computeScanningLeadsActuals(breakdownLeads, range, true)
   const actual = employeeId
     ? actualsByEmployee.get(employeeId) ?? 0
     : [...actualsByEmployee.values()].reduce((s, v) => s + v, 0)
-  const target = employeeId ? targetFor(targets, employeeId, 'scanning_leads') : companyTargetFor(targets, employees, 'scanning_leads')
+  const targetRow = employeeId ? targetRowFor(targets, employeeId, 'scanning_leads') : null
+  const target = employeeId ? (targetRow ? Number(targetRow.target_value) : null) : companyTargetFor(targets, employees, 'scanning_leads')
 
   const events = scanningLeadEventsInRange(breakdownLeads, range).filter((e) => !employeeId || e.employeeId === employeeId)
   const daily = dailyTotals(events, range, (e) => e.createdAt)
@@ -199,6 +212,7 @@ export function buildScanningLeadsAttainPanel({ employees, targets, breakdownLea
       value: String(c.value),
       pct: `${Math.round((c.value / maxContrib) * 100)}%`,
     })),
+    cancelTarget: canCancelTarget && targetRow ? { id: targetRow.id } : null,
   }
 }
 
@@ -256,8 +270,11 @@ export function buildActivitiesAttainPanel({ activities, targets, employees, ran
 // number than the cell itself.
 export function buildOverallAttainPanel({ employee, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel }) {
   const metrics = ['scanning_leads', ...ACTIVITY_METRIC_OPTIONS.map((t) => t.value), 'order_value']
-  const orderActual = computeOrderValueActuals(wonStageHistory, range, true).get(employee.id) ?? 0
-  const scanningActual = computeScanningLeadsActuals(breakdownLeads, range, true).get(employee.id) ?? 0
+  const orderValueActuals = computeOrderValueActuals(wonStageHistory, range, true)
+  const scanningLeadsActuals = computeScanningLeadsActuals(breakdownLeads, range, true)
+  const activityActuals = computeActivityActuals(activities, true)
+  const orderActual = orderValueActuals.get(employee.id) ?? 0
+  const scanningActual = scanningLeadsActuals.get(employee.id) ?? 0
   const rows = metrics.map((metric) => {
     const target = targetFor(targets, employee.id, metric)
     const actual =
@@ -274,14 +291,20 @@ export function buildOverallAttainPanel({ employee, targets, activities, wonStag
     }
   })
   const withTarget = rows.filter((r) => r.pct != null)
-  const overallPct = withTarget.length ? Math.round(withTarget.reduce((s, r) => s + r.pct, 0) / withTarget.length) : null
+  // Capped at 100% per metric before averaging — the same blendedAttainmentFor
+  // rule EmployeeProfile's rank pill and the heatmap cell this panel opens
+  // from both use, so this headline can't disagree with either of them. The
+  // "Line by line" rows below stay uncapped (a real 225% on one metric is
+  // still worth showing on its own) — see blendedAttainmentFor's own comment.
+  const blended = blendedAttainmentFor(employee.id, { activityActuals, orderValueActuals, scanningLeadsActuals }, targets)
+  const overallPct = blended == null ? null : Math.round(blended * 100)
 
   return {
     kind: 'attain',
     eyebrow: `${employee.name} · overall`,
     title: `Blended attainment across all ${metrics.length} targets`,
     value: overallPct != null ? `${overallPct}%` : '—',
-    note: `${rangeLabel}. Simple average of whichever of the ${metrics.length} metrics have a target set for ${employee.name.split(' ')[0]}.`,
+    note: `${rangeLabel}. Average of whichever of the ${metrics.length} metrics have a target set for ${employee.name.split(' ')[0]}, each capped at 100% so overperforming on one metric can't inflate the blend.`,
     stats: [
       { label: 'Overall', value: overallPct != null ? `${overallPct}%` : '—', sub: `${withTarget.length} of ${metrics.length} have targets`, color: '#101617' },
       { label: 'Order value', value: formatCurrencyCompact(orderActual), sub: rows.find((r) => r.label === 'Order value')?.target != null ? `of ${formatCurrencyCompact(rows.find((r) => r.label === 'Order value').target)}` : 'no target set', color: '#101617' },
@@ -315,11 +338,14 @@ function lastNWeekdays(n) {
   return days
 }
 
-export function buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows }) {
+export function buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows, canCancelTarget = false }) {
   const label = ACTIVITY_LABELS[activityType]
+  // The row (for its id, so "Cancel this target" can delete it), not just
+  // targetFor's plain value.
+  const targetRow = targetRowFor(targets, employee.id, activityType)
   // target_value can be a stored decimal — this is a log count, round it for
   // display (delta % below still divides by the raw value for accuracy).
-  const rawTarget = targetFor(targets, employee.id, activityType)
+  const rawTarget = targetRow ? Number(targetRow.target_value) : null
   const target = rawTarget != null ? Math.round(rawTarget) : null
   const inRange = logRows.filter((r) => {
     const at = new Date(r.created_at)
@@ -352,8 +378,18 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
     rhythm,
     rhythmFrom: rhythmDays[0]?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
     rhythmTo: rhythmDays[rhythmDays.length - 1]?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-    logTitle: `${label} · most recent first`,
-    log: logRows.slice(0, 40).map((r) => {
+    // Scoped to the SELECTED period (inRange), not the full logRows fetch —
+    // 2026-09-10 fix. This used to list every entry in the last ~60 days
+    // regardless of whether Week/Month/Quarter was selected, so viewing a
+    // single week's cell could show entries from several weeks back with
+    // nothing to say they were outside the period being looked at — a real
+    // reported confusion, and a real mismatch against this panel's own
+    // headline count above (which was always period-scoped). The "Logging
+    // rhythm" section above is deliberately UNCHANGED — it's a clearly
+    // labelled, separate "last 20 working days" view, not meant to track
+    // whatever period happens to be selected.
+    logTitle: `${label} · ${rangeLabel} · most recent first`,
+    log: inRange.slice(0, 40).map((r) => {
       const linkedLead = r.leads
       const party = linkedLead?.parties?.name ?? r.parties?.name ?? '(no party)'
       const stage = linkedLead?.current_stage ?? null
@@ -378,6 +414,7 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
         meta,
       }
     }),
+    cancelTarget: canCancelTarget && targetRow ? { id: targetRow.id } : null,
   }
 }
 

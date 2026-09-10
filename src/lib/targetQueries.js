@@ -73,3 +73,17 @@ export function insertTarget({ employeeId, periodType, periodValue, metricName, 
     .select('id, employee_id, metric_name, target_value, period_type, period_value, employees(name)')
     .single()
 }
+
+// "Cancel this target" from a heatmap cell's drill-down (2026-09-10) —
+// `targets` DELETE is OWNER-ONLY in RLS, no "own data" exception (see
+// CLAUDE.md's Conventions) — unlike "+ Set a target", which a coordinator or
+// manager can already use for their own team (INSERT/UPDATE were widened for
+// them, DELETE never was). So the cancel option is deliberately gated on
+// `isOwner` specifically, not the wider `showByEmployee`/`seesOthersData`
+// flag "+ Set a target" uses — offering it to a coordinator/manager would be
+// a button that always fails with an RLS 42501. Deletes by id, not by
+// employee/period/metric — the drill-down already resolved the exact row via
+// targetRowFor.
+export function deleteTarget(id) {
+  return supabase.from('targets').delete().eq('id', id)
+}

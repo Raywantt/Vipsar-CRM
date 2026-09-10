@@ -262,13 +262,25 @@ export function fetchLastActivityPerLead() {
 
 // One exec + one activity type's real logged entries, most recent first —
 // powers the drill-down `log` kind (rhythm bars + the entry list itself are
-// both derived from these same rows client-side, no second query). Capped at
-// 60 days back, which comfortably covers the "last 20 working days" rhythm
-// window plus room to spare. `employees!accompanied_by(name)` mirrors the
-// embed LeadActivityTimeline already uses for the same column.
-export function fetchActivityLogForExec(employeeId, activityType) {
-  const since = new Date()
-  since.setDate(since.getDate() - 60)
+// both derived from these same rows client-side, no second query).
+// `employees!accompanied_by(name)` mirrors the embed LeadActivityTimeline
+// already uses for the same column.
+//
+// `rangeStart` is the currently-selected Dashboard period's own start (Week/
+// Month/Quarter — this is only ever called while one of those is selected,
+// see Dashboard.jsx's isTargetPeriod gate). The fetch floor is whichever is
+// EARLIER of that and 30 days back. Two needs, one fetch: buildLogPanel's own
+// entry list is now scoped to the selected period (2026-09-10 fix — it used
+// to show up to ~60 days of history regardless of Week/Month/Quarter, a real
+// reported confusion), and its "last 20 working days" rhythm chart always
+// needs about 30 days back regardless of period. A flat 30-day floor would
+// silently cut off the early weeks of a Quarter (which can span ~92 days),
+// so the floor widens to the period's own start whenever that reaches
+// further back than 30 days.
+export function fetchActivityLogForExec(employeeId, activityType, rangeStart) {
+  const rhythmFloor = new Date()
+  rhythmFloor.setDate(rhythmFloor.getDate() - 30)
+  const since = rangeStart && rangeStart < rhythmFloor ? rangeStart : rhythmFloor
   return fetchAllRows(() =>
     supabase
       .from('activities')

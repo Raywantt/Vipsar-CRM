@@ -2101,7 +2101,7 @@ Top bar: a Week/Month/Quarter period filter (`vip-seg-outline`, default
 Month, reflected in the URL as `?period=`) that drives every figure on the
 page. Identity band: avatar, name, a **rank pill** (this employee's
 position by *blended attainment* — mean of the six metric ratios below,
-each capped at 1.25, among active sales execs — among the team, tinted by
+each capped at 100%, among active sales execs — among the team, tinted by
 tertile), sub-line using `employees.office_location` for "territory" and
 `employees.created_at` for "with VIPSAR since" (both flagged in the UI
 copy as approximations — this app tracks neither a real territory nor a
@@ -3212,8 +3212,47 @@ since it isn't part of the date-range-scoped report data.
   activity-type cells fetch that one exec's real log entries on demand
   (`fetchActivityLogForExec`, only queried on click — not preloaded for
   everyone) and show a real "last 20 working days" logging-rhythm bar chart
-  (`log` kind); Order value and the blended Overall column build
-  synchronously from state already on the page (`attain` kind).
+  (`log` kind); Order value and Scanning Leads build synchronously from
+  state already on the page (`attain` kind); the blended Overall column also
+  builds synchronously but has no single target of its own (see below).
+  **The activity-type cells' own entry LIST is now scoped to the selected
+  period (2026-09-10 fix)** — it used to list every fetched row (up to ~60
+  days back) regardless of whether Week/Month/Quarter was selected, so a
+  single week's cell could open a drill-down showing entries from several
+  weeks earlier with nothing on screen to say they fell outside the period —
+  a real reported confusion, and a real mismatch against the panel's own
+  headline count (which was always period-scoped). `fetchActivityLogForExec`
+  now takes the selected period's own start as a third argument and widens
+  its fetch floor to cover it when a Quarter reaches back further than the
+  rhythm chart's fixed 30-day need; `buildLogPanel` filters its `log` array
+  to the same range its `value` headline already used. **The "Logging
+  rhythm · last 20 working days" section is deliberately UNCHANGED** — it's
+  a separate, clearly-labelled rolling window, not meant to track whichever
+  period happens to be selected.
+  **Every single-employee cell with a real target set now offers "Cancel
+  this target"** (2026-09-10, owner-only) — the log/attain panel opened from
+  a Scanning Leads/meeting/Call/RFQ Raised/Order value cell carries
+  `panel.cancelTarget = { id }` (via the new `targetRowFor` in
+  `TargetsVsActualsCard.jsx`, the row-returning sibling of `targetFor`),
+  rendered by `DrilldownPanel.jsx`'s `CancelTargetControl` as a plain link
+  that expands to the same two-step "Remove this target? Confirm/Cancel"
+  shape `DeletePartySection.jsx` already uses elsewhere — never a native
+  `window.confirm`. Confirming calls `deleteTarget(id)`
+  (`targetQueries.js`) via `Dashboard.jsx`'s `handleCancelTarget`, which
+  removes the row from local `targets` state and closes the panel so the
+  heatmap cell underneath is immediately visible reading "no target set".
+  **Gated on `isOwner` specifically, not `showByEmployee`/`seesOthersData`**
+  — `targets` DELETE is owner-only in RLS with no "own data" exception
+  (unlike INSERT/UPDATE, which a coordinator/manager can already use for
+  their own team via `migration_targets_team_write.sql`), so offering the
+  option to either would be a button that always fails with a 42501.
+  **The blended Overall column never gets this option** — it has no single
+  row to cancel, only a mean across whichever of the 6 metrics have one.
+  Verified live end to end against a real target (Raghav Gupta's live Call
+  target, and a throwaway one created on the dummy `exec` account):
+  Confirm actually deletes the row (checked directly against the database),
+  the panel closes, and the cell immediately re-renders as "no target set";
+  the Overall cell's own panel correctly shows no cancel option.
   **The owner's below-1024px fallback used to be the same flat
   employee-×-metric bar-list**, uncapped — a real team of 9 execs ×
   `METRIC_OPTIONS`'s 8 metrics measured 3,388px on this one card alone
@@ -3221,7 +3260,7 @@ since it isn't part of the date-range-scoped report data.
   card responsible for nearly half of it). Replaced with one collapsed row
   per exec (`ExecAttainmentRow` in `TargetsVsActualsCard.jsx`) — name ·
   **blended attainment** % (same "mean of the metric ratios, each capped at
-  1.25" definition `EmployeeProfile.jsx`'s rank pill uses, see the Sales
+  100%" definition `EmployeeProfile.jsx`'s rank pill uses, see the Sales
   Exec Profile section, but scoped to all 6 `METRIC_OPTIONS` here rather
   than that page's own 6 tiles (a different 6 — see the note above on which
   metrics changed), and skipping any metric with no target rather than
@@ -3278,9 +3317,7 @@ since it isn't part of the date-range-scoped report data.
   restricted to week/month/quarter in this form (the DB CHECK also allows
   `year`, but nothing on this dashboard displays a year-keyed target yet —
   and the live DB doesn't have `quarter` in its CHECK yet either, see
-  Conventions); `period_value` auto-prefills from `targetPeriods.js` when
-  `period_type` changes but stays editable, so a future period can be set
-  in advance. A successful save is merged straight into
+  Conventions). A successful save is merged straight into
   `Dashboard.jsx`'s `targets` state (`onTargetCreated`) so the table above
   updates immediately — **a replace-by-key, not a blind append** (fixed
   2026-09-04): `insertTarget()` is now a real upsert (see the Conventions
@@ -3289,6 +3326,67 @@ since it isn't part of the date-range-scoped report data.
   right next to the corrected one, reintroducing in the UI's own memory the
   exact "which one does the screen believe" ambiguity the upsert exists to
   end at the database layer.
+  **`period_value` is no longer typed as raw text (2026-09-10).** It used to
+  auto-prefill from `targetPeriods.js` (e.g. `2026-W37`) but stay editable as
+  a free-text box — asking the owner to type an ISO week/quarter code by
+  hand, which isn't just unreadable ("2026-W37" means nothing at a glance)
+  but an easy way to silently save a target under the WRONG period: a
+  one-digit slip lands it on this week instead of next week, with nothing on
+  screen to catch it. **Reported as "setting a target for next week shows up
+  under the current week"** — reproduced against the dummy `exec` account
+  (id 26) end to end (typed `2026-W38` deliberately, confirmed it saved as
+  `2026-W38` and correctly did NOT appear under the current week's heatmap
+  row), so the save/read path itself has no bug; the free-text format was the
+  real hazard, now removed rather than left as a footgun. There is no text
+  field left to mistype: a `‹`/`›` stepper (`src/lib/targetPeriods.js`'s new
+  `shiftPeriodValue`, reusing the exact `.vip-day-nav` pattern
+  `DayReviewHeader.jsx`'s date nav already established) walks one whole
+  week/month/quarter at a time. **The stepper's middle slot shows the human
+  date-range itself** (`periodRangeLabel` — "14 – 20 Sep 2026" / "September
+  2026" / "1 Jul – 30 Sep 2026 (Q3)"), not the underlying start date — a lone
+  day ("07-09-2026") signified nothing on its own, where the range is what's
+  actually useful to see before saving. The real `<input type="date">` stays
+  fully functional underneath it (`.vip-period-picker-input`, invisible,
+  layered over the visible `.vip-period-picker-label` — new section at the
+  end of `vipsar-theme.css`), so tapping the label still opens the native
+  picker and can jump to any date (recomputing the containing period via the
+  new `periodValueForDate`). A "Jump to current {period}" link appears below
+  the stepper only once it's moved off the current period. `period_value` on
+  the wire is completely unchanged (`2026-W38` etc.) — this is a
+  display/input layer only, no schema or query change.
+* **The desktop heatmap's "Overall" column undercounted its own cap
+  (found + fixed 2026-09-10).** `blendedAttainmentFor` (below) — the same
+  "mean of each metric's ratio, capped before averaging" rule EmployeeProfile's
+  rank pill and this card's own mobile `ExecAttainmentRow` already used — was
+  never actually called by `DashboardHeatmap.jsx`'s "Overall" cell or by the
+  `buildOverallAttainPanel` drill-down it opens; both had their own inline,
+  UNCAPPED average instead. Confirmed live against Raghav Gupta (a real
+  over-target week: 9 RFQs raised against a target of 4, 225%): the heatmap
+  showed **63%** Overall where the (then 125%-)capped rule gave **43%** — a
+  materially different number for the exact same person/period depending on
+  which view you looked at. Fixed by exporting
+  `computeActivityActuals`/`blendedAttainmentFor` from
+  `TargetsVsActualsCard.jsx` and having both the heatmap cell and the panel's
+  headline import and call them instead of re-deriving their own.
+  **The cap itself was then changed from 125% to 100% the same day, at the
+  owner's ruling** — asked directly whether a metric wildly over target
+  should get extra credit in the blend or just count as fully met: the
+  answer was fully met, no more. `ATTAINMENT_CAP` in `TargetsVsActualsCard.jsx`
+  and the equivalent `Math.min(a / t, ...)` in `EmployeeProfile.jsx`'s own
+  separate `blendedAttainment` (the rank pill) both moved to `1.0` together,
+  so the two can't disagree on the cap value even though they still
+  deliberately iterate different metric sets (see below). Raghav's Overall is
+  **38%** now (`(0.10+0.20+0.20+0.40+1.00)/5`), verified live at both
+  desktop and mobile widths matching exactly. Pinned by tests in
+  `TargetsVsActualsCard.test.js` and `drilldownBuilders.test.js` reproducing
+  this exact scenario — the panel's own "Line by line" RFQ row still
+  honestly shows the uncapped `9 / 4` (only the BLENDED headline caps per
+  metric; a genuinely over-target metric is still worth seeing on its own).
+  **EmployeeProfile.jsx's rank pill is a separate, deliberately different
+  metric set** (its own 6-tile grid — Order value/Site visits/Calls made/
+  RFQs raised/Offers sent/Bookings — not `METRIC_OPTIONS`), so it wasn't
+  merged into `blendedAttainmentFor`; only its cap constant was brought in
+  line.
 * **Leads by area / by site stage / by product**
   (`LeadsByCategoryCard.jsx`, one generic component reused 3×) — count +
   `order_value` sum, grouped by the lead's site's area / the lead's site's

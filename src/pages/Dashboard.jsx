@@ -73,7 +73,7 @@ import {
   fetchDecidedStageHistory,
   fetchActivitiesTrendWindow,
 } from '../lib/dashboardQueries'
-import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
+import { fetchTargetsForPeriod, fetchWonStageHistory, deleteTarget } from '../lib/targetQueries'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
@@ -821,9 +821,24 @@ function Dashboard() {
   async function handleOpenLog(employeeId, activityType) {
     const employee = employees.find((e) => e.id === employeeId)
     if (!employee || !range) return
-    const { data, error: logError } = await fetchActivityLogForExec(employeeId, activityType)
+    const { data, error: logError } = await fetchActivityLogForExec(employeeId, activityType, range.start)
     if (logError) return
-    setPanel(buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows: data ?? [] }))
+    setPanel(buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows: data ?? [], canCancelTarget: isOwner }))
+  }
+
+  // "Cancel this target" from a heatmap cell's drill-down — `targets` DELETE
+  // is owner-only in RLS (see deleteTarget's own comment), which is why the
+  // option is only ever attached to a panel (buildLogPanel/
+  // buildOrderValueAttainPanel/buildScanningLeadsAttainPanel) when
+  // canCancelTarget/isOwner is true. Closes the panel on success so the
+  // heatmap cell underneath is immediately visible reading "no target set" —
+  // simpler than trying to recompute the open panel's own fields in place.
+  async function handleCancelTarget(cancelTarget) {
+    const { error } = await deleteTarget(cancelTarget.id)
+    if (error) return { error }
+    setTargets((prev) => prev.filter((t) => t.id !== cancelTarget.id))
+    setPanel(null)
+    return { error: null }
   }
 
   // Follow-up coverage gap's own drill-down — row-level detail, fetched
@@ -868,7 +883,7 @@ function Dashboard() {
 
   return (
     <div className="vip-wide vip-pad-fab-overhang">
-      <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
+      <DrilldownPanel panel={panel} onClose={() => setPanel(null)} onCancelTarget={handleCancelTarget} />
 
       {activeTab === 'reports' && (
         <>
@@ -1055,7 +1070,9 @@ function Dashboard() {
                 activitiesTrendWindow={activitiesTrendWindow}
                 decidedStageHistory={decidedStageHistory}
                 onOpenOrderValue={() =>
-                  setPanel(buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId: null, rangeLabel, scopeLabel }))
+                  setPanel(
+                    buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId: null, rangeLabel, scopeLabel })
+                  )
                 }
                 onOpenActivities={() => setPanel(buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel, scopeLabel }))}
                 onOpenWinRate={() => setPanel(buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel, scopeLabel }))}
@@ -1100,6 +1117,7 @@ function Dashboard() {
                     }
                     onOpenLog={handleOpenLog}
                     onOpenPanel={setPanel}
+                    canCancelTarget={isOwner}
                   />
                   {!loading && <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} scopeLabel={scopeLabel} />}
                 </div>

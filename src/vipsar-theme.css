@@ -2763,3 +2763,27 @@ a.vip-day-log-party:hover { text-decoration: underline; }
 @media (min-width: 1024px) {
   .vip-rightnow-grid { grid-template-columns: repeat(var(--vip-rightnow-cols, 6), minmax(0, 1fr)); }
 }
+
+/* ---------- Set-a-target period picker (SetTargetForm.jsx) ---------------
+   The stepper's middle slot shows the human date-RANGE ("14 – 20 Sep 2026"),
+   not the underlying start date alone — a lone day doesn't say anything a
+   person can act on, the range does. The real <input type="date"> stays
+   fully functional (native picker, keyboard/arrow input) but is layered
+   invisibly over the label rather than shown, so tapping the readable text
+   opens the same picker the input always did. */
+.vip-period-picker { position: relative; flex: 1; min-width: 148px; }
+.vip-period-picker-label {
+  display: block; text-align: center; font-weight: 600; font-size: 14px;
+  color: var(--vip-ink); padding: 12px 8px; pointer-events: none;
+}
+.vip-period-picker-input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; cursor: pointer; border: 0; padding: 0; margin: 0;
+}
+
+/* ---------- Cancel-a-target (DrilldownPanel.jsx's CancelTargetControl) ---
+   Sits between the stats grid and the panel body on a single-employee log/
+   attain panel, owner-only (see targetQueries.js's deleteTarget comment).
+   No layout of its own beyond .vip-dd-panel's flex column gap — this class
+   exists purely as the styling hook for the trigger/confirm-row markup. */
+.vip-dd-cancel-target { display: flex; flex-direction: column; }

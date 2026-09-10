@@ -4,7 +4,10 @@ import {
   computeQuoteSentActuals,
   computeScanningLeadsActuals,
   computeWonCountActuals,
+  computeActivityActuals,
+  blendedAttainmentFor,
   targetFor,
+  targetRowFor,
 } from './TargetsVsActualsCard'
 
 const range = { start: new Date(2026, 7, 1), end: new Date(2026, 7, 31, 23, 59, 59) }
@@ -128,5 +131,94 @@ describe('targetFor', () => {
 
   it('coerces the stored string target_value to a number', () => {
     expect(targetFor(targets, 'e2', 'order_value')).toBe(50000)
+  })
+})
+
+describe('computeActivityActuals', () => {
+  it('tallies by activity_type, and by employee_id too when showByEmployee', () => {
+    const activities = [
+      { employee_id: 'e1', activity_type: 'call' },
+      { employee_id: 'e1', activity_type: 'call' },
+      { employee_id: 'e2', activity_type: 'call' },
+      { employee_id: 'e1', activity_type: 'rfq_raised' },
+    ]
+    expect(computeActivityActuals(activities, false).call).toBe(3)
+    const map = computeActivityActuals(activities, true)
+    expect(map.get('e1').call).toBe(2)
+    expect(map.get('e2').call).toBe(1)
+    expect(map.get('e1').rfq_raised).toBe(1)
+  })
+
+  it('excludes a revised RFQ from the rfq_raised tally, but not an untagged or fresh one', () => {
+    const activities = [
+      { employee_id: 'e1', activity_type: 'rfq_raised', rfq_kind: 'fresh' },
+      { employee_id: 'e1', activity_type: 'rfq_raised', rfq_kind: 'revised' },
+      { employee_id: 'e1', activity_type: 'rfq_raised', rfq_kind: null },
+    ]
+    expect(computeActivityActuals(activities, false).rfq_raised).toBe(2)
+  })
+})
+
+// blendedAttainmentFor is the ONE place "overall attainment" should be
+// computed — EmployeeProfile's rank pill, this card's own mobile
+// ExecAttainmentRow, DashboardHeatmap's desktop "Overall" column and
+// drilldownBuilders.js's buildOverallAttainPanel all call this rather than
+// each re-deriving their own average, after a real bug where the latter two
+// didn't cap a metric's ratio before averaging (see this function's own
+// header comment) — an exec with one metric at 225% of target showed a
+// desktop "Overall" number nowhere near what every other view of the exact
+// same person/period showed.
+describe('blendedAttainmentFor', () => {
+  const actuals = {
+    activityActuals: new Map([['e1', { call: 16, rfq_raised: 9 }]]),
+    orderValueActuals: new Map(),
+    scanningLeadsActuals: new Map([['e1', 1]]),
+  }
+  const targets = [
+    { employee_id: 'e1', metric_name: 'call', target_value: 40 },
+    { employee_id: 'e1', metric_name: 'rfq_raised', target_value: 4 },
+    { employee_id: 'e1', metric_name: 'scanning_leads', target_value: 10 },
+  ]
+
+  it('caps a wildly over-target metric at 100% before averaging, not its raw ratio', () => {
+    // call: 16/40 = 40%, rfq_raised: 9/4 = 225% -> capped to 100%, scanning_leads: 1/10 = 10%.
+    // Uncapped this would average to (0.40 + 2.25 + 0.10) / 3 = 91.7%; capped it's (0.40 + 1.00 + 0.10) / 3.
+    const blended = blendedAttainmentFor('e1', actuals, targets)
+    expect(blended).toBeCloseTo((0.4 + 1.0 + 0.1) / 3, 10)
+    expect(Math.round(blended * 100)).toBe(50)
+  })
+
+  it('skips a metric with no target set rather than treating it as a zero', () => {
+    const targetsMissingOne = targets.filter((t) => t.metric_name !== 'scanning_leads')
+    // Only call (40%) and rfq_raised (capped 100%) should count now.
+    expect(blendedAttainmentFor('e1', actuals, targetsMissingOne)).toBeCloseTo((0.4 + 1.0) / 2, 10)
+  })
+
+  it('returns null when the employee has no targets at all', () => {
+    expect(blendedAttainmentFor('e2', actuals, targets)).toBeNull()
+  })
+})
+
+// Used by the "Cancel this target" feature (drilldownBuilders.js's
+// buildLogPanel/buildOrderValueAttainPanel/buildScanningLeadsAttainPanel) to
+// find the actual row to delete, which targetFor's plain numeric value can't
+// give it.
+describe('targetRowFor', () => {
+  const targets = [
+    { id: 501, employee_id: 'e1', metric_name: 'call', target_value: '40' },
+    { id: 502, employee_id: 'e2', metric_name: 'call', target_value: '30' },
+  ]
+
+  it('finds the row scoped to metric and employee', () => {
+    expect(targetRowFor(targets, 'e1', 'call')).toEqual(targets[0])
+  })
+
+  it('returns null when no matching row exists', () => {
+    expect(targetRowFor(targets, 'e1', 'rfq_raised')).toBeNull()
+    expect(targetRowFor(targets, 'e3', 'call')).toBeNull()
+  })
+
+  it('unlike targetFor, never matches a company-wide (employeeId null) lookup', () => {
+    expect(targetRowFor(targets, null, 'call')).toBeNull()
   })
 })

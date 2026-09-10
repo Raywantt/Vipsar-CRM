@@ -1704,7 +1704,73 @@ const BODIES = {
 // that one block (dayItems). The deepest one renders, "‹ Back" pops one
 // level, ✕ closes the whole thing. Resets whenever the caller opens a
 // different root panel.
-function DrilldownPanel({ panel, onClose }) {
+// A target-bearing cell's own panel (log/attain, single-employee only —
+// see targetRowFor's own comment) carries `panel.cancelTarget = { id }` when
+// the viewer is allowed to delete it (owner only, see deleteTarget's
+// comment). Same two-step confirm shape DeletePartySection.jsx already uses
+// elsewhere in this app (a plain trigger, then an inline "Remove this
+// target?" row with Confirm/Cancel) — never a native window.confirm, which
+// this codebase avoids everywhere.
+function CancelTargetControl({ cancelTarget, onCancelTarget }) {
+  const [confirming, setConfirming] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function handleConfirm() {
+    setCancelling(true)
+    setError(null)
+    const { error: err } = await onCancelTarget(cancelTarget)
+    setCancelling(false)
+    if (err) {
+      setError(errorMessage(err))
+      return
+    }
+    // Success: the caller already closed the panel and removed the row from
+    // its own targets state (see Dashboard.jsx's handleCancelTarget) — this
+    // component unmounts along with the rest of the panel on the next render.
+  }
+
+  return (
+    <div className="vip-dd-cancel-target">
+      {confirming ? (
+        <div className="vip-btn-row" style={{ alignItems: 'center' }}>
+          <span style={{ fontSize: 13, color: 'var(--vip-body)', flex: 1 }}>Remove this target?</span>
+          <button
+            type="button"
+            className="vip-btn vip-btn-danger vip-btn-sm"
+            style={{ width: 'auto', flex: '0 0 auto' }}
+            disabled={cancelling}
+            onClick={handleConfirm}
+          >
+            {cancelling ? 'Removing…' : 'Confirm'}
+          </button>
+          <button
+            type="button"
+            className="vip-btn vip-btn-secondary vip-btn-sm"
+            style={{ width: 'auto', flex: '0 0 auto' }}
+            onClick={() => setConfirming(false)}
+            disabled={cancelling}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button type="button" className="vip-btn-link" style={{ color: 'var(--vip-lost)' }} onClick={() => setConfirming(true)}>
+          Cancel this target
+        </button>
+      )}
+      {error && <p className="vip-error" role="alert" style={{ marginTop: 6 }}>{error}</p>}
+    </div>
+  )
+}
+
+// `panel` (the prop) is always the root of the drill-down; `stack` holds any
+// deeper panels a body pushed via onDrill — PipelineBody's stage rows → that
+// stage's lead list, and DaySheetBody's "+N more" lines → the full list for
+// that one block (dayItems). The deepest one renders, "‹ Back" pops one
+// level, ✕ closes the whole thing. Resets whenever the caller opens a
+// different root panel.
+function DrilldownPanel({ panel, onClose, onCancelTarget }) {
   const [stack, setStack] = useState([])
 
   useEffect(() => {
@@ -1746,6 +1812,8 @@ function DrilldownPanel({ panel, onClose }) {
         </div>
 
         <StatsGrid stats={current.stats} />
+
+        {current.cancelTarget && <CancelTargetControl cancelTarget={current.cancelTarget} onCancelTarget={onCancelTarget} />}
 
         {Body && <Body panel={current} onDrill={(next) => setStack((s) => [...s, next])} />}
       </div>

@@ -7,6 +7,10 @@ import {
   buildWinRatePanel,
   buildPipelinePanel,
   buildForecastPanel,
+  buildOverallAttainPanel,
+  buildLogPanel,
+  buildOrderValueAttainPanel,
+  buildScanningLeadsAttainPanel,
 } from './drilldownBuilders'
 import { TONE_NEUTRAL } from './statusColors'
 
@@ -175,5 +179,118 @@ describe('buildForecastPanel', () => {
   it('still colours a high probability green', () => {
     const high = buildForecastPanel({ forecast }).fcRows[2]
     expect(high.probColor).toBe('#1f6f4a')
+  })
+})
+
+// Regression test for a real reported/confirmed bug: this panel's headline
+// used to average raw, uncapped ratios, so an exec with one metric far over
+// target (Raghav Gupta: 9 RFQs raised against a target of 4, i.e. 225%) got
+// a desktop "Overall" figure nowhere near what EmployeeProfile's rank pill
+// or this card's own mobile row showed for the identical person/period. The
+// headline must now match blendedAttainmentFor's 100%-per-metric cap; the
+// "Line by line" rows stay uncapped, since a real 225% on one metric is
+// still worth showing honestly on its own.
+describe('buildOverallAttainPanel', () => {
+  const employee = { id: 'e1', name: 'Raghav Gupta' }
+  const targets = [
+    { employee_id: 'e1', metric_name: 'call', target_value: 40 },
+    { employee_id: 'e1', metric_name: 'rfq_raised', target_value: 4 },
+    { employee_id: 'e1', metric_name: 'scanning_leads', target_value: 10 },
+  ]
+  const activities = [
+    ...Array.from({ length: 16 }, () => ({ employee_id: 'e1', activity_type: 'call' })),
+    ...Array.from({ length: 9 }, () => ({ employee_id: 'e1', activity_type: 'rfq_raised' })),
+  ]
+  const breakdownLeads = [{ owner_employee_id: 'e1', source_type: 'scanning', created_at: '2026-08-05T00:00:00Z' }]
+
+  it('caps the headline the same way blendedAttainmentFor does, not a raw average', () => {
+    const panel = buildOverallAttainPanel({ employee, targets, activities, wonStageHistory: [], breakdownLeads, range, rangeLabel: 'this week' })
+    // Raw ratios: call 16/40=40%, rfq_raised 9/4=225%, scanning_leads 1/10=10%.
+    // A naive average of the raw pct's would be round((40+225+10)/3) = 92%.
+    // Capped at 100% per metric first: (0.40 + 1.00 + 0.10) / 3 = 50%.
+    expect(panel.value).toBe('50%')
+    expect(panel.stats[0].value).toBe('50%')
+  })
+
+  it('still reports the RFQ line-by-line row at its real, uncapped 225%', () => {
+    const panel = buildOverallAttainPanel({ employee, targets, activities, wonStageHistory: [], breakdownLeads, range, rangeLabel: 'this week' })
+    const rfqRow = panel.contrib.find((r) => r.label === 'RFQ Raised')
+    expect(rfqRow.value).toBe('9 / 4')
+  })
+})
+
+// Regression tests for a real reported bug (2026-09-10): this panel's entry
+// list used to show every fetched row (up to ~60 days back) regardless of
+// which Dashboard period (Week/Month/Quarter) was selected, so a cell's own
+// drill-down could list activity from weeks the cell's own headline count
+// didn't include at all. The list must now match the SAME range the
+// headline (`value`) is computed from — the rhythm chart's own fixed "last
+// 20 working days" stat is deliberately untouched (see buildLogPanel's
+// header comment), so this only pins the entry-list scoping, not the chart.
+describe('buildLogPanel', () => {
+  const employee = { id: 'e1', name: 'Raghav Gupta' }
+  const targets = [{ id: 501, employee_id: 'e1', metric_name: 'call', target_value: 10 }]
+  const logRows = [
+    { id: 1, created_at: '2026-08-15T10:00:00Z', notes: 'In range', parties: { name: 'Party A' } },
+    { id: 2, created_at: '2026-08-20T10:00:00Z', notes: 'Also in range', parties: { name: 'Party B' } },
+    { id: 3, created_at: '2026-07-10T10:00:00Z', notes: 'Before the selected month', parties: { name: 'Party C' } },
+  ]
+
+  it('scopes the entry list to the selected period, not every fetched row', () => {
+    const panel = buildLogPanel({ employee, activityType: 'call', targets, range, rangeLabel: 'this month', logRows })
+    expect(panel.log).toHaveLength(2)
+    expect(panel.log.map((r) => r.id)).toEqual([1, 2])
+  })
+
+  it('headline count matches the scoped list, not the full fetch', () => {
+    const panel = buildLogPanel({ employee, activityType: 'call', targets, range, rangeLabel: 'this month', logRows })
+    expect(panel.value).toBe('2 / 10')
+  })
+
+  // buildLogPanel's own cancelTarget attachment — see DrilldownPanel.jsx's
+  // CancelTargetControl and targetQueries.js's deleteTarget for the rest of
+  // this feature (a "Cancel this target" option on a heatmap cell's panel).
+  it('attaches cancelTarget only when canCancelTarget is true and a real target row exists', () => {
+    const withCancel = buildLogPanel({ employee, activityType: 'call', targets, range, rangeLabel: 'this month', logRows, canCancelTarget: true })
+    expect(withCancel.cancelTarget).toEqual({ id: 501 })
+
+    const flagOff = buildLogPanel({ employee, activityType: 'call', targets, range, rangeLabel: 'this month', logRows })
+    expect(flagOff.cancelTarget).toBeNull()
+
+    const noTargetSet = buildLogPanel({ employee, activityType: 'rfq_raised', targets, range, rangeLabel: 'this month', logRows, canCancelTarget: true })
+    expect(noTargetSet.cancelTarget).toBeNull()
+  })
+})
+
+describe('buildOrderValueAttainPanel cancelTarget', () => {
+  const employees = [{ id: 'e1', name: 'Raghav Gupta' }]
+  const targets = [{ id: 601, employee_id: 'e1', metric_name: 'order_value', target_value: 500000 }]
+
+  it('attaches cancelTarget only for a single-employee scope with canCancelTarget and a real row', () => {
+    const single = buildOrderValueAttainPanel({ employees, targets, wonStageHistory: [], range, employeeId: 'e1', rangeLabel: 'this week', canCancelTarget: true })
+    expect(single.cancelTarget).toEqual({ id: 601 })
+
+    const flagOff = buildOrderValueAttainPanel({ employees, targets, wonStageHistory: [], range, employeeId: 'e1', rangeLabel: 'this week' })
+    expect(flagOff.cancelTarget).toBeNull()
+
+    // Company-wide (employeeId: null) has no single row to cancel, even with the flag on.
+    const companyWide = buildOrderValueAttainPanel({ employees, targets, wonStageHistory: [], range, employeeId: null, rangeLabel: 'this week', canCancelTarget: true })
+    expect(companyWide.cancelTarget).toBeNull()
+  })
+})
+
+describe('buildScanningLeadsAttainPanel cancelTarget', () => {
+  const employees = [{ id: 'e1', name: 'Raghav Gupta' }]
+  const targets = [{ id: 701, employee_id: 'e1', metric_name: 'scanning_leads', target_value: 10 }]
+
+  it('attaches cancelTarget only for a single-employee scope with canCancelTarget and a real row', () => {
+    const single = buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads: [], range, employeeId: 'e1', rangeLabel: 'this week', canCancelTarget: true })
+    expect(single.cancelTarget).toEqual({ id: 701 })
+
+    const flagOff = buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads: [], range, employeeId: 'e1', rangeLabel: 'this week' })
+    expect(flagOff.cancelTarget).toBeNull()
+
+    const companyWide = buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads: [], range, employeeId: null, rangeLabel: 'this week', canCancelTarget: true })
+    expect(companyWide.cancelTarget).toBeNull()
   })
 })
