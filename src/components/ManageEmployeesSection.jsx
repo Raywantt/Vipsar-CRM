@@ -28,9 +28,9 @@ function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
   const managerDirty = String(managerId) !== String(emp.manager_id ?? '')
 
   // Gated on the SAVED role, not the dropdown's current value: a coordinator
-  // can only be attached to someone who is actually a sales executive right
-  // now, so offering the field mid-way through an unsaved promotion would
-  // just produce a rejected write.
+  // can only be attached to someone who is actually a sales executive or
+  // sales manager right now, so offering the field mid-way through an
+  // unsaved promotion would just produce a rejected write.
   const showCoordinator = canHaveCoordinator(emp.role)
   // The second, independent reporting line. Same gate, same reasoning — and
   // deliberately its own flag rather than reusing showCoordinator, so the two
@@ -48,9 +48,11 @@ function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
       return
     }
     setCoordinatorId(data.coordinator_id ?? '')
-    // updateEmployeeRole clears BOTH reporting lines for a non-exec role, so
-    // the local state for both has to follow the row that came back or the
-    // dropdowns would keep showing a link the database has just dropped.
+    // updateEmployeeRole may clear either or both reporting lines depending
+    // on the new role (coordinator_id survives a move to sales_manager,
+    // manager_id never does), so the local state for both has to follow the
+    // row that came back or a dropdown could keep showing a link the
+    // database has just dropped.
     setManagerId(data.manager_id ?? '')
     onUpdated(data)
   }
@@ -336,8 +338,8 @@ function ManageEmployeesSection({ employees, coordinators, managers, currentEmpl
       </p>
       {coordinators.length === 0 && (
         <p className="vip-form-note">
-          No sales coordinators yet. Set someone's role to Sales Coordinator first, then you can assign executives to
-          report to them.
+          No sales coordinators yet. Set someone's role to Sales Coordinator first, then you can assign executives —
+          or sales managers — to report to them.
         </p>
       )}
       {managers.length === 0 && (

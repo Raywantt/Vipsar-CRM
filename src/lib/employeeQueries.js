@@ -119,10 +119,15 @@ export function fetchActiveSalesExecs() {
         // Set-a-target employee list and All Leads' owner filter — so a manager
         // could log work that no owner-facing report ever showed.
         //
-        // Safe for the two team-scoped wrappers below: a manager has neither a
-        // coordinator_id nor a manager_id, so fetchMyTeamExecs and
-        // fetchMyManagedExecs both still return executives only. That is what
-        // keeps "a manager's team is their execs, not themselves" true.
+        // fetchMyManagedExecs below still returns executives only — a manager
+        // can never carry a manager_id of their own, so that filter can't pick
+        // up another manager. fetchMyTeamExecs (coordinator_id) is different:
+        // since 2026-09-10 a manager MAY carry a coordinator_id (the owner can
+        // place a manager under a coordinator's oversight, same column, same
+        // is_my_team_member() rule an exec already used), so a coordinator's
+        // roster can now include a manager row alongside their execs — every
+        // consumer (TeamTodayPanel, Dashboard's coordinator scoping) already
+        // renders a mixed roster correctly via DayReviewCard's role badge.
         .in('role', CARRIES_OWN_LEADS)
         .eq('is_active', true)
         .order('name')
@@ -210,8 +215,19 @@ export function insertEmployee({ name, mobile, role, authUserId }) {
 // and it has to clear the manager line as well as the coordinator one — an
 // exec being promoted may well have had a manager themselves.
 export function updateEmployeeRole(id, role) {
+  // coordinator_id is legal on a sales_executive OR a sales_manager row
+  // (canHaveCoordinator in roles.js) — preserve it for both instead of only
+  // 'sales_executive', so promoting an exec who already reports to a
+  // coordinator up to manager doesn't silently drop that link. manager_id
+  // stays exec-only regardless of role (a manager cannot also report to
+  // another manager), so it's still cleared whenever the new role isn't
+  // 'sales_executive'.
   const patch =
-    role === 'sales_executive' ? { role } : { role, coordinator_id: null, manager_id: null }
+    role === 'sales_executive'
+      ? { role }
+      : role === 'sales_manager'
+        ? { role, manager_id: null }
+        : { role, coordinator_id: null, manager_id: null }
   return supabase.from('employees').update(patch).eq('id', id).select(EMPLOYEE_ROW).single()
 }
 

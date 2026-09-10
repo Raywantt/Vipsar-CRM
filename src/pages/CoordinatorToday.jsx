@@ -49,7 +49,7 @@ function CoordinatorToday() {
         <p className="vip-error" role="alert">{loadError}</p>
       ) : employees.length === 0 ? (
         <div className="vip-card">
-          <div className="vip-card-title">No sales executives are assigned to you yet</div>
+          <div className="vip-card-title">No one is assigned to you yet</div>
           <p className="vip-form-note" style={{ marginTop: 0 }}>
             Ask the owner to set up your team in Profile → Manage employees, then check back here.
           </p>

@@ -55,11 +55,22 @@ export function roleLabel(role) {
   return ROLE_LABELS[role] ?? role ?? '—'
 }
 
-// Only a sales_executive may carry a coordinator_id — enforced by the
-// validate_employee_role_assignment() trigger, mirrored here so the UI doesn't
-// offer a control whose save is guaranteed to fail.
+// A sales_executive OR a sales_manager may carry a coordinator_id —
+// enforced by the validate_employee_role_assignment() trigger, mirrored here
+// so the UI doesn't offer a control whose save is guaranteed to fail.
+// Widened 2026-09-10 (the owner's request) to let a coordinator also
+// supervise a manager, not just execs — the two roles were already
+// independent peers in the hierarchy by default; this is a per-employee,
+// opt-in admin choice, not a structural change to how managers work.
+// coordinator_id being the SAME column, and is_my_team_member() never
+// filtering by the target's role, is what makes this "just like sales
+// exec": every coordinator_team_* RLS policy (leads/activities/targets/
+// follow_ups/stage_history/site_contacts/parties/sites) and every UI
+// consumer of fetchMyTeamExecs() (TeamTodayPanel, Dashboard's coordinator
+// scoping) picks up an assigned manager automatically, with no separate
+// code path. See Schema/migration_coordinator_can_manage_manager.sql.
 export function canHaveCoordinator(role) {
-  return role === ROLES.SALES_EXECUTIVE
+  return role === ROLES.SALES_EXECUTIVE || role === ROLES.SALES_MANAGER
 }
 
 // Same rule, second reporting line: only a sales_executive may carry a
