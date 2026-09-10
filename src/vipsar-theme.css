@@ -2764,6 +2764,185 @@ a.vip-day-log-party:hover { text-decoration: underline; }
   .vip-rightnow-grid { grid-template-columns: repeat(var(--vip-rightnow-cols, 6), minmax(0, 1fr)); }
 }
 
+/* ===========================================================================
+   27. Activity card — the exec profile's "what did they do" block
+   ===========================================================================
+   A deliberate break from the gridded chart language used elsewhere. There
+   is no y-axis, no gridlines and no legend here: with 9 activity types and
+   one of them routinely 80% of the volume (Vishal, Q3: 250 calls of 306),
+   axis furniture costs more pixels than it returns. Three parts instead —
+   a hero total, a bare rhythm strip, and a chip flow whose WIDTHS are the
+   part-to-whole chart. Clicking a chip filters the strip to that type.
+
+   Every colour is a token, so section 22's dark block repaints all of it. */
+
+.vip-actx { display: flex; flex-direction: column; gap: 16px; }
+
+.vip-actx-hero { display: flex; align-items: flex-end; gap: 22px; }
+.vip-actx-figure { flex: 0 0 auto; min-width: 96px; }
+.vip-actx-total {
+  font-family: var(--vip-display); font-size: 42px; font-weight: 600;
+  line-height: 1; color: var(--vip-ink); font-variant-numeric: tabular-nums;
+  display: block; animation: vip-actx-rise 420ms cubic-bezier(.22, 1, .36, 1) backwards;
+}
+.vip-actx-total-sub {
+  display: block; margin-top: 5px; font-size: 11px; color: var(--vip-muted);
+  letter-spacing: .02em;
+}
+.vip-actx-total-sub b { font-weight: 600; color: var(--vip-teal); }
+
+/* Starts at .3, not 0 — same reason as vip-actx-grow below: a frozen first
+   frame must still be legible. An opacity-0 FROM made the hero total simply
+   not render in a backgrounded tab. */
+@keyframes vip-actx-rise {
+  from { opacity: .3; transform: translateY(9px); filter: blur(3px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+
+/* The strip: bars only, baseline-aligned, no chrome. Each grows on mount
+   with a stagger so a period switch reads as a change rather than a jump. */
+/* Fixed-width columns, left-packed — NOT flex: 1 spread. A period only ever
+   produces 3–6 buckets here (3 months, 4–5 ISO weeks, or Mon–Sat), and
+   spreading 2 buckets across the full card width leaves two lonely bars
+   marooned in whitespace. Fixed columns keep the strip reading as one object
+   at every period, and the slack sits to its right where the eye ignores it. */
+/* The height here covers the WHOLE column — value label, bar track and
+   x-label — not the bar alone. The bar gets whatever the track flexes to,
+   which is why nothing in JS needs to know a pixel figure. */
+.vip-actx-rhythm {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-end;
+  justify-content: flex-start; gap: 8px; height: 100px;
+}
+/* `0 1 52px`, not `0 0 52px`: six day-buckets at a fixed 52px overflow the
+   card on a phone, and the container used to clip them — a Saturday column
+   silently disappearing rather than getting narrower. Shrinking is the
+   honest failure. */
+.vip-actx-col {
+  flex: 0 1 52px; min-width: 22px; display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end; gap: 4px; height: 100%;
+  background: none; border: 0; padding: 0; font-family: inherit; cursor: default;
+}
+.vip-actx-val {
+  flex: 0 0 auto;
+  font-size: 10px; font-weight: 600; color: var(--vip-faint);
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.vip-actx-val-peak { color: var(--vip-ink); }
+/* The bar's own box. It takes the height the two labels don't, so a peak
+   bar fills it exactly instead of overflowing the column and pushing its
+   own value label out of view. */
+.vip-actx-track { flex: 1 1 auto; min-height: 0; width: 100%; position: relative; }
+.vip-actx-fill {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  border-radius: 4px 4px 2px 2px;
+  background: var(--vip-teal);
+  animation: vip-actx-grow 520ms cubic-bezier(.22, 1, .36, 1) backwards;
+}
+.vip-actx-fill-zero { background: var(--vip-line-soft); }
+.vip-actx-xlabel { flex: 0 0 auto; font-size: 10px; color: var(--vip-faint); white-space: nowrap; }
+
+/* Two rules here, both learned the hard way in the browser:
+
+   1. `backwards`, never `both`. With `both` the element holds the FROM frame
+      after finishing, so the resting state ends up owned by the animation.
+      `backwards` only pre-applies FROM during the delay and hands the element
+      back to its own styles at the end.
+   2. The bar's SIZE is never animated. This started as a scaleY(0) → scaleY(1)
+      grow, which looks better right up until the animation doesn't run: a
+      backgrounded tab freezes the clock at frame 0, and the whole strip
+      measured 0px tall — an invisible chart. Height is layout now, and the
+      entry animates opacity and a small lift only, starting at .35 rather
+      than 0 so even a permanently-frozen first frame is a dim chart, never
+      a missing one. */
+@keyframes vip-actx-grow {
+  from { opacity: .35; transform: translateY(5px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Chip flow — content-sized chips that wrap, sorted high to low, tinted by
+   share. Magnitude is carried by the TINT and by the number itself, never by
+   a length, and that restraint is the whole lesson of this block:
+
+   Two length encodings were tried and both lied, each caught by measuring
+   rather than by looking at the code. (1) Chip WIDTH via `flex-grow: count`
+   — wrong under flex-wrap, because growth resolves per LINE: a full first
+   line left `Call 55` at its natural 84px while `Design Sheet 2`, alone on
+   line two, absorbed all the slack at 371px. (2) A background fill at
+   `count / maxCount` PERCENT — wrong because a percentage of a
+   content-sized chip is a different number of pixels in each one: `Site
+   Visit 1` painted 12.2px and `Architect Meeting 1` painted 19.1px for the
+   same count, and a 2 drew only 1.44x the fill of a 1. The bar was encoding
+   label length.
+
+   Equal-width grid columns do fix (2) honestly, and were tried — but forcing
+   every chip to the longest label's width cost ~100px of height at a card
+   width that then only fits two columns, which is the row-list this card
+   exists to replace. A tint is a THRESHOLD, not a length: it says big /
+   medium / small without claiming a ratio it cannot keep. Don't reintroduce
+   either length encoding without equal-width columns to back it. */
+.vip-actx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.vip-actx-chip {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: var(--vip-r-field);
+  border: 1px solid transparent; background: var(--vip-surface-soft);
+  font: 500 13px var(--vip-sans); color: var(--vip-body); cursor: pointer;
+  transition: transform 200ms cubic-bezier(.22, 1, .36, 1), box-shadow 200ms ease, opacity 160ms ease;
+}
+.vip-actx-chip:hover { transform: translateY(-3px); box-shadow: 0 4px 12px rgba(16, 22, 23, .13); }
+.vip-actx-chip:active { transform: translateY(-1px); }
+.vip-actx-chip-name { white-space: nowrap; }
+.vip-actx-chip-n { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--vip-ink); }
+
+/* Knockout text on the teal fill is --vip-surface, not a literal #fff: that
+   token is white in light mode and near-black in dark, which is the flip a
+   filled chip needs (dark mode's teal is the LIGHTER #3a9d95, where white
+   would drop to ~2.6:1). */
+.vip-actx-chip-1 { background: var(--vip-teal); border-color: var(--vip-teal); color: var(--vip-surface); }
+.vip-actx-chip-1 .vip-actx-chip-n { color: var(--vip-surface); }
+/* --vip-teal-dark, not --vip-teal: plain teal on the soft tint measured
+   4.30:1 in dark mode, under AA. This token flips the helpful way in both
+   themes — darker than teal in light, LIGHTER in dark — so it lifts the
+   contrast on both rather than trading one for the other. */
+.vip-actx-chip-2 { background: var(--vip-teal-soft); color: var(--vip-teal-dark); }
+.vip-actx-chip-2 .vip-actx-chip-n { color: var(--vip-teal-dark); }
+.vip-actx-chip-3 { background: var(--vip-surface-soft); border-color: var(--vip-line-soft); }
+
+/* --vip-muted, not --vip-faint: faint measured 3.74:1 against the card in
+   dark mode, under AA. These chips are deliberately quiet, but "never
+   logged" is a real finding an owner should be able to read. */
+.vip-actx-chip-0 {
+  background: none; color: var(--vip-muted); border: 1px dashed var(--vip-line);
+  font-weight: 400; cursor: default;
+}
+.vip-actx-chip-0 .vip-actx-chip-n { color: var(--vip-muted); font-weight: 500; }
+.vip-actx-chip-0:hover { transform: none; box-shadow: none; }
+
+/* One chip selected: it keeps full contrast, the rest recede rather than
+   disappear — the mix stays readable while the strip above is filtered. */
+.vip-actx-chips-filtered .vip-actx-chip { opacity: .38; }
+.vip-actx-chips-filtered .vip-actx-chip.vip-active { opacity: 1; box-shadow: 0 0 0 2px var(--vip-teal); }
+
+.vip-actx-clear {
+  align-self: flex-start; background: none; border: 0; padding: 0;
+  font: 500 12px var(--vip-sans); color: var(--vip-teal); cursor: pointer;
+}
+
+@media (max-width: 1023.98px) {
+  .vip-actx-hero { gap: 14px; }
+  .vip-actx-total { font-size: 34px; }
+  /* Still the whole column, labels included — the bar track absorbs the
+     difference, so this stays a free choice rather than a number JS has to
+     be told about. */
+  .vip-actx-rhythm { height: 84px; gap: 4px; }
+  .vip-actx-figure { min-width: 74px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vip-actx-total, .vip-actx-fill { animation: none; }
+  .vip-actx-chip { transition: none; }
+  .vip-actx-chip:hover { transform: none; }
+}
+
 /* ---------- Set-a-target period picker (SetTargetForm.jsx) ---------------
    The stepper's middle slot shows the human date-RANGE ("14 – 20 Sep 2026"),
    not the underlying start date alone — a lone day doesn't say anything a

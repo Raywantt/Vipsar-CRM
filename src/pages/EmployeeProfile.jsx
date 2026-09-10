@@ -203,7 +203,16 @@ function EmployeeProfile() {
   const [addingFollowUp, setAddingFollowUp] = useState(false)
   const [visibleFollowUps, setVisibleFollowUps] = useState(FOLLOWUP_ROW_CHUNK)
   const [visibleLeads, setVisibleLeads] = useState(LEADS_ROW_CHUNK)
+  // Activity card: which type the rhythm strip is filtered to, or null for
+  // all. Cleared whenever the period changes — a type with rows this month
+  // may have none last quarter, and a filter surviving into an empty strip
+  // reads as "no activity" rather than "no activity OF THIS TYPE".
+  const [selectedType, setSelectedType] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setSelectedType(null)
+  }, [execId, preset])
 
   // Role guard — a sales exec may only open their own page (FLOW.md §4); a
   // sales_coordinator may open any exec who reports to them, same amount of
@@ -499,27 +508,55 @@ function EmployeeProfile() {
   // totals can't disagree the way the old chart's total once silently did.
   const buckets = range ? buildChartBuckets(preset, range) : []
   const myActivities = activities.filter((a) => a.employee_id === execId)
+  const typeBreakdown = ACTIVITY_TYPES.map((t) => ({
+    value: t.value,
+    label: t.label,
+    count: myActivities.filter((a) => a.activity_type === t.value).length,
+  })).sort((a, b) => b.count - a.count)
+  const totalActivityCount = myActivities.length
+
+  // Picking a chip filters the strip to that one type. The chip stays a
+  // chip — no second control, no dropdown — so the breakdown doubles as the
+  // filter, which is the whole reason the chips are worth their space.
+  // Cleared automatically when the period changes (see the effect above) so
+  // a filter can't survive onto a period where that type has no rows.
+  const stripActivities = selectedType ? myActivities.filter((a) => a.activity_type === selectedType) : myActivities
   const chartBuckets = buckets.map((b) => ({
     label: b.label,
     // parseTimestamp, not raw new Date() — activities.created_at is a naive
     // TIMESTAMP (see src/lib/dbTime.js's header comment), so a plain
     // new Date() would misread it as local time and could bucket an
     // early-morning entry into the previous day.
-    total: myActivities.filter((a) => inBucket(parseTimestamp(a.created_at), b)).length,
+    total: stripActivities.filter((a) => inBucket(parseTimestamp(a.created_at), b)).length,
   }))
-  const rawMax = Math.max(1, ...chartBuckets.map((b) => b.total))
-  const tick = Math.max(1, Math.ceil(rawMax / 4 / 5) * 5)
-  const niceMax = tick * 4
-  const CHART_H = 176
-  const gridLines = [0, 1, 2, 3, 4].map((k) => ({ value: tick * k, bottom: ((tick * k) / niceMax) * CHART_H }))
-  const typeBreakdown = ACTIVITY_TYPES.map((t) => ({
-    value: t.value,
-    label: t.label,
-    count: myActivities.filter((a) => a.activity_type === t.value).length,
-  })).sort((a, b) => b.count - a.count)
-  const maxTypeCount = Math.max(1, ...typeBreakdown.map((t) => t.count))
-  const totalActivityCount = myActivities.length
-  const chartHasActivity = chartBuckets.some((b) => b.total > 0)
+  // Scaled to the tallest bar rather than a rounded "nice" ceiling — there
+  // is no axis to label any more, so a round number buys nothing, and the
+  // strip reads better using its full height. A non-zero bucket never falls
+  // below MIN_BAR_PCT, or a 1 against a 19 is invisible.
+  //
+  // A PERCENTAGE of the bar track, never a pixel height. The first cut
+  // computed pixels against a hardcoded STRIP_H = 76 while the stylesheet
+  // owned the real container height — 76px at desktop but 62px on a phone —
+  // so every peak bar overflowed its own box on mobile AND pushed the value
+  // label out through `overflow: hidden`, making the tallest bar's number
+  // invisible at BOTH widths. Measuring the bar said "76px, correct"; only
+  // looking at it showed the missing label. CSS owns the geometry now, so
+  // the two cannot disagree again.
+  const MIN_BAR_PCT = 6
+  const peak = Math.max(1, ...chartBuckets.map((b) => b.total))
+  const barPct = (n) => (n === 0 ? 2 : Math.max(MIN_BAR_PCT, Math.round((n / peak) * 100)))
+  const stripTotal = chartBuckets.reduce((s, b) => s + b.total, 0)
+  const selectedLabel = selectedType ? (typeBreakdown.find((t) => t.value === selectedType)?.label ?? null) : null
+  const chartHasActivity = totalActivityCount > 0
+  // Three tints by share of the period, plus a ghost tier for a type never
+  // logged. A threshold, deliberately — not a length. See the chip block in
+  // vipsar-theme.css for the two length encodings that were tried here and
+  // measured as wrong.
+  const chipTier = (count) => {
+    if (count === 0) return 0
+    const share = count / Math.max(1, totalActivityCount)
+    return share >= 0.25 ? 1 : share >= 0.05 ? 2 : 3
+  }
 
   // Leads assigned
   const leadsAssigned = myOpenLeads
@@ -703,54 +740,79 @@ function EmployeeProfile() {
             <div className="vip-stack">
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Activity mix · by {preset === 'week' ? 'day' : preset === 'month' ? 'week' : 'month'}</div>
-                  <span className="vip-card-note">{totalActivityCount} activities logged</span>
+                  <div className="vip-card-title">Activity</div>
+                  <span className="vip-card-note">
+                    {preset === 'week' ? 'this week, by day' : preset === 'month' ? 'this month, by week' : 'this quarter, by month'}
+                  </span>
                 </div>
-                <div className="vip-chart">
-                  <div className="vip-chart-yaxis">
-                    {gridLines.map((g) => (
-                      <span key={g.value} className="vip-chart-ytick" style={{ bottom: g.bottom }}>{g.value}</span>
-                    ))}
-                  </div>
-                  <div className="vip-chart-plot">
-                    <div className="vip-chart-bars">
-                      {gridLines.map((g) => (
-                        <span key={g.value} className="vip-chart-gridline" style={{ bottom: g.bottom, background: g.value === 0 ? '#dde3e3' : '#f0f4f4' }} />
-                      ))}
-                      {!chartHasActivity && <div className="vip-chart-empty">No activity logged in this period</div>}
-                      <div className="vip-chart-cols">
-                        {chartBuckets.map((b) => (
-                          <div key={b.label} className="vip-chart-col">
-                            <span className="vip-chart-total">{b.total}</span>
-                            <span className="vip-chart-stack">
-                              <span className="vip-chart-seg" style={{ height: `${(b.total / niceMax) * CHART_H}px`, background: 'var(--vip-teal)' }} />
+
+                {!chartHasActivity ? (
+                  <p className="vip-empty">No activity logged in this period.</p>
+                ) : (
+                  <div className="vip-actx">
+                    <div className="vip-actx-hero">
+                      <div className="vip-actx-figure">
+                        {/* keyed so the count re-animates when the period or
+                            the chip filter changes — the movement is what
+                            says "this number is now answering a different
+                            question", which a silent swap doesn't. */}
+                        <span className="vip-actx-total" key={`${preset}-${selectedType ?? 'all'}`}>{stripTotal}</span>
+                        <span className="vip-actx-total-sub">
+                          {selectedLabel ? <><b>{selectedLabel}</b> logged</> : 'activities logged'}
+                        </span>
+                      </div>
+                      <div className="vip-actx-rhythm">
+                        {chartBuckets.map((b, i) => (
+                          <div key={b.label} className="vip-actx-col" title={`${b.label} · ${b.total}`}>
+                            <span className={b.total === peak && b.total > 0 ? 'vip-actx-val vip-actx-val-peak' : 'vip-actx-val'}>
+                              {b.total || ''}
                             </span>
+                            {/* The track is what flexes to whatever height is
+                                left after the two labels, so the bar can be a
+                                plain % of it and no pixel figure has to be
+                                kept in step with the stylesheet. */}
+                            <span className="vip-actx-track">
+                              <span
+                                className={b.total > 0 ? 'vip-actx-fill' : 'vip-actx-fill vip-actx-fill-zero'}
+                                style={{ height: `${barPct(b.total)}%`, animationDelay: `${i * 45}ms` }}
+                              />
+                            </span>
+                            <span className="vip-actx-xlabel">{b.label}</span>
                           </div>
                         ))}
                       </div>
                     </div>
-                    <div className="vip-chart-labels">
-                      {chartBuckets.map((b) => (
-                        <span key={b.label} className="vip-chart-xlabel">{b.label}</span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
 
-                {/* Unbucketed, whole-period, sorted high to low — the "what
-                    mix" half. See this block's own header comment above for
-                    why this replaced the old 4-series stack. */}
-                {chartHasActivity && (
-                  <div className="vip-stack-s vip-section-split">
-                    {typeBreakdown.map((t) => (
-                      <div key={t.value} className="vip-bar-row">
-                        <div className="vip-bar-label">{t.label}</div>
-                        <div className="vip-bar-track">
-                          <div className="vip-bar-fill" style={{ width: `${(t.count / maxTypeCount) * 100}%` }} />
-                        </div>
-                        <div className="vip-bar-count">{t.count}</div>
-                      </div>
-                    ))}
+                    {/* The breakdown IS the filter — that reuse is what earns
+                        the chips their space, since a legend alone would not.
+                        Sorted high to low, tinted by share; the count itself
+                        carries the precision. */}
+                    <div className={selectedType ? 'vip-actx-chips vip-actx-chips-filtered' : 'vip-actx-chips'}>
+                      {typeBreakdown.map((t) => {
+                        const on = selectedType === t.value
+                        const cls = `vip-actx-chip vip-actx-chip-${chipTier(t.count)}`
+                        return (
+                          <button
+                            key={t.value}
+                            type="button"
+                            className={on ? `${cls} vip-active` : cls}
+                            disabled={t.count === 0}
+                            aria-pressed={on}
+                            onClick={() => setSelectedType(on ? null : t.value)}
+                            title={t.count === 0 ? `${t.label} — none logged` : `Show only ${t.label}`}
+                          >
+                            <span className="vip-actx-chip-name">{t.label}</span>
+                            <span className="vip-actx-chip-n">{t.count}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {selectedType && (
+                      <button type="button" className="vip-actx-clear" onClick={() => setSelectedType(null)}>
+                        ← Back to all activity
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

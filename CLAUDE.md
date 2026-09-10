@@ -413,6 +413,18 @@ This has now bitten twice — `.vip-leads-layout` (section 21) and
 `.vip-daycards` (section 23) — both fixed the same way: leave `display` out
 of the base rule and set it only inside the media query that should own it.
 
+**📄 `UI-DESIGN.md` (repo root) is the standing reference for how UI
+decisions get made here — read it before designing or redesigning any
+screen.** This section describes what the components ARE; that file is how to
+choose what to build and how to know it works, written from one card that
+went through five rounds of rejection and three rounds of live bug-finding.
+Its rules are not general design advice — each one is paid for by something
+that shipped wrong in this repo and cites the measurement that caught it. The
+two most reusable: **pull the real numbers before choosing a chart form** (an
+80/20 distribution needs a different shape than an evenly-drawn mockup), and
+**measuring and looking catch different bugs, so do both** (a clipped label
+and a dishonest encoding both passed a clean measurement pass).
+
 **Non-negotiable: build and render every screen to the standard of the best
 frontend engineer working from that Claude Design handoff — not an
 approximation of it.** Concretely:
@@ -2128,61 +2140,80 @@ rows — **deliberately did not** touch `DashboardHeatmap.jsx`, which builds
 its own column list straight from `ACTIVITY_TYPES` rather than
 `METRIC_OPTIONS`, so the existing heatmap is unaffected.
 
-Below the tiles: **Activity mix** — **redesigned 2026-09-09**, at the
-owner's request, into two stacked halves inside one card rather than a
-single multi-series chart. A single-colour volume **trend bar** (bucketed
-by working day/ISO week/calendar month depending on the period filter,
-same 176px-scale-in-a-200px-box geometry the original chart used) answers
-"how much, over time"; a full, unbucketed, high-to-low **breakdown list**
-underneath it (`ActivityCountsCard`'s own `.vip-bar-row` idiom, reused
-rather than reinvented) answers "what mix". Both read the exact same
-`myActivities` array (this exec's own rows in the selected period),
-partitioned two different ways, so the two totals structurally cannot
-disagree.
+Below the tiles: the **Activity** card — **rebuilt 2026-09-10**, at the
+owner's explicit "go bold, don't design around the current look" brief.
+**📄 The full reasoning, every rejected alternative and the bugs each one
+was caught by lives in `UI-DESIGN.md` (repo root) — read that before
+redesigning this card or any other screen.** This section is the what;
+that file is the why, and it generalises.
 
-**Why it isn't one 9-colour stacked bar** (the shape it replaced): the
-breakdown is now the full loggable taxonomy — all 9 `ACTIVITY_TYPES`
-(`src/lib/activityTypes.js`, the 8 tappable Log Activity buttons with
-Client Meeting counted as its real Old/New split — see the Meeting
-buckets section) — and for a real exec that's rarely an even mix. Checked
-against Vishal Kumar's own Q3 numbers before deciding: Calls alone was
-~80% of his logged volume, which leaves the other 8 categories as
-hairline slivers in a stacked bar — a real instance of the "past ~7-8
-categories, a chart doesn't help" rule, not a hypothetical. A trend line
-(one colour, unambiguous) plus a sorted list (every category gets a full
-row no matter how small its count) was chosen over two other considered
-shapes: a 9-tile small-multiples grid (keeps each type's own trend, but
-by far the most screen space and build cost) and a donut (wrong past ~5-6
-slices for the same reason as the stacked bar). **Two things this chart
-used to show are deliberately gone from it**: "Offers sent" and
-"Bookings" were never real `activity_type` values to begin with — they
-were `leads.quote_sent_at` and a won-stage transition, i.e. the same
-derived facts the metric tiles above already show under those exact
-names. Folding them into "the activity mix" alongside genuinely logged
-activities was the original design's own category error; they stay
-exactly where they already were (the metric tiles, `SetTargetForm`'s
-targets), just no longer duplicated here. Verified live against Vishal
-Kumar at 1440px, 375px and dark mode across Week/Month/Quarter: the
-trend bar's column totals, the card's own "N activities logged" note, and
-the sum of all 9 breakdown rows agree at every preset (Week 33, Month 80,
-Quarter 306), and a period with zero activity hides the breakdown list
-entirely rather than showing 9 rows of zero under the chart's own
-existing "No activity logged in this period" message.
+Theme section 27 (`vip-actx-*`), three parts, one card:
 
-> Historical: this chart previously rendered Calls/Site visits/Offers
-> sent/Bookings as one 4-series stack, and shipped a real bug the same
-> day it was first audited — the Calls and Site visits series always
-> rendered zero, for every exec, at every period, because
-> `fetchActivityCounts()` never selected `created_at` at all, so every
+* **Hero total** — the period's activity count in display type, keyed on
+  `${preset}-${selectedType}` so it re-animates when the question changes.
+* **Rhythm strip** — one bar per bucket (working day / ISO week / calendar
+  month, per the period filter), single colour, **no y-axis, no gridlines,
+  no legend**. At this size axis furniture cost more pixels than it
+  returned. The peak bucket's value takes ink, the rest stay muted.
+* **Chips** — all 9 `ACTIVITY_TYPES` (`src/lib/activityTypes.js`: the 8
+  tappable Log Activity buttons with Client Meeting counted as its real
+  Old/New split, see the Meeting buckets section), sorted high to low,
+  tinted by share, with a type never logged shown as a dashed ghost rather
+  than hidden. **The chips ARE the filter** — clicking one re-scopes the
+  strip and the hero to that single type, dims the rest, and offers "← Back
+  to all activity". That reuse is what earns them their space; a legend
+  that only labelled would not have.
+
+Strip and chips both read the same `myActivities` array, partitioned two
+ways, so their totals structurally cannot disagree — which is precisely the
+class of bug that started this whole rebuild.
+
+**Three things here are load-bearing and easy to undo by accident:**
+
+1. **The bar height is a PERCENTAGE of a flexed track, never a pixel
+   figure.** JS owning pixels while CSS owned the container (76px desktop /
+   62px mobile) silently clipped the tallest bar's own value label at BOTH
+   widths and overflowed the column by 14px on a phone. Measuring the bar
+   said "76px, correct"; only looking showed the missing number.
+2. **Magnitude is a tint, not a length.** Two length encodings were built
+   and both lied — see `UI-DESIGN.md` §5 and §7 for the measurements. Don't
+   reintroduce one without equal-width columns to back it.
+3. **Entry animations use `backwards`, never `both`, and never animate a
+   dimension that carries data.** A backgrounded tab freezes animations at
+   frame 0; with `both` the whole strip measured 0px tall, i.e. an invisible
+   chart.
+
+**Two things this card used to show are deliberately gone**: "Offers sent"
+and "Bookings" were never `activity_type` values at all — they were
+`leads.quote_sent_at` and a won-stage transition, the same derived facts the
+metric tiles above already show under those exact names. Mixing them into
+"activity mix" was a category error; they stay in the tiles and in
+`SetTargetForm`'s targets, just not duplicated here.
+
+**Verified live 2026-09-10** (owner session, both widths, both themes,
+Week/Month/Quarter): every bar's value label visible, bar heights
+proportional (3→31px against 5→52px), the hero/strip/chip totals agreeing at
+every preset, the chip filter round-tripping, no overflow at 375px, and
+contrast at 6.30:1 / 4.69:1 (leader chip, light/dark) and 7.62:1 / 5.78:1
+(mid tier). **Not walked: the role × breakpoint matrix** — checked as owner
+only. The card renders identically for every role that can open the page
+(role decides *who may open it*, not what it draws), so the risk is low, but
+it isn't closed.
+
+> Historical: this card previously rendered Calls/Site visits/Offers sent/
+> Bookings as one 4-series stack, and shipped a real bug — those first two
+> series rendered zero for every exec at every period, because
+> `fetchActivityCounts()` never selected `created_at`, so every
 > `inBucket(a.created_at, bucket)` check silently compared `undefined`.
-> Caught live against Vishal Kumar (55 calls / 7 site visits that month
-> per his own metric tiles, chart showed 0/0). Fixed by adding
+> Caught only because the metric tiles directly above showed the correct
+> 55 and 7: two numbers on one screen disagreeing. Fixed by adding
 > `created_at` to that query's select, plus switching `inBucket`'s naive-
 > `TIMESTAMP` comparisons to `parseTimestamp()` (see the Day Review
-> section's Timestamps paragraph) so an early-morning entry couldn't
-> bucket into the previous day. Superseded by the redesign above the same
-> week, but the underlying `fetchActivityCounts()`/`parseTimestamp` fixes
-> are still exactly what the new trend bar relies on.
+> section's Timestamps paragraph). An intermediate version (trend bar over
+> a 9-row `.vip-bar-row` list) shipped between that fix and this rebuild
+> and was rejected on density — correct data, ~300px of mostly-small
+> numbers. Both those underlying query fixes are still exactly what the
+> rhythm strip relies on.
 
 A **Leads
 assigned** table (this exec's open leads, worst-touch-first, each row
