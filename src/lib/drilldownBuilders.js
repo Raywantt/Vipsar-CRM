@@ -15,6 +15,7 @@ import {
   computeOrderValueActuals,
   computeScanningLeadsActuals,
   computeActivityActuals,
+  countsTowardActivityMetric,
   blendedAttainmentFor,
   targetFor,
   targetRowFor,
@@ -282,7 +283,13 @@ export function buildOverallAttainPanel({ employee, targets, activities, wonStag
         ? orderActual
         : metric === 'scanning_leads'
           ? scanningActual
-          : activities.filter((a) => a.employee_id === employee.id && a.activity_type === metric).length
+          // Read from the already-computed activityActuals map (excludes
+          // revised RFQs) instead of re-deriving a raw count — same fix as
+          // DashboardHeatmap.jsx's own cells, for the same reason: this is
+          // the "Line by line" breakdown the heatmap's Overall column opens,
+          // so a raw re-derivation here would disagree with the RFQ Raised
+          // column right next to it.
+          : (activityActuals.get(employee.id)?.[metric] ?? 0)
     return {
       label: metric === 'order_value' ? 'Order value' : metric === 'scanning_leads' ? 'Scanning Leads' : ACTIVITY_LABELS[metric],
       actual,
@@ -351,6 +358,14 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
     const at = new Date(r.created_at)
     return at >= range.start && at <= range.end
   })
+  // The headline/target comparison counts toward the QUOTA (excludes revised
+  // RFQs, same rule computeActivityActuals applies) — this panel opens from
+  // clicking a heatmap cell, so its headline must agree with that cell.
+  // `inRange`/`logRows` themselves stay unfiltered: the row list below is a
+  // real audit trail of everything logged, and the rhythm chart is a
+  // separate "how much paperwork happened" question (see
+  // countsTowardActivityMetric's own comment).
+  const quotaCount = inRange.filter((r) => countsTowardActivityMetric({ activity_type: activityType, rfq_kind: r.rfq_kind })).length
 
   const rhythmDays = lastNWeekdays(20)
   const counts = rhythmDays.map((d) => logRows.filter((r) => new Date(r.created_at).toDateString() === d.toDateString()).length)
@@ -366,11 +381,11 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
     kind: 'log',
     eyebrow: `${employee.name} · ${label}`,
     title: `${label} — logged entries`,
-    value: target != null ? `${inRange.length} / ${target}` : String(inRange.length),
-    delta: rawTarget != null ? `${Math.round((inRange.length / rawTarget) * 100)}%` : null,
+    value: target != null ? `${quotaCount} / ${target}` : String(quotaCount),
+    delta: rawTarget != null ? `${Math.round((quotaCount / rawTarget) * 100)}%` : null,
     note: `${rangeLabel}. Every row below is a real entry ${employee.name.split(' ')[0]} logged in the Activity log.`,
     stats: [
-      { label: 'Logged', value: String(inRange.length), sub: rangeLabel, color: '#101617' },
+      { label: 'Logged', value: String(quotaCount), sub: rangeLabel, color: '#101617' },
       { label: 'Target', value: target != null ? String(target) : '—', sub: 'for this period', color: '#485456' },
       { label: 'Last 20 working days', value: String(counts.reduce((s, c) => s + c, 0)), sub: 'entries logged', color: '#101617' },
       { label: 'Silent days', value: String(silentDays), sub: 'of last 20', color: silentDays > 6 ? '#b4232a' : silentDays > 3 ? '#7a6413' : '#1f6f4a' },

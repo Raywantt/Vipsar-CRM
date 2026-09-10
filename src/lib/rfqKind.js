@@ -1,16 +1,24 @@
 import { stageRank } from './stageProgress'
 
 // Which bucket a newly-logged "RFQ Raised" activity falls into for a given
-// lead, decided from the lead's stage AT THE MOMENT it's logged, then frozen
-// onto the activity row (activities.rfq_kind) — never re-derived live, same
-// "decided once, at logging time" reasoning as meetingBucket.js.
+// lead, decided AT THE MOMENT it's logged, then frozen onto the activity row
+// (activities.rfq_kind) — never re-derived live, same "decided once, at
+// logging time" reasoning as meetingBucket.js.
 //
 // Settled with the owner 2026-09-09: a sales exec re-requests a quotation
 // whenever the client asks for changes, so a lead often accumulates several
 // RFQs before a quote is finalized. The first one on a lead is FRESH; every
-// one logged once the lead is already at RFQ Raised stage or later is
-// REVISED. No retroactive classification — activities logged before this
-// shipped keep rfq_kind = null (see Schema/migration_rfq_kind.sql).
+// one logged once the lead already has a prior RFQ on file is REVISED. No
+// retroactive classification — activities logged before this shipped keep
+// rfq_kind = null (see Schema/migration_rfq_kind.sql).
+//
+// Originally implemented by checking the lead's funnel stage (a lead already
+// at "RFQ Raised" or later must have had one before) instead of its actual
+// RFQ activity history — changed 2026-09-10 after that proxy produced a
+// wrong answer live: a lead's stage can reach "RFQ Raised" via a manual
+// stage-chip pick, with no RFQ ever actually logged, and the rank-based rule
+// then called the genuinely-first RFQ on it a revision. See rfqKindForLead's
+// own comment below for the fix.
 export const FRESH_RFQ = 'fresh'
 export const REVISED_RFQ = 'revised'
 
@@ -27,41 +35,45 @@ export const RFQ_KIND_LABELS = {
 // is its own constant, not a shared import.
 const REVISED_FROM_STAGE = 'rfq'
 
-// `stage` is the value to classify against. For a lead currently on_hold,
-// the caller resolves the stage it actually PAUSED at first (same
-// derivation LeadDetail's Deal progress stepper and the
-// enforce_owner_only_stage_change() trigger already use — most recent
-// non-on_hold stage_history row, falling back to 'calling') and passes that
-// in instead of the literal 'on_hold' value, which has no funnel rank.
-export function rfqKindForStage(stage) {
+// `stage` is only consulted for the won/lost override below — it used to be
+// the WHOLE rule (classify by funnel rank), which was found live 2026-09-10
+// to be wrong: a lead's stage can reach 'rfq' or later by a manual
+// stage-chip pick (an exec, coordinator or owner moving it by hand, with no
+// RFQ activity ever logged), and the old rank-based rule then tagged the
+// genuinely-first RFQ on that lead as a revision. Real case: Vishal moved a
+// lead's chip to "RFQ Raised" one day, then logged his actual first RFQ on
+// it the next day — the CRM told him it was a revision of an RFQ that had
+// never happened.
+//
+// The rule now asks the more direct question — has an rfq_raised activity
+// actually been logged for this lead before? — via `hasPriorRfqActivity`,
+// which the caller resolves with a real query (this file stays pure, no
+// network calls of its own). Untagged/legacy activities count as "prior"
+// same as tagged ones; only their EXISTENCE matters here.
+export function rfqKindForLead(stage, hasPriorRfqActivity) {
   // A decided deal (won/lost) is treated as past RFQ in every real case —
   // reaching either implies a quotation was already put in front of the
-  // client. Listed explicitly since won/lost have no funnel rank of their
-  // own (see stageRank).
+  // client, even on the rare lead where that was never logged as its own
+  // activity. This stays stage-based on purpose: it's not asking "was an
+  // RFQ logged", it's asking "does a new RFQ make sense as fresh sourcing
+  // progress on an already-decided deal" — no.
   if (stage === 'won' || stage === 'lost') return REVISED_RFQ
 
-  const rank = stageRank(stage)
-  // An unranked legacy free-text stage (current_stage is still free text at
-  // the DB layer) falls back to FRESH rather than being guessed at as
-  // revised — the same "blank means blank, don't invent a confident value"
-  // rule dealValueOrNull/meetingTypeForStage already follow. This is also
-  // what makes a paused legacy-imported lead with no stage_history at all
-  // default to fresh once it resumes and reaches RFQ Raised stage: the
-  // caller passes the fallback 'calling', which ranks below the threshold.
-  if (rank == null) return FRESH_RFQ
-
-  return rank >= stageRank(REVISED_FROM_STAGE) ? REVISED_RFQ : FRESH_RFQ
+  return hasPriorRfqActivity ? REVISED_RFQ : FRESH_RFQ
 }
 
 // Whether logging a FRESH RFQ should also auto-advance the lead's stage to
 // 'rfq' (the owner's request — the CRM records this instead of asking the
 // exec to also flip the stage chip by hand). Deliberately narrower than
-// "rfqKindForStage returned fresh": a lead that's currently on_hold must
+// "rfqKindForLead returned fresh": a lead that's currently on_hold must
 // never have its stage moved as a side effect of logging an activity —
 // resuming a paused lead stays its own deliberate action — and a won/lost
 // lead is never fresh in the first place (see above), so this only ever
 // fires for a lead genuinely sitting before RFQ Raised in the funnel right
-// now. Takes the lead's REAL current stage, never a resolved pausedAt.
+// now. Takes the lead's REAL current stage, never a resolved pausedAt. Note
+// this stays funnel-rank-based on purpose — it answers "is there still a
+// stage worth moving to", which is a different question from whether this
+// is the lead's first RFQ (rfqKindForLead's job).
 export function shouldAdvanceToRfq(currentStage) {
   if (currentStage === 'on_hold' || currentStage === 'won' || currentStage === 'lost') return false
   const rank = stageRank(currentStage)

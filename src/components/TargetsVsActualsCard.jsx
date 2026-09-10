@@ -22,7 +22,12 @@ function emptyMetricCounts() {
 // this distinction existed. ActivityCountsCard's own raw tally is
 // deliberately unaffected by this — "how much RFQ paperwork happened" and
 // "how much fresh RFQ quota was hit" are different questions.
-function countsTowardActivityMetric(a) {
+// Exported so buildLogPanel (drilldownBuilders.js) can apply the exact same
+// rule to its own headline count instead of re-deriving it — that panel is
+// opened by clicking a heatmap cell, so a second copy of this rule is
+// exactly the kind of drift that already broke this once (see
+// computeActivityActuals's own comment above).
+export function countsTowardActivityMetric(a) {
   return !(a.activity_type === 'rfq_raised' && a.rfq_kind === 'revised')
 }
 

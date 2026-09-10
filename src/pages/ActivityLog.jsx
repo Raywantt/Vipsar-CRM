@@ -8,7 +8,7 @@ import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import NumPadInput from '../components/NumPadInput'
 import { LOGGABLE_ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import { PICKABLE_MEETING, meetingTypeForStage } from '../lib/meetingBucket'
-import { FRESH_RFQ, RFQ_KIND_LABELS, rfqKindForStage, shouldAdvanceToRfq } from '../lib/rfqKind'
+import { FRESH_RFQ, RFQ_KIND_LABELS, rfqKindForLead, shouldAdvanceToRfq } from '../lib/rfqKind'
 import { stageLabel } from '../lib/leadStageOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLocationOptions'
@@ -27,11 +27,10 @@ function leadLabel(lead) {
 // Same derivation LeadDetail's Deal progress stepper and the
 // enforce_owner_only_stage_change() trigger already use for an on_hold
 // lead: the most recent stage it was at before pausing, falling back to
-// 'calling' when there's no stage_history at all. Every legacy-imported
-// lead currently on hold falls into that fallback — there's no data to say
-// what stage it paused at, so it can't be guessed at as anything but the
-// start of the funnel (which is what makes it classify as a fresh RFQ once
-// resumed, per rfqKindForStage).
+// 'calling' when there's no stage_history at all. rfqKindForLead only
+// consults this resolved stage for its won/lost override — the fresh/
+// revised call itself comes from hasPriorRfqActivity below, not from where
+// in the funnel a paused lead sits.
 async function resolvePausedAtStage(leadId) {
   const { data } = await supabase
     .from('stage_history')
@@ -42,6 +41,19 @@ async function resolvePausedAtStage(leadId) {
     .limit(1)
     .maybeSingle()
   return data?.stage ?? 'calling'
+}
+
+// Whether this lead already has a real rfq_raised activity on file — the
+// signal rfqKindForLead uses instead of current_stage (see that function's
+// own comment for why: stage alone can't be trusted as evidence an RFQ
+// already happened). A cheap existence check, not a row fetch.
+async function hasPriorRfqActivity(leadId) {
+  const { count } = await supabase
+    .from('activities')
+    .select('id', { count: 'exact', head: true })
+    .eq('lead_id', leadId)
+    .eq('activity_type', 'rfq_raised')
+  return (count ?? 0) > 0
 }
 
 function ActivityLog() {
@@ -228,7 +240,8 @@ function ActivityLog() {
         selectedLead.current_stage === 'on_hold'
           ? await resolvePausedAtStage(selectedLead.id)
           : selectedLead.current_stage ?? 'calling'
-      if (!cancelled) setResolvedRfqKind(rfqKindForStage(stage))
+      const priorRfq = await hasPriorRfqActivity(selectedLead.id)
+      if (!cancelled) setResolvedRfqKind(rfqKindForLead(stage, priorRfq))
     }
     resolve()
     return () => {
@@ -401,7 +414,8 @@ function ActivityLog() {
         selectedLead.current_stage === 'on_hold'
           ? await resolvePausedAtStage(selectedLead.id)
           : selectedLead.current_stage ?? 'calling'
-      finalRfqKind = rfqKindForStage(stageForClassification)
+      const priorRfq = await hasPriorRfqActivity(selectedLead.id)
+      finalRfqKind = rfqKindForLead(stageForClassification, priorRfq)
       willAdvanceToRfq = finalRfqKind === FRESH_RFQ && shouldAdvanceToRfq(selectedLead.current_stage ?? 'calling')
     }
 

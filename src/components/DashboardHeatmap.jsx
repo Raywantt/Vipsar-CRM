@@ -98,7 +98,14 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, bre
               sub = 'weighted'
               onClick = () => onOpenPanel(buildOverallAttainPanel({ employee: emp, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel }))
             } else {
-              actual = activities.filter((a) => a.employee_id === emp.id && a.activity_type === c.value).length
+              // Read from the already-computed, correctly-filtered map
+              // (excludes revised RFQs from the rfq_raised quota, per the
+              // owner's 2026-09-09 ruling) rather than re-deriving a raw
+              // count here — a second copy of this tally is exactly what
+              // caused RFQ Raised to show the wrong number in this heatmap
+              // while Sales Exec Profile/the exec's own dashboard (both fed
+              // by computeActivityActuals directly) showed the correct one.
+              actual = activityActuals.get(emp.id)?.[c.value] ?? 0
               target = targetFor(targets, emp.id, c.value)
               // actual is already a whole count (array length); target_value
               // can be a decimal (SetTargetForm's input allows it) — round it

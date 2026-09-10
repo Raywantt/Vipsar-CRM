@@ -1,34 +1,38 @@
 import { describe, it, expect } from 'vitest'
-import { rfqKindForStage, shouldAdvanceToRfq, summariseRfqHistory, FRESH_RFQ, REVISED_RFQ } from './rfqKind'
+import { rfqKindForLead, shouldAdvanceToRfq, summariseRfqHistory, FRESH_RFQ, REVISED_RFQ } from './rfqKind'
 
-describe('rfqKindForStage', () => {
-  it('is fresh below the RFQ threshold', () => {
-    for (const stage of ['calling', 'presentation', 'joinery_follow_up']) {
-      expect(rfqKindForStage(stage)).toBe(FRESH_RFQ)
+describe('rfqKindForLead', () => {
+  it('is fresh with no prior RFQ activity, whatever the stage', () => {
+    for (const stage of ['calling', 'presentation', 'joinery_follow_up', 'rfq', 'quote_submission', 'negotiation']) {
+      expect(rfqKindForLead(stage, false)).toBe(FRESH_RFQ)
     }
   })
 
-  it('is revised at RFQ Raised stage or later', () => {
-    for (const stage of ['rfq', 'quote_submission', 'negotiation']) {
-      expect(rfqKindForStage(stage)).toBe(REVISED_RFQ)
+  it('is revised once a prior RFQ activity already exists, whatever the stage', () => {
+    for (const stage of ['calling', 'presentation', 'rfq', 'quote_submission', 'negotiation']) {
+      expect(rfqKindForLead(stage, true)).toBe(REVISED_RFQ)
     }
   })
 
-  it('treats won and lost as revised', () => {
-    expect(rfqKindForStage('won')).toBe(REVISED_RFQ)
-    expect(rfqKindForStage('lost')).toBe(REVISED_RFQ)
+  it('treats won and lost as revised regardless of activity history', () => {
+    expect(rfqKindForLead('won', false)).toBe(REVISED_RFQ)
+    expect(rfqKindForLead('lost', false)).toBe(REVISED_RFQ)
+    expect(rfqKindForLead('won', true)).toBe(REVISED_RFQ)
   })
 
-  it('falls back to fresh for an unranked/legacy stage', () => {
-    expect(rfqKindForStage('some_imported_value')).toBe(FRESH_RFQ)
-    expect(rfqKindForStage(null)).toBe(FRESH_RFQ)
-  })
-
-  it('classifies a paused legacy lead (resolved fallback stage) as fresh', () => {
+  it('classifies a paused legacy lead (resolved fallback stage) as fresh when nothing was logged yet', () => {
     // The caller resolves on_hold to whatever it paused at, falling back to
-    // 'calling' when there's no stage_history at all — exactly the legacy-
-    // import case with no data to say what stage it paused on.
-    expect(rfqKindForStage('calling')).toBe(FRESH_RFQ)
+    // 'calling' when there's no stage_history at all.
+    expect(rfqKindForLead('calling', false)).toBe(FRESH_RFQ)
+  })
+
+  it('regression: a stage moved to RFQ Raised by hand, with no RFQ ever logged, must not make the real first RFQ a revision', () => {
+    // Found live 2026-09-10: a lead's stage got bumped to 'rfq' via the
+    // stage-chip picker with no rfq_raised activity behind it. The old
+    // rank-based rule saw stage='rfq' and called the genuinely-first RFQ
+    // logged the next day a revision. hasPriorRfqActivity is the correct
+    // signal precisely because it doesn't care how the stage got there.
+    expect(rfqKindForLead('rfq', false)).toBe(FRESH_RFQ)
   })
 })
 
