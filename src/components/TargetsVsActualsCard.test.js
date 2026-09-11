@@ -8,6 +8,7 @@ import {
   blendedAttainmentFor,
   targetFor,
   targetRowFor,
+  mergeTargetRow,
 } from './TargetsVsActualsCard'
 
 const range = { start: new Date(2026, 7, 1), end: new Date(2026, 7, 31, 23, 59, 59) }
@@ -220,5 +221,110 @@ describe('targetRowFor', () => {
 
   it('unlike targetFor, never matches a company-wide (employeeId null) lookup', () => {
     expect(targetRowFor(targets, null, 'call')).toBeNull()
+  })
+})
+
+// Regression suite for the reported bug (2026-09-11): "set a target for NEXT
+// week and the heatmap, which shows THIS week, displays it." Every case below
+// goes through targetFor afterwards rather than only asserting array shape —
+// what the owner sees is the lookup's answer, and the previous inline merge
+// produced an array that looked plausible while the lookup read wrong.
+describe('mergeTargetRow', () => {
+  const thisWeek = { periodType: 'week', periodValue: '2026-W38' }
+
+  // Shaped exactly as fetchTargetsForPeriod returns them.
+  function stored(id, employeeId, metric, value, periodValue = '2026-W38') {
+    return {
+      id,
+      employee_id: employeeId,
+      metric_name: metric,
+      target_value: value,
+      period_type: 'week',
+      period_value: periodValue,
+      employees: { name: `E${employeeId}` },
+    }
+  }
+
+  it('does NOT merge a target saved for a different period than the one on screen', () => {
+    const state = [stored(100, 33, 'call', 5)]
+    const nextWeek = stored(202, 26, 'call', 99, '2026-W39')
+
+    const after = mergeTargetRow(state, nextWeek, thisWeek)
+
+    expect(after).toEqual(state)
+    // The exact reported symptom: employee 26 has no call target THIS week,
+    // and must still have none after saving one for next week.
+    expect(targetFor(after, 26, 'call')).toBe(null)
+  })
+
+  it('does not merge a different period even when that employee/metric already has a row here', () => {
+    const state = [stored(101, 26, 'call', 4)]
+    const nextWeek = stored(202, 26, 'call', 99, '2026-W39')
+
+    const after = mergeTargetRow(state, nextWeek, thisWeek)
+
+    expect(after).toHaveLength(1)
+    expect(targetFor(after, 26, 'call')).toBe(4)
+  })
+
+  it('does not merge a different period TYPE with a coincidentally equal value', () => {
+    const state = [stored(101, 26, 'call', 4)]
+    const monthRow = { ...stored(303, 26, 'call', 77), period_type: 'month', period_value: '2026-W38' }
+
+    expect(mergeTargetRow(state, monthRow, thisWeek)).toEqual(state)
+  })
+
+  it('REPLACES, not appends, when correcting a target for the period on screen', () => {
+    // insertTarget is an upsert, so a correction comes back as the SAME row
+    // id with a new value. Appending it left the stale copy first in the
+    // array, and targetFor returns its first match — so the correction
+    // appeared to do nothing.
+    const state = [stored(101, 26, 'call', 4)]
+    const corrected = stored(101, 26, 'call', 12)
+
+    const after = mergeTargetRow(state, corrected, thisWeek)
+
+    expect(after).toHaveLength(1)
+    expect(targetFor(after, 26, 'call')).toBe(12)
+  })
+
+  it('replaces even when the stored row carries no period columns', () => {
+    // Defence for any row that predates fetchTargetsForPeriod selecting
+    // period_type/period_value: within a single-period array, "same target"
+    // is employee + metric, never re-read off the stored row.
+    const legacy = { id: 101, employee_id: 26, metric_name: 'call', target_value: 4 }
+    const corrected = stored(101, 26, 'call', 12)
+
+    const after = mergeTargetRow([legacy], corrected, thisWeek)
+
+    expect(after).toHaveLength(1)
+    expect(targetFor(after, 26, 'call')).toBe(12)
+  })
+
+  it('appends a new target for the period on screen', () => {
+    const state = [stored(100, 33, 'call', 5)]
+    const fresh = stored(202, 26, 'call', 9)
+
+    const after = mergeTargetRow(state, fresh, thisWeek)
+
+    expect(after).toHaveLength(2)
+    expect(targetFor(after, 26, 'call')).toBe(9)
+    expect(targetFor(after, 33, 'call')).toBe(5)
+  })
+
+  it('leaves other employees and other metrics untouched when replacing', () => {
+    const state = [stored(100, 33, 'call', 5), stored(101, 26, 'call', 4), stored(102, 26, 'rfq_raised', 7)]
+
+    const after = mergeTargetRow(state, stored(101, 26, 'call', 12), thisWeek)
+
+    expect(after).toHaveLength(3)
+    expect(targetFor(after, 33, 'call')).toBe(5)
+    expect(targetFor(after, 26, 'rfq_raised')).toBe(7)
+  })
+
+  it('is inert with no display period (15D/Custom have none) and with no row', () => {
+    const state = [stored(101, 26, 'call', 4)]
+    expect(mergeTargetRow(state, stored(202, 26, 'call', 9), null)).toEqual(state)
+    expect(mergeTargetRow(state, null, thisWeek)).toEqual(state)
   })
 })

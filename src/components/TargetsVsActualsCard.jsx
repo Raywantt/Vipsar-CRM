@@ -189,6 +189,54 @@ export function targetRowFor(targets, employeeId, metric) {
   return targets.find((t) => t.metric_name === metric && t.employee_id === employeeId) ?? null
 }
 
+// Merges a just-saved target row into the `targets` array Dashboard holds.
+//
+// THE CONTRACT THIS ENFORCES: `targets` holds exactly the rows for the ONE
+// period currently on screen, and nothing else. targetFor/targetRowFor above
+// deliberately don't filter by period — they match on employee + metric
+// alone, because the array is supposed to be period-scoped already. That
+// makes this function the one place that contract can be violated, so it is
+// the one place that defends it.
+//
+// Two real reported bugs came from there being no such defence (fixed
+// 2026-09-11), and both are worth keeping in mind before loosening this:
+//
+//  1. "Set a target for next week and it shows up under the current week."
+//     A row saved for a DIFFERENT period was merged into the displayed
+//     period's array anyway, and targetFor — having no period filter —
+//     happily returned it as the current week's target. It only bit in the
+//     session that did the saving (a reload refetches scoped to the right
+//     period), which is exactly why an earlier pass that verified the
+//     save/read path against the database found nothing wrong.
+//  2. Correcting a CURRENT-period target appeared to do nothing. The old
+//     replace-vs-append test compared period_type/period_value, which were
+//     `undefined` on every fetched row (fetchTargetsForPeriod didn't select
+//     them), so it never matched — the corrected row was appended after the
+//     stale one, and targetFor returns its FIRST match, i.e. the old value.
+//     insertTarget() is an upsert, so the database had it right the whole
+//     time; only the screen was lying.
+//
+// displayPeriod is { periodType, periodValue } — whatever periodForPreset()
+// resolved for the preset the dashboard is currently showing.
+export function mergeTargetRow(targets, row, displayPeriod) {
+  if (!row) return targets
+  // A target for a period nobody is looking at has nowhere honest to go:
+  // there is no row on screen representing that period, so putting it in
+  // this array can only ever make some OTHER period display it.
+  if (
+    !displayPeriod ||
+    row.period_type !== displayPeriod.periodType ||
+    row.period_value !== displayPeriod.periodValue
+  ) {
+    return targets
+  }
+  // Within a single-period array, "the same target" is employee + metric —
+  // deliberately NOT re-testing the period, which is already known equal
+  // above. Reading it back off the stored rows is what broke bug 2.
+  const isSameTarget = (t) => t.employee_id === row.employee_id && t.metric_name === row.metric_name
+  return targets.some(isSameTarget) ? targets.map((t) => (isSameTarget(t) ? row : t)) : [...targets, row]
+}
+
 // order_value is real money — never show paise. Every other metric here is
 // a count (site visits, calls, ...) — a target_value can be entered/stored
 // as a decimal (SetTargetForm's number input allows it), but a count should
@@ -214,6 +262,11 @@ function TargetsVsActualsCard({
   onOpenLog,
   onOpenPanel,
   canCancelTarget = false,
+  // { periodType, periodValue } for the period this card is showing —
+  // passed through to SetTargetForm so it can say out loud when a target is
+  // being saved for a DIFFERENT period than the table above it displays.
+  // Without that, saving for next week looks like it did nothing.
+  displayPeriod = null,
 }) {
   const [employeeFilter, setEmployeeFilter] = useState('')
   const [showTargetForm, setShowTargetForm] = useState(false)
@@ -282,6 +335,7 @@ function TargetsVsActualsCard({
         showTargetForm ? (
           <SetTargetForm
             employees={employees}
+            displayPeriod={displayPeriod}
             onCreated={onTargetCreated}
             onCancel={() => setShowTargetForm(false)}
           />

@@ -7,7 +7,7 @@ import DateRangeSelector from '../components/DateRangeSelector'
 import ActivityCountsCard from '../components/ActivityCountsCard'
 import LeadsBySourceCard, { SALES_EXEC_SOURCES } from '../components/LeadsBySourceCard'
 import ClosureForecastCard from '../components/ClosureForecastCard'
-import TargetsVsActualsCard, { computeOrderValueActuals } from '../components/TargetsVsActualsCard'
+import TargetsVsActualsCard, { computeOrderValueActuals, mergeTargetRow } from '../components/TargetsVsActualsCard'
 import LeadsListCard from '../components/LeadsListCard'
 import FollowUpsCard from '../components/FollowUpsCard'
 import LeadsByCategoryCard from '../components/LeadsByCategoryCard'
@@ -381,7 +381,16 @@ function Dashboard() {
   // them (see the featured-row layout below and CLAUDE.md's Dashboard
   // section). Reuses periodForPreset instead of re-deriving the same
   // week/month/quarter check a second way.
-  const isTargetPeriod = periodForPreset(preset) != null
+  //
+  // ONE source for "which period is on screen", read by all three things
+  // that need it: the fetch below, the render gate, and the merge of a
+  // newly-saved target. These used to be three separate periodForPreset()
+  // calls, which is the shape this repo has been bitten by before (a
+  // capability computed twice drifting into two answers) — here the merge
+  // had no notion of the displayed period at all, and silently showed next
+  // week's target under the current week.
+  const targetPeriod = useMemo(() => periodForPreset(preset), [preset])
+  const isTargetPeriod = targetPeriod != null
 
   // The Leads tab gets its own title ("My leads"/"All leads") + a live open
   // count/value sub, mirroring the mobile "Leads" screen's header — computed
@@ -555,20 +564,19 @@ function Dashboard() {
   }, [])
 
   useEffect(() => {
-    const period = periodForPreset(preset)
-    if (!period) {
+    if (!targetPeriod) {
       setTargets([])
       return
     }
     let active = true
-    fetchTargetsForPeriod(period).then(({ data, error }) => {
+    fetchTargetsForPeriod(targetPeriod).then(({ data, error }) => {
       if (!active) return
       if (!error) setTargets(data ?? [])
     })
     return () => {
       active = false
     }
-  }, [preset])
+  }, [targetPeriod])
 
   useEffect(() => {
     let active = true
@@ -1094,27 +1102,16 @@ function Dashboard() {
                     rangeLabel={rangeLabel}
                     employees={employees}
                     showByEmployee={seesOthersData}
-                    // A REPLACE, not a blind append — insertTarget() is now an
-                    // upsert (see targetQueries.js), so re-setting a target
-                    // for a period/metric that already had one updates that
-                    // SAME row in the database. Appending here regardless
-                    // would leave the stale copy sitting in local state next
-                    // to the corrected one, silently reintroducing the exact
-                    // "which one does the UI believe" ambiguity the upsert
-                    // was meant to end — TargetsVsActualsCard's own render
-                    // would still show whichever `targetFor()`'s first match
-                    // happened to be.
-                    onTargetCreated={(row) =>
-                      setTargets((prev) => {
-                        const isSameTarget = (t) =>
-                          t.employee_id === row.employee_id &&
-                          t.period_type === row.period_type &&
-                          t.period_value === row.period_value &&
-                          t.metric_name === row.metric_name
-                        const replaced = prev.some(isSameTarget)
-                        return replaced ? prev.map((t) => (isSameTarget(t) ? row : t)) : [...prev, row]
-                      })
-                    }
+                    displayPeriod={targetPeriod}
+                    // mergeTargetRow owns both halves of this: it drops a row
+                    // saved for a period other than the one on screen, and it
+                    // REPLACES rather than appends a row for the period that
+                    // IS on screen (insertTarget is an upsert, so a
+                    // correction updates the same database row and the stale
+                    // local copy has to go). See its own comment in
+                    // TargetsVsActualsCard.jsx for the two bugs the previous
+                    // inline version shipped.
+                    onTargetCreated={(row) => setTargets((prev) => mergeTargetRow(prev, row, targetPeriod))}
                     onOpenLog={handleOpenLog}
                     onOpenPanel={setPanel}
                     canCancelTarget={isOwner}

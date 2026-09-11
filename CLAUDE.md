@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+Start every reply with my name (Code Genius).
+
 Guidance for Claude Code when working in this repository.
 
 ## IMPORTANT — ask before you build
@@ -3368,7 +3370,12 @@ since it isn't part of the date-range-scoped report data.
   (id 26) end to end (typed `2026-W38` deliberately, confirmed it saved as
   `2026-W38` and correctly did NOT appear under the current week's heatmap
   row), so the save/read path itself has no bug; the free-text format was the
-  real hazard, now removed rather than left as a footgun. There is no text
+  real hazard, now removed rather than left as a footgun. **⚠️ That last
+  conclusion was WRONG and the bug was reported again on 2026-09-11 — see the
+  next bullet. The free-text box was a real hazard and removing it was right,
+  but it was not what the owner was hitting; the reproduction above missed it
+  because it was done across a page reload, and the bug only exists in the
+  session that did the saving.** There is no text
   field left to mistype: a `‹`/`›` stepper (`src/lib/targetPeriods.js`'s new
   `shiftPeriodValue`, reusing the exact `.vip-day-nav` pattern
   `DayReviewHeader.jsx`'s date nav already established) walks one whole
@@ -3385,6 +3392,124 @@ since it isn't part of the date-range-scoped report data.
   the stepper only once it's moved off the current period. `period_value` on
   the wire is completely unchanged (`2026-W38` etc.) — this is a
   display/input layer only, no schema or query change.
+* **A target set for NEXT week really did show up under the CURRENT week —
+  the actual cause, found and fixed 2026-09-11** (the same report as the
+  bullet above, raised a second time because the first pass fixed the wrong
+  thing). **The database was right the whole time; only the screen lied.**
+  Confirmed against the live dev data, which still carried the owner's own
+  attempts: Harish Joshi had real `targets` rows at `2026-W38` and `2026-W39`
+  while `periodForPreset('week')` was `2026-W37`. The write is fine, which is
+  exactly why the earlier reproduction found nothing — **it was checked after
+  a reload, and a reload refetches `targets` scoped to the displayed period,
+  which washes the bug away.** It only ever existed in the session that
+  pressed Set, which is the session the owner is looking at.
+  Two defects, one root cause:
+  - **`fetchTargetsForPeriod` didn't select `period_type`/`period_value`** —
+    omitted as redundant, since the query already filters on both. That
+    redundancy was load-bearing: **every fetched row carried `undefined` for
+    both.**
+  - **`Dashboard.jsx`'s inline `onTargetCreated` merge compared those two
+    columns** to decide replace-vs-append. `undefined !== 'week'` always, so
+    the test never matched anything and the merge **always appended** — a row
+    saved for next week landed in the array holding *this* week's targets.
+    `targetFor()` deliberately has no period filter (the array is supposed to
+    be period-scoped already), so it returned that row as this week's target.
+  The second defect had a quieter twin worth knowing about: **correcting a
+  CURRENT-week target appeared to do nothing.** `insertTarget` is an upsert,
+  so the correction came back as the same row id with a new value — appended
+  after the stale copy, and `targetFor` returns its FIRST match, i.e. the old
+  number. So the 2026-09-04 "a REPLACE, not a blind append" fix had never
+  actually worked; it was reading columns that were never selected.
+  **The fix is a contract with one enforcement point.** `mergeTargetRow`
+  (exported from `TargetsVsActualsCard.jsx`, next to `targetFor`/
+  `targetRowFor` so the write rule and the read rule sit in one file) now owns
+  both halves: it **drops** a row whose period isn't the one on screen, and
+  for one that is, it matches on **employee + metric alone** — never
+  re-reading the period off a stored row, which is what broke the twin.
+  `fetchTargetsForPeriod` selects the two columns as well, so the array is at
+  least homogeneous. `Dashboard.jsx` also collapsed its three separate
+  `periodForPreset(preset)` calls into one `targetPeriod` memo read by the
+  fetch, the render gate and the merge — the same "one flag per capability"
+  rule this file already insists on for nav gating, and the merge simply had
+  no notion of the displayed period at all.
+  **`SetTargetForm` now names the period it saved for**, always — "Saved for
+  14 – 20 Sep 2026." — and adds "The table above is showing 7 – 13 Sep 2026,
+  so it won't appear there." when they differ. Without that, the correct
+  behaviour reads as a second bug ("I pressed Set and nothing happened"); a
+  bare "Saved." next to a period stepper is what let a next-week save pass for
+  a this-week one.
+  **Deliberately NOT changed, flagged for the owner instead:** the form still
+  opens on the **current week** regardless of the dashboard's own preset, so
+  "+ Set a target" on a Month view defaults to setting a *week* target.
+  Defaulting it to the displayed period would be less surprising, but it
+  changes a habit rather than fixing a bug — ask before doing it.
+  **Verified live** (owner session, real dev database, desktop 1047px and the
+  mobile branch): saving a next-week Call target of 33 for Harish left his
+  this-week Call cell reading `— / 31` (no target set) while the row really
+  landed at `2026-W38` in the database; setting 10 for the displayed week made
+  the cell read `310% · 31/10` immediately, and correcting it to 20 moved it
+  to `155% · 31/20` in place with **exactly one** row in the database, not
+  two. The mobile collapsed `ExecAttainmentRow` behaves identically (Old
+  Meeting still "no target set" this week after saving 44 for next week), with
+  the confirmation wrapping cleanly and no page overflow. Pinned by 8 cases in
+  `TargetsVsActualsCard.test.js` that were confirmed to FAIL against the old
+  inline merge before the fix went in, not merely to pass after it. All three
+  test rows were deleted afterwards. **Not walked: a real `sales_coordinator`
+  or `sales_manager` session** — both also see "+ Set a target" and both go
+  through the identical merge, so the risk is low, but the matrix isn't
+  closed.
+* **"+ Set a target" now shows what's ALREADY set for the period the stepper
+  is pointing at (2026-09-11)** — a compact `Already set for {range}` list
+  under the period control, built from a local `fetchTargetsForPeriod` inside
+  `SetTargetForm.jsx` (its own state, deliberately never merged into
+  `Dashboard.jsx`'s `targets` — that array is the displayed period's, see the
+  bullet above). **This exists because of a gap the bug above was masking:
+  there is NOWHERE ELSE in this app to see a future period's targets.** Every
+  Week/Month/Quarter in the product resolves against `now()` —
+  `dateRanges.js`'s `rangeForPreset`, and `periodForPreset`'s own default —
+  so the heatmap, the mobile `ExecAttainmentRow` list and the Sales Exec
+  Profile can only ever show the CURRENT period, and `Custom` renders no
+  targets at all. A target set for next week was therefore invisible
+  everywhere until next week began; while the merge bug existed it wrongly
+  appeared under this week, which was the owner's only feedback that it had
+  saved at all. Fixing the merge without this would have read as the targets
+  vanishing.
+  - **Scoped to the selected employee once one is picked** ("what does this
+    person already have for this period" — the question you're about to act
+    on), and a one-line count before that ("17 targets across 4 people"),
+    which is still enough to confirm a save landed.
+  - **Filtered to the `employees` the card was handed**, not just whatever
+    RLS returns — a coordinator/manager's roster is narrowed client-side (see
+    `fetchActiveSalesExecs`), and this list must say the same thing the table
+    does.
+  - **Refetched after a save** (a `reloadKey` bump). Safe immediately:
+    `supabaseFetch.js` drops the read cache after any successful non-GET, so
+    the upsert has already invalidated `targets:<type>:<value>`.
+  - **Debounced 250ms** so walking several weeks forward with `›` fires one
+    request at the end rather than one per click.
+  - Rows render in `METRIC_OPTIONS` order (not insertion order) so the list
+    doesn't reshuffle as targets are added, and `order_value` formats as money
+    via `formatCurrencyCompact` while every other metric rounds — the same
+    split `TargetsVsActualsCard`'s own private `formatValue` makes.
+  This is also what makes **re-entering a target legible as a REPLACEMENT**:
+  `insertTarget` is an upsert, so setting Old Meeting to 5 and then 7 leaves
+  one row, and the list now visibly changes 5 → 7 instead of the owner having
+  to take it on faith.
+  **Verified live** (owner session, real dev data, desktop and the mobile
+  branch): with Harish Joshi selected, this week reads "Nothing set for this
+  person yet." and stepping to next week reveals his real, previously
+  invisible `2026-W38` rows (Scanning Leads 20 · New Meeting 20 · RFQ Raised
+  10); a save of Old Meeting 5 then 7 showed one row changing value, not two
+  rows; no page overflow at mobile width. The test row was deleted afterwards.
+* **Deliberately NOT done, and the owner has seen it (2026-09-11):** the form
+  still opens on **Week / the current week** regardless of the dashboard's own
+  preset, so on a Month view "+ Set a target" defaults to a *week* target
+  while the table above shows monthly ones. Demonstrated live rather than
+  argued — the header read "Team performance · this month" with the form
+  underneath it on "Week / 7 – 13 Sep 2026". It reads as in sync only because
+  the Week preset is the usual default, where the two coincidentally agree.
+  The owner elected to leave it; the "Saved for …, the table above is showing
+  …" line now covers the case. **Don't change this default without asking.**
 * **The desktop heatmap's "Overall" column undercounted its own cap
   (found + fixed 2026-09-10).** `blendedAttainmentFor` (below) — the same
   "mean of each metric's ratio, capped before averaging" rule EmployeeProfile's

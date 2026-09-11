@@ -4,12 +4,21 @@ import { cachedQuery } from './queryCache'
 
 // RLS scopes targets to "own data or owner role", same as activities/leads —
 // a sales exec's query naturally returns only their own target rows.
+//
+// period_type/period_value are selected even though this query already
+// filters on both, so every row in the returned array SAYS which period it
+// belongs to. That used to be left out as redundant, and the redundancy was
+// load-bearing: Dashboard merges a newly-saved target into this array, and
+// its "is this the same target?" test compared period_type/period_value —
+// which were `undefined` on every fetched row, so the test never matched
+// anything and the merge always appended. See mergeTargetRow
+// (TargetsVsActualsCard.jsx) for the two bugs that caused.
 export function fetchTargetsForPeriod({ periodType, periodValue }) {
   return cachedQuery(`targets:${periodType}:${periodValue}`, () =>
     fetchAllRows(() =>
       supabase
         .from('targets')
-        .select('id, employee_id, metric_name, target_value, employees(name)', { count: 'exact' })
+        .select('id, employee_id, metric_name, target_value, period_type, period_value, employees(name)', { count: 'exact' })
         .eq('period_type', periodType)
         .eq('period_value', periodValue)
     )
