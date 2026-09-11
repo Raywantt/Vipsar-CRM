@@ -3501,15 +3501,28 @@ since it isn't part of the date-range-scoped report data.
   invisible `2026-W38` rows (Scanning Leads 20 · New Meeting 20 · RFQ Raised
   10); a save of Old Meeting 5 then 7 showed one row changing value, not two
   rows; no page overflow at mobile width. The test row was deleted afterwards.
-* **Deliberately NOT done, and the owner has seen it (2026-09-11):** the form
-  still opens on **Week / the current week** regardless of the dashboard's own
-  preset, so on a Month view "+ Set a target" defaults to a *week* target
-  while the table above shows monthly ones. Demonstrated live rather than
-  argued — the header read "Team performance · this month" with the form
-  underneath it on "Week / 7 – 13 Sep 2026". It reads as in sync only because
-  the Week preset is the usual default, where the two coincidentally agree.
-  The owner elected to leave it; the "Saved for …, the table above is showing
-  …" line now covers the case. **Don't change this default without asking.**
+* **The form opens on the period the dashboard is SHOWING, not a hardcoded
+  Week (2026-09-11).** It used to always open on Week / the current week
+  regardless of the preset — demonstrated live rather than argued, since it
+  reads as already-in-sync: the header said "Team performance · this month"
+  with the form underneath it on "Week / 7 – 13 Sep 2026". The two agree only
+  on the Week preset, which is the usual view, so the divergence is invisible
+  most of the time. **The argument for changing it is failure MODE, not
+  convenience** — both defaults cost the same one dropdown change when they
+  guess wrong, but the old one could silently write a *weekly* target while
+  the owner was looking at monthly ones, i.e. a row landing under a period
+  nobody is looking at, which is the exact shape of the merge bug above.
+  Seeding from `displayPeriod` can only ever land a target under the period
+  already on screen, where a mistake shows up in the heatmap immediately.
+  **Seeded, not controlled** — they're `useState` initialisers, so changing
+  the dashboard's range while the form is open deliberately does NOT move the
+  period under someone mid-entry (the "Saved for …" line covers that); the
+  form remounts on every open, so each open re-seeds. Verified live at both
+  widths: Week → `week` / "7 – 13 Sep 2026" (unchanged, and "Jump to current
+  week" correctly hidden), Month → `month` / "September 2026", Quarter →
+  `quarter` / "1 Jul – 30 Sep 2026 (Q3)". **Not walked: a real
+  `sales_coordinator` or `sales_manager` session** — same component, and the
+  roles differ only in which roster the employee dropdown carries.
 * **The desktop heatmap's "Overall" column undercounted its own cap
   (found + fixed 2026-09-10).** `blendedAttainmentFor` (below) — the same
   "mean of each metric's ratio, capped before averaging" rule EmployeeProfile's

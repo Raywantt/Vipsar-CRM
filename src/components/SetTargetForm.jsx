@@ -37,8 +37,26 @@ function formatTargetValue(metric, value) {
 
 function SetTargetForm({ employees, displayPeriod = null, onCreated, onCancel }) {
   const [employeeId, setEmployeeId] = useState('')
-  const [periodType, setPeriodType] = useState('week')
-  const [periodValue, setPeriodValue] = useState(periodForPreset('week').periodValue)
+  // Opens on the period the table above is SHOWING, not a hardcoded Week.
+  //
+  // Both defaults cost the same one dropdown change when they guess wrong,
+  // but they fail differently, which is the whole reason for this: a
+  // hardcoded Week default silently writes a WEEKLY target while the owner is
+  // looking at monthly ones — a row landing under a period nobody is looking
+  // at, the same shape as the bug this form's merge already shipped once (see
+  // mergeTargetRow). Seeding from displayPeriod can only ever land a target
+  // under the period already on screen, where a mistake is visible
+  // immediately in the heatmap and fixable in one action.
+  //
+  // Seeded, not controlled: these are useState initialisers, so changing the
+  // dashboard's own range while this form is open deliberately does NOT move
+  // the period under someone mid-entry — the "Saved for …, the table above is
+  // showing …" line covers that case. The form remounts on every open (the
+  // card renders it or the button, never both), so each open re-seeds.
+  const [periodType, setPeriodType] = useState(displayPeriod?.periodType ?? 'week')
+  const [periodValue, setPeriodValue] = useState(
+    displayPeriod?.periodValue ?? periodForPreset('week').periodValue
+  )
   const [metricName, setMetricName] = useState(METRIC_OPTIONS[0].value)
   const [targetValue, setTargetValue] = useState('')
   const [saving, setSaving] = useState(false)
