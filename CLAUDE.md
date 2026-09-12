@@ -401,10 +401,10 @@ design handoff from Claude Design. Per-page CSS files (`Dashboard.css`,
 recreate them; add a `vip-`-prefixed class to `vipsar-theme.css` instead of
 writing new per-component CSS. `src/index.css` is kept as an intentionally
 empty seam (nothing left to own) rather than deleted, since `main.jsx`
-imports it before the theme file. Section numbering runs 1–26. **22 is dark
+imports it before the theme file. Section numbering runs 1–28. **22 is dark
 mode**, and it used to be physically last for a reason worth keeping in mind
-even though it no longer is (25, 24 and 26 now sit after it, in that physical
-order): 22 only redefines `:root` tokens and `.vip-chip-*`, never layout, so a
+even though it no longer is (25, 24, 26, 27 and 28 now sit after it, in that
+physical order): 22 only redefines `:root` tokens and `.vip-chip-*`, never layout, so a
 later section can't accidentally beat it — **as long as that later section
 styles itself out of tokens rather than hardcoding a colour.** A literal hex
 declared after 22 is a colour dark mode cannot reach. Section 26's own
@@ -2627,6 +2627,65 @@ fields, and added the new Architect Meeting type — all from live user
 feedback while testing this screen, not part of the original mobile
 redesign.
 
+**⚠️ Read the "one grammar" bullet immediately below before trusting any
+field order stated further down this section.** The 2026-09-12 pass reordered
+every branch, so a per-type ordering sentence written before that date
+describes the old form. The Site Visit and Architect Meeting bullets have
+been corrected; if you find another, it is stale, not a second opinion.
+
+* **One grammar for every activity type: what happened, then what's next**
+  (2026-09-12, from the owner reporting that reps were mixing up the two
+  free-text boxes). Every branch now reads **type → anchor → type-specific
+  facts → Notes → [hairline rule] → Next follow-up → "What's the follow-up
+  for?"**. Office Day is the one exception and needs no change: it has no
+  follow-up fields at all.
+  **Three things caused the mix-up and fixing only the order would not have
+  worked** — worth knowing before "simplifying" any part of this:
+  - **The future question used to be asked first.** In the generic branch and
+    Architect Meeting the follow-up pair came *above* Notes, so the first
+    free-text box a rep hit collected the story of the call regardless of its
+    label. Site Visit already read the right way round, which is consistent
+    with it not being one of the branches complained about.
+  - **The follow-up note was the better-explained field.** It carried a
+    concrete placeholder while Notes had `"Short note"`, so the box with real
+    guidance won the content. **Whichever field is explained best is the one
+    that gets filled in** — keep the two placeholders equally specific.
+  - **That placeholder taught the confusion.** It read `"Chase the revised
+    quote, client wants laminated glass"`: a next action followed by
+    something that had already happened. `NOTES_PLACEHOLDER` and
+    `FOLLOWUP_NOTE_PLACEHOLDER` (top of `ActivityLog.jsx`) are now one
+    teaching device — the same subject written once in past tense and once in
+    future. **Don't reword one without the other.**
+  **`FOLLOWUP_NOTE_PLACEHOLDER` must stay short, and that is a measurement,
+  not taste.** It renders in a single-line `<input>`: the fuller instruction
+  sentence this started as measured **575px against 316px of available width
+  at 375px**, so more than half of it was invisible on exactly the phone this
+  form is built for. A placeholder cannot wrap. Re-measure if it grows.
+  The follow-up pair sits in one `nextStepBlock`, **defined once** near the
+  top of the render and spread into all three branches — it used to be
+  copy-pasted three times, the same drift shape `BottomNav`'s nav gates and
+  `LeadQuickActions`' `quickActionsProps` already record.
+  A **"Next step" heading and an explainer line naming the Notes field** were
+  built above the rule and then **removed the same day at the owner's
+  direction** — the rule alone marks the seam. Don't re-add them without
+  asking; the removal was the decision, not an oversight.
+  **`vipsar-theme.css` section 28 (`.vip-next-step`) draws that rule with
+  `--vip-line`, deliberately NOT `.vip-section-split`'s `--vip-line-soft`.**
+  That token is `#eef2f2`, **lighter than this form's own background**
+  (`#e6ebeb`, `--vip-canvas-2` showing through a transparent form), so the
+  hairline rendered invisible here while reading correctly inside a white
+  card elsewhere. Caught by comparing the two computed colours, not by eye.
+  Both values are tokens, so section 22 repaints it for dark mode with no
+  override (measured 1.08 light / 1.58 dark against the page).
+  **Verified live** as a real `sales_executive` at 375px and 1280px, light
+  and dark, including a real save: the past text landed in `activities.notes`
+  and the future text in `follow_ups.notes`, read back from both rows; test
+  rows deleted afterwards from an owner session. **Not checked: the
+  `sales_coordinator` and `sales_manager` halves of the matrix** — both role
+  ports were logged out (see Local environment notes). The form differs for
+  them only in the "Who is this for?" picker, which sits above everything
+  this pass touched, so the risk is low; the matrix is not closed.
+
 An optional `?lead=<id>` query param, read via `useSearchParams`, preselects
 a lead on load instead of leaving the anchor step blank — a code-review
 finding: Lead Detail's "Log activity" (see the Lead Profile section's
@@ -2748,19 +2807,25 @@ architect party instead of a lead, and has its own picker (see below).
   `PartySearchOrCreate` usage are gone from this file — `activities.party_id`
   is only ever set now for Architect Meeting (see below), never for the
   other five types.
-* **Site Visit's field order**: Against which lead → Notes → **Site
-  stage** (a preset + "Other…" dropdown, same shape as
+* **Site Visit's field order** (as of 2026-09-12): Against which lead →
+  **Site stage** (a preset + "Other…" dropdown, same shape as
   `SiteDetailsSection`'s own — shown only once the selected lead has a
   linked site, i.e. `selectedLead.sites?.id`; a lead with no site, like one
   created from just a client name, shows nothing here rather than a
-  meaningless control) → Next follow-up → Accompanied by. Site stage is
+  meaningless control) → Accompanied by → Notes → Next follow-up. It used to
+  read lead → Notes → Site stage → Next follow-up → Accompanied by; **the
+  part that mattered was Accompanied by sitting BELOW the follow-up**, which
+  put a fact about the visit that happened after a question about the next
+  one. See the "one grammar" bullet above. Site stage is
   synced to the selected lead's *current* stage by its own `useEffect`
   (keyed on `selectedLead`, same derivation `SiteDetailsSection` uses for
   its initial value) and, on submit, writes `sites.site_stage` in a
   separate UPDATE alongside the `leads` one — skipped entirely if the
   resolved value didn't actually change, so picking a lead and submitting
-  without touching this field never fires a no-op write. Every other type
-  keeps Notes last, unchanged.
+  without touching this field never fires a no-op write. (**That last
+  sentence used to read "Every other type keeps Notes last, unchanged" — no
+  longer true for any type.** Notes now comes before the follow-up
+  everywhere.)
 * **Architect Meeting** — its own anchor, entirely separate from the
   lead-picker block above: a `PartySearchOrCreate` field
   (`typeOptions={['architect', 'firm']}` — a meeting is as often with the
@@ -2774,8 +2839,10 @@ architect party instead of a lead, and has its own picker (see below).
   to have) labelled "Architect name". Picking an unrecognized name genuinely
   inserts a new `parties` row with the chosen type, same
   mechanism as everywhere else in the app a party gets created — nothing
-  special-cased for this screen. Fields, in order: Architect name → **Firm**
-  → Next follow-up → Notes. There's no lead involved, so "Next follow-up" can't
+  special-cased for this screen. Fields, in order (as of 2026-09-12):
+  Architect name → **Firm** → Notes → Next follow-up. Notes used to come
+  last, after the follow-up pair — see the "one grammar" bullet above.
+  There's no lead involved, so "Next follow-up" can't
   write `leads.next_followup_date` the way it does for every other type —
   instead, filling it creates a real `follow_ups` row via `createFollowUp`
   (`src/lib/followUpQueries.js`; `assignedTo`/`createdBy` both the logging
@@ -2788,6 +2855,13 @@ architect party instead of a lead, and has its own picker (see below).
   section) rather than a second reminder mechanism — the reminder shows up
   in Home's "Your reminders" and fires a real push notification exactly
   like any other follow-up.
+  **Its `notes` deliberately does NOT fall back to the activity's own notes**
+  (changed 2026-09-12). It used to read
+  `followupNote.trim() || notes.trim() || null`, so a rep who left the
+  follow-up note blank got the story of the meeting they had just had copied
+  into the reminder for the next one — the app performing, at the data layer,
+  exactly the mix-up the form's own ordering was reshaped to prevent. Blank
+  stays blank, matching the lead-anchored `createFollowUp` call below it.
   **Firm** (optional, added 2026-08-17) is its own `PartySearchOrCreate`
   (`typeOptions={['firm']}`) under Architect name, shown **only when the
   picked party is an individual `architect`** — a `firm` party already *is*
