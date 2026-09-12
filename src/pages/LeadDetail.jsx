@@ -15,6 +15,8 @@ import { fetchAllRows } from '../lib/fetchAllRows'
 import { fetchLeadOwnerHistory } from '../lib/leadOwnerHistory'
 import { fetchFollowUpsForLead, FOLLOW_UP_OPEN } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
+import { materializePartyDraft } from '../lib/partyQueries'
+import { leadAddress, leadDisplayName, leadSiteLabel } from '../lib/leadName'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { stageFg, TONE_GOOD, TONE_WARN, TONE_BAD, TONE_MID, TONE_GOOD_SOFT, TONE_WARN_SOFT, TONE_BAD_SOFT, TONE_NEUTRAL, TONE_NEUTRAL_SOFT } from '../lib/statusColors'
 import { getInitials } from '../lib/initials'
@@ -263,7 +265,13 @@ function LeadDetail() {
     // them doesn't cause a refetch in practice.
   }, [id, employee?.id, employee?.role])
 
-  const leadTitle = party?.name ?? site?.nickname ?? site?.locality ?? (lead ? `Lead #${lead.id}` : '')
+  // One naming rule for the whole app (src/lib/leadName.js): the lead's party,
+  // then the site's address, then its nickname. This page holds party/site as
+  // separate state rather than as embeds, so the shape is assembled here — and
+  // because it is DERIVED, adding a client name below re-titles the page (and
+  // the header override) on the spot, with no reload and nothing stored.
+  const namedLead = lead ? { id: lead.id, parties: party, sites: site } : null
+  const leadTitle = namedLead ? leadDisplayName(namedLead) : ''
 
   useEffect(() => {
     if (!lead) return
@@ -429,7 +437,9 @@ function LeadDetail() {
 
   const leadSubtitle = [
     party?.party_type,
-    [site?.nickname || site?.locality, site?.house_no].filter(Boolean).join(', ') || null,
+    // Whatever site descriptor the TITLE didn't take — otherwise a lead named
+    // after its address prints that address twice, once above the other.
+    leadSiteLabel(namedLead),
     SOURCE_LABELS[lead.source_type] ?? lead.source_type,
     // Real bug fixed here: shortDate(null) returns null, and interpolating
     // that straight into the template literal below produced the literal
@@ -573,6 +583,9 @@ function LeadDetail() {
   // Mobile's collapsed-sections card (see the return below) — one summary
   // line per section, derived from data already loaded above, not a new
   // fetch. Desktop keeps the four full sections inline instead of this card.
+  // One title, read by the mobile summary row and the full-screen panel's
+  // header below, so they can't disagree about whether this lead has a client.
+  const clientCardTitle = party?.party_type === 'client' ? 'Client details' : 'Client'
   const detailSections = [
     {
       key: 'sales',
@@ -588,14 +601,25 @@ function LeadDetail() {
         ? [site.locality || site.nickname, site.site_stage].filter(Boolean).join(' · ') || 'no details yet'
         : 'not linked yet',
     },
-    party && { key: 'client', title: 'Client details', summary: party.mobile || 'no mobile on file' },
+    {
+      // Never gated on `party` either — hiding this row hid the only way to add
+      // a client on a phone, on exactly the leads that needed it.
+      key: 'client',
+      title: clientCardTitle,
+      summary:
+        party?.party_type === 'client'
+          ? party.mobile || 'no mobile on file'
+          : party
+            ? `no client yet · ${party.name}`
+            : 'no client yet',
+    },
     site && {
       key: 'contacts',
       title: 'Contacts',
       summary: siteContacts.length > 0 ? `${siteContacts.length} on site` : 'none added yet',
     },
   ].filter(Boolean)
-  const SECTION_TITLES = { sales: 'Sales progress', site: 'Site details', client: 'Client details', contacts: 'Contacts' }
+  const SECTION_TITLES = { sales: 'Sales progress', site: 'Site details', client: clientCardTitle, contacts: 'Contacts' }
 
   const rail = (
     <div className="vip-stack">
@@ -651,7 +675,13 @@ function LeadDetail() {
         <div className="vip-rail-list">
           {[
             ['Type', party?.party_type ?? '—'],
-            ['Site', site?.nickname || site?.locality || '—'],
+            // The facts list is the one place that should repeat the title if
+            // the title was a site: it is answering "what is this lead's site",
+            // so it gives both descriptors rather than the leftover one. Deduped
+            // because a scanned lead's nickname is very often the address typed
+            // again verbatim (lead #447 holds "#89 mahavir enclave" in both), and
+            // printing it twice side by side reads as a rendering bug.
+            ['Site', [...new Set([leadAddress(site), site?.nickname].filter(Boolean))].join(' · ') || '—'],
             ['Source', SOURCE_LABELS[lead.source_type] ?? lead.source_type],
             ['Created', shortDate(lead.created_at)],
             ['Follow-up', shortDate(lead.next_followup_date) ?? 'none set'],
@@ -992,6 +1022,71 @@ function LeadDetail() {
   // `discovered_by = current_employee_id()` for a sales exec, who reaches
   // this only on their own lead. The row is created deliberately EMPTY —
   // nothing here guesses a stage for a site nobody has visited.
+  // Point this lead at a client, which is the fix for a lead captured with no
+  // client name at all (reported 2026-09-12) — before this there was no path to
+  // one anywhere in the app, and there still isn't a second one.
+  //
+  // The client TAKES OVER leads.party_id rather than getting a column of its
+  // own, because party_id already means "the most identifying person on this
+  // lead": LeadQuickCapture sets it to the client if there is one, else the
+  // referrer, else the other party. Promoting into it is therefore what makes
+  // src/lib/leadName.js's priority resolve correctly on every screen at once,
+  // with no migration and no display query embedding a second party.
+  //
+  // It is LOSSLESS. Whatever party_id previously fell back to was also written
+  // to its own specific column at capture (other_party_id or
+  // referred_by_party_id), so the outgoing party keeps its real relationship to
+  // the lead. The exception is a legacy-imported lead, whose party_id was set
+  // directly with no other_party_id alongside it — so an outgoing party that is
+  // recorded nowhere else is parked in other_party_id, that column's documented
+  // job (traceability, not reporting). Never over an occupied one: a real
+  // "other" party outranks a displaced fallback.
+  //
+  // A displaced CLIENT is deliberately NOT parked, which is the difference
+  // between the two things this one control does. Promoting a client over an
+  // architect is a PROMOTION and the architect is still genuinely attached to
+  // the lead; replacing one client with another is a CORRECTION, and filing the
+  // wrong name away as an "other party on this lead" would leave a permanent
+  // contact nobody meant to record. Caught by testing the replace path rather
+  // than the add path — the add path alone looks identical either way.
+  async function handleSetClient(picked) {
+    // deferCreate means the picker hands back a local draft for a typed-in
+    // name, so nothing was written to parties until this moment — the rep can
+    // abandon the card without leaving a permanent row behind.
+    const { data: client, error: createError } = await materializePartyDraft(
+      picked,
+      lead.owner_employee_id ?? employee?.id ?? null
+    )
+    if (createError) return { error: errorMessage(createError) }
+
+    const outgoing = party
+    const displaced =
+      outgoing &&
+      outgoing.party_type !== 'client' &&
+      outgoing.id !== client.id &&
+      outgoing.id !== lead.other_party_id &&
+      outgoing.id !== lead.referred_by_party_id &&
+      lead.other_party_id == null
+
+    const patch = { party_id: client.id }
+    if (displaced) patch.other_party_id = outgoing.id
+
+    const { data: updated, error: linkError } = await supabase
+      .from('leads')
+      .update(patch)
+      .eq('id', lead.id)
+      .select('id, party_id, other_party_id')
+      .single()
+
+    if (linkError) return { error: errorMessage(linkError) }
+
+    // Merge, never replace — lead.employees is not in that select and a plain
+    // replace would drop it, the same rule every other save on this page follows.
+    setLead((prev) => ({ ...prev, ...updated }))
+    setParty(client)
+    return {}
+  }
+
   async function handleAddSite() {
     setAddingSite(true)
     setAddSiteError(null)
@@ -1056,7 +1151,18 @@ function LeadDetail() {
       </button>
     </div>
   )
-  const clientDetailsEditor = party && <ClientDetailsSection party={party} onSaved={setParty} />
+  // Deliberately NOT gated on `party` — a lead with no client is exactly the
+  // case that needs reaching. Keyed on the party's id so swapping the client
+  // re-seeds the card's own name/mobile/city inputs, which are useState seeds.
+  const clientDetailsEditor = (
+    <ClientDetailsSection
+      key={party?.id ?? 'none'}
+      party={party}
+      canEdit={canEdit}
+      onSaved={setParty}
+      onSetClient={handleSetClient}
+    />
+  )
   const contactsEditor = site && (
     <AdditionalContactsSection
       site={site}

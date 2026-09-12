@@ -4,6 +4,7 @@ import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
 import { searchAll, MIN_QUERY_LENGTH } from '../lib/searchQueries'
 import { stageChipClass } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
+import { leadDisplayName } from '../lib/leadName'
 import { fetchRecentParties, searchParties, fetchLeadsForParties, mostRecentLeadByParty } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
 import EmployeeLink from '../components/EmployeeLink'
@@ -42,7 +43,7 @@ function buildEmployeeMap(links) {
 }
 
 function leadTitle(lead) {
-  return lead.parties?.name ?? (lead.sites?.nickname || lead.sites?.locality) ?? `Lead #${lead.id}`
+  return leadDisplayName(lead)
 }
 
 // Persisted across a "click into a result, then Back" round trip, reset on

@@ -5,6 +5,7 @@ import { fetchUnseenAssignments, markNotificationsSeen, ASSIGNED_CARD_LIMIT } fr
 import { parseTimestamp } from '../lib/dbTime'
 import { stageLabel } from '../lib/leadStageOptions'
 import { stageChipClass } from '../lib/statusColors'
+import { leadDisplayName } from '../lib/leadName'
 
 // "A lead has been handed to you" — the in-app half of the assignment
 // notification (2026-09-12).
@@ -42,12 +43,8 @@ function relativeTime(value) {
 // no longer matches it for this employee) — the notification is still real, so
 // it is named rather than dropped.
 function leadName(row) {
-  return (
-    row.leads?.parties?.name ||
-    row.leads?.sites?.nickname ||
-    row.leads?.sites?.locality ||
-    (row.lead_id ? `Lead #${row.lead_id}` : 'A lead')
-  )
+  if (row.leads) return leadDisplayName(row.leads)
+  return row.lead_id ? `Lead #${row.lead_id}` : 'A lead'
 }
 
 function AssignedLeadsCard() {

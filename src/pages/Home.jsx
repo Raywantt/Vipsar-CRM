@@ -12,6 +12,7 @@ import { todayISO } from '../lib/followupDates'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeAttentionBuckets, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
 import { formatCurrencyCompact } from '../lib/format'
+import { leadDisplayName } from '../lib/leadName'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
 import { errorMessage } from '../lib/errorMessage'
@@ -451,7 +452,7 @@ function Home({ embedded = false }) {
               {closing.map((lead) => (
                 <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
                   <div className="vip-row-main">
-                    <div className="vip-row-title">{lead.parties?.name ?? '(no party)'}</div>
+                    <div className="vip-row-title">{leadDisplayName(lead)}</div>
                   </div>
                   <div className="vip-row-side">
                     <div className="vip-row-value">{formatCurrencyCompact(lead.quote_value)}</div>

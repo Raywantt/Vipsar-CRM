@@ -41,7 +41,7 @@ const FOLLOW_UP_SELECT =
   'due_date, due_time, status, is_done, done_at, cancelled_at, cancel_reason, ' +
   'completed_by_activity_id, created_at, ' +
   'parties(name, mobile), ' +
-  'leads(id, current_stage, parties!party_id(name, mobile), sites(nickname, locality)), ' +
+  'leads(id, current_stage, parties!party_id(name, mobile), sites(nickname, locality, house_no)), ' +
   'created_by_employee:employees!created_by(name), ' +
   'assigned_to_employee:employees!assigned_to(name)'
 

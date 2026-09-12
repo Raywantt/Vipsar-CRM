@@ -1743,11 +1743,76 @@ Right rail: a new **Deal owner** card (links to `/employees/:id`, plus the
 ownership-history list from `lead_owner_history`) and a new **Contact**
 card (site contacts + a facts list), then — **unchanged from before** —
 `SalesProgressSection`, `SiteDetailsSection` (if `site_id`),
-`ClientDetailsSection` (if `party_id`), `AdditionalContactsSection` (if
+`ClientDetailsSection` (**no longer gated on `party_id` — see the Client card
+bullet below**), `AdditionalContactsSection` (if
 `site_id`), same `canEdit` gate, same merge-not-replace `setLead` pattern
 as always (each section's save query has no `employees` embed, so
 `LeadDetail` merges the returned row rather than replacing state wholesale
 — a plain replace would drop `lead.employees`).
+
+**The Client card — "+ Add client" and "Change client" (2026-09-12)** —
+`ClientDetailsSection.jsx` used to render only when the lead already had a
+party, so **a lead captured without a client name had no path to one, ever**.
+Reported by the owner against the scanning flow, and it is the same dead end
+"+ Add site details" already fixed for a site. It also could not edit the
+client's **name**, only their mobile and city — so a typo in the one field the
+whole app names the lead by was uncorrectable. Three states now, always
+rendered (desktop rail and the mobile summary row both lost their `party &&`
+gate, which was hiding the row on exactly the leads that needed it):
+* **a client on file** — Name / Mobile / City, plus **Change client**. A blank
+  name is refused: the lead would have nothing to be called. Editing the name
+  renames that party on every lead they appear on, which the card says.
+* **a non-client party in the slot** — reads *"No client name on file yet. This
+  lead is currently identified by X (architect), who stays on the lead as a
+  contact."* **`leads.party_id` is not "the client"** (capture resolves it to
+  the client, ELSE the referrer, else the other party), so this card was
+  routinely showing an architect under the heading "Client details" — a false
+  label on **220 live leads**.
+* **no party at all** — the picker alone. **10 live leads.**
+
+**`handleSetClient` promotes the client into `leads.party_id`** rather than
+adding a `client_party_id` column (the owner's choice over a migration): that
+column already means "the most identifying person on this lead", so promoting
+into it is what makes `src/lib/leadName.js`'s priority resolve on every screen
+at once, with no migration and no display query embedding a second party.
+* **It is lossless.** Whatever `party_id` fell back to was also written to its
+  own column at capture, so the outgoing party keeps its real relationship. A
+  legacy-imported lead is the exception (`party_id` set directly, no
+  `other_party_id`), so an outgoing party recorded nowhere else is parked in
+  `other_party_id` — never over an occupied one.
+* **A displaced CLIENT is deliberately NOT parked**, and that distinction is
+  the whole of this control: promoting a client over an architect is a
+  *promotion* and the architect is still attached to the lead; replacing one
+  client with another is a *correction*, and filing the wrong name away as an
+  "other party" would leave a permanent contact nobody meant to record.
+  **Caught by testing the replace path — the add path looks identical either
+  way.**
+* **The party is created with `created_by` = the LEAD'S OWNER**, not whoever
+  clicked, the same rule `PartySearchOrCreate`'s `createdByEmployeeId` already
+  documents: `parties` UPDATE is "own data (`created_by`) or owner role", so a
+  coordinator's own id there would leave the exec unable to edit their own
+  client. Confirmed live — a coordinator's save wrote `created_by: 26`, the
+  exec.
+* **`deferCreate`**, so a name typed and then abandoned never becomes a
+  permanent `parties` row.
+* The picker's **search returns parties of every type** (true of every caller,
+  New Lead's Client name field included — `typeOptions` narrows the *create*
+  form only), so picking an architect here shows an inline note saying the save
+  will name the lead but still leave it with no client. Warn and allow, not
+  block: an architect really can be the buyer on their own house.
+* **A `sales_manager` does not get this card on a team lead**, and that is
+  correct rather than a gap — they take Lead Detail's read-only branch, and
+  `enforce_manager_lock()` permits only stage / follow-up / order value /
+  owner, so a promote would be refused by the database anyway.
+
+**Verified live 2026-09-12** against the real database, both widths, with every
+test row deleted and all three touched leads restored afterwards: a client
+added to party-less lead #447 as **owner** and #159 as **sales_executive**
+re-titled the page instantly with no reload; promoting over architect #243 on
+lead #201 moved it to `other_party_id` and it stayed on the Contact card;
+replacing a client as **sales_coordinator** correctly parked nothing; the
+blank-name guard, the rename, the mobile full-screen panel at 375px and the
+non-client warning all behaved. **Not exercised:** a manager on their own lead.
 
 **"+ Add site details" (2026-09-01)** — `siteDetailsEditor` is now a ternary,
 not `site && …`: with no site linked it renders a card whose button calls
@@ -2044,6 +2109,74 @@ anon key can't run DDL/bulk UPDATEs), and `leads.current_stage`'s column
 constraint exists on `current_stage`/`stage_history.stage` (both free
 text) or needed changing for `on_hold` itself, and `follow_ups
 .activity_type`'s existing CHECK already allowed `'other'`.
+
+### Lead naming (`src/lib/leadName.js`)
+
+**How a lead is referenced, everywhere. One definition — do not hand-roll a
+fourth.** There were **fourteen** copies before 2026-09-12 (`LeadsListCard`,
+`Search`, `ActivityLog`, `EmployeeProfile`, `AssignedLeadsCard`,
+`FollowUpList`, `LeadSearchSelect`, `LeadDetail`, `attention.js`,
+`dayReview.js` and four separate spots in `drilldownBuilders.js`), and they had
+already drifted into three different answers for the same lead — six of them
+read the party alone and printed `(no party)` for a lead carrying a perfectly
+good address.
+
+**THE RULE (the owner's):** a lead is referenced by the most identifying thing
+known about it, and that answer **moves as the record fills in**. A rep who
+only walked past a site names it by a nickname; once an address is known that
+is worth more; a named person more still; the client most of all. Adding a
+client name to a lead that has read by its nickname for a month must re-title
+it everywhere, with nothing stored and no per-lead setting.
+
+1. the lead's party — `leads.party_id` → `parties.name`
+2. the site's address — `sites.locality`, plus `house_no` when set
+3. the site's nickname — `sites.nickname`
+4. `Lead #<id>`
+
+* **Tier 1 is ONE tier, not three, and that is deliberate.** The owner's
+  priority names three kinds of person (client, then an "other" party such as
+  an architect or PMC, then the referrer) but **`leads.party_id` already
+  resolves exactly that order** — `LeadQuickCapture` sets it to the client if
+  there is one, else the referrer, else the other party. So the person half of
+  the rule costs one column and **no display query has to embed three
+  parties**. The price is that promoting a later-added client is a **write**
+  (see Lead Profile's `handleSetClient`), not a change of read order.
+* **Address beats nickname — this REVERSED every previous call site**, all of
+  which did `nickname || locality`. A scanned lead's nickname is often the
+  address typed again with extra on the end, so the old order showed the worse
+  copy of the same fact.
+* **`leadSiteLabel` returns ONE descriptor, the best one the NAME didn't
+  take** — never both joined, never the nickname by default. Joining them is
+  the obvious version and it is wrong on real data: lead #199 rendered
+  `DUGRI, 450-D · 450-D, DUGRI, LUDHIANA · plot upto 200 sq yds` in a single
+  table cell, the same place said twice and then qualified. Caught by looking
+  at the rendered list, not by the unit tests, which were green.
+  `LeadDetail`'s rail facts row is the deliberate exception — it answers "what
+  is this lead's site", so it prints both, **deduped** (lead #447 holds
+  `#89 mahavir enclave` in both columns).
+* **A query missing its `sites` embed silently loses tiers 2 and 3** and falls
+  to `Lead #id`. Every embed in the app now selects
+  `sites(nickname, locality, house_no)`; `fetchClosureForecast` and
+  `fetchLossReasons` had **no sites embed at all**, which is why those two
+  cards printed a bare `(no party)`. Embed it on any new lead-naming surface
+  rather than letting it degrade quietly.
+* `leadNameTier()` says which tier answered, so a surface can tell "named after
+  a person" from "named after a place" without re-deriving the chain.
+* `dayReview.js`'s `leadName` and `FollowUpList`'s `followUpLinkLabel` keep one
+  extra step of their own: an activity or reminder can be anchored on a
+  **party with no lead at all** (an Architect Meeting), which `leadDisplayName`
+  knows nothing about and shouldn't.
+
+Pinned by 15 cases in `leadName.test.js`, including that the name re-titles
+itself as each better tier arrives.
+
+**Verified live 2026-09-12** against the real database, all four roles, both
+widths, no console errors on any session: All Leads names a party-less lead
+`CHANDIGARH ROAD, NAWANSHAHR` with `JIVAN` beside it (was `(no party)` /
+nickname-first); Search, Closure forecast and the Needs Attention ageing
+drill-down all render real names with **zero** `(no party)` left anywhere on
+the Dashboard; and the Lead Profile re-titles itself the moment a client is
+added, with no reload.
 
 ### Meeting buckets (`src/lib/meetingBucket.js`)
 

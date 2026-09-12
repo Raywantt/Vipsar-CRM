@@ -40,7 +40,7 @@ export async function searchAll(term) {
 
     const { data } = await supabase
       .from('leads')
-      .select('id, current_stage, parties!party_id(name), sites(nickname, locality)')
+      .select('id, current_stage, parties!party_id(name), sites(nickname, locality, house_no)')
       .or(orParts.join(','))
       .limit(20)
 

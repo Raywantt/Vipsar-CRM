@@ -40,7 +40,7 @@ export function prevDayISO(dateISO) {
 // Naming a lead follows the same client-name → site-nickname → locality
 // fallback chain every other lead-naming surface in this app uses, so the
 // embeds below all carry the same three fields.
-const LEAD_NAME_EMBED = 'leads(id, current_stage, parties!party_id(name), sites(nickname, locality))'
+const LEAD_NAME_EMBED = 'leads(id, current_stage, parties!party_id(name), sites(nickname, locality, house_no))'
 
 // Every activity logged on D. Feeds three things at once: the Activities/
 // Calls/Visits columns, the day sheet's timeline, and the "worked 9:12 am –
@@ -90,7 +90,7 @@ export function fetchDayStageChanges({ startISO, endISO }) {
     supabase
       .from('stage_history')
       .select(
-        'id, lead_id, stage, changed_by, changed_at, leads(id, owner_employee_id, order_value, quote_value, parties!party_id(name), sites(nickname, locality))',
+        'id, lead_id, stage, changed_by, changed_at, leads(id, owner_employee_id, order_value, quote_value, parties!party_id(name), sites(nickname, locality, house_no))',
         { count: 'exact' }
       )
       .gte('changed_at', startISO)
@@ -108,7 +108,7 @@ export function fetchDayNewLeads({ startISO, endISO }) {
     supabase
       .from('leads')
       .select(
-        'id, created_by_employee_id, owner_employee_id, source_type, quote_value, order_value, current_stage, created_at, parties!party_id(name), sites(nickname, locality)',
+        'id, created_by_employee_id, owner_employee_id, source_type, quote_value, order_value, current_stage, created_at, parties!party_id(name), sites(nickname, locality, house_no)',
         { count: 'exact' }
       )
       .gte('created_at', startISO)
@@ -140,7 +140,7 @@ export function fetchDayQuotesSent(dateISO) {
   return fetchAllRows(() =>
     supabase
       .from('leads')
-      .select('id, owner_employee_id, quote_value, quote_sent_at, parties!party_id(name), sites(nickname, locality)', {
+      .select('id, owner_employee_id, quote_value, quote_sent_at, parties!party_id(name), sites(nickname, locality, house_no)', {
         count: 'exact',
       })
       .eq('quote_sent_at', dateISO)

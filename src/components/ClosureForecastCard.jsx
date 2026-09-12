@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { formatCurrencyCompact } from '../lib/format'
 import EmployeeLink from './EmployeeLink'
+import { leadDisplayName } from '../lib/leadName'
 
 function formatDate(value) {
   if (!value) return '—'
@@ -49,7 +50,7 @@ function ClosureForecastCard({ leads, onOpenPanel, maxRows = DEFAULT_MAX_ROWS })
               }}
             >
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-                <div className="vip-row-title">{lead.parties?.name ?? '(no party)'}</div>
+                <div className="vip-row-title">{leadDisplayName(lead)}</div>
                 <div className="vip-row-value">{formatCurrencyCompact(lead.quote_value)}</div>
               </div>
               <div className="vip-bar-row">

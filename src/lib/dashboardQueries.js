@@ -157,7 +157,7 @@ export function fetchLeadsList(filters = {}) {
   // because searching parties/sites by ILIKE can match hundreds of ids and
   // blow up the request URL; one site stage would match a comparable number,
   // so pushing the join down to Postgres is both simpler and bounded here.
-  const sitesEmbed = siteStage ? 'sites!inner(nickname, locality, site_stage)' : 'sites(nickname, locality, site_stage)'
+  const sitesEmbed = siteStage ? 'sites!inner(nickname, locality, house_no, site_stage)' : 'sites(nickname, locality, house_no, site_stage)'
 
   let query = supabase
     .from('leads')
@@ -201,7 +201,12 @@ export function fetchClosureForecast() {
       supabase
         .from('leads')
         .select(
-          'id, current_stage, quote_value, closure_probability, estimated_close_date, owner_employee_id, parties!party_id(name), employees!owner_employee_id(name)',
+          // The sites embed is what lets a party-less lead be NAMED at all
+          // (src/lib/leadName.js falls through to the address, then the
+          // nickname). Without it this card printed a bare '(no party)' for a
+          // lead carrying a perfectly good address — the join is on the
+          // indexed leads.site_id FK, on a query already embedding two others.
+          'id, current_stage, quote_value, closure_probability, estimated_close_date, owner_employee_id, parties!party_id(name), sites(nickname, locality, house_no), employees!owner_employee_id(name)',
           { count: 'exact' }
         )
         .not('current_stage', 'in', '(won,lost)')
@@ -228,7 +233,7 @@ export function fetchLeadsForBreakdown() {
       supabase
         .from('leads')
         .select(
-          'id, external_reference_id, current_stage, order_value, site_id, owner_employee_id, source_type, quote_sent, quote_sent_at, rfq_raised, rfq_raised_at, quote_value, closure_probability, estimated_close_date, next_followup_date, created_at, parties!party_id(name), sites(nickname, locality, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)',
+          'id, external_reference_id, current_stage, order_value, site_id, owner_employee_id, source_type, quote_sent, quote_sent_at, rfq_raised, rfq_raised_at, quote_value, closure_probability, estimated_close_date, next_followup_date, created_at, parties!party_id(name), sites(nickname, locality, house_no, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)',
           { count: 'exact' }
         ),
       // speculativePages is DELIBERATELY NOT USED HERE — see the row-count
@@ -560,7 +565,7 @@ export function fetchLossReasons() {
           // DECISIONS.md's Phase 9 ruling. loss_reasons is append-only, so the
           // row survives the reopening and the table alone cannot tell you
           // whether the lead is still lost.
-          'id, lead_id, reason, competitor_name, lost_at, leads(current_stage, order_value, quote_value, owner_employee_id, parties!party_id(name), employees!owner_employee_id(name))',
+          'id, lead_id, reason, competitor_name, lost_at, leads(current_stage, order_value, quote_value, owner_employee_id, parties!party_id(name), sites(nickname, locality, house_no), employees!owner_employee_id(name))',
           { count: 'exact' }
         )
     )

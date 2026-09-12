@@ -14,6 +14,7 @@ import { dealValueFor } from '../lib/pipelineValue'
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageChipClass, attainmentTone } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
+import { leadDisplayName, leadSiteLabel } from '../lib/leadName'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
 import { roleLabel } from '../lib/roles'
@@ -83,7 +84,7 @@ function touchColor(days, gate = days) {
 }
 
 function leadTitle(lead) {
-  return lead.parties?.name ?? lead.sites?.nickname ?? lead.sites?.locality ?? `Lead #${lead.id}`
+  return leadDisplayName(lead)
 }
 
 function startOfISOWeek(date) {
@@ -831,7 +832,7 @@ function EmployeeProfile() {
                         <span className="vip-dd-age-bar" style={{ background: touchColor(days, gate) }} />
                         <span className="vip-dd-age-main">
                           <span className="vip-dd-age-party">{leadTitle(lead)}</span>
-                          <span className="vip-dd-age-last">{[lead.sites?.nickname || lead.sites?.locality, stageLabel(lead.current_stage ?? 'calling')].filter(Boolean).join(' · ')} · {nextStep}</span>
+                          <span className="vip-dd-age-last">{[leadSiteLabel(lead), stageLabel(lead.current_stage ?? 'calling')].filter(Boolean).join(' · ')} · {nextStep}</span>
                         </span>
                         <span className="vip-dd-age-side">
                           <span className="vip-dd-age-days" style={{ color: touchColor(days, gate) }}>

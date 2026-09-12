@@ -18,6 +18,7 @@ import { createFollowUp, markFollowUpDone } from '../lib/followUpQueries'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
+import { leadDisplayName } from '../lib/leadName'
 
 // The two free-text boxes on this form answer opposite questions, and reps
 // were mixing them up. These two strings are one teaching device and only
@@ -34,8 +35,7 @@ const NOTES_PLACEHOLDER =
 const FOLLOWUP_NOTE_PLACEHOLDER = 'e.g. Take the glass sample and quote'
 
 function leadLabel(lead) {
-  const place = lead.sites?.nickname || lead.sites?.locality
-  return lead.parties?.name ?? place ?? `Lead #${lead.id}`
+  return leadDisplayName(lead)
 }
 
 // Same derivation LeadDetail's Deal progress stepper and the
@@ -185,7 +185,7 @@ function ActivityLog() {
       // re-identify an exec they've already implicitly selected by opening
       // this specific lead's activity log.
       .select(
-        'id, current_stage, source_type, owner_employee_id, parties!party_id(name), sites(id, nickname, locality, site_stage), employees!owner_employee_id(id, name)'
+        'id, current_stage, source_type, owner_employee_id, parties!party_id(name), sites(id, nickname, locality, house_no, site_stage), employees!owner_employee_id(id, name)'
       )
       .eq('id', preselectedLeadId)
       .maybeSingle()

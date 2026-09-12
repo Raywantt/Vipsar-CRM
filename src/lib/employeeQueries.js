@@ -150,7 +150,7 @@ export function fetchActivityLogForEmployee(employeeId, limit = 20) {
   return supabase
     .from('activities')
     .select(
-      'id, activity_type, notes, created_at, lead_id, logged_by_employee_id, logged_by:employees!logged_by_employee_id(name, role), leads(parties!party_id(name), sites(nickname, locality))'
+      'id, activity_type, notes, created_at, lead_id, logged_by_employee_id, logged_by:employees!logged_by_employee_id(name, role), leads(parties!party_id(name), sites(nickname, locality, house_no))'
     )
     .eq('employee_id', employeeId)
     .gte('created_at', since.toISOString())

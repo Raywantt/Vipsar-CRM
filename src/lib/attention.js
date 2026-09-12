@@ -5,6 +5,7 @@ import { getInitials } from './initials'
 import { dealValueFor } from './pipelineValue'
 import { todayISO } from './followupDates'
 import { daysSince } from './dateMath'
+import { leadDisplayName } from './leadName'
 
 const CLOSED_STAGES = ['won', 'lost']
 
@@ -226,8 +227,11 @@ function leadValue(lead) {
   return dealValueFor(lead)
 }
 
+// How a lead is named is one rule for the whole app now — see
+// src/lib/leadName.js. This used to rank the nickname above the address and
+// print '(no party)' for a lead that had a real address on file.
 function partyLabel(lead) {
-  return lead.parties?.name ?? lead.sites?.nickname ?? lead.sites?.locality ?? '(no party)'
+  return leadDisplayName(lead)
 }
 
 // Shared row shape every bucket below produces — matches what

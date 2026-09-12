@@ -24,7 +24,7 @@ export function fetchUnseenAssignments(employeeId) {
   return supabase
     .from('notifications')
     .select(
-      'id, kind, lead_id, created_at, actor_employee_id, actor:employees!actor_employee_id(name), leads(id, current_stage, parties!party_id(name), sites(nickname, locality))'
+      'id, kind, lead_id, created_at, actor_employee_id, actor:employees!actor_employee_id(name), leads(id, current_stage, parties!party_id(name), sites(nickname, locality, house_no))'
     )
     .eq('kind', 'lead_assigned')
     .is('seen_at', null)

@@ -19,6 +19,7 @@ import NumPadInput from './NumPadInput'
 import { dealValueOrNull } from '../lib/pipelineValue'
 import EmployeeLink from './EmployeeLink'
 import { errorMessage } from '../lib/errorMessage'
+import { leadDisplayName, leadSiteLabel } from '../lib/leadName'
 
 // "touched today" / "Nd ago", turning "Nd silent" + red past STALE_DAYS —
 // same threshold attention.js already uses elsewhere, not a second
@@ -51,15 +52,17 @@ function recencyInfo(lead, lastActivityByLead) {
 const VALUE_DEBOUNCE_MS = 400
 const SEARCH_DEBOUNCE_MS = 350
 
+// Both of these are src/lib/leadName.js now, one rule for the whole app. The
+// Site column deliberately shows whatever the name DIDN'T take (leadSiteLabel),
+// so a lead named after its address doesn't print that address twice in one row
+// — which is what the old nickname-first pair did the moment address outranked
+// nickname.
 function partyLabel(lead) {
-  return lead.parties?.name ?? (lead.sites?.nickname || lead.sites?.locality) ?? '(no party)'
+  return leadDisplayName(lead)
 }
 
-// Desktop's dedicated Site column, now that Party/Site render separately
-// there instead of falling back into one combined line the way the mobile
-// list's single row still does.
 function siteLabel(lead) {
-  return lead.sites?.nickname || lead.sites?.locality || '—'
+  return leadSiteLabel(lead) ?? '—'
 }
 
 function formatValueChip(min, max) {
@@ -646,7 +649,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
                         )}
                         <span className="vip-lead-row-sub">
                           {[
-                            lead.sites?.nickname || lead.sites?.locality,
+                            leadSiteLabel(lead),
                             SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type,
                           ]
                             .filter(Boolean)
@@ -688,7 +691,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
               const siteStage = lead.sites?.site_stage
               return (
                 <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-leadrow vip-clickable">
-                  <span className="vip-leadrow-cell vip-leadrow-party">{lead.parties?.name ?? '(no party)'}</span>
+                  <span className="vip-leadrow-cell vip-leadrow-party">{partyLabel(lead)}</span>
                   <span className="vip-leadrow-cell">{siteLabel(lead)}</span>
                   <span className="vip-leadrow-cell">
                     <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />

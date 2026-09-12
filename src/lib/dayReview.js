@@ -6,6 +6,7 @@ import { stageChipClass } from './statusColors'
 import { ACTIVITY_LABELS } from './activityTypes'
 import { SOURCE_TYPE_LABELS } from './sourceTypeOptions'
 import { TONE_GOOD, TONE_BAD, TONE_NEUTRAL, TONE_WON } from './statusColors'
+import { leadDisplayName, leadNameTier, leadSiteLabel } from './leadName'
 
 // Pure shaping for the Day Review — takes the raw rows fetched by
 // dayReviewQueries.js and produces the per-exec table rows, the team totals,
@@ -14,19 +15,19 @@ import { TONE_GOOD, TONE_BAD, TONE_NEUTRAL, TONE_WON } from './statusColors'
 //
 // EVERYTHING IS ONE CALENDAR DAY. Nothing in this file aggregates wider.
 
-// The lead-naming fallback chain used everywhere else in this app.
+// The app-wide naming rule (src/lib/leadName.js), plus the one thing only this
+// screen has: a follow-up or activity can name a PARTY with no lead attached at
+// all (an Architect Meeting), so a bare party is tried before giving up on the
+// id — leadDisplayName knows nothing about that case and shouldn't.
 export function leadName(lead, fallbackParty) {
-  return (
-    lead?.parties?.name ||
-    lead?.sites?.nickname ||
-    lead?.sites?.locality ||
-    fallbackParty?.name ||
-    (lead?.id ? `Lead #${lead.id}` : '—')
-  )
+  if (!lead && fallbackParty?.name) return fallbackParty.name
+  if (lead && leadNameTier(lead) === 'id' && fallbackParty?.name) return fallbackParty.name
+  if (!lead) return '—'
+  return leadDisplayName(lead)
 }
 
 function siteName(lead) {
-  return lead?.sites?.nickname || lead?.sites?.locality || null
+  return leadSiteLabel(lead)
 }
 
 // A follow-up that's still open is only MISSED once its day is genuinely

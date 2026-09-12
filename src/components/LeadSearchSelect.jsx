@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { errorMessage } from '../lib/errorMessage'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
 import { stageLabel } from '../lib/leadStageOptions'
+import { leadDisplayName, leadSiteLabel } from '../lib/leadName'
 
 // Minimum typed characters before we hit the database, and how long we wait
 // after the last keystroke — the same values searchQueries.js uses, so every
@@ -21,12 +22,15 @@ const LOOKUP_CAP = 150
 const RESULT_CAP = 25
 
 const LEAD_COLUMNS =
-  'id, current_stage, source_type, party_id, parties!party_id(name, party_type), sites(id, nickname, locality, site_stage)'
+  'id, current_stage, source_type, party_id, parties!party_id(name, party_type), sites(id, nickname, locality, house_no, site_stage)'
 
+// The lead's own name (src/lib/leadName.js) plus whatever site descriptor the
+// name didn't already use, so a lead identified by its address doesn't read
+// "Model Town — Model Town".
 function leadLabel(lead) {
-  const who = lead.parties?.name ?? 'No client'
-  const where = lead.sites?.nickname || lead.sites?.locality || 'No site'
-  return `${who} — ${where} (${stageLabel(lead.current_stage ?? 'calling')})`
+  const who = leadDisplayName(lead)
+  const where = leadSiteLabel(lead)
+  return `${who}${where ? ` — ${where}` : ''} (${stageLabel(lead.current_stage ?? 'calling')})`
 }
 
 // Two-step search, the same shape searchQueries.js documents: resolve the term

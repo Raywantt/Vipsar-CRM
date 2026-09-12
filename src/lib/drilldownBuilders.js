@@ -24,6 +24,7 @@ import { computeFunnel } from '../components/SalesFunnelCard'
 import { dealValueFor } from './pipelineValue'
 import { daysSince } from './dateMath'
 import { getInitials } from './initials'
+import { leadDisplayName } from './leadName'
 
 const CLOSED_STAGES = ['won', 'lost']
 
@@ -406,7 +407,10 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
     logTitle: `${label} · ${rangeLabel} · most recent first`,
     log: inRange.slice(0, 40).map((r) => {
       const linkedLead = r.leads
-      const party = linkedLead?.parties?.name ?? r.parties?.name ?? '(no party)'
+      // An activity can be anchored on a PARTY with no lead at all (an
+      // Architect Meeting), so a bare party stands in where there is no lead
+      // to name — leadDisplayName (src/lib/leadName.js) owns the rest.
+      const party = linkedLead ? leadDisplayName(linkedLead) : (r.parties?.name ?? '(no party)')
       const stage = linkedLead?.current_stage ?? null
       // Office Day's meta is its hours now that "leads generated" is retired
       // from the form (2026-08-18) — the leads_generated fallback stays for
@@ -472,7 +476,7 @@ export function buildStageLeadsPanel({ breakdownLeads, stage, scopeLabel = 'Comp
       .sort((a, b) => dealValueFor(b) - dealValueFor(a))
       .map((l) => ({
         leadId: l.id,
-        party: l.parties?.name ?? l.sites?.nickname ?? '(no party)',
+        party: leadDisplayName(l),
         ownerId: l.owner_employee_id ?? null,
         owner: l.employees?.name ?? 'Unassigned',
         stage: stageLabel(l.current_stage ?? 'calling'),
@@ -538,7 +542,7 @@ function computePipelineScope(leads, stages, breakdownLeads, scopeLabel, noteSuf
     runningValue += leadValue
     return {
       leadId: l.id,
-      party: l.parties?.name ?? l.sites?.nickname ?? '(no party)',
+      party: leadDisplayName(l),
       stage: stageLabel(l.current_stage ?? 'calling'),
       chipClass: stageChipClass(l.current_stage ?? 'calling'),
       ownerId: l.owner_employee_id ?? null,
@@ -1278,7 +1282,7 @@ export function buildForecastPanel({ forecast, scopeLabel = 'Company' }) {
     })),
     fcRows: forecast.map((l) => ({
       leadId: l.id,
-      party: l.parties?.name ?? '(no party)',
+      party: leadDisplayName(l),
       sub: stageLabel(l.current_stage ?? 'calling'),
       ownerId: l.owner_employee_id ?? null,
       owner: l.employees?.name ?? 'Unassigned',
@@ -1410,7 +1414,7 @@ export function buildLossPanel({ lossReasons }) {
     .slice(0, 20)
     .map((row) => ({
       leadId: row.lead_id,
-      party: row.leads?.parties?.name ?? '(no party)',
+      party: row.leads ? leadDisplayName(row.leads) : '(no party)',
       reason: row.reason ?? 'other',
       ownerId: row.leads?.owner_employee_id ?? null,
       owner: row.leads?.employees?.name ?? 'Unassigned',

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { todayISO, addDays } from '../lib/followupDates'
+import { leadDisplayName, leadNameTier } from '../lib/leadName'
 import {
   FOLLOW_UP_OPEN,
   FOLLOW_UP_DONE,
@@ -58,22 +59,18 @@ function formatDueTime(timeStr) {
   return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 }
 
-// Same fallback chain every other lead-naming surface in this app uses
-// (client name → site nickname → locality), falling back to the follow-up's
-// own party for a party-only reminder.
+// The app-wide naming rule (src/lib/leadName.js), falling back to the
+// follow-up's OWN party for a party-only reminder — an Architect Meeting has no
+// lead to name.
 //
-// ⚠️ Any of these embeds can be null even when lead_id is set: a rep's
-// parties/sites SELECT is scoped to their own leads, so a reminder assigned
-// to them on someone else's lead resolves them to null rather than erroring.
-// `Lead #id` is the honest last resort, not a bug.
+// ⚠️ Those embeds can be null even when lead_id is set: a rep's parties/sites
+// SELECT is scoped to their own leads, so a reminder assigned to them on
+// someone else's lead resolves them to null rather than erroring. `Lead #id` is
+// the honest last resort, not a bug.
 function followUpLinkLabel(f) {
-  return (
-    f.leads?.parties?.name ??
-    f.leads?.sites?.nickname ??
-    f.leads?.sites?.locality ??
-    f.parties?.name ??
-    (f.lead_id ? `Lead #${f.lead_id}` : null)
-  )
+  if (f.leads && leadNameTier(f.leads) !== 'id') return leadDisplayName(f.leads)
+  if (f.parties?.name) return f.parties.name
+  return f.lead_id ? `Lead #${f.lead_id}` : null
 }
 
 // Rows the data migration created from an orphaned leads.next_followup_date.
