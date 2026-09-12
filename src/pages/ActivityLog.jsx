@@ -19,6 +19,20 @@ import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
 
+// The two free-text boxes on this form answer opposite questions, and reps
+// were mixing them up. These two strings are one teaching device and only
+// work together — the same subject (a revised quote for laminated glass)
+// written once in the past tense and once in the future. Don't reword one
+// without rewording the other.
+//
+// Keep the follow-up one SHORT. It is a single-line <input>: the fuller
+// sentence this started as MEASURED 575px against 316px of available width
+// at 375px, so more than half of it was invisible on exactly the phone this
+// form is built for. A placeholder cannot wrap. Re-measure if it grows.
+const NOTES_PLACEHOLDER =
+  'What happened just now. e.g. Client asked for a revised quote with laminated glass.'
+const FOLLOWUP_NOTE_PLACEHOLDER = 'e.g. Take the glass sample and quote'
+
 function leadLabel(lead) {
   const place = lead.sites?.nickname || lead.sites?.locality
   return lead.parties?.name ?? place ?? `Lead #${lead.id}`
@@ -576,7 +590,13 @@ function ActivityLog() {
         partyId: resolvedArchitect.id,
         activityType: 'other',
         title: `Follow up with ${resolvedArchitect.name}`,
-        notes: followupNote.trim() || notes.trim() || null,
+        // Deliberately does NOT fall back to the activity's own notes. It
+        // used to, which meant a rep who left the follow-up note blank got
+        // the story of the meeting they just had copied into the reminder
+        // for the next one — the app performing, at the data layer, exactly
+        // the mix-up the form is now shaped to prevent. Blank stays blank,
+        // same as the lead-anchored path below.
+        notes: followupNote.trim() || null,
         dueDate: nextFollowupDate,
       })
 
@@ -686,6 +706,51 @@ function ActivityLog() {
       </div>
     )
   }
+
+  // "What happened" then "what's next" — one grammar for every activity type.
+  // Reps were typing the story of the call into the follow-up note and the
+  // next action into Notes, because the future question used to be asked
+  // first and the only field carrying a real example was the follow-up one.
+  // The fix is three-part and all three parts matter: Notes now always comes
+  // first, the two placeholders name their own tense (see the constants at
+  // the top of this file), and the follow-up pair sits below a hairline rule
+  // so the two are visibly different regions rather than one column of
+  // boxes. Order alone would only change WHICH box collects the wrong text.
+  //
+  // Defined once rather than repeated in each branch: this markup used to be
+  // copy-pasted three times, which is the drift shape this codebase keeps
+  // paying for elsewhere (see BottomNav's nav gates).
+  //
+  // No heading and no explainer line, at the owner's direction — the rule
+  // alone marks the seam. .vip-next-step, not .vip-section-split: that rule
+  // is --vip-line-soft (#eef2f2), which is LIGHTER than this page's own
+  // background (#e6ebeb), so the hairline was invisible here even though it
+  // reads fine inside a white card elsewhere. Measured, not eyeballed.
+  const nextStepBlock = (
+    <div className="vip-next-step vip-stack-s">
+      <label className="vip-field">
+        Next follow-up <span className="vip-field-hint">optional</span>
+        <input
+          className="vip-input"
+          type="date"
+          value={nextFollowupDate}
+          onChange={(e) => setNextFollowupDate(e.target.value)}
+        />
+      </label>
+      {nextFollowupDate && (
+        <label className="vip-field">
+          What's the follow-up for? <span className="vip-field-hint">optional</span>
+          <input
+            className="vip-input"
+            type="text"
+            value={followupNote}
+            onChange={(e) => setFollowupNote(e.target.value)}
+            placeholder={FOLLOWUP_NOTE_PLACEHOLDER}
+          />
+        </label>
+      )}
+    </div>
+  )
 
   return (
     <form className="vip-form vip-narrow vip-pad-sticky-footer" onSubmit={handleSubmit}>
@@ -800,51 +865,23 @@ function ActivityLog() {
 
       {isSiteVisit ? (
         <>
-          <label className="vip-field">
-            Notes
-            <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Short note" />
-          </label>
-
+          {/* Facts about the visit that happened, then what happened, then
+              what's next. Site stage and Accompanied by moved above Notes so
+              every branch reads the same way; Accompanied by in particular
+              used to sit BELOW the follow-up, which put a fact about the past
+              after a question about the future. */}
           {selectedLead?.sites?.id && (
-            <>
-              <label className="vip-field">
-                Site stage <span className="vip-field-hint">optional</span>
-                <select className="vip-select" value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
-                  <option value="">— Not specified —</option>
-                  {SITE_STAGE_OPTIONS.map((stage) => (
-                    <option key={stage} value={stage}>
-                      {stage}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
-
-          {selectedLead && (
-            <>
-              <label className="vip-field">
-                Next follow-up <span className="vip-field-hint">optional</span>
-                <input
-                  className="vip-input"
-                  type="date"
-                  value={nextFollowupDate}
-                  onChange={(e) => setNextFollowupDate(e.target.value)}
-                />
-              </label>
-              {nextFollowupDate && (
-                <label className="vip-field">
-                  What's the follow-up for? <span className="vip-field-hint">optional</span>
-                  <input
-                    className="vip-input"
-                    type="text"
-                    value={followupNote}
-                    onChange={(e) => setFollowupNote(e.target.value)}
-                    placeholder="Chase the revised quote, client wants laminated glass"
-                  />
-                </label>
-              )}
-            </>
+            <label className="vip-field">
+              Site stage <span className="vip-field-hint">optional</span>
+              <select className="vip-select" value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
+                <option value="">— Not specified —</option>
+                {SITE_STAGE_OPTIONS.map((stage) => (
+                  <option key={stage} value={stage}>
+                    {stage}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
 
           <label className="vip-field">
@@ -860,6 +897,13 @@ function ActivityLog() {
                 ))}
             </select>
           </label>
+
+          <label className="vip-field">
+            Notes
+            <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={NOTES_PLACEHOLDER} />
+          </label>
+
+          {selectedLead && nextStepBlock}
         </>
       ) : isOfficeDay ? (
         <>
@@ -925,32 +969,11 @@ function ActivityLog() {
       ) : isArchitectMeeting ? (
         <>
           <label className="vip-field">
-            Next follow-up <span className="vip-field-hint">optional</span>
-            <input
-              className="vip-input"
-              type="date"
-              value={nextFollowupDate}
-              onChange={(e) => setNextFollowupDate(e.target.value)}
-            />
-          </label>
-
-          {nextFollowupDate && (
-                <label className="vip-field">
-                  What's the follow-up for? <span className="vip-field-hint">optional</span>
-                  <input
-                    className="vip-input"
-                    type="text"
-                    value={followupNote}
-                    onChange={(e) => setFollowupNote(e.target.value)}
-                    placeholder="Chase the revised quote, client wants laminated glass"
-                  />
-                </label>
-              )}
-
-          <label className="vip-field">
             Notes
-            <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Short note" />
+            <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={NOTES_PLACEHOLDER} />
           </label>
+
+          {nextStepBlock}
         </>
       ) : (
         <>
@@ -1014,36 +1037,20 @@ function ActivityLog() {
                   />
                 </label>
               )}
-              <label className="vip-field">
-                Next follow-up <span className="vip-field-hint">optional</span>
-                <input
-                  className="vip-input"
-                  type="date"
-                  value={nextFollowupDate}
-                  onChange={(e) => setNextFollowupDate(e.target.value)}
-                />
-              </label>
-              {nextFollowupDate && (
-                <label className="vip-field">
-                  What's the follow-up for? <span className="vip-field-hint">optional</span>
-                  <input
-                    className="vip-input"
-                    type="text"
-                    value={followupNote}
-                    onChange={(e) => setFollowupNote(e.target.value)}
-                    placeholder="Chase the revised quote, client wants laminated glass"
-                  />
-                </label>
-              )}
             </>
           )}
 
+          {/* Notes before the follow-up, for every type. The facts above are
+              about the activity; this is what happened during it; the Next
+              step block below is the only future-tense thing on the form. */}
           {activityType && (
             <label className="vip-field">
               Notes
-              <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Short note" />
+              <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={NOTES_PLACEHOLDER} />
             </label>
           )}
+
+          {selectedLead && nextStepBlock}
         </>
       )}
 

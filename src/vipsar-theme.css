@@ -3042,3 +3042,24 @@ a.vip-day-log-party:hover { text-decoration: underline; }
 @media (max-width: 519.98px) {
   .vip-assigned-row .vip-chip { display: none; }
 }
+
+/* ===========================================================================
+   28. LOG ACTIVITY — "Next step" block
+   ---------------------------------------------------------------------------
+   The follow-up date and its note, separated from everything above them.
+   Reps were typing what had just happened into the follow-up note and the
+   next action into Notes, so the form now reads strictly past-then-future
+   and this rule is the visible seam between the two halves.
+
+   --vip-line, NOT --vip-line-soft (which .vip-section-split uses). That token
+   is #eef2f2, lighter than this form's own background (#e6ebeb, --vip-canvas-2
+   showing through a transparent form), so the hairline rendered invisible
+   here while reading correctly inside a white card. Measured against the
+   computed background, not judged by eye. Both values come from tokens, so
+   section 22 repaints this for dark mode without an override.
+   ========================================================================= */
+.vip-next-step {
+  border-top: 1px solid var(--vip-line);
+  padding-top: 14px;
+  margin-top: 2px;
+}
