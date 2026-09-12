@@ -24,6 +24,7 @@ import { todayISO } from '../lib/followupDates'
 import { SOURCE_TYPE_LABELS as SOURCE_LABELS } from '../lib/sourceTypeOptions'
 import { attachFirms, linkPartiesAsSiteContacts } from '../lib/partyQueries'
 import { summariseRfqHistory } from '../lib/rfqKind'
+import { withSelfAssignTestOption } from '../lib/selfAssignTest'
 
 // Was a fourth hand-rolled copy of the source labels, which had already
 // drifted ('Other referral' vs the shared list's own wording). One list now —
@@ -712,7 +713,12 @@ function LeadDetail() {
     // lead backwards via a detour through On hold. Same derivation the Deal
     // progress stepper uses above.
     pausedAtStage: isOnHold ? effectiveStage : null,
-    activeSalesExecs,
+    // ⚠️ TEMPORARY (2026-09-12): adds the logged-in OWNER to the reassign
+    // dropdown as "<name> (me — TEST)", so the assignment push notification
+    // can be tested end to end on their own phone. Returns the roster
+    // untouched for every other role, and for the owner too once the flag in
+    // src/lib/selfAssignTest.js is turned off — which is the entire removal.
+    activeSalesExecs: withSelfAssignTestOption(activeSalesExecs, employee),
     onStageChanged: handleStageChanged,
     onFollowUpSaved: handleFollowUpSaved,
     onOwnerReassigned: (updatedLead, historyRow) => {

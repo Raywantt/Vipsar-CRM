@@ -257,7 +257,10 @@ src/
                 UpdateBanner — the held-back half of the auto-update flow, see
                 the Auto-update section, FollowUpForm, FollowUpList,
                 FabSheet — the mobile shell's FAB bottom sheet, see the
-                Mobile redesign section, NumPadInput — the mobile-only
+                Mobile redesign section,
+                AssignedLeadsCard — "a lead was assigned to you", mounted inside
+                TodayGreetingHeader so all four Today screens get it from one
+                place, see the Lead assignment notifications section, NumPadInput — the mobile-only
                 on-screen numeric keypad, see the Numeric keypad section,
                 TodayGreetingHeader — the greeting bar shared by all four
                 Today screens, see the Today section,
@@ -304,6 +307,10 @@ src/
                 one correct way to parse a timestamp out of this schema
                 (see the Day Review section),
                 followUpQueries.js, followupDates.js, pushSubscription.js,
+                notificationQueries.js — reads the trigger-written notifications
+                table and asks the Edge Function to flush pending pushes;
+                selfAssignTest.js — the owner-self-assign push test switch,
+                OFF by default, see the Lead assignment notifications section —
                 appUpdate.js — the auto-update engine; decideReload() is the one
                 place deciding whether a new build may reload the page out from
                 under whoever is using it, see the Auto-update section —
@@ -2457,6 +2464,159 @@ automated browser can't grant real OS-level notification permission (same
 class of limitation already noted for `InstallPrompt`'s iOS hint), so
 everything up to and including the `push_subscriptions` write was verified,
 but the live end-to-end push send needs a real phone once this ships.
+
+### Lead assignment notifications (`notifications` table)
+
+When a lead changes hands, the person **receiving** it is told — on their
+phone, and inside the app. Built 2026-09-12 at the owner's request. Before
+this, a reassignment was completely silent to the new owner:
+`lead_owner_history` recorded it and the Deal owner rail showed it to anyone
+who happened to open that lead, which is not the same as telling somebody.
+A rep could be carrying a lead for a week without knowing it was theirs.
+
+**Only the new owner is notified** (the owner's choice over also telling the
+previous one). Reassignment only — creating a lead for somebody, which a
+coordinator does routinely, deliberately does not fire this.
+
+* **The row is written by a Postgres trigger, never by app code.**
+  `Schema/migration_lead_assignment_notifications.sql` adds a `notifications`
+  table and `lead_assignment_notification`, an `AFTER UPDATE OF
+  owner_employee_id` trigger on `leads`. Same reasoning as `lead_change_log`,
+  and not hypothetical: `owner_employee_id` is written from
+  `LeadQuickActions` today, but `Schema/fix_reassign_aanchal_leads.sql` shows
+  reassignment also happens as hand-written SQL, and the Supabase table editor
+  is always a path. The first call site anyone forgets is a rep who is never
+  told they own a lead.
+* **Bulk reassignments must opt out, or one UPDATE touching 200 leads sends
+  200 pushes.** Wrap them in `SET LOCAL app.skip_assignment_notifications =
+  'on'` — `SET LOCAL`, so it expires with the transaction. The Edge Function
+  also caps itself at `ASSIGNMENT_BATCH_LIMIT` (50) per run, so a forgotten
+  opt-out is a trickle somebody can notice and stop rather than a phone that
+  will not stop buzzing.
+* **`notified_at` and `seen_at` are independent, and that is the point.** The
+  first means a push went out; the second means the recipient acknowledged it
+  in the app. A rep who denied notification permission never gets a
+  `notified_at` and must still be able to see and clear the card.
+* **`notifications` has no INSERT policy for anyone**, and `REVOKE ALL` runs
+  before its grants — a new table on this instance arrives broadly writable
+  (see the Conventions bullet on STEP A of `rls_policies.sql`), and a client
+  that could insert here could fabricate a "you have been assigned a lead"
+  alert for a colleague. SELECT/UPDATE/DELETE are own-row with **no
+  owner-role exception even on read**, same shape `push_subscriptions` uses.
+  `service_role` is granted explicitly, without which the Edge Function fails
+  with a plain "permission denied".
+
+**Delivery is instant AND scheduled, deliberately both.** The already-deployed
+`send-followup-reminders` Edge Function gained a second drain
+(`drainAssignments`), so this needed **no new cron job**. `LeadQuickActions`
+additionally calls it with `{ only: 'assignments' }` the moment a
+reassignment succeeds, which lands the push in about a second instead of
+waiting out the 5-minute interval. That call is **never awaited and its
+result is never read** — the lead has already changed hands, the cron is the
+guarantee, and a slow Edge Function must not hold up the UI. The two racing
+is harmless: the drain is idempotent and stamps `notified_at` on whatever it
+sends, so whichever arrives first does the work.
+
+⚠️ **The function's NAME is now wrong and must stay wrong.** It really sends
+two kinds of notification, but renaming it changes the invoke URL and would
+silently break the configured cron — a scheduled POST to a 404 fails quietly
+and follow-up reminders simply stop.
+
+**The in-app card** (`AssignedLeadsCard.jsx`) is not a nicety. Push is the
+only signal that reaches a pocketed phone and also the easiest one to never
+receive: a rep who declined the permission gets nothing, and **on an iPhone
+web push does not work at all unless the CRM is installed to the home
+screen** — which is most of this team. It is mounted **inside
+`TodayGreetingHeader.jsx`**, not separately by each of the four Today
+screens: four call sites is exactly the drift this codebase keeps paying for,
+and a fifth Today screen would ship without it with nothing failing to say
+so. It returns null when there is nothing to show, so no screen pays for it
+otherwise. Teal, not amber or red — being handed a lead is work arriving, not
+an alert; amber and red already mean overdue and lost everywhere else here.
+
+`src/sw.js`'s push handler gained pass-through `tag` (repeats about one lead
+collapse into a single banner) and `requireInteraction` (Android keeps the
+banner up until the rep deals with it). Both are undefined for a follow-up
+reminder, so reminders behave exactly as before. iOS ignores
+`requireInteraction`, which is the other half of why the in-app card exists.
+
+**`src/lib/selfAssignTest.js` — OFF since 2026-09-12, and it should stay
+off.** "Reassign owner" offers `fetchActiveSalesExecs()`, which is
+`CARRIES_OWN_LEADS` only, so an `owner` is correctly absent — which also left
+the owner no way to send themselves a lead and watch the notification arrive
+on their own phone. `withSelfAssignTestOption` appends the logged-in owner to
+that one dropdown as `"{name} (me — TEST)"`; `SELF_ASSIGN_TEST_ENABLED` is
+the whole switch, and its only consumer is `LeadDetail.jsx`. It was turned
+off the moment a real push was confirmed on a real handset, and **verified
+off in the live UI rather than assumed** — the reassign list is back to
+exactly its 9 real reps, with no owner entry and nothing labelled TEST.
+
+**It is deliberately kept rather than deleted.** The next time push needs
+proving — a new handset, a rep who cannot get notifications working, a change
+to the payload — flipping the flag is the whole of re-enabling it, and
+re-deriving *why* an owner is excluded from that roster is the expensive part,
+not the six lines of code. `selfAssignTest.test.js` reads the flag rather than
+assuming a value, so the suite is green in both states; a red test meaning
+only "the affordance is correctly disabled" would train people to ignore it.
+
+Turning it on does **not** make the owner a rep: they still do not appear in
+the heatmap, Day Review, Set-a-target, the ranking or All Leads' owner filter,
+so a lead parked on the owner is invisible to every per-rep report until
+handed back. That is why it is a test affordance and not a product change —
+and why anything parked there during a test must be handed back before the
+flag goes off again.
+
+**Verified live 2026-09-12** (owner session, port 5181, desktop 1440px and
+375px, light and dark): the TEST option renders last in the reassign list and
+nowhere else; the card renders three assignments with correct relative times
+(3m / 3h / yesterday — which is also the check that `parseTimestamp` is
+handling the naive `TIMESTAMP`, since getting it wrong reads every
+assignment 5½ hours older); a long site-address lead name ellipsises instead
+of pushing the stage chip off the row; a lead the viewer can no longer read
+falls back to "Lead #id" with no chip; row-click navigates to the lead and
+acknowledges it; "Got it" clears the card; zero page overflow at either
+width; and dark mode repaints entirely through tokens with no hardcoded
+colour. Contrast, light/dark: title 15.53 / 12.36, lead name 18.27 / 13.47,
+the "Got it" action 7.62 / 5.78. The 11px meta sub-line measures **4.32 in
+light**, marginally under 4.5 — it is `--vip-muted` on `--vip-surface`, the
+same pairing every other muted sub-line in this app already uses, so it was
+left matching the house standard rather than made inconsistent here.
+
+**⚠️ THE EDGE FUNCTION NEEDS CORS HEADERS, AND THAT IS NOT OPTIONAL — a real
+bug, found by invoking it rather than by reading it.** The cron calls this
+function server to server and never needed them, but `LeadQuickActions`
+calls it from a browser, and supabase-js sends an `Authorization` header,
+which makes that a cross-origin request the browser **preflights with
+OPTIONS** first. The first deploy had no `Access-Control-Allow-Origin` and no
+OPTIONS branch, so the preflight was rejected and the instant call never
+happened at all: *"Response to preflight request doesn't pass access control
+check"*. `CORS_HEADERS` and an early OPTIONS return fixed it. **The OPTIONS
+branch must return before any work is done**, or every browser call runs the
+drain twice. Origin `*` is deliberate: the function verifies a JWT, and even
+a caller holding one can only ask it to flush notifications a trigger already
+decided to create.
+
+**It failed safe, which is the design working rather than luck** — the
+instant call is only a speed-up, so with it broken the scheduled run still
+delivered everything a few minutes later. That is why this was a delay and
+not a lost notification. Worth remembering as the shape: a browser-invoked
+Edge Function in this project needs CORS; a cron-invoked one does not, and
+the two look identical in the source.
+
+**Verified live 2026-09-12, end to end, against the real database and the
+deployed function.** Reassigning test lead #159 through the real UI wrote
+notification id 1 with the right recipient, actor and lead; the card rendered
+it on Today; and **`notified_at` was stamped 2.3 seconds after `created_at`**,
+which is the instant path proving itself — the app invoked the function, it
+found the row, and a real push service accepted the send for a really
+subscribed device. The lead was restored to owner 26 and the test row deleted
+afterwards.
+
+**Still NOT verified: that the push actually rendered on a phone.** The send
+was accepted, which is as far as this sandbox can see; whether the banner
+appeared on the handset only its owner can confirm. Also unexercised: the
+`app.skip_assignment_notifications` suppression, and the whole feature for any
+role other than `owner`.
 
 ### ActivityLog (`src/pages/ActivityLog.jsx`)
 
@@ -5369,6 +5529,7 @@ Detail produced a correctly attributed log row that renders on the day sheet.
 - **✅ `Schema/migration_targets_unique.sql` was RUN LIVE 2026-09-04**, same day it was written, and is no longer outstanding. It cleaned up the two duplicate-target groups found live (an employee ending up with several conflicting `targets` rows for the same employee/period/metric, because "Set a target" had always been a plain INSERT with no existing-row check) and added a `UNIQUE (employee_id, period_type, period_value, metric_name)` constraint. Verified behaviourally, not just by the migration's own STEP 0/verification queries (which the owner ran and confirmed matched the file's predicted output exactly): `targets` dropped from 18 rows to 15 with zero duplicate groups remaining; employee 33's week `order_value` target is now the single row the owner confirmed as correct (id 139, ₹50L — the highest id, i.e. the most recently created of the three); and `insertTarget()`'s `.upsert(..., { onConflict: 'employee_id,period_type,period_value,metric_name' })` (`src/lib/targetQueries.js`, see the Targets vs. actuals section) was exercised directly against the live database and now succeeds, updating that same row rather than erroring or inserting a new one. The Sales Exec Profile heatmap was reloaded and confirmed reading the corrected target live: Vipul Sharma's Order value cell now reads `19% · ₹9.4/50L`, where it read `38% · ₹9.4/25L` before the fix (same actual, correct target, correct attainment). Safe to re-run (the `DELETE` only ever removes a row with a higher-id sibling in its own group, so a second run deletes 0 rows now that the data is clean; the constraint uses `DROP CONSTRAINT IF EXISTS` first).
 - **✅ `Schema/migration_targets_team_write.sql` IS LIVE — proven behaviourally 2026-09-11, as a real `sales_coordinator` AND a real `sales_manager`, which is exactly the check this entry used to say was the only possible one.** It was marked OUTSTANDING here from 2026-09-07; that was stale. A coordinator (`sc`, id 25) saved a Call target for their own team's exec (id 26) and a manager (`sm`) saved an RFQ Raised target for the same exec — both succeeded with **no 42501**, and both rows were read back out of `targets` to confirm they really landed rather than merely appearing to. An owner's write could not have shown this (it succeeds through the owner branch regardless), and neither could the SQL Editor (it runs as `postgres` with BYPASSRLS and no `auth.uid()`). Both test rows were deleted afterwards, from an owner session — note `targets` DELETE is owner-only, so neither role can clean up after itself. The original description follows. — adds `coordinator_team_insert`/`coordinator_team_update` and `manager_team_insert`/`manager_team_update` policies on `targets`, so a `sales_coordinator`/`sales_manager` can actually save a target for one of their own team's execs (see the Dashboard section's "Set a target" bullet). Closes a real gap, not a hypothetical one: `SetTargetForm.jsx`'s "+ Set a target" button has rendered for both roles since `seesOthersData` grew to include them during the Sales Manager build (2026-09-03) — `targets`' RLS never followed. Both roles already have a team-scoped SELECT policy on `targets` (`migration_sales_coordinator.sql`/`migration_sales_manager.sql`), so the heatmap already shows a team's existing targets correctly today; only INSERT/UPDATE were missing, so before this ran, tapping "Set" failed with a 42501 RLS denial, surfaced inline like any other save error. Also rewrites the two existing `*_team_select` policies on `targets` into the `(select current_employee_role()) = '<role>' AND (select helper(...))` form the two 2026-09-07 performance migrations established, purely for consistency — `targets` is far too small a table for the per-row cost that form avoids to matter here. Safe to re-run (`DROP POLICY IF EXISTS` before every `CREATE POLICY`). Independent of both 2026-09-07 performance migrations (neither touches `targets`); must run after `migration_sales_coordinator.sql`/`migration_sales_manager.sql` (both already live), which it's guaranteed to since it only reuses their `is_my_team_member()`/`is_my_managed_member()` helpers rather than redefining them. (That verification has now been done — see the ✅ note at the top of this bullet.)
 - **⚠️ `Schema/migration_manager_reassign_any_employee.sql` is OUTSTANDING (written 2026-09-07, not yet run against the live database)** — widens `leads`' `manager_team_update` policy so a `sales_manager` can reassign a lead they can already reach (their own, or their team's) to **any active exec in the company**, not just their own team — see the Sales Manager section's "Known gaps, not oversights" paragraph. Reported directly by the owner: the "Reassign owner" dropdown already lists every active rep, but picking one outside the manager's team was silently refused by the database. **Deliberately narrow — no visibility change**: only the `WITH CHECK` (which employee a lead may be handed *to*) is widened; `USING` (which leads a manager may touch at all) is untouched, so `manager_team_select`/`own_data_or_owner_role_select` still scope a manager to their own leads plus their team's, exactly as before. A wider version — making `leads` SELECT itself unconditional for managers, so they could find a non-team lead in the first place, fully matching the owner — was drafted and explicitly rejected in favor of this narrower fix, since it would have made All Leads and Search go company-wide for a manager too. The new `WITH CHECK` is just `(SELECT current_employee_role()) = 'sales_manager'` — the role guard is load-bearing, not decorative: WITH CHECK clauses are OR'd across every applicable policy regardless of which policy's USING matched, so an unconditional `WITH CHECK (true)` here would have silently handed every OTHER role (a sales_executive reassigning their own lead, for instance) the same unrestricted right the instant their own policy's USING let them touch a row. Builds on top of the `(SELECT ...)`-wrapped form `migration_rls_performance_leads_stage_history.sql` already produced for this exact policy, so it **must run after both `migration_sales_manager.sql` and `migration_rls_performance_leads_stage_history.sql`** (both already live) — and if either of those two is ever re-run afterward, it will silently revert this widening back to team-only, the same reversion hazard `migration_lead_edit_rights.sql` already documents for its own relationship to `migration_sales_coordinator.sql`; re-run this file again to restore it. Safe to re-run (`DROP POLICY IF EXISTS`). Doesn't touch `lead_owner_history` (its INSERT policy is already open to any active employee, so reassignment history-logging to an outside-team target already works) or `enforce_manager_lock()` (already permits `owner_employee_id` as an allowed column on a non-own lead, and never checked the new owner's team membership to begin with). **Confirm this has actually run, then verify as a real logged-in sales_manager — never from the SQL Editor** (see the migration's own VERIFY section for why) **— before relying on cross-team reassignment working.**
+- **✅ `Schema/migration_lead_assignment_notifications.sql` was RUN LIVE 2026-09-12** (by the owner, same day it was written) **and the Edge Function was redeployed with it** — creates the `notifications` table, the `lead_assignment_notification` trigger on `leads`, its RLS policies and its grants, so the new owner of a reassigned lead actually gets told (see the Lead assignment notifications section above). **Verified behaviourally from a real owner session, not by introspection** — which matters here, because creating a trigger proves it exists, not that it fires: reassigning test lead **#159** through the real UI produced notification id 1 with `kind: lead_assigned`, `lead_id: 159`, recipient 3 and `actor_employee_id` 3, and the card on Today rendered it as "Stage Rule Test Site · Assigned by Raywant · just now". The lead was restored to its original owner (26) and the owner's own notification row deleted afterwards. **Independent of every other migration** in the folder — it adds a new table and a new trigger, touches no existing policy, function or constraint, and composes with the existing `BEFORE UPDATE` triggers on `leads` by construction (Postgres fires BEFORE first and AFTER only on a successful row update, the ordering `migration_lead_change_log.sql` documents for itself). Safe to re-run. **Two things it leaves behind that are worth knowing.** Restoring a lead's owner fires the trigger again, for the *other* person — and `notifications` SELECT/DELETE are own-row with no owner exception, so an owner cannot see or clean up a row addressed to somebody else; that needs the SQL Editor. And `lead_owner_history` is append-only, so a there-and-back test reassignment leaves two permanent, accurate history entries on the lead. Neither is a defect; both are the point of those tables. **The suppression path (`SET LOCAL app.skip_assignment_notifications = 'on'`, which every bulk reassignment needs) has NOT been exercised** — the migration's own VERIFY section has the reversible in-transaction check for it.
 - **⚠️ `Schema/migration_architects_universal_visibility.sql` is OUTSTANDING (written 2026-09-10, not yet run against the live database)** — makes `party_type IN ('architect','firm')` visible to every active employee regardless of team/lead ownership, via a new additive `architect_firm_universal_select` policy on `parties` — the owner's direct request ("make architects universally visible and accessible for all the employees"), after confirming scope covers firms too (not architects alone) so the Firm picker works company-wide. **Deliberately does not widen edit rights to match** — the owner's explicit ruling was "they can edit their own ones, but universally only owner can edit" — so `own_data_or_owner_role_update` (creator-or-owner) is untouched, and `coordinator_team_update` on `parties` is narrowed (STEP 2) to exclude architect/firm rows, closing the one path that used to let a coordinator edit an architect/firm they didn't create just because it was linked to their team's lead. `sales_manager` gets no new edit right either — checked, and they already had no team-scoped UPDATE policy on `parties` to narrow. See CLAUDE.md's Design system section, the "A sales exec's `parties`/`sites` read is now scoped to their own leads" bullet, for the cross-reference. No app-code change needed — every party picker/search already queries `parties` directly with no client-side team filtering, so this is purely RLS-driven. Safe to re-run (`DROP POLICY IF EXISTS` before every `CREATE POLICY`). **Must run after `migration_rls_performance_parties_sites_activities.sql`** (already live) — STEP 2 replaces the exact `coordinator_team_update` policy that file produced; re-running that file or `migration_coordinator_entry.sql` afterward silently reverts the narrowing, same reversion hazard every other layered RLS migration in this file documents for itself — re-run this file again to restore it. **Confirm this has actually run, then verify as a real logged-in sales_executive and sales_coordinator — never from the SQL Editor** (see the migration's own VERIFY section for why) **— before relying on architects being cross-team visible or on the coordinator edit-narrowing actually holding.**
 - **✅ `Schema/migration_search_trgm_indexes.sql` was RUN LIVE 2026-09-04**, same day it was written, as part of the CRM-wide performance pass. Enables the `pg_trgm` extension and adds 6 GIN trigram indexes — `parties(name)`, `parties(mobile)`, `sites(nickname)`, `sites(locality)`, `sites(house_no)`, `employees(name)` — so the leading-wildcard `ILIKE '%term%'` every search box in the app uses (`Search`, `PartySearchOrCreate`, `SiteSearchOrCreate`, `LeadSearchSelect`, `resolveLeadsSearchFilter`) no longer forces a full sequential scan on every keystroke (1,358 `parties` rows, 1,206 `sites` rows at the time this ran). The plain B-tree indexes on `parties(name)`/`parties(mobile)` are untouched, still there for exact-match lookups. Not independently re-verified by introspection in this session (the user ran it and confirmed completion) — the migration's own STEP-3 `EXPLAIN ANALYZE` query is there for a future session to confirm the planner is actually choosing the trigram index over a sequential scan, if search ever feels slow again.
 - **✅ `Schema/migration_date_range_indexes.sql` was RUN LIVE 2026-09-05 and verified by introspection** — the migration's own `pg_indexes` verification query was run in the SQL Editor and returned both `idx_activities_created_at` and `idx_leads_created_at`, so the indexes definitively exist. Also confirmed live from an owner session: both query shapes still return correct results afterwards (activities/leads over week/month/quarter ranges, 80–643 rows, no errors) — no regression. **Still not proven, and deliberately not chased: that the planner actually *chooses* them.** That needs `EXPLAIN ANALYZE` (PostgREST exposes neither that nor `pg_indexes`, so it can't come from the app), and at ~900 `activities` rows Postgres may quite reasonably prefer a sequential scan anyway — which would be correct behaviour, not a fault. The benefit here is about growth rather than today: these are what stop a whole-table scan becoming the norm on every Dashboard preset click as the tables grow. The migration's STEP-2 `EXPLAIN ANALYZE` is there if a future session wants that last piece. Part of the same performance pass as `migration_search_trgm_indexes.sql`. Adds two plain B-tree indexes, `activities(created_at)` and `leads(created_at)`, closing a gap the existing `idx_activities_employee`/`idx_leads_created_by_at` composite indexes don't cover: `fetchActivityCounts()`/`fetchNewLeadsBySource()` (`src/lib/dashboardQueries.js`) filter by date range ALONE, with no employee/owner column in the query at all, and re-run on every Dashboard preset click (Week/Month/Quarter/Custom). For a sales exec RLS's implicit `employee_id = current_employee_id()` predicate still lets the existing composite indexes help; for the **owner** — whose "own data or owner role" RLS check is true for every row regardless of employee_id — neither composite index has a usable leading column, so every preset change was a sequential scan of the whole `activities`/`leads` table. Nothing in the app or RLS depends on this; it's purely additive. Safe to re-run (`IF NOT EXISTS`), independent of every other migration in this folder.

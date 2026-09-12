@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { insertLeadOwnerHistory } from '../lib/leadOwnerHistory'
+import { requestAssignmentPush } from '../lib/notificationQueries'
 import LeadStageSection from './LeadStageSection'
 import FollowUpForm from './FollowUpForm'
 import { errorMessage } from '../lib/errorMessage'
@@ -105,6 +106,19 @@ function LeadQuickActions({
       setOwnerChoice(oldOwnerId ?? '')
       return
     }
+
+    // Tell the new owner, now. The notifications row already exists at this
+    // point — the lead_assignment_notification trigger wrote it inside the
+    // UPDATE above, which is precisely why this cannot be missed by a screen
+    // that forgets to call something (see the migration's WHY A TRIGGER
+    // note). All this does is ask the push sender to flush it immediately
+    // rather than on its next 5-minute pass.
+    //
+    // NOT awaited, and its result is never read. The reassignment has already
+    // committed; the scheduled run is the guarantee and this is only the
+    // speed-up, so a slow or failed Edge Function must not hold up the UI or
+    // surface an error for something that already worked.
+    requestAssignmentPush()
 
     const { data: historyRow, error: historyError } = await insertLeadOwnerHistory({
       leadId: lead.id,

@@ -2967,3 +2967,78 @@ a.vip-day-log-party:hover { text-decoration: underline; }
    No layout of its own beyond .vip-dd-panel's flex column gap — this class
    exists purely as the styling hook for the trigger/confirm-row markup. */
 .vip-dd-cancel-target { display: flex; flex-direction: column; }
+
+/* ---------- 28. "A lead was assigned to you" (AssignedLeadsCard.jsx) ------
+   The in-app half of the lead-assignment notification, mounted inside
+   TodayGreetingHeader so all four Today screens carry it from one place.
+
+   Built entirely from tokens, with no dark-mode block of its own and no
+   literal colour anywhere — which is not tidiness, it is the rule section 22
+   depends on. 22 only redefines :root tokens, so it cannot reach a hex
+   written after it; every value here resolves through a token that 22 already
+   swaps, so the card repaints for dark for free.
+
+   Teal, not amber or red: being handed a lead is work arriving, not an alert
+   about something going wrong. Amber and red already mean overdue and lost
+   everywhere else in this app, and borrowing either here would make a routine
+   handover read as a problem. */
+.vip-assigned-card {
+  background: var(--vip-teal-soft);
+  border: 1px solid var(--vip-teal);
+  border-radius: var(--vip-r-card);
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.vip-assigned-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.vip-assigned-title {
+  font-family: var(--vip-display); font-weight: 600; font-size: 15px;
+  color: var(--vip-ink); line-height: 1.25;
+}
+.vip-assigned-dismiss {
+  flex: 0 0 auto; background: none; border: 0; padding: 4px 2px;
+  font: inherit; font-size: 12px; font-weight: 600;
+  color: var(--vip-teal-dark); cursor: pointer; white-space: nowrap;
+}
+.vip-assigned-dismiss:disabled { opacity: .5; cursor: default; }
+
+.vip-assigned-rows { display: flex; flex-direction: column; gap: 6px; }
+
+/* A whole row is the tap target, so nothing inside it is a separate link —
+   the stage chip and chevron are plain spans. Same reason MyTeam's card is
+   one <Link> rather than a card containing one. */
+.vip-assigned-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--vip-surface); border: 1px solid var(--vip-line);
+  border-radius: var(--vip-r-control); padding: 10px 12px;
+  text-decoration: none; color: inherit;
+}
+.vip-assigned-row:hover { border-color: var(--vip-teal); text-decoration: none; }
+
+/* min-width: 0 is load-bearing on a flex child that truncates — without it
+   the text block refuses to shrink below its content width and pushes the
+   stage chip off the row instead of ellipsising. A full site address as a
+   lead name is routine here (see LeadsListCard's own measured note), so this
+   is the normal case, not an edge one. */
+.vip-assigned-row-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.vip-assigned-lead {
+  font-weight: 600; font-size: 14px; color: var(--vip-ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-assigned-meta {
+  font-size: 11px; color: var(--vip-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-assigned-chevron { flex: 0 0 auto; color: var(--vip-muted); font-size: 16px; line-height: 1; }
+.vip-assigned-more { font-size: 11px; color: var(--vip-muted); margin: 0; }
+
+/* Below 520px the stage chip is the first thing to go. The lead's name and
+   who sent it are what the rep needs off this card; the stage is one tap away
+   on the lead itself, and keeping it here is what makes the name truncate to
+   nothing on a narrow phone. */
+@media (max-width: 519.98px) {
+  .vip-assigned-row .vip-chip { display: none; }
+}

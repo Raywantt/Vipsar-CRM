@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { getInitials } from '../lib/initials'
 import { useOnlineStatus } from '../hooks/useOnlineStatus'
+import AssignedLeadsCard from './AssignedLeadsCard'
 
 // The greeting bar shared by every role's Today screen (Home.jsx for
 // owner/sales_executive, CoordinatorToday.jsx for sales_coordinator) — was
@@ -23,6 +24,10 @@ function TodayGreetingHeader({ employee }) {
   const longDate = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })
 
   return (
+    // A fragment, not a wrapper div: every Today screen renders this straight
+    // into its own vertical stack, so an extra box here would change four
+    // layouts at once.
+    <>
     <div className="vip-today-head">
       <div>
         <div className="vip-greeting">
@@ -41,6 +46,17 @@ function TodayGreetingHeader({ employee }) {
         </Link>
       </div>
     </div>
+
+    {/* AssignedLeadsCard lives HERE, inside the shared greeting bar, rather
+        than being mounted separately by Home / OwnerToday / CoordinatorToday /
+        ManagerToday. Four call sites is exactly the drift this codebase keeps
+        paying for — a fifth Today screen (or a re-ordered existing one) would
+        silently ship without the card, and a rep would stop being told they
+        had been handed a lead with nothing failing to say so. One mount, on
+        the one component all four already render. It returns null when there
+        is nothing to show, so no screen pays for it otherwise. */}
+    <AssignedLeadsCard />
+    </>
   )
 }
 

@@ -74,6 +74,22 @@ self.addEventListener('push', (event) => {
       body: data.body ?? '',
       icon: '/icon-192.png',
       badge: '/icon-192.png',
+      // Both optional and both sent only by the lead-assignment payload
+      // (send-followup-reminders/index.ts). `tag` collapses repeats about the
+      // same lead into one banner instead of stacking; `requireInteraction`
+      // keeps that banner on screen until the rep actually deals with it,
+      // rather than auto-dismissing into the notification shade while the
+      // phone is in a pocket — which is what "a very clear notification"
+      // needs on Android. iOS ignores requireInteraction, which is why the
+      // in-app AssignedLeadsCard exists as well.
+      //
+      // Undefined for a follow-up reminder, and an undefined option is the
+      // same as not passing it — so reminders behave exactly as before.
+      tag: data.tag,
+      requireInteraction: data.requireInteraction === true,
+      // A phone in a pocket is the whole point; a silent banner is not a
+      // notification. Ignored where the platform does not support it.
+      vibrate: [120, 60, 120],
       data: { url: data.url ?? '/' },
     })
   )
