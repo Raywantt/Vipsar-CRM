@@ -4,6 +4,15 @@ node_modules
 # Local Claude Code tooling config (machine-specific, not part of the app)
 .claude/
 
+# Ruflo/claude-flow local tooling state — same category as .claude/ above:
+# machine-specific agent orchestration config/daemon state/memory DBs, not
+# part of the CRM app, and not meant to be published with this public repo.
+.mcp.json
+claude-flow.config.json
+.swarm/
+.claude-flow/
+data/
+
 # Build output
 dist
 dist-ssr
