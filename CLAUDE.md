@@ -4501,6 +4501,53 @@ until someone taps it on a phone.
   special-casing needed) and means nothing has to change here if that
   block is ever reopened to mobile later.
 
+**Paste + a `maxLength` cap were added 2026-09-12.** A sheet-header **Paste**
+button sits beside **Done** on every `NumPadInput` (both variants, so money/
+target fields get it too, not just mobile numbers) — reads
+`navigator.clipboard.readText()`, strips everything but digits (the decimal
+variant also keeps a single `.`), and commits the result, so a copied
+`"+91 98765-43210"` or `"₹1,25,000.50"` lands as clean `9198765432`/
+`125000.50` rather than the raw punctuation. Added because `inputMode="none"`
+(needed to suppress the OS keyboard) makes the field's own long-press
+paste/selection menu unreliable on several mobile browsers — a real button is
+the reliable path. Clipboard failure (no permission, no `navigator.clipboard`,
+nothing on the clipboard) shows an inline `vip-form-note` under the header
+rather than throwing; the existing value is left untouched.
+
+`NumPadInput` also gained a `maxLength` prop — passed straight through as the
+native HTML attribute on both the desktop and mobile `<input>` (covers typed
+entry, autofill, and a native paste made directly on the field), **and**
+enforced by hand in `pressDigit`/`pressPaste` for the on-screen keypad's own
+key presses, since those write via a synthetic `onChange` the native
+attribute never sees. **Every phone-number field in the app now passes
+`maxLength={10}`** — the three already-wired `NumPadInput` mobile-number
+fields (`PartySearchOrCreate`'s search box, `AddEmployeeForm`, 
+`ManageEmployeesSection`) plus one that had been left as a plain, unwired
+`<input>` since the original keypad rollout: `PartySearchOrCreate`'s own
+"New {label}" create-sub-form Mobile field (a real gap — that dialog is
+reachable from every page that embeds this component, on every width, not
+just the party-directory search box beside it, and it had neither the
+keypad nor a cap). It's now the same `NumPadInput` as its sibling field, so
+it gets Paste and the cap for free. The app's other `mobile`-labelled inputs
+(`DeletePartySection.jsx`, `Search.jsx`) are search boxes filtering an
+already-loaded list by name-or-mobile, not phone-number entry — deliberately
+left uncapped, since truncating a partial search term to 10 characters would
+break searching by a short digit sequence.
+
+**Verified live 2026-09-12**: at 375px, tapping 11 digits into New Lead's
+Mobile number field stopped accepting input at exactly `1234567890`; Paste
+(clipboard mocked to `"+91 98765-43210 ext99"`) landed `9198765432` — digits
+extracted, capped to 10; a real clipboard-permission denial (this sandbox's
+actual behavior, not mocked) surfaced the inline note and left the prior
+value untouched. The decimal variant was checked too (Lead Detail's Quote
+value, no cap): pasting `"₹1,25,000.50"` landed `125000.50`. At desktop
+widths — both a 904px pane (below the 1024px breakpoint, so still routed
+through the mobile branch's own `<input>`) and a genuine ≥1024px width
+(`AddEmployeeForm`, reached via `profile.jsx`'s owner-only admin block) —
+typing 14 digits into a mobile-number field was truncated by the native
+`maxLength` attribute to exactly 10, confirmed by reading `input.value`
+directly. No console errors in any of the above.
+
 ### Sales Coordinator (Phase 8 — role 3 of 3)
 
 A third role, `sales_coordinator` (SC): oversight between owner and rep. Owns

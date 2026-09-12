@@ -33,6 +33,18 @@ const DIGIT_ROWS = [
 //
 // variant: 'decimal' (money/target fields — adds a "." key) or 'integer'
 // (probability, mobile numbers — digits + backspace only, no decimal).
+//
+// maxLength (optional) caps the value's length — passed through as the
+// native HTML attribute for the desktop input and typed/hardware-keyboard
+// entry, and enforced in pressDigit/pressPaste for the on-screen keypad's
+// own key presses, since those write via a synthetic onChange the native
+// attribute never sees. Mobile-number fields pass 10.
+//
+// A Paste button sits in the sheet's header rather than relying on the
+// field's own long-press paste gesture — inputMode="none" makes that
+// gesture unreliable on several mobile browsers. It reads the clipboard,
+// strips everything but digits (plus one "." for the decimal variant), and
+// commits the result — trimmed to maxLength when one is set.
 function NumPadInput({
   value,
   onChange,
@@ -41,10 +53,12 @@ function NumPadInput({
   type = 'number',
   className = '',
   disabled = false,
+  maxLength,
   ...rest
 }) {
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
+  const [pasteNote, setPasteNote] = useState('')
   const inputRef = useRef(null)
 
   if (!isMobile) {
@@ -56,6 +70,7 @@ function NumPadInput({
         onChange={onChange}
         onWheel={(e) => e.currentTarget.blur()}
         disabled={disabled}
+        maxLength={maxLength}
         {...rest}
       />
     )
@@ -90,24 +105,67 @@ function NumPadInput({
   }
 
   function commit(next) {
+    setPasteNote('')
     onChange({ target: { value: next } })
+  }
+
+  function withinLimit(next) {
+    return maxLength == null || next.length <= maxLength
   }
 
   function pressDigit(d) {
     const current = value ?? ''
     // Replaces a lone leading "0" instead of producing "05" — the one bit of
     // input-shaping a real keypad does that a plain text field wouldn't.
-    commit(current === '0' && d !== '0' ? d : current + d)
+    const next = current === '0' && d !== '0' ? d : current + d
+    if (!withinLimit(next)) return
+    commit(next)
   }
 
   function pressDecimal() {
     const current = value ?? ''
     if (current.includes('.')) return
-    commit(current === '' ? '0.' : `${current}.`)
+    const next = current === '' ? '0.' : `${current}.`
+    if (!withinLimit(next)) return
+    commit(next)
   }
 
   function pressBackspace() {
     commit((value ?? '').slice(0, -1))
+  }
+
+  // A paste button rather than relying on the field's own long-press paste
+  // gesture — inputMode="none" suppresses the OS keyboard, and on several
+  // mobile browsers that also makes the native paste/selection menu
+  // unreliable on this field. Sanitizes to digits (decimal variant also
+  // allows one '.') so a copied "+91 98765-43210" or "₹1,25,000" lands as
+  // clean input rather than the raw punctuation.
+  function sanitizePaste(text) {
+    if (variant === 'decimal') {
+      const cleaned = text.replace(/[^0-9.]/g, '')
+      const firstDot = cleaned.indexOf('.')
+      if (firstDot === -1) return cleaned
+      return cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '')
+    }
+    return text.replace(/\D/g, '')
+  }
+
+  async function pressPaste() {
+    if (!navigator.clipboard?.readText) {
+      setPasteNote('Long-press the field above and choose Paste.')
+      return
+    }
+    try {
+      const text = await navigator.clipboard.readText()
+      const cleaned = sanitizePaste(text)
+      if (!cleaned) {
+        setPasteNote('Clipboard has no number to paste.')
+        return
+      }
+      commit(maxLength != null ? cleaned.slice(0, maxLength) : cleaned)
+    } catch {
+      setPasteNote("Couldn't paste — check clipboard permission and try again.")
+    }
   }
 
   return (
@@ -123,6 +181,7 @@ function NumPadInput({
         onClick={openPad}
         onBlur={handleBlur}
         disabled={disabled}
+        maxLength={maxLength}
         {...rest}
       />
       {open && (
@@ -136,10 +195,16 @@ function NumPadInput({
                   {value || rest.placeholder || '0'}
                 </span>
               </div>
-              <button type="button" className="vip-btn-link" onClick={closePad}>
-                Done
-              </button>
+              <div className="vip-numpad-head-actions">
+                <button type="button" className="vip-btn-link" onMouseDown={keepFocus} onClick={pressPaste}>
+                  Paste
+                </button>
+                <button type="button" className="vip-btn-link" onClick={closePad}>
+                  Done
+                </button>
+              </div>
             </div>
+            {pasteNote && <p className="vip-form-note">{pasteNote}</p>}
             <div className="vip-numpad-grid">
               {DIGIT_ROWS.flatMap((row) =>
                 row.map((d) => (

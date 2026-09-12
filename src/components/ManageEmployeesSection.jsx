@@ -146,6 +146,7 @@ function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
           variant="integer"
           label={`Mobile number for ${emp.name}`}
           type="text"
+          maxLength={10}
           style={{ flex: 1 }}
           value={mobile}
           onChange={(e) => setMobile(e.target.value)}

@@ -63,7 +63,7 @@ function AddEmployeeForm({ onCreated, onCancel }) {
         <div className="vip-grid-2">
           <label className="vip-field">
             Mobile
-            <NumPadInput variant="integer" label="Mobile" type="text" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+            <NumPadInput variant="integer" label="Mobile" type="text" maxLength={10} value={mobile} onChange={(e) => setMobile(e.target.value)} />
           </label>
           <label className="vip-field">
             Role

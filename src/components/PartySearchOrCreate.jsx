@@ -307,7 +307,7 @@ function PartySearchOrCreate({
         </label>
         <label className="vip-field">
           Mobile
-          <input className="vip-input" value={newMobile} onChange={(e) => setNewMobile(e.target.value)} />
+          <NumPadInput variant="integer" label="Mobile" type="text" maxLength={10} value={newMobile} onChange={(e) => setNewMobile(e.target.value)} />
         </label>
         {typeOptions.length > 1 && (
           <label className="vip-field">
@@ -361,7 +361,7 @@ function PartySearchOrCreate({
       {name.trim().length > 0 && (
         <label className="vip-field">
           Mobile number <span className="vip-field-hint">optional, helps confirm the right match</span>
-          <NumPadInput variant="integer" label="Mobile number" type="text" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <NumPadInput variant="integer" label="Mobile number" type="text" maxLength={10} value={mobile} onChange={(e) => setMobile(e.target.value)} />
         </label>
       )}
 
