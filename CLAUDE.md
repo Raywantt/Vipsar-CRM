@@ -2677,14 +2677,33 @@ been corrected; if you find another, it is stale, not a second opinion.
   card elsewhere. Caught by comparing the two computed colours, not by eye.
   Both values are tokens, so section 22 repaints it for dark mode with no
   override (measured 1.08 light / 1.58 dark against the page).
-  **Verified live** as a real `sales_executive` at 375px and 1280px, light
-  and dark, including a real save: the past text landed in `activities.notes`
-  and the future text in `follow_ups.notes`, read back from both rows; test
-  rows deleted afterwards from an owner session. **Not checked: the
-  `sales_coordinator` and `sales_manager` halves of the matrix** — both role
-  ports were logged out (see Local environment notes). The form differs for
-  them only in the "Who is this for?" picker, which sits above everything
-  this pass touched, so the risk is low; the matrix is not closed.
+  **Verified live across the full matrix** — all three roles that can reach
+  `/activity`, both breakpoints, real sessions on the three role ports, with
+  a real save each time and every row read back out of the database:
+  - **`sales_executive`** (375px and 1280px, light **and** dark): order
+    correct on all four branches; the past text landed in `activities.notes`
+    and the future text in `follow_ups.notes`.
+  - **`sales_coordinator`** (375px and 1280px): "Who is this for?" still sits
+    above everything, and **attribution is unchanged** — the saved activity
+    read `employee_id` = the exec, `logged_by_employee_id` = the coordinator,
+    and the reminder `assigned_to` the exec, `created_by` the coordinator.
+  - **`sales_manager`** (375px and 1263px): the dummy `sm` account owns no
+    leads, so the lead-anchored branch could not be driven; **Architect
+    Meeting** was used instead, which needs no lead and renders the same
+    shared `nextStepBlock`. The generic branch was confirmed to render Notes
+    with the right placeholder and **no** follow-up block while no lead is
+    picked.
+  **The discriminating test for the dropped notes fallback was run on that
+  manager save**: Notes filled, follow-up note left deliberately **blank**.
+  The resulting `follow_ups` row came back `notes: null` rather than carrying
+  the meeting's own notes. Filling both fields could not have told the old
+  behaviour from the new one.
+  The follow-up placeholder was re-measured as fitting its input at every
+  width and role, and no page overflowed horizontally. All test rows were
+  deleted afterwards from an owner session (an exec/coordinator/manager has
+  no DELETE grant), and lead #437's `next_followup_date` was restored —
+  note that saving a follow-up writes that column, so a test save on a lead
+  mutates it and there is no audit trail to restore it from.
 
 An optional `?lead=<id>` query param, read via `useSearchParams`, preselects
 a lead on load instead of leaving the anchor step blank — a code-review
