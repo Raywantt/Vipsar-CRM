@@ -93,9 +93,6 @@ Roadmap. Each screen is documented in its own section below.
 - **Owner-name badges inside `DrilldownPanel.jsx`'s deeper bodies**
   (ageing/forecast/pipeline/loss row lists) as links, unlike everywhere else
   a person's name appears. A known gap, left deliberately.
-- **`LeadsByAreaCard.jsx`** was tried as its own component twice and removed
-  both times; it is permanently merged into the generic
-  `LeadsByCategoryCard`. Don't recreate it.
 
 **Open process gap, the owner's to resolve — don't "fix" it in passing:**
 leads exist in the live DB with `order_value` set while still open (not
@@ -109,7 +106,7 @@ assumption `pipelineValue.js` leans on. It changes no figure today.
 - `vite-plugin-pwa` (manifest + service worker), configured in `vite.config.js`
 - Plain CSS — one shared design-system stylesheet, `src/vipsar-theme.css`
   (design tokens + `vip-*` classes), imported in `main.jsx` after the
-  deliberately-empty `src/index.css`. No CSS framework, no per-page CSS.
+  deliberately-empty `src/index.css`.
 - Oxlint (`npm run lint`), Vitest
 
 ## Structure
@@ -200,17 +197,14 @@ their role is.** Use `useAuth()`; never re-query `employees` in a component.
 `viewport-fit=cover` on the viewport meta) so the bottom bar clears the iOS
 home-indicator area.
 
-**`BottomNav` is the one place for primary navigation — don't add nav links
-to `AppNav`**, which is a per-route header (title/sub/back/avatar), not a
-nav bar. Profile is reached by tapping an avatar, never a tab: `AppNav`'s
+Primary navigation lives in `BottomNav`; `AppNav` is a per-route header
+(title/sub/back/avatar). Profile is reached by tapping an avatar: `AppNav`'s
 header avatar, `BottomNav`'s sidebar-foot avatar, or Home's own mobile-only
 one (Home is the single route with no `AppNav` header).
 
 ## Design system (`src/vipsar-theme.css`)
 
-One shared stylesheet, built against a Claude Design handoff. **All per-page
-CSS files are deleted — don't recreate them.** Add a `vip-`-prefixed class to
-`vipsar-theme.css` instead of writing per-component CSS. `src/index.css` is
+One shared stylesheet, built against a Claude Design handoff. `src/index.css` is
 kept as a deliberately empty seam, since `main.jsx` imports it first.
 
 **📄 Read `UI-DESIGN.md` (repo root) before designing or redesigning any
@@ -284,10 +278,6 @@ different bugs, so do both**.
   raw foreground for places that only tint text/borders. **Display text never
   reads the raw stage value** — always `stageLabel()`, which falls back to
   the stored value unchanged.
-* **Lists are rows, not tables.** Every list/breakdown renders
-  `.vip-row`/`.vip-bar-row`/`.vip-matrix-row` stacks, not a `<table>`;
-  segmented controls (`.vip-seg`) replace full-width button rows. Where a
-  section below says "table", read it as that shape of data, not the markup.
 * **Universal linking** — a person's name is always a link to
   `/employees/:id`; a lead or client's name always a link to `/leads/:id`.
   `EmployeeLink.jsx` exists for a name rendering *inside* a row that is
@@ -324,7 +314,7 @@ this is what the content padding and header offset always reserve, so
 hovering never reflows the page) and widens to `--vip-sidebar-w` (232px) on
 `:hover`, floating over content as an overlay. Pure CSS, no React state:
 labels sit at `max-width: 0; overflow: hidden` and transition open. Icons are
-hand-authored inline SVG in `NavIcons.jsx` — no icon library.
+hand-authored inline SVG in `NavIcons.jsx`.
 
 Every page wraps its content in `.vip-narrow` (LeadDetail, LeadQuickCapture,
 ActivityLog, Profile, Search) or `.vip-wide` (Home, both Dashboard tabs).
@@ -1375,9 +1365,7 @@ placeholder cannot wrap. Re-measure if it grows.
 
 The follow-up pair sits in one `nextStepBlock` **defined once** near the top
 of the render and spread into all three branches — it used to be copy-pasted
-three times. A "Next step" heading and an explainer line were built above the
-rule and **removed the same day at the owner's direction**; the rule alone
-marks the seam. Don't re-add them without asking.
+three times.
 
 **`.vip-next-step` draws that rule with `--vip-line`, deliberately NOT
 `.vip-section-split`'s `--vip-line-soft`** — that token is lighter than this
@@ -1678,11 +1666,8 @@ days ago with no quote. Thresholds are named constants at the top of
   have hidden the *larger* duplicate and made the card read more wrongly
   while looking tidier. Normalising the column fixed it.
 * **Pipeline by stage** — inline in `Dashboard.jsx`, count + value per stage
-  as a plain bar-row list, all buckets shown even at zero. **It is a list plus
-  a "Details ›" link, nothing else. Don't reintroduce a second view mode
-  without asking** — a Kanban board and an inline split view were both tried
-  and both reverted, and this card is why the "ask before you build" rule at
-  the top of this file exists.
+  as a plain bar-row list, all buckets shown even at zero, plus a
+  "Details ›" link.
   Each bar opens a `stageLeads` sub-panel (every lead at that stage, with an
   owner `<select>`), **prebuilt eagerly** by `buildPipelinePanel`.
 * **Sales funnel** — reach-count + avg-days-in-stage per stage. One team-wide
@@ -1867,9 +1852,7 @@ cap, unlike filtering client-side would be. Search is client-side over the
 fetched page, same precedent as Search and My Team.
 
 **Layout: a horizontal filter toolbar above a full-width 8-column table**, the
-standard CRM list-view shape. A 240px left rail was tried and removed —
-adding Site stage took the table to eight columns, and permanently parked
-dropdowns are a poor trade against that. Search and a Status segmented control
+standard CRM list-view shape. Search and a Status segmented control
 (All / **Active** / **Closed** — "Inactive" was renamed because it always
 meant won-or-lost, while *stale* is what "inactive" means everywhere else
 here) sit permanently visible at both widths; the rest is a one-row
@@ -1888,9 +1871,6 @@ phone.
   truncate and well below site, where a full address is 400px and truncating
   is correct. All eight fit at 1024px without touching `overflow-x`, which is
   a safety net rather than the normal case.
-* **Site stage renders as a NEUTRAL tag**, never a coloured pill — the lead
-  stage beside it is the row's one colour-carrying signal, and a second
-  tinted pill is exactly the noise this pass removed.
 * **The Site stage filter needs `sites!inner(...)`, and that hint is
   load-bearing.** `site_stage` lives on the embedded row, and PostgREST
   applied to a *plain* embed keeps the parent lead and merely nulls the
@@ -2842,9 +2822,7 @@ ones that mutate an existing lead** — a modified `next_followup_date`,
 
 ### Libraries
 
-**No GPS, geocoding, drag-and-drop or icon libraries** — all deliberate.
-`NavIcons.jsx` hand-authors inline SVG; extend that file rather than adding a
-package. Everything else icon-shaped stays plain text/CSS.
+**No GPS, geocoding or drag-and-drop libraries** — all deliberate.
 
 ## Commands
 
