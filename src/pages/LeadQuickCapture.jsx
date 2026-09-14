@@ -6,6 +6,8 @@ import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import EmployeeSearchSelect from '../components/EmployeeSearchSelect'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { materializePartyDraft, setPartyFirm, linkPartiesAsSiteContacts } from '../lib/partyQueries'
+import { createRemark } from '../lib/leadRemarksQueries'
+import { requestAssignmentPush } from '../lib/notificationQueries'
 import { TERRITORY_OPTIONS, territoryLabel } from '../lib/territoryOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
@@ -82,6 +84,11 @@ function LeadQuickCapture() {
   const [teamExecs, setTeamExecs] = useState([])
   const [teamExecsLoaded, setTeamExecsLoaded] = useState(!isCoordinator)
   const [forExec, setForExec] = useState(null)
+  // Coordinator + Lixil only — see the field below. Written as this lead's
+  // first lead_remarks row on save, not a leads column: remarks are a
+  // general, ongoing feature (src/components/LeadRemarks.jsx), and this is
+  // just the first entry in it.
+  const [callNotes, setCallNotes] = useState('')
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
@@ -109,6 +116,11 @@ function LeadQuickCapture() {
   // describe it ("in front of the Verka factory"), while a Lixil or referral
   // lead arrives as a person on the phone with no site seen yet.
   const isScanning = sourceType === 'scanning'
+  // Gates the "Call notes" field below and whether a remark + notification
+  // get written on save. Coordinator-only because only the coordinator's
+  // "Who is this for?" flow produces an owner who wasn't the one on the
+  // call — an exec logging their own Lixil lead has no handoff to make.
+  const isLixilHandoff = isCoordinator && sourceType === 'lixil'
   const isArchReferral = sourceType === 'referral_architect'
   const isReferral = isArchReferral || sourceType === 'referral_other'
   // A walk-in is the narrowest source on this form: someone standing in the
@@ -209,6 +221,7 @@ function LeadQuickCapture() {
     setReferrerType(REFERRER_TYPES[0])
     setFirmParty(null)
     setOtherParty(null)
+    setCallNotes('')
     setSubmitError(null)
     setWarnings([])
     setCreatedLead(null)
@@ -353,6 +366,28 @@ function LeadQuickCapture() {
     // since nothing else can own a brand-new row out from under this write.)
     const nextWarnings = []
 
+    // Fire-and-forget, exactly like LeadQuickActions does right after a
+    // reassignment — the lead has already been created by this point, the
+    // scheduled cron drain is the guarantee, and this is only the speed-up
+    // so the exec's phone buzzes in about a second instead of waiting out
+    // the interval. Never awaited, never allowed to affect the save.
+    if (isLixilHandoff) requestAssignmentPush()
+
+    // The call context becomes this lead's first remark (LeadRemarks), not a
+    // leads column — see the field below. Optional: a coordinator with
+    // nothing to add just leaves it blank, and the exec still gets the
+    // notification with no remark to show under it.
+    if (isLixilHandoff && callNotes.trim()) {
+      const { error: remarkError } = await createRemark({
+        leadId: lead.id,
+        employeeId: employee?.id,
+        body: callNotes.trim(),
+      })
+      if (remarkError) {
+        nextWarnings.push(`The lead saved, but the call notes weren't saved: ${errorMessage(remarkError)}`)
+      }
+    }
+
     // The firm is a property of the architect, not of this lead, so the link
     // is written onto their party row. setPartyFirm owns the no-op and
     // silent-RLS-rejection handling — see src/lib/partyQueries.js.
@@ -447,6 +482,12 @@ function LeadQuickCapture() {
               <div className="vip-fact-value">{resolvedSiteStage}</div>
             </div>
           )}
+          {isLixilHandoff && callNotes.trim() && (
+            <div>
+              <div className="vip-fact-label">Call notes</div>
+              <div className="vip-fact-value">Saved — {forExec?.name ?? 'the exec'} will see this and be notified.</div>
+            </div>
+          )}
         </div>
         {warnings.map((w) => (
           <p key={w} className="vip-error" role="alert">
@@ -525,6 +566,25 @@ function LeadQuickCapture() {
           ))}
         </div>
       </div>
+
+      {/* Coordinator + Lixil only: the call already happened on the
+          external Excel CRM before this lead is ever created here, so this
+          is capturing what was said, not planning what to say. Optional —
+          a coordinator with nothing worth passing on just leaves it blank.
+          Becomes this lead's first LeadRemarks row on save, and is what the
+          exec sees alongside the "new Lixil lead" notification. */}
+      {isLixilHandoff && (
+        <label className="vip-field">
+          Call notes <span className="vip-field-hint">optional — what came up on the call, for {forExec?.name ?? 'the exec'}</span>
+          <textarea
+            className="vip-textarea"
+            rows={3}
+            value={callNotes}
+            onChange={(e) => setCallNotes(e.target.value)}
+            placeholder="e.g. Spoke to Mr. Sharma, interested in casement windows for a new build, budget ~4L, prefers evening calls"
+          />
+        </label>
+      )}
 
       {/* Territory is asked for every source, not just scanning — a lead has
           both a source and an office, and they're independent facts. Its own

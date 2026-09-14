@@ -9,6 +9,7 @@ import AdditionalContactsSection from '../components/AdditionalContactsSection'
 import SalesProgressSection from '../components/SalesProgressSection'
 import LeadQuickActions from '../components/LeadQuickActions'
 import LeadActivityTimeline from '../components/LeadActivityTimeline'
+import LeadRemarks from '../components/LeadRemarks'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchAreas, fetchProducts } from '../lib/lookupQueries'
 import { fetchAllRows } from '../lib/fetchAllRows'
@@ -924,6 +925,8 @@ function LeadDetail() {
           </div>
         )}
       </div>
+
+      <LeadRemarks leadId={id} employeeId={employee?.id} canAdd={canEdit} />
 
       <LeadActivityTimeline leadId={id} activities={activities} stageHistory={stageHistory} ownerHistory={ownerHistory} />
     </div>

@@ -239,19 +239,24 @@ async function drainFollowUps(supabase, now) {
 // ---------------------------------------------------------------------------
 // JOB 2: lead assignments
 //
-// The rows are written by a Postgres trigger, never by app code — see the
-// migration for why. This drain is idempotent and ordered oldest-first, so
+// The rows are written by Postgres triggers, never by app code — see the
+// migrations for why. This drain is idempotent and ordered oldest-first, so
 // an instant call from the browser and the 5-minute cron racing each other
 // is harmless: whichever gets there first stamps notified_at, and the other
 // finds nothing to do.
+//
+// Two kinds share this one drain: 'lead_assigned' (reassignment) and
+// 'lixil_lead_created' (a coordinator's Lixil entry-on-behalf — see
+// Schema/migration_lead_remarks_and_lixil_notify.sql). Same fetch, same
+// send/stamp/prune loop; only the payload text below branches on `n.kind`.
 // ---------------------------------------------------------------------------
 async function drainAssignments(supabase) {
   const { data: pending, error: fetchError } = await supabase
     .from('notifications')
     .select(
-      'id, employee_id, lead_id, actor_employee_id, actor:employees!actor_employee_id(name), leads(id, parties!party_id(name), sites(nickname, locality))'
+      'id, kind, employee_id, lead_id, actor_employee_id, actor:employees!actor_employee_id(name), leads(id, parties!party_id(name), sites(nickname, locality))'
     )
-    .eq('kind', 'lead_assigned')
+    .in('kind', ['lead_assigned', 'lixil_lead_created'])
     .is('notified_at', null)
     .order('created_at', { ascending: true })
     .limit(ASSIGNMENT_BATCH_LIMIT)
@@ -274,13 +279,22 @@ async function drainAssignments(supabase) {
     if (!subscriptions.length) continue
 
     const who = n.actor?.name
+    const isLixilCreated = n.kind === 'lixil_lead_created'
     const payload = JSON.stringify({
-      title: 'New lead assigned to you',
-      body: who ? `${leadName(n.leads)} — assigned by ${who}` : leadName(n.leads),
+      title: isLixilCreated ? 'New Lixil lead assigned to you' : 'New lead assigned to you',
+      body: isLixilCreated
+        ? who
+          ? `${leadName(n.leads)} — from ${who}'s call`
+          : leadName(n.leads)
+        : who
+          ? `${leadName(n.leads)} — assigned by ${who}`
+          : leadName(n.leads),
       url: n.lead_id ? `/leads/${n.lead_id}` : '/',
-      // One notification per lead: re-assigning the same lead back and forth
-      // replaces the previous banner instead of stacking a second one.
-      tag: `lead-assigned-${n.lead_id ?? n.id}`,
+      // One notification per lead: re-assigning (or, for a Lixil lead,
+      // re-creating — which can't happen twice for the same row, but keeps
+      // the two kinds in separate tag namespaces on principle) replaces the
+      // previous banner instead of stacking a second one.
+      tag: `${isLixilCreated ? 'lead-created' : 'lead-assigned'}-${n.lead_id ?? n.id}`,
       // This is the "very clear" part. On Android the banner stays until the
       // rep actually acts on it rather than auto-dismissing after a few
       // seconds while the phone is in a pocket. iOS ignores the flag, which

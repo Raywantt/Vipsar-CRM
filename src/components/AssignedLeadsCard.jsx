@@ -22,6 +22,13 @@ import { leadDisplayName } from '../lib/leadName'
 // It reads the same notifications rows the push sender does, but keys off
 // seen_at rather than notified_at — the two are independent, so this card
 // works identically whether or not a push was ever sent.
+//
+// Two kinds render here: 'lead_assigned' (a reassignment) and
+// 'lixil_lead_created' (a sales coordinator's Lixil entry-on-behalf, see
+// Schema/migration_lead_remarks_and_lixil_notify.sql). The second kind's row
+// also carries the coordinator's call notes (the new lead's first
+// lead_remarks entry, attached by fetchUnseenAssignments) so the exec gets
+// the context, not just the ping.
 
 // A naive TIMESTAMP from this schema needs parseTimestamp, not new Date —
 // see src/lib/dbTime.js. Getting that wrong here would read every assignment
@@ -45,6 +52,15 @@ function relativeTime(value) {
 function leadName(row) {
   if (row.leads) return leadDisplayName(row.leads)
   return row.lead_id ? `Lead #${row.lead_id}` : 'A lead'
+}
+
+// A remark can run long; the card shows a short taste of it, not the whole
+// thing — the full text is always on the lead itself (LeadRemarks), so
+// truncating here loses nothing permanently.
+const REMARK_PREVIEW_LEN = 140
+function previewRemark(body) {
+  if (!body) return null
+  return body.length > REMARK_PREVIEW_LEN ? `${body.slice(0, REMARK_PREVIEW_LEN).trimEnd()}…` : body
 }
 
 function AssignedLeadsCard() {
@@ -111,9 +127,16 @@ function AssignedLeadsCard() {
               <span className="vip-assigned-row-main">
                 <span className="vip-assigned-lead">{leadName(row)}</span>
                 <span className="vip-assigned-meta">
-                  {row.actor?.name ? `Assigned by ${row.actor.name}` : 'Assigned to you'}
+                  {row.kind === 'lixil_lead_created'
+                    ? row.actor?.name
+                      ? `New Lixil lead — from ${row.actor.name}'s call`
+                      : 'New Lixil lead'
+                    : row.actor?.name
+                      ? `Assigned by ${row.actor.name}`
+                      : 'Assigned to you'}
                   {when ? ` · ${when}` : ''}
                 </span>
+                {row.remark && <span className="vip-assigned-remark">"{previewRemark(row.remark)}"</span>}
               </span>
               {stage && <span className={stageChipClass(stage)}>{stageLabel(stage)}</span>}
               <span className="vip-assigned-chevron">›</span>

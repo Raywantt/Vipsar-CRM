@@ -3035,6 +3035,17 @@ a.vip-day-log-party:hover { text-decoration: underline; }
 .vip-assigned-chevron { flex: 0 0 auto; color: var(--vip-muted); font-size: 16px; line-height: 1; }
 .vip-assigned-more { font-size: 11px; color: var(--vip-muted); margin: 0; }
 
+/* The coordinator's call-context snippet on a 'lixil_lead_created' row
+   (LeadRemarks' first entry). Already length-capped in JS
+   (previewRemark/REMARK_PREVIEW_LEN), so this just wraps rather than
+   truncating a second time — unlike .vip-assigned-lead/-meta above, which
+   stay single-line because a lead name or "assigned by" line reads worse
+   wrapped than clipped. */
+.vip-assigned-remark {
+  font-size: 12px; font-style: italic; color: var(--vip-body);
+  white-space: normal; line-height: 1.4;
+}
+
 /* Below 520px the stage chip is the first thing to go. The lead's name and
    who sent it are what the rep needs off this card; the stage is one tap away
    on the lead itself, and keeping it here is what makes the name truncate to
