@@ -61,14 +61,18 @@ function daysLeftLabel(period) {
   return `${days} day${days === 1 ? '' : 's'} left`
 }
 
-function followUpPanel(title, rows, onMarkDone) {
+function followUpPanel(title, rows, viewerId, onMarkDone, onCancel, onReschedule, onLogActivity) {
   return {
     kind: 'followup',
     eyebrow: 'Your work queue',
     title,
     value: String(rows.length),
     followUps: rows,
+    viewerId,
     onMarkDone,
+    onCancel,
+    onReschedule,
+    onLogActivity,
   }
 }
 
@@ -373,7 +377,7 @@ function Home({ embedded = false }) {
                   <button
                     type="button"
                     className="vip-day-entry-link"
-                    onClick={() => setPanel(followUpPanel('Still to do', openFollowUps, handleMarkDone))}
+                    onClick={() => setPanel(followUpPanel('Still to do', openFollowUps, employee.id, handleMarkDone, handleCancelFollowUp, handleMove, handleLogActivityFor))}
                   >
                     +{openFollowUps.length - shownFollowUps.length} more · see all
                   </button>
