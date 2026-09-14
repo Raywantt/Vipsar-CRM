@@ -739,6 +739,9 @@ function LeadDetail() {
     leadTitle,
     canReassign,
     canMoveStageBackward,
+    // Permanent delete — owner only, matching the `owner_only_delete` RLS
+    // policy and delete_lead_totally()'s own internal role check.
+    canDeleteLead: isOwner,
     // Where an on-hold lead actually paused, so the picker ranks it there
     // rather than at the rankless 'on_hold' — otherwise a rep could walk a
     // lead backwards via a detour through On hold. Same derivation the Deal

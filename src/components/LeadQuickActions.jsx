@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { insertLeadOwnerHistory } from '../lib/leadOwnerHistory'
@@ -63,6 +64,7 @@ function LeadQuickActions({
   leadTitle,
   canReassign,
   canMoveStageBackward,
+  canDeleteLead,
   pausedAtStage,
   activeSalesExecs,
   onStageChanged,
@@ -70,7 +72,8 @@ function LeadQuickActions({
   onOwnerReassigned,
 }) {
   const { employee } = useAuth()
-  const [open, setOpen] = useState(null) // 'stage' | 'followup' | 'owner' | null
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(null) // 'stage' | 'followup' | 'owner' | 'delete' | null
   const [followupSaved, setFollowupSaved] = useState(false)
 
   const [ownerChoice, setOwnerChoice] = useState(lead.owner_employee_id ?? '')
@@ -78,6 +81,17 @@ function LeadQuickActions({
   const [ownerError, setOwnerError] = useState(null)
   const [ownerHistoryWarning, setOwnerHistoryWarning] = useState(null)
   const [ownerSaved, setOwnerSaved] = useState(false)
+
+  // Permanent, no undo — see delete_lead_totally() in
+  // Schema/migration_delete_lead_totally.sql for why this has to be an RPC
+  // rather than a plain `.from('leads').delete()`: several of this lead's
+  // child tables (stage_history, lead_owner_history, loss_reasons) have no
+  // DELETE grant for anyone, even the owner, by design. The function's own
+  // SECURITY DEFINER bypasses that the same way the notification triggers
+  // already bypass RLS to write into `notifications`.
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deletingLead, setDeletingLead] = useState(false)
+  const [deleteError, setDeleteError] = useState(null)
 
   function toggle(key) {
     setOpen((prev) => (prev === key ? null : key))
@@ -142,6 +156,18 @@ function LeadQuickActions({
     onOwnerReassigned(updatedLead, historyError ? null : historyRow)
   }
 
+  async function handleDeleteLead() {
+    setDeletingLead(true)
+    setDeleteError(null)
+    const { error } = await supabase.rpc('delete_lead_totally', { target_lead_id: lead.id })
+    setDeletingLead(false)
+    if (error) {
+      setDeleteError(errorMessage(error))
+      return
+    }
+    navigate('/dashboard?tab=leads')
+  }
+
   return (
     <div className="vip-stack-s">
       <div className="vip-btn-row" style={{ flexWrap: 'wrap' }}>
@@ -169,6 +195,16 @@ function LeadQuickActions({
             onClick={() => toggle('owner')}
           >
             Reassign owner
+          </button>
+        )}
+        {canDeleteLead && (
+          <button
+            type="button"
+            className={open === 'delete' ? 'vip-btn vip-btn-dark vip-btn-sm' : 'vip-btn vip-btn-secondary vip-btn-sm'}
+            style={{ width: 'auto', flex: '0 0 auto' }}
+            onClick={() => toggle('delete')}
+          >
+            Delete lead
           </button>
         )}
       </div>
@@ -216,6 +252,59 @@ function LeadQuickActions({
           <button type="button" className="vip-action-close" onClick={() => setOpen(null)}>
             Close
           </button>
+        </div>
+      )}
+
+      {open === 'delete' && (
+        <div className="vip-action-panel">
+          <span className="vip-action-panel-title">Delete this lead</span>
+          <p className="vip-form-note">
+            Permanent — there's no undo. Removes the lead and everything on it: activities, stage history,
+            ownership history, loss reason, follow-ups and remarks. The linked site goes too, if no other lead
+            still uses it.
+          </p>
+          {deleteError && (
+            <p className="vip-error" role="alert">
+              {deleteError}
+            </p>
+          )}
+          {confirmingDelete ? (
+            <div className="vip-btn-row" style={{ alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: 'var(--vip-body)', flex: 1 }}>Delete {leadTitle} permanently?</span>
+              <button
+                type="button"
+                className="vip-btn vip-btn-danger vip-btn-sm"
+                style={{ width: 'auto', flex: '0 0 auto' }}
+                onClick={handleDeleteLead}
+                disabled={deletingLead}
+              >
+                {deletingLead ? 'Deleting…' : 'Confirm'}
+              </button>
+              <button
+                type="button"
+                className="vip-btn vip-btn-secondary vip-btn-sm"
+                style={{ width: 'auto', flex: '0 0 auto' }}
+                onClick={() => setConfirmingDelete(false)}
+                disabled={deletingLead}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="vip-btn-row">
+              <button
+                type="button"
+                className="vip-btn vip-btn-danger vip-btn-sm"
+                style={{ width: 'auto', flex: '0 0 auto' }}
+                onClick={() => setConfirmingDelete(true)}
+              >
+                Delete lead
+              </button>
+              <button type="button" className="vip-action-close" onClick={() => setOpen(null)}>
+                Close
+              </button>
+            </div>
+          )}
         </div>
       )}
 
