@@ -19,7 +19,7 @@ function DateRangeSelector({
 }) {
   return (
     <div className="vip-stack-s">
-      <div className="vip-seg vip-seg-outline">
+      <div className="vip-seg vip-seg-outline" role="group" aria-label="Date range">
         {PRESETS.map((p) => (
           <button
             key={p.value}

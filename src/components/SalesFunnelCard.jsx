@@ -78,7 +78,7 @@ function SalesFunnelCard({ stageHistory, leads, onOpenPanel }) {
   return (
     <div className="vip-card">
       <div className="vip-card-head">
-        <div className="vip-card-title">Sales funnel</div>
+        <h3 className="vip-card-title">Sales funnel</h3>
         {onOpenPanel && (
           <button type="button" className="vip-dd-open-link" onClick={onOpenPanel}>
             Details ›

@@ -107,7 +107,7 @@ function AssignedLeadsCard() {
   return (
     <div className="vip-assigned-card" role="status" aria-live="polite">
       <div className="vip-assigned-head">
-        <span className="vip-assigned-title">{heading}</span>
+<h2 className="vip-assigned-title">{heading}</h2>
         <button type="button" className="vip-assigned-dismiss" onClick={dismissAll} disabled={dismissing}>
           Got it
         </button>
@@ -139,7 +139,7 @@ function AssignedLeadsCard() {
                 {row.remark && <span className="vip-assigned-remark">"{previewRemark(row.remark)}"</span>}
               </span>
               {stage && <span className={stageChipClass(stage)}>{stageLabel(stage)}</span>}
-              <span className="vip-assigned-chevron">›</span>
+              <span className="vip-assigned-chevron" aria-hidden="true">›</span>
             </Link>
           )
         })}

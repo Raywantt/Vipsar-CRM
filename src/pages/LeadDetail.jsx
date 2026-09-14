@@ -625,7 +625,7 @@ function LeadDetail() {
   const rail = (
     <div className="vip-stack">
       <div className="vip-card">
-        <div className="vip-card-title">Deal owner</div>
+        <h2 className="vip-card-title">Deal owner</h2>
         {lead.owner_employee_id ? (
           <Link to={`/employees/${lead.owner_employee_id}`} className="vip-owner-link">
             <span className="vip-profile-avatar vip-profile-avatar-sm">
@@ -655,7 +655,7 @@ function LeadDetail() {
       </div>
 
       <div className="vip-card">
-        <div className="vip-card-title">Contact</div>
+        <h2 className="vip-card-title">Contact</h2>
         {siteContacts.length === 0 ? (
           <p className="vip-empty">No contact captured.</p>
         ) : (
@@ -768,7 +768,7 @@ function LeadDetail() {
           <div className="vip-profile-avatar">{getInitials(leadTitle)}</div>
           <div className="vip-profile-id-meta">
             <div className="vip-profile-name-row">
-              <span className="vip-profile-name">{leadTitle}</span>
+              <h2 className="vip-profile-name">{leadTitle}</h2>
               <span className="vip-pill" style={{ background: statusStyle.bg, color: statusStyle.fg }}>{statusLabel}</span>
               {healthLabel && (
                 <span className="vip-pill" style={{ background: healthStyle.bg, color: healthStyle.fg }}>{healthLabel}</span>
@@ -810,7 +810,7 @@ function LeadDetail() {
 
       <div className="vip-card">
         <div className="vip-card-head">
-          <div className="vip-card-title">Deal progress</div>
+          <h2 className="vip-card-title">Deal progress</h2>
           <span className="vip-card-note">
             {isWon
               ? `closed won · ${shortDate(wonAt) ?? ''}`
@@ -854,7 +854,7 @@ function LeadDetail() {
 
       <div className="vip-card">
         <div className="vip-card-head">
-          <div className="vip-card-title">Quotes &amp; orders</div>
+          <h2 className="vip-card-title">Quotes &amp; orders</h2>
           <span className="vip-card-note">{quoteRows.length === 1 ? '1 document' : `${quoteRows.length} documents`}</span>
         </div>
         {quoteRows.length === 0 ? (
@@ -913,7 +913,7 @@ function LeadDetail() {
 
       <div className="vip-card">
         <div className="vip-card-head">
-          <div className="vip-card-title">Products in scope</div>
+          <h2 className="vip-card-title">Products in scope</h2>
         </div>
         {!product ? (
           <p className="vip-empty">No product specified yet.</p>
@@ -1138,7 +1138,7 @@ function LeadDetail() {
     <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />
   ) : (
     <div className="vip-card">
-      <div className="vip-card-title">Site details</div>
+      <h2 className="vip-card-title">Site details</h2>
       <p className="vip-empty">
         No site is linked to this lead, so there is nothing to record a site stage against yet.
       </p>
@@ -1210,10 +1210,10 @@ function LeadDetail() {
       {openSection && (
         <>
           <div className="vip-dd-backdrop" onClick={() => setOpenSection(null)} />
-          <div className="vip-dd-panel">
+          <div className="vip-dd-panel" role="dialog" aria-modal="true" aria-labelledby="vip-lead-section-title">
             <div className="vip-dd-head">
               <div className="vip-dd-head-text">
-                <div className="vip-dd-title">{SECTION_TITLES[openSection]}</div>
+                <h2 className="vip-dd-title" id="vip-lead-section-title">{SECTION_TITLES[openSection]}</h2>
               </div>
               <button type="button" className="vip-dd-close" onClick={() => setOpenSection(null)} aria-label="Close">
                 ✕
@@ -1232,7 +1232,7 @@ function LeadDetail() {
       {quickActionsSheetOpen && (
         <>
           <div className="vip-sheet-backdrop" onClick={() => setQuickActionsSheetOpen(false)} />
-          <div className="vip-sheet">
+          <div className="vip-sheet" role="dialog" aria-modal="true" aria-label="Quick actions">
             <div className="vip-sheet-handle" />
             <LeadQuickActions {...quickActionsProps} />
           </div>

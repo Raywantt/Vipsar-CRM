@@ -170,6 +170,10 @@ function Search() {
     <div className="vip-narrow vip-pad-fab-overhang">
       <input
         className="vip-input"
+        type="search"
+        name="global-search"
+        autoComplete="off"
+        aria-label="Search leads, parties, sites"
         value={term}
         onChange={(e) => setTerm(e.target.value)}
         placeholder="Name, mobile, locality"
@@ -197,7 +201,7 @@ function Search() {
 
       {hasQuery && results.leads.length > 0 && (
         <div className={mobileTab === 'leads' ? 'vip-card' : 'vip-card vip-search-hide-mobile'}>
-          <div className="vip-card-title">Leads · {results.leads.length}</div>
+          <h2 className="vip-card-title">Leads · {results.leads.length}</h2>
           {results.leads.map((lead) => (
             <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
               <div className="vip-row-main">
@@ -210,7 +214,7 @@ function Search() {
       )}
 
       <div className={mobileTab === 'parties' ? 'vip-card' : 'vip-card vip-search-hide-mobile'}>
-        <div className="vip-card-title">Parties</div>
+        <h2 className="vip-card-title">Parties</h2>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <button
@@ -325,7 +329,7 @@ function Search() {
 
       {hasQuery && results.sites.length > 0 && (
         <div className={mobileTab === 'sites' ? 'vip-card' : 'vip-card vip-search-hide-mobile'}>
-          <div className="vip-card-title">Sites · {results.sites.length}</div>
+          <h2 className="vip-card-title">Sites · {results.sites.length}</h2>
           {results.sites.map((site) => (
             <div key={site.id} className="vip-row">
               <div className="vip-row-main">

@@ -236,7 +236,7 @@ function LeadQuickActions({
       {open === 'owner' && (
         <div className="vip-action-panel">
           <span className="vip-action-panel-title">Reassign owner</span>
-          <div className="vip-action-panel-opts">
+          <div className="vip-action-panel-opts" role="group" aria-label="Choose new owner">
             {activeSalesExecs.map((e) => (
               <button
                 key={e.id}

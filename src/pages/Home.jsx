@@ -329,7 +329,7 @@ function Home({ embedded = false }) {
               things that both answer "what needs me right now". ---------- */}
           <div className="vip-card">
             <div className="vip-card-head">
-              <div className="vip-card-title">Needs your attention today</div>
+              <h2 className="vip-card-title">Needs your attention today</h2>
               <div className="vip-day-head-actions">
                 {attendCount > 0 && <span className="vip-day-head-count">{attendCount}</span>}
                 <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
@@ -402,7 +402,7 @@ function Home({ embedded = false }) {
                       <span className="vip-queue-sub">{row.sub}</span>
                     </span>
                     <span className="vip-queue-count-num">{row.count}</span>
-                    <span className="vip-queue-chevron">›</span>
+                    <span className="vip-queue-chevron" aria-hidden="true">›</span>
                   </button>
                 ))
             )}
@@ -425,7 +425,7 @@ function Home({ embedded = false }) {
           {entries.length > 0 && (
             <div className="vip-card">
               <div className="vip-card-head">
-                <div className="vip-card-title">Today's activity</div>
+                <h2 className="vip-card-title">Today's activity</h2>
                 {myDay?.firstActivityAt && <span className="vip-card-note">since {myDay.firstActivityAt}</span>}
               </div>
               {entries.map((e) => (
@@ -452,7 +452,7 @@ function Home({ embedded = false }) {
           {/* ---------- Outlook: what's coming, unchanged. ---------- */}
           {closing.length > 0 && (
             <div className="vip-card">
-              <div className="vip-card-title">Closing next</div>
+              <h2 className="vip-card-title">Closing next</h2>
               {closing.map((lead) => (
                 <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
                   <div className="vip-row-main">
@@ -485,7 +485,7 @@ function TodayHero({ target, period, onPeriodChange, doneTiles }) {
   return (
     <div className="vip-today-hero">
       <div className="vip-today-hero-head">
-        <span className="vip-day-head-title">Today's pace</span>
+        <h2 className="vip-day-head-title">Today's pace</h2>
         {target !== null && (
           <div className="vip-seg-mini" role="group" aria-label="Target period">
             {PERIOD_OPTIONS.map((opt) => (
@@ -493,6 +493,7 @@ function TodayHero({ target, period, onPeriodChange, doneTiles }) {
                 key={opt.value}
                 type="button"
                 title={opt.label}
+                aria-label={opt.label}
                 className={period === opt.value ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
                 onClick={() => onPeriodChange(opt.value)}
               >

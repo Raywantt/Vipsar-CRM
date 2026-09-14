@@ -371,7 +371,7 @@ function PartySearchOrCreate({
       {results.length > 0 && (
         <div className="vip-card">
           {results.map((party) => (
-            <div key={party.id} className="vip-row vip-clickable" onClick={() => selectExisting(party)}>
+            <button key={party.id} type="button" className="vip-row vip-clickable" onClick={() => selectExisting(party)}>
               <div className="vip-row-main">
                 <div className="vip-row-title">{party.name}</div>
                 <div className="vip-row-sub">
@@ -380,7 +380,7 @@ function PartySearchOrCreate({
                   {party.mobile ? ` · ${party.mobile}` : ''}
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}

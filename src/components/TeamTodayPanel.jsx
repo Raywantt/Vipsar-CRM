@@ -170,7 +170,7 @@ function TeamTodayPanel({
           Dashboard's own Today period already renders for the owner. ---------- */}
       <div className="vip-today-hero">
         <div className="vip-today-hero-head">
-          <span className="vip-day-head-title">{heroTitle}</span>
+          <h2 className="vip-day-head-title">{heroTitle}</h2>
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
           <span className="vip-today-hero-value">{execs.length}</span>
@@ -198,7 +198,7 @@ function TeamTodayPanel({
               EmployeeProfile.jsx already establishes for owner→exec. ---------- */}
           <div className="vip-card">
             <div className="vip-card-head">
-              <div className="vip-card-title">{attentionTitle}</div>
+              <h2 className="vip-card-title">{attentionTitle}</h2>
               <div className="vip-day-head-actions">
                 {redFlagTotal > 0 && <span className="vip-day-head-count">{redFlagTotal}</span>}
                 <button
@@ -248,7 +248,7 @@ function TeamTodayPanel({
                       <span className="vip-queue-sub">{row.sub}</span>
                     </span>
                     <span className="vip-queue-count-num">{row.count}</span>
-                    <span className="vip-queue-chevron">›</span>
+                    <span className="vip-queue-chevron" aria-hidden="true">›</span>
                   </button>
                 ))
             )}

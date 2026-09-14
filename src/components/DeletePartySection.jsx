@@ -88,7 +88,7 @@ function DeletePartySection() {
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Delete a party</div>
+      <h2 className="vip-card-title">Delete a party</h2>
       <p className="vip-form-note">
         Permanent — there's no undo. For a wrongly added architect, PMC, or other contact — not for a real client
         with leads on record. A party still linked to any lead, activity, or site contact can't be deleted until
@@ -97,6 +97,8 @@ function DeletePartySection() {
 
       <input
         className="vip-input"
+        type="search"
+        aria-label="Search parties by name or mobile"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Search by name or mobile…"

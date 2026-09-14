@@ -71,6 +71,7 @@ function NumPadInput({
         onWheel={(e) => e.currentTarget.blur()}
         disabled={disabled}
         maxLength={maxLength}
+        aria-label={label}
         {...rest}
       />
     )
@@ -182,6 +183,7 @@ function NumPadInput({
         onBlur={handleBlur}
         disabled={disabled}
         maxLength={maxLength}
+        aria-label={label}
         {...rest}
       />
       {open && (

@@ -638,7 +638,7 @@ function EmployeeProfile() {
           <div className="vip-profile-avatar">{getInitials(profileEmployee.name)}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
             <div className="vip-profile-name-row">
-              <span className="vip-profile-name">{profileEmployee.name}</span>
+              <h2 className="vip-profile-name">{profileEmployee.name}</h2>
               {rankTier && (
                 <span className="vip-pill" style={{ background: rankStyle.bg, color: rankStyle.fg }}>
                   Rank {rank} of {teamSize}
@@ -668,7 +668,7 @@ function EmployeeProfile() {
           </div>
         </div>
 
-        <div className="vip-seg vip-seg-outline">
+        <div className="vip-seg vip-seg-outline" role="group" aria-label="Period">
           {PERIOD_OPTIONS.map((p) => (
             <button
               key={p}
@@ -741,7 +741,7 @@ function EmployeeProfile() {
             <div className="vip-stack">
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Activity</div>
+                  <h2 className="vip-card-title">Activity</h2>
                   <span className="vip-card-note">
                     {preset === 'week' ? 'this week, by day' : preset === 'month' ? 'this month, by week' : 'this quarter, by month'}
                   </span>
@@ -820,7 +820,7 @@ function EmployeeProfile() {
 
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Leads assigned</div>
+                  <h2 className="vip-card-title">Leads assigned</h2>
                   {staleBucket.count > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: BAD }}>{staleBucket.count} with no touch in 7+ days</span>}
                 </div>
                 {leadsAssigned.length === 0 ? (
@@ -856,7 +856,7 @@ function EmployeeProfile() {
             <div className="vip-stack">
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Conversion funnel</div>
+                  <h2 className="vip-card-title">Conversion funnel</h2>
                   <span className="vip-card-note">win rate {funnelWinRate != null ? `${funnelWinRate}%` : '—'}</span>
                 </div>
                 {funnel.map((f) => (
@@ -874,7 +874,7 @@ function EmployeeProfile() {
 
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Pipeline owned</div>
+                  <h2 className="vip-card-title">Pipeline owned</h2>
                   <span className="vip-card-note">{formatCurrencyCompact(pipelineTotal)} open</span>
                 </div>
                 {pipelineRows.length === 0 ? (
@@ -897,38 +897,58 @@ function EmployeeProfile() {
 
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Activity log</div>
+                  <h2 className="vip-card-title">Activity log</h2>
                   <span className="vip-card-note">last active days</span>
                 </div>
                 {activityLog.length === 0 ? (
                   <p className="vip-empty">No activity logged recently.</p>
                 ) : (
-                  activityLog.map((a) => (
-                    <Link key={a.id} to={a.lead_id ? `/leads/${a.lead_id}` : '#'} className="vip-dd-log-row" style={a.lead_id ? undefined : { pointerEvents: 'none' }}>
-                      <span className="vip-dd-log-when">
-                        {/* parseTimestamp, not new Date() — activities.created_at
-                            is a naive TIMESTAMP holding UTC (see src/lib/dbTime.js). */}
-                        <span>{parseTimestamp(a.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
-                        <span className="vip-dd-log-time">{parseTimestamp(a.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                      </span>
-                      <span className="vip-dd-log-main">
-                        <span className="vip-dd-log-head">
-                          <b style={{ fontWeight: 600, fontSize: 12, color: 'var(--vip-ink)' }}>{ACTIVITY_LABELS[a.activity_type] ?? a.activity_type}</b>
-                          <span className="vip-dd-log-party">{a.leads ? leadTitle(a.leads) : ''}</span>
+                  activityLog.map((a) => {
+                    // A row with no lead_id (Architect Meeting, Office Day) has
+                    // nowhere to navigate — it used to still render as a <Link
+                    // to="#"> disabled only via pointer-events:none, which a
+                    // keyboard user could still Tab to and "activate" (a no-op
+                    // jump to the top of the page) with nothing telling a
+                    // screen reader it wasn't a real link. A plain element with
+                    // the identical markup/classes renders identically and
+                    // simply isn't reachable as a control when there's nothing
+                    // for it to do.
+                    const content = (
+                      <>
+                        <span className="vip-dd-log-when">
+                          {/* parseTimestamp, not new Date() — activities.created_at
+                              is a naive TIMESTAMP holding UTC (see src/lib/dbTime.js). */}
+                          <span>{parseTimestamp(a.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                          <span className="vip-dd-log-time">{parseTimestamp(a.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
                         </span>
-                        {a.notes && <span className="vip-dd-log-notes">{a.notes}</span>}
-                        {a.logged_by?.role === 'sales_coordinator' && a.logged_by_employee_id !== execId && (
-                          <span className="vip-dd-log-notes">Logged by sales coordinator {a.logged_by.name}</span>
-                        )}
-                      </span>
-                    </Link>
-                  ))
+                        <span className="vip-dd-log-main">
+                          <span className="vip-dd-log-head">
+                            <b style={{ fontWeight: 600, fontSize: 12, color: 'var(--vip-ink)' }}>{ACTIVITY_LABELS[a.activity_type] ?? a.activity_type}</b>
+                            <span className="vip-dd-log-party">{a.leads ? leadTitle(a.leads) : ''}</span>
+                          </span>
+                          {a.notes && <span className="vip-dd-log-notes">{a.notes}</span>}
+                          {a.logged_by?.role === 'sales_coordinator' && a.logged_by_employee_id !== execId && (
+                            <span className="vip-dd-log-notes">Logged by sales coordinator {a.logged_by.name}</span>
+                          )}
+                        </span>
+                      </>
+                    )
+                    return a.lead_id ? (
+                      <Link key={a.id} to={`/leads/${a.lead_id}`} className="vip-dd-log-row">
+                        {content}
+                      </Link>
+                    ) : (
+                      <div key={a.id} className="vip-dd-log-row">
+                        {content}
+                      </div>
+                    )
+                  })
                 )}
               </div>
 
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Follow-ups</div>
+                  <h2 className="vip-card-title">Follow-ups</h2>
                   <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
                     {addingFollowUp ? 'Cancel' : '+ Assign follow-up'}
                   </button>

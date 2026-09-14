@@ -23,7 +23,7 @@ function ClosureForecastCard({ leads, onOpenPanel, maxRows = DEFAULT_MAX_ROWS })
   return (
     <div className="vip-card">
       <div className="vip-card-head">
-        <div className="vip-card-title">Closure forecast</div>
+        <h3 className="vip-card-title">Closure forecast</h3>
         {onOpenPanel && (
           <button type="button" className="vip-dd-open-link" onClick={onOpenPanel}>
             Details ›

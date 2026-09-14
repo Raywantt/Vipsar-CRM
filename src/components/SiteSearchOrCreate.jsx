@@ -207,7 +207,7 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
           {!creating && results.length > 0 && (
             <div className="vip-card">
               {results.map((site) => (
-                <div key={site.id} className="vip-row vip-clickable" onClick={() => selectExisting(site)}>
+                <button key={site.id} type="button" className="vip-row vip-clickable" onClick={() => selectExisting(site)}>
                   <div className="vip-row-main">
                     <div className="vip-row-title">
                       {site.locality || '(no locality)'}
@@ -215,7 +215,7 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
                     </div>
                     {site.site_stage && <div className="vip-row-sub">{site.site_stage}</div>}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}

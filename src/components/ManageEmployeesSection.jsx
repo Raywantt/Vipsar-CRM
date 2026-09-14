@@ -297,7 +297,7 @@ function ManageEmployeesSection({ employees, coordinators, managers, currentEmpl
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Manage employees</div>
+      <h2 className="vip-card-title">Manage employees</h2>
 
       <input
         className="vip-input"

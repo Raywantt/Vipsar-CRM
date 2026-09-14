@@ -553,7 +553,7 @@ function LeadQuickCapture() {
             as an orphan half (phone) or quarter (desktop) button. Applied
             alone, like every grid in this family: pairing two of them puts two
             `display` declarations on one element at equal specificity. */}
-        <div className="vip-choice-grid-5">
+        <div className="vip-choice-grid-5" role="group" aria-label="Where from">
           {SOURCE_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -596,7 +596,7 @@ function LeadQuickCapture() {
           class for. Applied alone, same cascade-trap reasoning as always. */}
       <div className="vip-stack-s">
         <div className="vip-field-label">Office territory *</div>
-        <div className="vip-choice-grid-5">
+        <div className="vip-choice-grid-5" role="group" aria-label="Office territory">
           {TERRITORY_OPTIONS.map((opt) => (
             <button
               key={opt.value}

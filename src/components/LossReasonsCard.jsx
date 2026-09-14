@@ -23,7 +23,7 @@ function LossReasonsCard({ lossReasons, onOpenPanel }) {
   return (
     <div className="vip-card">
       <div className="vip-card-head">
-        <div className="vip-card-title">Why we lose</div>
+        <h3 className="vip-card-title">Why we lose</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {onOpenPanel && (
             <button type="button" className="vip-dd-open-link" onClick={onOpenPanel}>
