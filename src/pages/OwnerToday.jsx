@@ -193,7 +193,7 @@ function OwnerToday() {
           {/* ---------- Hero: the org's headline pace for today. ---------- */}
           <div className="vip-today-hero">
             <div className="vip-today-hero-head">
-              <span className="vip-day-head-title">Your team today</span>
+              <h2 className="vip-day-head-title">Your team today</h2>
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
               <span className="vip-today-hero-value">{employees.length}</span>
@@ -221,7 +221,7 @@ function OwnerToday() {
                   today, org-wide. ---------- */}
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Needs attention today</div>
+                  <h2 className="vip-card-title">Needs attention today</h2>
                   {attentionTotal > 0 && <span className="vip-day-head-count">{attentionTotal}</span>}
                 </div>
                 {!attentionBuckets ? (
@@ -239,7 +239,7 @@ function OwnerToday() {
                           <span className="vip-queue-sub">{row.sub}</span>
                         </span>
                         <span className="vip-queue-count-num">{row.count}</span>
-                        <span className="vip-queue-chevron">›</span>
+                        <span className="vip-queue-chevron" aria-hidden="true">›</span>
                       </button>
                     ))
                 )}
@@ -249,7 +249,7 @@ function OwnerToday() {
                   reminders, kept out of the owner's way but not gone. ---------- */}
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Your reminders</div>
+                  <h2 className="vip-card-title">Your reminders</h2>
                   <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
                     {addingFollowUp ? 'Cancel' : '+ Add reminder'}
                   </button>

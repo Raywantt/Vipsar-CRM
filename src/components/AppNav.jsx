@@ -50,7 +50,7 @@ function AppNav() {
           </button>
         )}
         <div>
-          <div className="vip-header-title">{title}</div>
+          <h1 className="vip-header-title">{title}</h1>
           {sub && <div className="vip-header-sub">{sub}</div>}
         </div>
       </div>

@@ -62,8 +62,9 @@ function ProtectedRoute({ allowedRoles, children }) {
 
   return (
     <div className={isHome ? 'vip-app vip-home' : isDrilled ? 'vip-app vip-drilled' : 'vip-app'}>
+      <a href="#vip-main" className="vip-skip-link">Skip to content</a>
       <AppNav />
-      <div className="vip-body">{children}</div>
+      <div className="vip-body" id="vip-main" tabIndex={-1}>{children}</div>
       <BottomNav />
     </div>
   )

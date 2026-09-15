@@ -220,11 +220,11 @@ function LeadSearchSelect({ onSelect, employeeId, allLeads = false }) {
       {results.length > 0 && (
         <div className="vip-card">
           {results.map((lead) => (
-            <div key={lead.id} className="vip-row vip-clickable" onClick={() => selectExisting(lead)}>
+            <button key={lead.id} type="button" className="vip-row vip-clickable" onClick={() => selectExisting(lead)}>
               <div className="vip-row-main">
                 <div className="vip-row-title">{leadLabel(lead)}</div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}

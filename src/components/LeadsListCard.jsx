@@ -352,7 +352,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const scopeField = onManagerScopeChange && (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Whose leads</span>
-      <div className="vip-seg vip-seg-outline">
+      <div className="vip-seg vip-seg-outline" role="group" aria-label="Whose leads">
         <button
           type="button"
           className={managerScope === 'my' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
@@ -378,7 +378,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const ownerField = showOwnerFilter && employees.length > 0 && (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Owner</span>
-      <select className="vip-select" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
+      <select className="vip-select" aria-label="Owner" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
         <option value="">All owners</option>
         {employees.map((e) => (
           <option key={e.id} value={e.id}>
@@ -395,7 +395,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const stageField = (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Lead stage</span>
-      <select className="vip-select" value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
+      <select className="vip-select" aria-label="Lead stage" value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
         <option value="">All stages</option>
         {LEAD_STAGE_OPTIONS.map((stage) => (
           <option key={stage} value={stage}>
@@ -409,7 +409,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const siteStageField = (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Site stage</span>
-      <select className="vip-select" value={siteStageFilter} onChange={(e) => setSiteStageFilter(e.target.value)}>
+      <select className="vip-select" aria-label="Site stage" value={siteStageFilter} onChange={(e) => setSiteStageFilter(e.target.value)}>
         <option value="">All site stages</option>
         {SITE_STAGE_OPTIONS.map((s) => (
           <option key={s} value={s}>
@@ -424,7 +424,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const sourceField = (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Source</span>
-      <select className="vip-select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+      <select className="vip-select" aria-label="Source" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
         <option value="">All sources</option>
         {SOURCE_TYPE_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
@@ -468,7 +468,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // "inactive" reads like a dormant lead, which is what the Stale label
   // elsewhere in this app actually means.
   const statusField = (
-    <div className="vip-seg vip-seg-outline vip-leads-status">
+    <div className="vip-seg vip-seg-outline vip-leads-status" role="group" aria-label="Status">
       {[
         ['', 'All'],
         ['active', 'Active'],
@@ -552,7 +552,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">{title}</div>
+      <h2 className="vip-card-title">{title}</h2>
 
       {/* One toolbar, both widths: search + status always visible, the
           remaining facets laid out beneath it (desktop) or folded behind a
@@ -564,6 +564,9 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
           <input
             className="vip-input vip-leads-search"
             type="search"
+            name="leads-search"
+            autoComplete="off"
+            aria-label="Search leads by party, site, or owner"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by party, site, or owner…"

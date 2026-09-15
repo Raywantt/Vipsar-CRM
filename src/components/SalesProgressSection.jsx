@@ -89,7 +89,7 @@ function SalesProgressSection({ lead, products, rfq, onSaved }) {
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Sales progress</div>
+      <h2 className="vip-card-title">Sales progress</h2>
 
       {/* Four groups, in the order a deal actually moves: what we're selling,
           the RFQ, the quote, then how it closes. Separated by

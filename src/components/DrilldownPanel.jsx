@@ -1785,7 +1785,7 @@ function DrilldownPanel({ panel, onClose, onCancelTarget }) {
   return (
     <>
       <div className="vip-dd-backdrop" onClick={onClose} />
-      <div className="vip-dd-panel">
+      <div className="vip-dd-panel" role="dialog" aria-modal="true" aria-labelledby="vip-dd-panel-title">
         {stack.length > 0 && (
           <button type="button" className="vip-dd-back" onClick={() => setStack((s) => s.slice(0, -1))}>
             ‹ Back
@@ -1797,7 +1797,7 @@ function DrilldownPanel({ panel, onClose, onCancelTarget }) {
           {current.avatar && <span className="vip-dd-avatar vip-dd-head-avatar">{current.avatar}</span>}
           <div className="vip-dd-head-text">
             <div className="vip-dd-eyebrow">{current.eyebrow}</div>
-            <div className="vip-dd-title">{current.title}</div>
+            <h2 className="vip-dd-title" id="vip-dd-panel-title">{current.title}</h2>
             {current.value != null && (
               <div className="vip-dd-value-row">
                 <span className="vip-dd-value">{current.value}</span>

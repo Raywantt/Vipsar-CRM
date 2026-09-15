@@ -207,7 +207,7 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) 
       {showTeam && execCounts.length > 0 && (
         <div className="vip-card">
           <div className="vip-card-head">
-            <div className="vip-card-title">Follow-ups by exec · {rangeLabel}</div>
+            <h2 className="vip-card-title">Follow-ups by exec · {rangeLabel}</h2>
             <div className="vip-dd-hint">
               {execsWithWork} of {execCounts.length} with open work · sorted by{' '}
               {EXEC_COLUMNS.find((c) => c.key === execSortKey).label.toLowerCase()}
@@ -263,7 +263,7 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) 
 
       <div className="vip-card">
         <div className="vip-card-head">
-          <div className="vip-card-title">All reminders</div>
+          <h2 className="vip-card-title">All reminders</h2>
           <div className="vip-dd-hint">any due date — not scoped to {rangeLabel}</div>
         </div>
         <div className="vip-seg vip-seg-outline">

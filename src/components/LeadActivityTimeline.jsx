@@ -71,7 +71,7 @@ function LeadActivityTimeline({ leadId, activities, stageHistory, ownerHistory =
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Activity</div>
+      <h2 className="vip-card-title">Activity</h2>
 
       {entries.length === 0 ? (
         <p className="vip-empty">No activity yet.</p>

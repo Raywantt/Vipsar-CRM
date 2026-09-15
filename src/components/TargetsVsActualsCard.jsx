@@ -279,7 +279,7 @@ function TargetsVsActualsCard({
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Targets vs. actuals</div>
+      <h2 className="vip-card-title">Targets vs. actuals</h2>
 
       {showHeatmap && (
         <div className="vip-only-desktop">

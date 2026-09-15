@@ -1,5 +1,5 @@
 import { ROLES, roleLabel } from '../lib/roles'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { ACTIVITY_METRIC_OPTIONS } from '../lib/targetMetrics'
 import { getInitials } from '../lib/initials'
 import {
@@ -33,7 +33,6 @@ const COLS = [
 // leads, order value and overall are built synchronously from state already
 // on the page.
 function DashboardHeatmap({ employees, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel, onOpenLog, onOpenPanel, canCancelTarget = false }) {
-  const navigate = useNavigate()
   const orderActuals = computeOrderValueActuals(wonStageHistory, range, true)
   const scanningActuals = computeScanningLeadsActuals(breakdownLeads, range, true)
   const activityActuals = computeActivityActuals(activities, true)
@@ -57,7 +56,7 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, bre
 
       {employees.map((emp) => (
         <div key={emp.id} className="vip-dd-heatmap-row">
-          <div className="vip-dd-heatmap-exec" onClick={() => navigate(`/employees/${emp.id}`)}>
+          <Link to={`/employees/${emp.id}`} className="vip-dd-heatmap-exec">
             <span className="vip-dd-avatar">{getInitials(emp.name)}</span>
             <span className="vip-dd-heatmap-name">{emp.name}</span>
             {/* Same badge the Day Review table uses — a manager is ranked
@@ -68,7 +67,7 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, bre
                 MGR
               </span>
             )}
-          </div>
+          </Link>
 
           {COLS.map((c) => {
             let actual

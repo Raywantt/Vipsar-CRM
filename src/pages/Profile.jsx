@@ -167,7 +167,7 @@ function Profile() {
       </div>
 
       <div className="vip-card">
-        <div className="vip-card-title">Notifications</div>
+        <h2 className="vip-card-title">Notifications</h2>
         {permission === 'unsupported' ? (
           <p className="vip-form-note">Push notifications aren't supported on this browser or device.</p>
         ) : permission === 'denied' ? (
@@ -184,8 +184,8 @@ function Profile() {
       </div>
 
       <div className="vip-card">
-        <div className="vip-card-title">Appearance</div>
-        <div className="vip-seg vip-seg-outline">
+        <h2 className="vip-card-title">Appearance</h2>
+        <div className="vip-seg vip-seg-outline" role="group" aria-label="Appearance">
           {THEME_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -219,7 +219,7 @@ function Profile() {
 
               <div className="vip-card">
                 <div className="vip-card-head">
-                  <div className="vip-card-title">Add employee</div>
+                  <h2 className="vip-card-title">Add employee</h2>
                   {!addingEmployee && (
                     <button type="button" className="vip-btn-link" onClick={() => setAddingEmployee(true)}>
                       + Add
@@ -259,7 +259,7 @@ function Profile() {
 
       <div className="vip-card">
         <div className="vip-card-head">
-          <div className="vip-card-title">Change password</div>
+          <h2 className="vip-card-title">Change password</h2>
           {!changingPassword && (
             <button type="button" className="vip-btn-link" onClick={() => setChangingPassword(true)}>
               Change

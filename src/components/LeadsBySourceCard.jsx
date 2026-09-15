@@ -35,7 +35,7 @@ function LeadsBySourceCard({ leads, showByEmployee, onOpenPanel }) {
   return (
     <div className="vip-card">
       <div className="vip-card-head">
-        <div className="vip-card-title">New leads by source</div>
+        <h3 className="vip-card-title">New leads by source</h3>
         {onOpenPanel && (
           <button type="button" className="vip-dd-open-link" onClick={onOpenPanel}>
             Details ›

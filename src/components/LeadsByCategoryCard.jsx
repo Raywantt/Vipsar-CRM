@@ -60,7 +60,7 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
   return (
     <div className="vip-card">
       <div className="vip-card-head">
-        <div className="vip-card-title">{title}</div>
+        <h3 className="vip-card-title">{title}</h3>
         {onOpenPanel && (
           <button type="button" className="vip-dd-open-link" onClick={onOpenPanel}>
             Details ›

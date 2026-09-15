@@ -912,7 +912,7 @@ function Dashboard() {
               <div className="vip-tile-label">{seesOthersData ? 'Team follow-ups' : 'My follow-ups'}</div>
               <div className="vip-tile-desc">Overdue, today and upcoming reminders</div>
             </div>
-            <div className="vip-tile-chevron">›</div>
+            <div className="vip-tile-chevron" aria-hidden="true">›</div>
           </Link>
 
           {/* The manager's page-level My / Team switch. Above the date range
@@ -953,7 +953,7 @@ function Dashboard() {
                 <div className="vip-tile-label">My Team</div>
                 <div className="vip-tile-desc">{isManager ? 'Browse your reporting execs' : 'Browse your sales team'}</div>
               </div>
-              <div className="vip-tile-chevron">›</div>
+              <div className="vip-tile-chevron" aria-hidden="true">›</div>
             </Link>
           )}
 
@@ -1127,7 +1127,7 @@ function Dashboard() {
               )
             )}
 
-            <div className="vip-span-2 vip-report-section">Activity &amp; sourcing</div>
+            <h2 className="vip-span-2 vip-report-section">Activity &amp; sourcing</h2>
 
             {loading ? (
               <p className="vip-empty">Loading…</p>
@@ -1148,7 +1148,7 @@ function Dashboard() {
               </>
             )}
 
-            <div className="vip-span-2 vip-report-section">Deal pipeline</div>
+            <h2 className="vip-span-2 vip-report-section">Deal pipeline</h2>
 
             <div className="vip-span-2">
               <ClosureForecastCard leads={forecast} onOpenPanel={() => setPanel(buildForecastPanel({ forecast, scopeLabel }))} />
@@ -1156,7 +1156,7 @@ function Dashboard() {
 
             <div className="vip-card">
               <div className="vip-card-head">
-                <div className="vip-card-title">Pipeline by stage</div>
+                <h3 className="vip-card-title">Pipeline by stage</h3>
                 <button
                   type="button"
                   className="vip-dd-open-link"
@@ -1197,7 +1197,7 @@ function Dashboard() {
                 per stage) inline. */}
             <SalesFunnelCard stageHistory={funnelStageHistory} leads={breakdownLeads} />
 
-            <div className="vip-span-2 vip-report-section">Sites &amp; product</div>
+            <h2 className="vip-span-2 vip-report-section">Sites &amp; product</h2>
 
             <LeadsByCategoryCard
               title="Leads by area"
@@ -1270,7 +1270,7 @@ function Dashboard() {
                 leads either way. */}
             {(isOwner || (isManager && managerScope === 'team')) && (
               <>
-                <div className="vip-span-2 vip-report-section">Why we lose</div>
+                <h2 className="vip-span-2 vip-report-section">Why we lose</h2>
                 <div className="vip-span-2">
                   <LossReasonsCard lossReasons={lossReasons} onOpenPanel={() => setPanel(buildLossPanel({ lossReasons }))} />
                 </div>

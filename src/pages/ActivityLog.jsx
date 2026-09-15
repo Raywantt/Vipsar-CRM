@@ -784,9 +784,9 @@ function ActivityLog() {
         </label>
       )}
 
-      <div className="vip-lede">What did you do?</div>
+      <h2 className="vip-lede">What did you do?</h2>
 
-      <div className="vip-choice-grid">
+      <div className="vip-choice-grid" role="group" aria-label="What did you do?">
         {LOGGABLE_ACTIVITY_TYPES.map((opt) => (
           <button
             key={opt.value}
@@ -988,7 +988,7 @@ function ActivityLog() {
               {isClientMeeting && (
                 <div className="vip-stack-s">
                   <div className="vip-field-label">Meeting location *</div>
-                  <div className="vip-choice-row">
+                  <div className="vip-choice-row" role="group" aria-label="Meeting location">
                     {MEETING_LOCATION_OPTIONS.map((opt) => (
                       <button
                         key={opt.value}

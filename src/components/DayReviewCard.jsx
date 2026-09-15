@@ -91,7 +91,7 @@ function DayReviewCard({ rows, totals, isPast, onOpenExec, selectedExecId }) {
   return (
     <div className="vip-card">
       <div className="vip-card-head">
-        <div className="vip-card-title">What the team did today</div>
+        <h2 className="vip-card-title">What the team did today</h2>
         <span className="vip-card-note vip-only-desktop">Sorted by {COLUMNS.find((c) => c.key === sortKey).label.toLowerCase()} · click a row for the full day</span>
         <span className="vip-card-note vip-only-mobile">Tap for the full day</span>
       </div>
@@ -182,7 +182,7 @@ function DayReviewCard({ rows, totals, isPast, onOpenExec, selectedExecId }) {
                     <RoleTag role={row.role} />
                   </span>
                   <span className={row.total === 0 ? 'vip-daycard-total vip-daytable-quiet' : 'vip-daycard-total'}>{row.total}</span>
-                  <span className="vip-daycard-chevron">›</span>
+                  <span className="vip-daycard-chevron" aria-hidden="true">›</span>
                 </span>
                 <span className="vip-daycard-stats">
                   <span>

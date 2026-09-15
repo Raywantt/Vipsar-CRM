@@ -2600,7 +2600,7 @@ a.vip-day-log-party:hover { text-decoration: underline; }
   padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 10px;
 }
 .vip-today-hero-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.vip-today-hero-value { font-family: var(--vip-display); font-weight: 700; font-size: 34px; line-height: 1.1; color: var(--vip-ink); }
+.vip-today-hero-value { font-family: var(--vip-display); font-weight: 700; font-size: 34px; line-height: 1.1; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
 .vip-today-hero-sub { font-size: 13px; color: var(--vip-faint); }
 .vip-today-hero-kpis { margin-top: 4px; }
 
@@ -3090,4 +3090,59 @@ a.vip-day-log-party:hover { text-decoration: underline; }
   border-top: 1px solid var(--vip-line);
   padding-top: 14px;
   margin-top: 2px;
+}
+
+/* ===========================================================================
+   29. ACCESSIBILITY — skip link + screen-reader-only utility
+   ---------------------------------------------------------------------------
+   Web Interface Guidelines compliance pass (2026-09-14). No screen previously
+   had a way to bypass AppNav/BottomNav via keyboard — this is the one route
+   in, added once here rather than per-page. Visually hidden until it
+   receives keyboard focus, then pinned above everything (z-index above the
+   dark header/sidebar chrome) so a sighted keyboard user can actually see
+   what they just focused.
+   ========================================================================= */
+.vip-skip-link {
+  position: fixed;
+  top: -100px;
+  left: 12px;
+  z-index: 100;
+  background: var(--vip-shell);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: var(--vip-r-control);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top .15s ease;
+}
+.vip-skip-link:focus-visible {
+  top: 12px;
+}
+
+.vip-sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* A `.vip-row` result row that is a real button (keyboard/AT-reachable),
+   not a `<div onClick>` — see EmployeeSearchSelect/LeadSearchSelect/
+   PartySearchOrCreate/SiteSearchOrCreate's search results. `.vip-row` itself
+   never sets background/border/font/text-align/width, which is fine for the
+   plain non-interactive `<div className="vip-row">` rows elsewhere, but a
+   native `<button>` needs those stripped or it grows its own chrome. Scoped
+   to the compound selector so every existing div-based `.vip-row` is
+   untouched. */
+button.vip-row {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }

@@ -91,12 +91,12 @@ function EmployeeSearchSelect({ label = null, hint = null, onSelect, initialSele
       {matches.length > 0 && (
         <div className="vip-card">
           {matches.map((emp) => (
-            <div key={emp.id} className="vip-row vip-clickable" onClick={() => selectEmployee(emp)}>
+            <button key={emp.id} type="button" className="vip-row vip-clickable" onClick={() => selectEmployee(emp)}>
               <div className="vip-row-main">
                 <div className="vip-row-title">{emp.name}</div>
                 <div className="vip-row-sub">{roleLabel(emp.role)}</div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}

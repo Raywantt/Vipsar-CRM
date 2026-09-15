@@ -63,7 +63,7 @@ function SiteDetailsSection({ site, areas, onSaved }) {
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Site details</div>
+      <h2 className="vip-card-title">Site details</h2>
 
       <label className="vip-field">
         Area

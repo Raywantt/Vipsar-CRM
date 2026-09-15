@@ -30,10 +30,10 @@ function TodayGreetingHeader({ employee }) {
     <>
     <div className="vip-today-head">
       <div>
-        <div className="vip-greeting">
+        <h1 className="vip-greeting">
           {greeting}
           {firstName ? `, ${firstName}` : ''}
-        </div>
+        </h1>
         <div className="vip-today-date">{longDate}</div>
       </div>
       <div className="vip-today-head-actions">

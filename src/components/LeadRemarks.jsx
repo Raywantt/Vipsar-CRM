@@ -57,7 +57,7 @@ function LeadRemarks({ leadId, employeeId, canAdd }) {
   return (
     <div className="vip-card">
       <div className="vip-card-head">
-        <div className="vip-card-title">Remarks</div>
+        <h2 className="vip-card-title">Remarks</h2>
         {canAdd && !adding && (
           <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={() => setAdding(true)}>
             + Add remark

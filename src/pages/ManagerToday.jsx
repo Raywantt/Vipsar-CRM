@@ -95,7 +95,7 @@ function ManagerToday() {
         <p className="vip-error" role="alert">{loadError}</p>
       ) : execs.length === 0 ? (
         <div className="vip-card">
-          <div className="vip-card-title">No sales executives report to you yet</div>
+          <h2 className="vip-card-title">No sales executives report to you yet</h2>
           <p className="vip-form-note" style={{ marginTop: 0 }}>
             Ask the owner to assign your team in Profile → Manage employees, then check back here. Your own leads and
             activities are unaffected — they're on the My day tab.

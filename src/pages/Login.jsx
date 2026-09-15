@@ -34,7 +34,7 @@ function Login() {
       </div>
 
       <div className="vip-login-pitch">
-        <div className="vip-login-h">Every plot, every quote, one record.</div>
+        <h1 className="vip-login-h">Every plot, every quote, one record.</h1>
         <div className="vip-login-sub">Sign in to log visits and leads from site.</div>
       </div>
 
@@ -42,19 +42,25 @@ function Login() {
         <input
           className="vip-input"
           type="email"
+          name="email"
           placeholder="you@vipsar.in"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           autoComplete="username"
+          aria-label="Email"
+          spellCheck="false"
+          autoCapitalize="none"
           required
         />
         <input
           className="vip-input"
           type="password"
+          name="password"
           placeholder="Password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           autoComplete="current-password"
+          aria-label="Password"
           required
         />
         {error && <p className="vip-error" role="alert">{error}</p>}

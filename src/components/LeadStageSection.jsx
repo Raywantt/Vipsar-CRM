@@ -307,9 +307,9 @@ function LeadStageSection({ lead, leadTitle, canMoveStageBackward = true, paused
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Stage</div>
+      <h2 className="vip-card-title">Stage</h2>
 
-      <div className="vip-chip-wrap">
+      <div className="vip-chip-wrap" role="group" aria-label="Stage">
         {LEAD_STAGE_OPTIONS.map((stage) => {
           const backward =
             !canMoveStageBackward && isBackwardStageMove(lead.current_stage, stage, pausedAtStage)

@@ -151,7 +151,7 @@ function AdditionalContactsSection({ site, siteContacts, onContactAdded }) {
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Contacts</div>
+      <h2 className="vip-card-title">Contacts</h2>
 
       {firmWarning && <p className="vip-error" role="alert">{firmWarning}</p>}
 

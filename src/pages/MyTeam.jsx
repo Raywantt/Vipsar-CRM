@@ -130,12 +130,14 @@ function MyTeam() {
         <div className="vip-stack-s">
           <input
             className="vip-input"
+            type="search"
+            aria-label="Search team members"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search team members…"
           />
           {roles.length > 0 && (
-            <div className="vip-seg vip-seg-outline">
+            <div className="vip-seg vip-seg-outline" role="group" aria-label="Role">
               <button
                 type="button"
                 className={roleFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}

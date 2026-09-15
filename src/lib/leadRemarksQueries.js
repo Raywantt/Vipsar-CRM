@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient'
+import { fetchAllRows } from './fetchAllRows'
 
 // A running, append-only log of free-text remarks against a lead — separate
 // from `activities` (records something that happened, on a date) and
@@ -9,12 +10,20 @@ import { supabase } from './supabaseClient'
 // anywhere — same append-only shape as stage_history/lead_owner_history/
 // loss_reasons. A correction is a new remark, not an edit to an old one.
 
+// Append-only with no per-lead cap, so paged like every other multi-row read.
+// The `id` tiebreaker runs descending to match the newest-first display:
+// remarks sharing a timestamp still list the later-inserted one on top, the
+// same order LeadRemarks gives a freshly saved remark by prepending it.
 export function fetchRemarksForLead(leadId) {
-  return supabase
-    .from('lead_remarks')
-    .select('id, body, created_at, employee_id, employees(name)')
-    .eq('lead_id', leadId)
-    .order('created_at', { ascending: false })
+  return fetchAllRows(
+    () =>
+      supabase
+        .from('lead_remarks')
+        .select('id, body, created_at, employee_id, employees(name)', { count: 'exact' })
+        .eq('lead_id', leadId)
+        .order('created_at', { ascending: false }),
+    { ascending: false }
+  )
 }
 
 // `.select()` on the insert is safe under RLS here (unlike the trap

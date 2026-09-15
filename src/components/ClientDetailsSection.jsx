@@ -154,7 +154,7 @@ function ClientDetailsSection({ party, canEdit = true, onSaved, onSetClient }) {
   if (!isClient) {
     return (
       <div className="vip-card">
-        <div className="vip-card-title">Client</div>
+        <h2 className="vip-card-title">Client</h2>
         {party ? (
           <p className="vip-empty">
             No client name on file yet. This lead is currently identified by{' '}
@@ -171,7 +171,7 @@ function ClientDetailsSection({ party, canEdit = true, onSaved, onSetClient }) {
 
   return (
     <div className="vip-card">
-      <div className="vip-card-title">Client details</div>
+      <h2 className="vip-card-title">Client details</h2>
 
       <label className="vip-field">
         Name

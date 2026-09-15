@@ -36,7 +36,7 @@ function NeedsAttentionCard({ buckets, onOpenPanel, wide = false, scopeLabel = '
   return (
     <div className="vip-card">
       <div className="vip-card-head">
-        <div className="vip-card-title">Needs attention</div>
+        <h2 className="vip-card-title">Needs attention</h2>
         <div className="vip-dd-attn-total">{total}</div>
       </div>
 
