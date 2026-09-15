@@ -50,7 +50,7 @@ Standing rules that apply to every step:
 | 4 | BDM daily screens: Today, My Leads, My Architects, Architect profile, Follow-ups, Search, Lead Detail rules | ✅ 2026-09-15 — built, driven live for all five roles at both widths, test rows cleaned up (no SQL, no deploy) |
 | 5 | BDM Dashboard + BDM targets | ✅ 2026-09-15 — built, figures cross-checked against test rows for every period, all five roles at both widths, test rows cleaned up (no SQL, no deploy) |
 | 6 | Owner's **Architect Network** screen | ✅ 2026-09-15 — built, figures cross-checked against test rows and real architects, targets + portfolio move written through the UI, all five roles at both widths, test rows cleaned up (no SQL, no deploy) |
-| 7 | Meetings: schedule, agenda, richer Architect Meeting log, "Not logged" | ⬜ |
+| 7 | Meetings → **architect follow-ups** (owner reshaped it: no outcome, no scheduled-meeting concept) | ✅ 2026-09-15 — built, loop driven live as the BDM at both widths + owner view, test rows cleaned up (no SQL, no deploy) |
 | 8 | Docs + cleanup: fold this into `CLAUDE.md`, final full matrix pass | ⬜ |
 
 Mark a step ✅ with the date only once its verification passed. Use 🟡 for
@@ -236,7 +236,7 @@ before any app change is deployed.
 | `parties.bdm_employee_id` | `INTEGER REFERENCES employees(id)`, nullable, indexed |
 | `parties.bdm_since` | `TIMESTAMP` — when the architect entered the portfolio; the 14-day clock floor |
 | `notifications.kind` CHECK | add `'bdm_pool_lead'` (→ each active owner), `'bdm_lead_assigned'`, `'bdm_lead_won'`, `'bdm_lead_lost'` (→ the BDM) |
-| Step 7: `Schema/migration_bdm_meetings.sql` | `activities.meeting_outcome` (closed-list CHECK, values confirmed at Step 7), `activities.upcoming_projects TEXT` |
+| ~~Step 7: `Schema/migration_bdm_meetings.sql`~~ | **Dropped at Step 7** — the owner wants no outcome and no upcoming-projects field; nothing was written |
 
 End every migration with `NOTIFY pgrst, 'reload schema';`.
 
@@ -640,6 +640,16 @@ Project discussion, Joinery collected, Site visit together, Other); where the
 agenda lives; whether "Not logged" also appears on Today.
 **Exit:** schedule → push → log → closes → target count increments; unlogged
 past meeting shows "Not logged".
+**Answers (2026-09-15) — these REPLACE the plan above:** no outcome, no
+upcoming projects, no migration. **Drop the term "scheduled meeting": an
+architect's next meeting is a follow-up, exactly as an exec uses one** — log
+an Architect Meeting, set Next follow-up (optional, not required); on that day
+"Log activity & close" logs the next meeting and closes the follow-up, and
+that meeting sets the next one. Agenda = an "Upcoming follow-ups" card on My
+Architects + a Follow-ups card on the architect profile. A past-due one on
+Today reads the app's existing **"Missed"** (no separate "Not logged" label).
+No standalone "Schedule meeting" button (owner: no preference; left out to keep
+it exactly like execs).
 **STOP.**
 
 ### Step 8 — Docs + final pass
@@ -1129,3 +1139,48 @@ can't forge a BDM tag; existing roles' screens and figures unchanged.
   (section 33 is tokens only). 5 new zero-byte junk files from the edit hook
   (`({,`, `,`, `,+`, `,-`, `{,+`) — not deleted, owner to decide. Next: Step 7 —
   ask its *Confirm before building* questions first.
+- **2026-09-15 — Step 7 ✅ (no SQL, no deploy needed).** Owner reshaped the
+  step (answers under Step 7 in §8): no outcome, no upcoming projects, no
+  "scheduled meeting" — an architect's next meeting is an ordinary follow-up,
+  worked exactly like an exec's. `migration_bdm_meetings.sql` was never
+  written. Built:
+  - **`followUpQueries.js`**: `isArchitectFollowUp` (lead-less, party is an
+    architect/firm — read off `parties.party_type`, so pre-Step-7 rows saved as
+    `'other'` count too; the embed gained `party_type`), **`logActivityPathFor`
+    — THE one "Log activity & close" link builder** (replaced three identical
+    hand-rolled copies in Home, BdmToday, FollowUpsCard; a lead row's URL is
+    byte-identical to before), `fetchOpenArchitectFollowUpsForEmployee`,
+    `fetchOpenFollowUpsForParty`. Tests in new `followUpQueries.test.js`.
+  - **`FollowUpList`**: "Log activity & close" / "Just mark done" now offered
+    whenever `logActivityPathFor` has somewhere to go (was lead rows only); an
+    architect row's name links to `/architects/:id`. Every role's lists get it.
+  - **`ActivityLog`**: `?party=<id>` (with `type=architect_meeting`) pre-picks
+    the architect via `fetchArchitect` — a confirmation row with "Change", like
+    `?lead=`; `?followup=` closes it with `completed_by_activity_id` as before.
+    Architect Meeting's Next follow-up is now saved as
+    `activity_type = 'architect_meeting'` (was `'other'` on a stale belief the
+    CHECK refused it — confirmed live that it accepts it). Applies to every role
+    that logs an Architect Meeting; the form itself is unchanged.
+  - **`ArchitectFollowUpsCard.jsx`** (one component, two mounts, hidden when
+    empty): "Upcoming follow-ups" at the top of My Architects (the BDM's open
+    architect follow-ups, any architect), "Follow-ups" full width above the
+    profile's Meetings | Referred leads pair (RLS decides whose). Mark done /
+    Reschedule / Cancel; Log activity & close only for roles with
+    `canLogActivity` (not the owner). Theme section 34 (one margin).
+  Tests 437/437, lint 0 errors.
+  **Verified live** (Test BDM on this session's own 5185 server — the other
+  chat's 5184/5185 stopped mid-test; owner 5181, exec 5183): logged an Architect
+  Meeting creating "ZZ Step7 Architect" with Next follow-up 16 Sep → follow-up
+  #831 type `architect_meeting`, architect tagged into the portfolio; My
+  Architects agenda showed it; back-dated to 14 Sep → Today "Follow-ups due"
+  row **Missed**, Architect link, Log activity & close (375px) → Log Activity
+  opened with Architect Meeting + the architect pre-picked → logged with next
+  follow-up 22 Sep → #831 `done`, `completed_by_activity_id` = the new activity,
+  #832 open. Profile card at 1280 and 375 (no overflow); reschedule through the
+  My Architects card wrote 25 Sep. Owner's profile view: card shown, no Log
+  button. Exec Today loads, no console errors anywhere. Cleanup from the owner
+  port: follow-ups 831/832, activities 3510/3511, party 1699 — 0 left.
+  **Not exercised:** the push actually arriving for an architect follow-up
+  (same push pipeline as every follow-up; the test BDM has no device), and a
+  coordinator/manager logging an architect follow-up (same code path). Next:
+  Step 8 — docs + final pass, after the owner's go-ahead.

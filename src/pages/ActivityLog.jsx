@@ -17,6 +17,7 @@ import { todayISO } from '../lib/followupDates'
 import { createFollowUp, markFollowUpDone } from '../lib/followUpQueries'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
+import { fetchArchitect } from '../lib/architectQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { leadDisplayName } from '../lib/leadName'
 
@@ -83,6 +84,10 @@ function ActivityLog() {
   const preselectedType = searchParams.get('type')
   const followUpId = searchParams.get('followup')
   const [followUpClosed, setFollowUpClosed] = useState(false)
+  // An architect follow-up's "Log activity & close" (BDM.md Step 7) hands off
+  // ?type=architect_meeting&party=<architect id> — the architect equivalent of
+  // ?lead=. Read once, like the other two.
+  const preselectedPartyId = searchParams.get('party')
 
   // A coordinator owns no leads/activities of their own — this picks who the
   // activity is actually for, and that exec's id is what activities.employee_id
@@ -114,6 +119,10 @@ function ActivityLog() {
   // Only meaningful when the party is a person; a 'firm' party already IS the
   // firm, so recording it again would just be the name twice.
   const [firmParty, setFirmParty] = useState(null)
+  // The architect ?party= named, kept so switching type away and back, or
+  // "Log another activity", restores it — same as preselectedLead.
+  const [preselectedArchitect, setPreselectedArchitect] = useState(null)
+  const [changingArchitect, setChangingArchitect] = useState(false)
   const [notes, setNotes] = useState('')
   const [accompaniedBy, setAccompaniedBy] = useState('')
   // Office Day's three fields, all required (see canSubmit below). The
@@ -203,6 +212,19 @@ function ActivityLog() {
       active = false
     }
   }, [preselectedLeadId, isCoordinator])
+
+  useEffect(() => {
+    if (!preselectedPartyId) return
+    let active = true
+    fetchArchitect(Number(preselectedPartyId)).then(({ data }) => {
+      if (!active || !data || !['architect', 'firm'].includes(data.party_type)) return
+      setPreselectedArchitect(data)
+      setSelectedArchitect(data)
+    })
+    return () => {
+      active = false
+    }
+  }, [preselectedPartyId])
 
   // Preselects the activity type from Home's follow-up hand-off (?type=) —
   // previously read nowhere, so "Log call"/"Log visit" landed on the plain
@@ -315,6 +337,8 @@ function ActivityLog() {
     meetingLocationSatisfied &&
     (!isCoordinator || Boolean(forExec)) &&
     !submitting
+  const architectPreselectedAndLocked =
+    Boolean(preselectedArchitect) && selectedArchitect?.id === preselectedArchitect.id && !changingArchitect
   const leadPreselectedAndLocked =
     Boolean(preselectedLeadId) && selectedLead && String(selectedLead.id) === preselectedLeadId && !changingLead
   // Whose activity this really is — the picked exec for a coordinator
@@ -333,6 +357,8 @@ function ActivityLog() {
     if (value !== 'architect_meeting') {
       setSelectedArchitect(null)
       setFirmParty(null)
+    } else if (preselectedArchitect) {
+      setSelectedArchitect(preselectedArchitect)
     }
     // Same reasoning for the two type-specific groups below — a required
     // field filled and then abandoned by switching type must not be written
@@ -375,6 +401,7 @@ function ActivityLog() {
     setSelectedArchitect(null)
     setFirmParty(null)
     setChangingLead(false)
+    setChangingArchitect(false)
     setNotes('')
     setAccompaniedBy('')
     setWorkSummary('')
@@ -580,15 +607,19 @@ function ActivityLog() {
     // is credited to (actingForId — the exec, when a coordinator logged this
     // on their behalf), linked to the architect party. createdBy stays the
     // real actor, so FollowUpList's "Assigned by {name}" shows correctly when
-    // the two differ. activityType: 'other' — the real 'architect_meeting'
-    // value isn't in follow_ups' own activity_type CHECK list, same reasoning
-    // On Hold's own createFollowUp call uses.
+    // the two differ.
+    //
+    // activityType 'architect_meeting' (BDM.md Step 7, owner's ruling: an
+    // architect's next meeting IS a follow-up, exactly like an exec's). It
+    // used to be 'other' on the belief the CHECK refused it; follow_ups'
+    // CHECK has allowed it since migration_architect_meeting.sql. Its
+    // "Log activity & close" then comes back here via ?party=, closing it.
     if (isArchitectMeeting && resolvedArchitect && nextFollowupDate) {
       const { error: followUpError } = await createFollowUp({
         assignedTo: actingForId,
         createdBy: employee?.id,
         partyId: resolvedArchitect.id,
-        activityType: 'other',
+        activityType: 'architect_meeting',
         title: `Follow up with ${resolvedArchitect.name}`,
         // Deliberately does NOT fall back to the activity's own notes. It
         // used to, which meant a rep who left the follow-up note blank got
@@ -834,14 +865,35 @@ function ActivityLog() {
               covers a party being created, and the always-visible field below
               covers existing architects too, so passing both would put two
               firm inputs on screen at once. */}
-          <PartySearchOrCreate
-            label="Architect name"
-            defaultPartyType="architect"
-            typeOptions={['architect', 'firm']}
-            deferCreate
-            onSelect={setSelectedArchitect}
-            createdByEmployeeId={actingForId}
-          />
+          {/* Arrived from an architect follow-up: the architect is already
+              known, so confirm it rather than asking again — the ?lead= row's
+              shape. "Change" falls back to the normal picker. */}
+          {architectPreselectedAndLocked ? (
+            <div className="vip-row">
+              <div className="vip-row-main">
+                <div className="vip-row-title">{selectedArchitect.name}</div>
+              </div>
+              <button
+                type="button"
+                className="vip-btn-link"
+                onClick={() => {
+                  setChangingArchitect(true)
+                  setSelectedArchitect(null)
+                }}
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <PartySearchOrCreate
+              label="Architect name"
+              defaultPartyType="architect"
+              typeOptions={['architect', 'firm']}
+              deferCreate
+              onSelect={setSelectedArchitect}
+              createdByEmployeeId={actingForId}
+            />
+          )}
 
           {/* key on the architect's id (or, for one not yet saved, their
               name) so the picker re-seeds when a different architect is

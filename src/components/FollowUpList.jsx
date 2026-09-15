@@ -10,6 +10,8 @@ import {
   FOLLOW_UP_CANCELLED,
   isMissed,
   fetchFollowUpHistory,
+  isArchitectFollowUp,
+  logActivityPathFor,
 } from '../lib/followUpQueries'
 
 // ---------------------------------------------------------------------------
@@ -112,6 +114,10 @@ function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen
   const assignedByOther = f.created_by !== f.assigned_to
   const isAssignee = viewerId != null && f.assigned_to === viewerId
   const mobile = f.leads?.parties?.mobile ?? f.parties?.mobile ?? null
+  // A lead reminder or an architect reminder (BDM.md Step 7) — the same test
+  // that decides where the button navigates, so it's never offered with
+  // nowhere to go.
+  const canLogHere = Boolean(onLogActivity) && logActivityPathFor(f) != null
 
   // Rule 10.2 — fetched lazily, never eagerly for every row in a list.
   async function loadHistory() {
@@ -184,8 +190,16 @@ function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen
             {typeLabel && <div><dt>Type</dt><dd>{typeLabel}</dd></div>}
             {linkLabel && (
               <div>
-                <dt>{f.lead_id ? 'Lead' : 'Party'}</dt>
-                <dd>{f.lead_id ? <Link to={`/leads/${f.lead_id}`}>{linkLabel}</Link> : linkLabel}</dd>
+                <dt>{f.lead_id ? 'Lead' : isArchitectFollowUp(f) ? 'Architect' : 'Party'}</dt>
+                <dd>
+                  {f.lead_id ? (
+                    <Link to={`/leads/${f.lead_id}`}>{linkLabel}</Link>
+                  ) : isArchitectFollowUp(f) && f.parties.party_type === 'architect' ? (
+                    <Link to={`/architects/${f.party_id}`}>{linkLabel}</Link>
+                  ) : (
+                    linkLabel
+                  )}
+                </dd>
               </div>
             )}
             <div>
@@ -228,7 +242,7 @@ function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen
             {open && mobile && (
               <a href={`tel:${mobile}`} className="vip-btn vip-fu-action-primary">Call</a>
             )}
-            {open && onLogActivity && f.lead_id && (
+            {open && canLogHere && (
               <button type="button" className="vip-btn vip-fu-action-primary" onClick={() => onLogActivity(f)}>
                 Log activity &amp; close
               </button>
@@ -238,7 +252,7 @@ function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen
               // secondary styling: the primary path must be the faster one,
               // or activity counts and completion counts drift apart again.
               <button type="button" className="vip-btn-link" onClick={() => onMarkDone(f.id)}>
-                {onLogActivity && f.lead_id ? 'Just mark done' : 'Mark done'}
+                {canLogHere ? 'Just mark done' : 'Mark done'}
               </button>
             )}
             {open && onReschedule && (

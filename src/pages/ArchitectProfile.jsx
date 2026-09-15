@@ -4,6 +4,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import { EmployeeNameLink } from '../components/EmployeeLink'
 import ShowMoreRows from '../components/ShowMoreRows'
+import ArchitectFollowUpsCard from '../components/ArchitectFollowUpsCard'
+import { fetchOpenFollowUpsForParty } from '../lib/followUpQueries'
 import { fetchArchitect, fetchArchitectMeetings, fetchLeadsForArchitects, updateArchitectPortfolio } from '../lib/architectQueries'
 import { fetchActiveBdms } from '../lib/bdmQueries'
 import { ARCHITECT_MEETING_DAYS, architectIdForLead, summariseArchitectLeads } from '../lib/architectStats'
@@ -34,8 +36,8 @@ function excerpt(text, max = 120) {
 // the owner is told so in one line under the stats.
 //
 // "Referred" = the leads this architect sourced, attributed the same way Lead
-// Detail's "via Architect" line is (architectIdForLead). Scheduled meetings
-// join the Meetings card in Step 7.
+// Detail's "via Architect" line is (architectIdForLead). The next meeting is
+// an ordinary follow-up (Step 7) — the card above Meetings.
 function ArchitectProfile() {
   const { id } = useParams()
   const architectId = Number(id)
@@ -271,6 +273,16 @@ function ArchitectProfile() {
           Counts only the leads and meetings you have access to.
         </p>
       )}
+
+      {/* Open follow-ups with this architect — their next meeting (BDM.md
+          Step 7). Whose rows is RLS's call: the viewer's own, or everyone's
+          for the owner. Above the pair, full width, so Meetings | Referred
+          leads stays an even two; hidden when there are none. */}
+      <ArchitectFollowUpsCard
+        employee={employee}
+        load={() => fetchOpenFollowUpsForParty(architectId)}
+        loadKey={architectId}
+      />
 
       <div className="vip-report-grid">
         <div className="vip-card">

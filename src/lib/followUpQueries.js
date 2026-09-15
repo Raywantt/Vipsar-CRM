@@ -40,7 +40,7 @@ const FOLLOW_UP_SELECT =
   'id, assigned_to, created_by, party_id, lead_id, activity_type, title, notes, ' +
   'due_date, due_time, status, is_done, done_at, cancelled_at, cancel_reason, ' +
   'completed_by_activity_id, created_at, ' +
-  'parties(name, mobile), ' +
+  'parties(name, mobile, party_type), ' +
   'leads(id, current_stage, parties!party_id(name, mobile), sites(nickname, locality, house_no)), ' +
   'created_by_employee:employees!created_by(name), ' +
   'assigned_to_employee:employees!assigned_to(name)'
@@ -63,6 +63,32 @@ export function isMissed(f) {
 
 export function isDueToday(f) {
   return f.status === FOLLOW_UP_OPEN && f.due_date === todayISO()
+}
+
+// A reminder to meet an architect again (BDM.md Step 7): anchored on an
+// architect or architect-firm party with no lead. Read off the party's own
+// type, not activity_type — Architect Meeting follow-ups were saved as 'other'
+// before 2026-09-15, and they are the same thing.
+export function isArchitectFollowUp(f) {
+  return !f.lead_id && Boolean(f.party_id) && ['architect', 'firm'].includes(f.parties?.party_type)
+}
+
+// Where "Log activity & close" goes — THE one builder; Home, BdmToday,
+// FollowUpsCard, My Architects and the architect profile all navigate here.
+// A lead reminder pre-picks its lead; an architect reminder pre-picks
+// Architect Meeting and the architect. Anything else has no activity to log
+// against it, so null (the button isn't offered).
+export function logActivityPathFor(f) {
+  if (f.lead_id) {
+    const params = new URLSearchParams({ lead: String(f.lead_id), followup: String(f.id) })
+    if (f.activity_type && f.activity_type !== 'other') params.set('type', f.activity_type)
+    return `/activity?${params.toString()}`
+  }
+  if (isArchitectFollowUp(f)) {
+    const params = new URLSearchParams({ type: 'architect_meeting', party: String(f.party_id), followup: String(f.id) })
+    return `/activity?${params.toString()}`
+  }
+  return null
 }
 
 // ---------- reads ----------
@@ -104,6 +130,38 @@ export function fetchFollowUpsForLead(leadId) {
       .select(FOLLOW_UP_SELECT, { count: 'exact' })
       .eq('lead_id', leadId)
       .order('status', { ascending: true })
+      .order('due_date', { ascending: true })
+  )
+}
+
+// Open architect follow-ups assigned to this employee, any due date — the
+// agenda on My Architects. The lead-less, party-anchored rows are few, so the
+// architect test runs client-side through isArchitectFollowUp rather than an
+// !inner embed filter (the same rule the list's own button reads).
+export async function fetchOpenArchitectFollowUpsForEmployee(employeeId) {
+  const res = await fetchAllRows(() =>
+    supabase
+      .from('follow_ups')
+      .select(FOLLOW_UP_SELECT, { count: 'exact' })
+      .eq('assigned_to', employeeId)
+      .eq('status', FOLLOW_UP_OPEN)
+      .is('lead_id', null)
+      .not('party_id', 'is', null)
+      .order('due_date', { ascending: true })
+  )
+  return { data: (res.data ?? []).filter(isArchitectFollowUp), error: res.error }
+}
+
+// Open follow-ups with one architect, whoever they're assigned to — RLS
+// decides (own rows; the owner sees everyone's).
+export function fetchOpenFollowUpsForParty(partyId) {
+  return fetchAllRows(() =>
+    supabase
+      .from('follow_ups')
+      .select(FOLLOW_UP_SELECT, { count: 'exact' })
+      .eq('party_id', partyId)
+      .eq('status', FOLLOW_UP_OPEN)
+      .is('lead_id', null)
       .order('due_date', { ascending: true })
   )
 }

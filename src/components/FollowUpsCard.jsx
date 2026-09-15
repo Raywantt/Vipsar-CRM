@@ -11,6 +11,7 @@ import {
   isMissed,
   FOLLOW_UP_DONE,
   FOLLOW_UP_CANCELLED,
+  logActivityPathFor,
 } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
@@ -171,9 +172,8 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) 
     else applyUpdate(data)
   }
   function handleLogActivity(f) {
-    const params = new URLSearchParams({ lead: String(f.lead_id), followup: String(f.id) })
-    if (f.activity_type && f.activity_type !== 'other') params.set('type', f.activity_type)
-    navigate(`/activity?${params.toString()}`)
+    const path = logActivityPathFor(f)
+    if (path) navigate(path)
   }
 
   // The per-exec table is period-scoped (it's a performance read), while the

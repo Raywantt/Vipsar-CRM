@@ -3479,3 +3479,12 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
 /* ---- architect profile: owner's portfolio move ---- */
 .vip-portfolio-change { min-height: auto; padding: 0; font-size: 12px; }
 .vip-portfolio-move { max-width: 520px; }
+
+/* ===========================================================================
+   34. Architect follow-ups (BDM.md Step 7)
+   ===========================================================================
+   ArchitectFollowUpsCard on My Architects and the architect profile — a plain
+   FollowUpList inside a card, so only the gap above My Architects' toolbar is
+   new (that page isn't a .vip-stack). */
+
+.vip-arch-followups { margin-bottom: 14px; }

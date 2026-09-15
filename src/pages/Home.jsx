@@ -5,7 +5,7 @@ import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { fetchWonStageHistory, fetchTargetsForPeriod } from '../lib/targetQueries'
-import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp } from '../lib/followUpQueries'
+import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor } from '../lib/followUpQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildSignificantEntries, buildDaySheetPanel } from '../lib/dayReview'
 import { todayISO } from '../lib/followupDates'
@@ -197,9 +197,8 @@ function Home({ embedded = false }) {
   // off to Log Activity with the lead and type pre-filled. ActivityLog closes
   // the follow-up when the activity saves, so nothing is marked done here.
   function handleLogActivityFor(f) {
-    const params = new URLSearchParams({ lead: String(f.lead_id), followup: String(f.id) })
-    if (f.activity_type && f.activity_type !== 'other') params.set('type', f.activity_type)
-    navigate(`/activity?${params.toString()}`)
+    const path = logActivityPathFor(f)
+    if (path) navigate(path)
   }
 
   useEffect(() => {

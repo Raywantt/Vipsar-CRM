@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import TodayGreetingHeader from '../components/TodayGreetingHeader'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
-import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp } from '../lib/followUpQueries'
+import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor } from '../lib/followUpQueries'
 import { fetchPortfolioArchitects, fetchArchitectMeetings } from '../lib/architectQueries'
 import { countWaitingPoolLeads } from '../lib/bdmQueries'
 import { architectsToMeet, lastMeetingByArchitect, lastMetLabel, ARCHITECT_MEETING_DAYS } from '../lib/architectStats'
@@ -97,9 +97,8 @@ function BdmToday() {
   // Same hand-off Home uses: Log Activity with the lead and type pre-filled,
   // which closes the reminder when the activity saves.
   function handleLogActivityFor(f) {
-    const params = new URLSearchParams({ lead: String(f.lead_id), followup: String(f.id) })
-    if (f.activity_type && f.activity_type !== 'other') params.set('type', f.activity_type)
-    navigate(`/activity?${params.toString()}`)
+    const path = logActivityPathFor(f)
+    if (path) navigate(path)
   }
 
   const toMeet = architects ? architectsToMeet(architects, lastMetById) : []

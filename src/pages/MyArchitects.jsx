@@ -4,6 +4,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { fetchPortfolioArchitects, fetchArchitectMeetings, fetchLeadsForArchitects } from '../lib/architectQueries'
 import { daysSince, groupArchitectsByFirm, lastMeetingByArchitect, lastMetLabel, leadStatsByArchitect } from '../lib/architectStats'
 import { firmLabel } from '../lib/firmLabel'
+import { fetchOpenArchitectFollowUpsForEmployee } from '../lib/followUpQueries'
+import ArchitectFollowUpsCard from '../components/ArchitectFollowUpsCard'
 import { formatCurrencyCompact } from '../lib/format'
 import { errorMessage } from '../lib/errorMessage'
 
@@ -70,6 +72,18 @@ function MyArchitects() {
               {loadError}
             </p>
           )}
+
+          {/* The agenda (BDM.md Step 7): every open architect follow-up of
+              theirs, soonest first — any architect, not only the portfolio,
+              since a BDM meets architects before they join it. Hidden when
+              there are none. */}
+          <ArchitectFollowUpsCard
+            employee={employee}
+            load={() => fetchOpenArchitectFollowUpsForEmployee(employee.id)}
+            loadKey={employee.id}
+            title="Upcoming follow-ups"
+            className="vip-card vip-arch-followups"
+          />
 
           {architects.length === 0 ? (
             <div className="vip-card">
