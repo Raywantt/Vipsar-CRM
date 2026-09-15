@@ -7,6 +7,7 @@ import DateRangeSelector from '../components/DateRangeSelector'
 import ActivityCountsCard from '../components/ActivityCountsCard'
 import LeadsBySourceCard, { SALES_EXEC_SOURCES } from '../components/LeadsBySourceCard'
 import ClosureForecastCard from '../components/ClosureForecastCard'
+import PipelineByStageCard from '../components/PipelineByStageCard'
 import TargetsVsActualsCard, { computeOrderValueActuals, mergeTargetRow } from '../components/TargetsVsActualsCard'
 import LeadsListCard from '../components/LeadsListCard'
 import FollowUpsCard from '../components/FollowUpsCard'
@@ -23,12 +24,11 @@ import { fetchDayReview, fetchChangeLogStart } from '../lib/dayReviewQueries'
 import { rescheduleFollowUp } from '../lib/followUpQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
 import { formatClockTime } from '../lib/dbTime'
-import { rangeForPreset } from '../lib/dateRanges'
+import { RANGE_LABELS, rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
-import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
+import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS } from '../lib/sourceTypeOptions'
-import { stageChipClass } from '../lib/statusColors'
 import { formatCurrencyCompact } from '../lib/format'
 import {
   computeAttentionBuckets,
@@ -38,7 +38,13 @@ import {
   buildAgeingPanel,
   buildLastStageChangeByLead,
 } from '../lib/attention'
-import { dealValueFor, sumOpenPipelineValue, sumOnHoldValue } from '../lib/pipelineValue'
+import {
+  countOpenPipelineLeads,
+  dealValueFor,
+  stageRowsFromLeads,
+  sumOpenPipelineValue,
+  sumOnHoldValue,
+} from '../lib/pipelineValue'
 import {
   buildOrderValueAttainPanel,
   buildActivitiesAttainPanel,
@@ -76,6 +82,10 @@ import {
 import { fetchTargetsForPeriod, fetchWonStageHistory, deleteTarget } from '../lib/targetQueries'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { todayISO } from '../lib/followupDates'
+import {
+  canSeeArchitectNetwork as canSeeArchitectNetworkFor,
+  canSeeTeamDirectory as canSeeTeamDirectoryFor,
+} from '../lib/roles'
 import { errorMessage } from '../lib/errorMessage'
 
 function siteStageCategory(lead) {
@@ -91,8 +101,6 @@ function areaCategory(lead) {
 function productCategory(lead) {
   return lead.products?.name ?? 'Not specified'
 }
-
-const RANGE_LABELS = { today: 'today', '15d': 'last 15 days', week: 'this week', month: 'this month', quarter: 'this quarter', custom: 'this range' }
 
 // dashboard_snapshot_metrics()'s numeric/bigint columns come back over
 // PostgREST as strings (avoiding JS float precision loss, same reasoning
@@ -125,7 +133,11 @@ function Dashboard() {
   // rather than the role, which is what keeps per-exec breakdowns off the
   // page while they are looking at their own numbers.
   const isManager = employee?.role === 'sales_manager'
-  const canSeeTeamDirectory = isOwner || isManager
+  // Same function BottomNav's sidebar link and App.jsx's /team route read.
+  const canSeeTeamDirectory = canSeeTeamDirectoryFor(employee?.role)
+  // Architect Network's only mobile path — BottomNav's sidebar link reads the
+  // same function (BDM.md Step 6).
+  const canSeeArchitectNetwork = canSeeArchitectNetworkFor(employee?.role)
   const [searchParams] = useSearchParams()
 
   // No more in-page tab buttons — Reports/All leads is chosen purely by
@@ -770,24 +782,17 @@ function Dashboard() {
   // fastCategoryBreakdown's own comment above). Zero-fills every
   // LEAD_STAGE_OPTIONS value either way, since the RPC only returns stages
   // that actually have at least one lead.
-  const stageRows = LEAD_STAGE_OPTIONS.map((stage) => {
-    if (fastCategoryBreakdown) {
-      const entry = fastCategoryBreakdown.stage.find((r) => r.category === stage)
-      return { stage, count: entry?.count ?? 0, value: entry?.value ?? 0 }
-    }
-    const stageLeads = breakdownLeads.filter((l) => (l.current_stage ?? 'calling') === stage)
-    return {
-      stage,
-      count: stageLeads.length,
-      value: stageLeads.reduce((s, l) => s + dealValueFor(l), 0),
-    }
-  })
-  const maxStageCount = Math.max(1, ...stageRows.map((r) => r.count))
+  const stageRows = fastCategoryBreakdown
+    ? LEAD_STAGE_OPTIONS.map((stage) => {
+        const entry = fastCategoryBreakdown.stage.find((r) => r.category === stage)
+        return { stage, count: entry?.count ?? 0, value: entry?.value ?? 0 }
+      })
+    : stageRowsFromLeads(breakdownLeads)
   // Excludes on_hold too, not just won/lost — this count sits beside
   // openPipelineValue in the KPI tile, and that figure now excludes on-hold
   // leads (see sumOpenPipelineValue), so the count must match what it's
   // describing rather than tallying a broader set than the value it labels.
-  const openLeadCount = breakdownLeads.filter((l) => !['won', 'lost', 'on_hold'].includes(l.current_stage ?? 'calling')).length
+  const openLeadCount = countOpenPipelineLeads(breakdownLeads)
 
   const rangeLabel = RANGE_LABELS[preset]
   // Fast path when the RPC answered; otherwise the original client-side
@@ -952,6 +957,15 @@ function Dashboard() {
               <div>
                 <div className="vip-tile-label">My Team</div>
                 <div className="vip-tile-desc">{isManager ? 'Browse your reporting execs' : 'Browse your sales team'}</div>
+              </div>
+              <div className="vip-tile-chevron" aria-hidden="true">›</div>
+            </Link>
+          )}
+          {canSeeArchitectNetwork && (
+            <Link to="/network" className="vip-tile vip-only-mobile" style={{ textDecoration: 'none' }}>
+              <div>
+                <div className="vip-tile-label">Architect Network</div>
+                <div className="vip-tile-desc">BDM targets and every architect</div>
               </div>
               <div className="vip-tile-chevron" aria-hidden="true">›</div>
             </Link>
@@ -1154,40 +1168,14 @@ function Dashboard() {
               <ClosureForecastCard leads={forecast} onOpenPanel={() => setPanel(buildForecastPanel({ forecast, scopeLabel }))} />
             </div>
 
-            <div className="vip-card">
-              <div className="vip-card-head">
-                <h3 className="vip-card-title">Pipeline by stage</h3>
-                <button
-                  type="button"
-                  className="vip-dd-open-link"
-                  onClick={() => setPanel(buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel }))}
-                >
-                  Details ›
-                </button>
-              </div>
-              {/* Independent of breakdownLeads on purpose — stageRows is
-                  already sourced from whichever path is faster (see its own
-                  comment above), so gating the empty-check on the slower
-                  fetch would defeat that. */}
-              {stageRows.every((r) => r.count === 0) ? (
-                <p className="vip-empty">No leads found.</p>
-              ) : (
-                stageRows.map(({ stage, count, value }) => (
-                  <div key={stage} className="vip-bar-row">
-                    <div style={{ flex: '0 0 92px' }}>
-                      <span className={stageChipClass(stage)}>{stageLabel(stage)}</span>
-                    </div>
-                    <div className="vip-bar-count" style={{ flex: '0 0 20px' }}>
-                      {count}
-                    </div>
-                    <div className="vip-bar-track vip-thick">
-                      <div className="vip-bar-fill" style={{ width: `${(count / maxStageCount) * 100}%` }} />
-                    </div>
-                    <div className="vip-bar-value">{formatCurrencyCompact(value)}</div>
-                  </div>
-                ))
-              )}
-            </div>
+            {/* Independent of breakdownLeads on purpose — stageRows is
+                already sourced from whichever path is faster (see its own
+                comment above), so gating the empty-check on the slower fetch
+                would defeat that. */}
+            <PipelineByStageCard
+              rows={stageRows}
+              onOpenPanel={() => setPanel(buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel }))}
+            />
 
             {/* No "Details" here — its drill-down used to open the exact
                 same content as Pipeline by stage's own Details (same

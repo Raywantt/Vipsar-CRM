@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { EmployeeNameLink } from './EmployeeLink'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { todayISO, addDays } from '../lib/followupDates'
 import { leadDisplayName, leadNameTier } from '../lib/leadName'
@@ -191,14 +192,14 @@ function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen
               <dt>Assigned to</dt>
               <dd>
                 {isAssignee ? 'You' : (
-                  <Link to={`/employees/${f.assigned_to}`}>{f.assigned_to_employee?.name ?? `#${f.assigned_to}`}</Link>
+                  <EmployeeNameLink id={f.assigned_to} name={f.assigned_to_employee?.name ?? `#${f.assigned_to}`} />
                 )}
               </dd>
             </div>
             {assignedByOther && (
               <div>
                 <dt>Assigned by</dt>
-                <dd><Link to={`/employees/${f.created_by}`}>{f.created_by_employee?.name ?? 'Owner'}</Link></dd>
+                <dd><EmployeeNameLink id={f.created_by} name={f.created_by_employee?.name ?? 'Owner'} /></dd>
               </div>
             )}
             {f.status === FOLLOW_UP_DONE && (

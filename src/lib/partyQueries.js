@@ -32,7 +32,10 @@ export function fetchAllParties() {
 // Columns Search.jsx's party rows need — both fetchRecentParties and
 // searchParties below select exactly this, so a row from either path
 // renders identically.
-const SEARCH_PARTY_COLUMNS = 'id, name, party_type, mobile, city, firm_name, created_at'
+// bdm_employee_id / bdm: the "Yours" / "With {BDM}" tag on an architect row
+// (BDM.md §3 — architects are visible company-wide, tagged with their
+// portfolio).
+const SEARCH_PARTY_COLUMNS = 'id, name, party_type, mobile, city, firm_name, created_at, bdm_employee_id, bdm:employees!bdm_employee_id(name)'
 
 // Search.jsx's default view, before any search term is typed — the
 // most-recently-added parties, not the whole directory. Bounded regardless
@@ -192,12 +195,16 @@ export async function setPartyFirm({ partyId, partyName, firmId, currentFirmId }
 // abandoned never ends up permanently in the database. A party that's
 // already real (selected via search, or deferCreate was never on) passes
 // through unchanged, no write at all.
-export async function materializePartyDraft(party, createdByEmployeeId) {
+//
+// `extra` adds columns the draft itself doesn't carry — the New Architect
+// form's firm address (parties.address on the firm) is the one caller.
+export async function materializePartyDraft(party, createdByEmployeeId, extra = {}) {
   if (!party?._isNewPartyDraft) return { data: party }
 
   const { data, error } = await supabase
     .from('parties')
     .insert({
+      ...extra,
       name: party.name,
       mobile: party.mobile,
       party_type: party.party_type,

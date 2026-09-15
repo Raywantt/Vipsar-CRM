@@ -11,8 +11,28 @@ import {
   buildLogPanel,
   buildOrderValueAttainPanel,
   buildScanningLeadsAttainPanel,
+  buildArchitectsToMeetPanel,
 } from './drilldownBuilders'
 import { TONE_NEUTRAL } from './statusColors'
+
+describe('buildArchitectsToMeetPanel', () => {
+  it("lists architectsToMeet's rows in order, each with firm and last meeting", () => {
+    const panel = buildArchitectsToMeetPanel(
+      [
+        { architect: { id: 7, name: 'Alpha', firm: { id: 1, name: 'Studio A' } }, lastMetDays: null, clockDays: 30 },
+        { architect: { id: 8, name: 'Beta', firm: null }, lastMetDays: 16, clockDays: 16 },
+      ],
+      'Test BDM'
+    )
+    expect(panel.kind).toBe('architects')
+    expect(panel.eyebrow).toBe('Test BDM · architects to meet')
+    expect(panel.value).toBe('2')
+    expect(panel.architectRows).toEqual([
+      { id: 7, name: 'Alpha', meta: 'Studio A · not met yet', days: '30d' },
+      { id: 8, name: 'Beta', meta: 'last met 16d ago', days: '16d' },
+    ])
+  })
+})
 
 const range = { start: new Date(2026, 7, 1), end: new Date(2026, 7, 31, 23, 59, 59) }
 
@@ -127,6 +147,16 @@ describe('buildWinRatePanel', () => {
   it('returns "—" when nothing was decided in range', () => {
     const panel = buildWinRatePanel({ decidedStageHistory: [], employees, range, rangeLabel: 'This month' })
     expect(panel.value).toBe('—')
+  })
+
+  it('names an owner outside the exec roster (a BDM working their own lead) from the embed, not "Unassigned"', () => {
+    const decidedStageHistory = [
+      { stage: 'won', changed_at: '2026-08-05', leads: { owner_employee_id: 'b1', employees: { name: 'Bina (BDM)' } } },
+      { stage: 'lost', changed_at: '2026-08-06', leads: { owner_employee_id: null, employees: null } },
+    ]
+    const panel = buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel: 'This month' })
+    const names = panel.execRows.map((r) => r.name).sort()
+    expect(names).toEqual(['Bina (BDM)', 'Unassigned'])
   })
 })
 

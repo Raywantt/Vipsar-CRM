@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import { insertLeadOwnerHistory } from '../lib/leadOwnerHistory'
-import { requestAssignmentPush } from '../lib/notificationQueries'
+import { assignLeadOwner } from '../lib/leadOwnerHistory'
 import LeadStageSection from './LeadStageSection'
 import FollowUpForm from './FollowUpForm'
 import { errorMessage } from '../lib/errorMessage'
@@ -107,12 +106,21 @@ function LeadQuickActions({
     setOwnerChoice(newOwnerId)
 
     const oldOwnerId = lead.owner_employee_id
-    const { data: updatedLead, error: leadError } = await supabase
-      .from('leads')
-      .update({ owner_employee_id: newOwnerId })
-      .eq('id', lead.id)
-      .select('*, employees!owner_employee_id(name)')
-      .single()
+    // The update, the instant push and the history row — see assignLeadOwner
+    // for why they run in that order and why a history failure doesn't undo
+    // the reassignment. The owner's BDM pool card calls the same function.
+    const {
+      data: updatedLead,
+      error: leadError,
+      historyRow,
+      historyError,
+    } = await assignLeadOwner({
+      leadId: lead.id,
+      oldOwnerId,
+      newOwnerId,
+      changedBy: employee?.id ?? null,
+      select: '*, employees!owner_employee_id(name)',
+    })
 
     if (leadError) {
       setSavingOwner(false)
@@ -120,26 +128,6 @@ function LeadQuickActions({
       setOwnerChoice(oldOwnerId ?? '')
       return
     }
-
-    // Tell the new owner, now. The notifications row already exists at this
-    // point — the lead_assignment_notification trigger wrote it inside the
-    // UPDATE above, which is precisely why this cannot be missed by a screen
-    // that forgets to call something (see the migration's WHY A TRIGGER
-    // note). All this does is ask the push sender to flush it immediately
-    // rather than on its next 5-minute pass.
-    //
-    // NOT awaited, and its result is never read. The reassignment has already
-    // committed; the scheduled run is the guarantee and this is only the
-    // speed-up, so a slow or failed Edge Function must not hold up the UI or
-    // surface an error for something that already worked.
-    requestAssignmentPush()
-
-    const { data: historyRow, error: historyError } = await insertLeadOwnerHistory({
-      leadId: lead.id,
-      oldOwnerId,
-      newOwnerId,
-      changedBy: employee?.id ?? null,
-    })
 
     setSavingOwner(false)
 

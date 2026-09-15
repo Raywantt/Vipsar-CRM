@@ -1,8 +1,10 @@
 import { useAuth } from '../contexts/AuthContext'
+import { ROLES } from '../lib/roles'
 import Home from './Home'
 import CoordinatorToday from './CoordinatorToday'
 import OwnerToday from './OwnerToday'
 import ManagerToday from './ManagerToday'
+import BdmToday from './BdmToday'
 
 // `/` is one route serving a different screen per role.
 //
@@ -26,13 +28,38 @@ import ManagerToday from './ManagerToday'
 //   sales_manager     — ManagerToday. The only role that needs BOTH shapes,
 //                       so it gets both as tabs rather than a compromise
 //                       between them.
+//   business_development_manager — BdmToday (BDM.md). Architect-shaped, not
+//                       rep-shaped.
 //   sales_executive   — Home itself, unchanged.
+//
+// EVERY ROLE IS NAMED. This used to end in a bare `return <Home />`, which
+// silently handed any role nobody had thought about an exec's screen and an
+// exec's fetches. An unrecognised role now gets a plain message instead.
 function Today() {
   const { employee } = useAuth()
-  if (employee?.role === 'sales_coordinator') return <CoordinatorToday />
-  if (employee?.role === 'owner') return <OwnerToday />
-  if (employee?.role === 'sales_manager') return <ManagerToday />
-  return <Home />
+  switch (employee?.role) {
+    case ROLES.SALES_EXECUTIVE:
+      return <Home />
+    case ROLES.SALES_COORDINATOR:
+      return <CoordinatorToday />
+    case ROLES.OWNER:
+      return <OwnerToday />
+    case ROLES.SALES_MANAGER:
+      return <ManagerToday />
+    case ROLES.BDM:
+      return <BdmToday />
+    default:
+      return (
+        <div className="vip-narrow">
+          <div className="vip-card">
+            <h2 className="vip-card-title">No Today screen for this account</h2>
+            <p className="vip-form-note" style={{ marginTop: 0 }}>
+              Your role isn't set up in the app yet. Ask the owner to check your role in Profile → Manage employees.
+            </p>
+          </div>
+        </div>
+      )
+  }
 }
 
 export default Today

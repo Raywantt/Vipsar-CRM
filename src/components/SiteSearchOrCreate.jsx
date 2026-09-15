@@ -103,7 +103,6 @@ function SiteSearchOrCreate({ discoveredVia = null, onSelect }) {
   function startCreate() {
     setCreating(true)
     setSiteStage('')
-    setCustomStage('')
     setCreateError(null)
   }
 

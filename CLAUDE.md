@@ -81,6 +81,12 @@ Phases 0–6 done (schema + RLS, login, lead intake, activity logging,
 dashboards, PWA). **Phase 10 — Sales Manager role** is current; see the
 Roadmap. Each screen is documented in its own section below.
 
+**📄 Phase 11 — Business Development Manager (5th role) is planned and being
+built step by step. `BDM.md` (repo root) is its single source of truth: read
+it before any BDM work and resume from its Progress table. Stop after every
+step and wait for the owner's go-ahead.** Until its final step folds it in
+here, this file does not describe the BDM role at all.
+
 **Deliberately not built — don't add as a side effect of unrelated work:**
 
 - A **`plans`-table screen.** The table has full RLS and zero UI anywhere.
@@ -2905,6 +2911,8 @@ Deliberately deferred, not forgotten. Full detail in `PHASE9_LOG.md`.
     Still open: the two real managers own no leads until their Excel import
     lands, and the coordinator's "Reassign owner" dropdown still offers every
     active rep although the database refuses an out-of-team target.
+11. 🟡 **planned — Business Development Manager role** (role 5). Plan,
+    decisions and progress live in `BDM.md`.
 
 For domain model, lead-sourcing logic, and locked-in design decisions, see
 `DECISIONS.md`.

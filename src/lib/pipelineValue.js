@@ -1,3 +1,5 @@
+import { LEAD_STAGE_OPTIONS } from './leadStageOptions'
+
 // Canonical "how much is this lead worth" figure, shared by every card that
 // sums or displays a pipeline/deal value — the single source of truth this
 // app was missing (see DECISIONS.md-style reasoning inline): order_value is
@@ -59,4 +61,21 @@ export function sumOpenPipelineValue(leads) {
 
 export function sumOnHoldValue(leads) {
   return leads.filter(isOnHoldLead).reduce((s, l) => s + dealValueFor(l), 0)
+}
+
+// How many leads sumOpenPipelineValue is summing — the count shown beside that
+// figure has to describe the same set, so on-hold leads are left out here too.
+export function countOpenPipelineLeads(leads) {
+  return leads.filter((l) => isOpenLead(l) && !isOnHoldLead(l)).length
+}
+
+// "Pipeline by stage": one { stage, count, value } row per LEAD_STAGE_OPTIONS
+// entry, zero rows included, value summed with dealValueFor. Shared by the
+// Dashboard's client-side fallback and the business development manager's
+// Dashboard, so the card can't read two different ways.
+export function stageRowsFromLeads(leads) {
+  return LEAD_STAGE_OPTIONS.map((stage) => {
+    const atStage = leads.filter((l) => (l.current_stage ?? 'calling') === stage)
+    return { stage, count: atStage.length, value: atStage.reduce((s, l) => s + dealValueFor(l), 0) }
+  })
 }

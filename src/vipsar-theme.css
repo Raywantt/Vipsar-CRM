@@ -3129,3 +3129,353 @@ button.vip-row {
   text-align: left;
   cursor: pointer;
 }
+
+/* ===========================================================================
+   30. BUSINESS DEVELOPMENT MANAGER — the handoff loop (BDM.md Step 3)
+   ---------------------------------------------------------------------------
+   The owner's pool card (BdmPoolCard), the BDM's New Architect duplicate
+   notice (NewArchitectForm), Today's "N updates" line (BdmUpdatesLine), the
+   BDM Dashboard's Handed over / Closed lists (BdmLeadUpdateCards) and Lead
+   Detail's "Sourced by" line.
+
+   Tokens only, no literal colour — section 22 repaints all of it for dark.
+   Teal for the pool and the updates line, as with AssignedLeadsCard: leads
+   arriving are work, not an alarm. The duplicate hint is the one amber
+   element, because it IS a "check before you act".
+   ========================================================================= */
+
+/* ---- owner's pool card ---- */
+.vip-pool-card { border-color: var(--vip-teal); }
+.vip-pool-count {
+  font-family: var(--vip-display); font-weight: 700; font-size: 13px;
+  color: var(--vip-teal-dark); background: var(--vip-teal-soft);
+  padding: 2px 9px; border-radius: var(--vip-r-pill);
+}
+.vip-pool-note { margin: -4px 0 0; font-size: 12px; color: var(--vip-muted); }
+.vip-pool-rows { display: flex; flex-direction: column; }
+
+/* Stacked on a phone (details, then the Assign control full-width under
+   them); side by side from 1024px, where the action column has room. */
+.vip-pool-row {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 0; border-top: 1px solid var(--vip-line-soft);
+}
+.vip-pool-row:first-child { border-top: 0; padding-top: 4px; }
+.vip-pool-row-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.vip-pool-lead {
+  font-weight: 600; font-size: 14px; color: var(--vip-ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-pool-meta { font-size: 12px; color: var(--vip-muted); overflow-wrap: anywhere; }
+.vip-pool-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.vip-pool-tag {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: var(--vip-r-pill);
+  background: var(--vip-teal-soft); color: var(--vip-teal-dark);
+}
+.vip-pool-wait { font-size: 11px; color: var(--vip-faint); font-variant-numeric: tabular-nums; }
+.vip-pool-dup {
+  align-self: flex-start; margin-top: 4px;
+  font-size: 12px; font-weight: 600; color: var(--vip-status-warn);
+  background: var(--vip-status-warn-soft); border-radius: var(--vip-r-control);
+  padding: 4px 8px; overflow-wrap: anywhere;
+}
+.vip-pool-dup:hover { text-decoration: underline; }
+.vip-pool-actions { display: flex; flex-direction: column; gap: 8px; }
+.vip-pool-actions > .vip-btn { align-self: flex-start; width: auto; min-width: 96px; }
+
+@media (min-width: 1024px) {
+  .vip-pool-row { flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 20px; }
+  .vip-pool-row-main { flex: 1 1 auto; }
+  .vip-pool-actions { flex: 0 0 260px; align-items: stretch; }
+  .vip-pool-actions > .vip-btn { align-self: flex-end; }
+}
+
+/* ---- New Architect: mobile notes + "already in the CRM" ---- */
+.vip-arch-note { margin: -6px 0 0; }
+.vip-arch-exists {
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--vip-status-warn-soft); border: 1px solid var(--vip-status-warn);
+  border-radius: var(--vip-r-card); padding: 12px 14px;
+}
+.vip-arch-exists-title { font-family: var(--vip-display); font-weight: 600; font-size: 14px; color: var(--vip-ink); }
+.vip-arch-exists-row { display: flex; flex-direction: column; gap: 2px; }
+.vip-arch-exists-name { font-weight: 600; font-size: 14px; color: var(--vip-ink); }
+.vip-arch-exists-meta { font-size: 12px; color: var(--vip-body); overflow-wrap: anywhere; }
+
+/* ---- Today: "N updates on your leads" ---- */
+.vip-bdm-updates {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--vip-teal-soft); border: 1px solid var(--vip-teal);
+  border-radius: var(--vip-r-card); padding: 11px 14px;
+  color: var(--vip-ink); text-decoration: none;
+}
+.vip-bdm-updates:hover { text-decoration: none; border-color: var(--vip-teal-dark); }
+.vip-bdm-updates-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vip-teal); flex: 0 0 auto; }
+.vip-bdm-updates-text { font-weight: 600; font-size: 14px; }
+.vip-bdm-updates-sub { font-size: 12px; color: var(--vip-muted); flex: 1 1 auto; }
+.vip-bdm-updates-chevron { color: var(--vip-muted); font-size: 16px; line-height: 1; }
+
+/* ---- BDM Dashboard: Handed over / Closed ---- */
+.vip-bdm-list { display: flex; flex-direction: column; }
+.vip-bdm-list-count { font-size: 12px; font-weight: 600; color: var(--vip-muted); font-variant-numeric: tabular-nums; }
+.vip-bdm-list-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 10px 0; border-top: 1px solid var(--vip-line-soft);
+}
+.vip-bdm-list-row:first-child { border-top: 0; padding-top: 2px; }
+.vip-bdm-list-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vip-bdm-list-lead {
+  font-weight: 600; font-size: 14px; color: var(--vip-ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-bdm-list-meta { font-size: 12px; color: var(--vip-muted); overflow-wrap: anywhere; }
+.vip-bdm-list-date { flex: 0 0 auto; font-size: 11px; color: var(--vip-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vip-bdm-outcome-won { color: var(--vip-won); font-weight: 600; }
+.vip-bdm-outcome-lost { color: var(--vip-lost); font-weight: 600; }
+
+/* ---- Lead Detail: "Sourced by {BDM} via Architect {name}" ---- */
+.vip-sourced-by { margin: 6px 0 0; color: var(--vip-body); }
+
+/* ===========================================================================
+   31. BUSINESS DEVELOPMENT MANAGER — daily screens (BDM.md Step 4)
+   ---------------------------------------------------------------------------
+   BdmToday's waiting line and Architects-to-meet rows, My Architects' firm
+   grid, the architect profile, the "Yours / With {BDM}" portfolio tag, Lead
+   Detail's handed-off note and My Leads' "Awaiting assignment".
+
+   Tokens only, like section 30 — section 22 repaints all of it for dark.
+   ========================================================================= */
+
+/* ---- portfolio tag beside an architect's name (Search, party pickers) ---- */
+.vip-portfolio-tag {
+  display: inline-block; margin-left: 8px; vertical-align: 1px;
+  font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: var(--vip-r-pill);
+  background: var(--vip-teal-soft); color: var(--vip-teal-dark); white-space: nowrap;
+}
+
+/* ---- BDM Today: "N of your leads are waiting for the owner" ---- */
+.vip-bdm-waiting {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--vip-surface); border: 1px solid var(--vip-line);
+  border-radius: var(--vip-r-card); padding: 10px 14px;
+  color: var(--vip-body); text-decoration: none; font-size: 13px;
+}
+.vip-bdm-waiting:hover { text-decoration: none; border-color: var(--vip-teal); }
+.vip-bdm-waiting-text { flex: 1 1 auto; min-width: 0; }
+
+/* ---- architect rows (Today's "Architects to meet", My Architects) ---- */
+.vip-arch-card-sub { margin: -4px 0 0; font-size: 12px; color: var(--vip-muted); }
+.vip-arch-list { display: flex; flex-direction: column; }
+.vip-arch-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; border-top: 1px solid var(--vip-line-soft);
+  color: inherit; text-decoration: none;
+}
+.vip-arch-row:first-child { border-top: 0; padding-top: 2px; }
+.vip-arch-row:hover { text-decoration: none; }
+.vip-arch-row:hover .vip-arch-row-name { color: var(--vip-teal-dark); }
+/* min-width: 0 so a long firm name ellipsises instead of pushing the day
+   count off the row — same reason as .vip-assigned-row-main. */
+.vip-arch-row-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.vip-arch-row-name {
+  font-weight: 600; font-size: 14px; color: var(--vip-ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-arch-row-meta {
+  font-size: 12px; color: var(--vip-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-arch-row-days {
+  flex: 0 0 auto; font-family: var(--vip-display); font-weight: 600; font-size: 14px;
+  color: var(--vip-status-warn); font-variant-numeric: tabular-nums;
+}
+
+/* ---- My Architects ---- */
+.vip-arch-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vip-arch-search { flex: 1 1 240px; max-width: 420px; }
+.vip-arch-toolbar-count { font-size: 12px; color: var(--vip-muted); white-space: nowrap; }
+/* auto-fill, not a fixed column count: how many firms a portfolio spans is
+   open-ended (My Team's grid reasoning). 320px keeps a firm card readable on
+   a 1024px screen beside the sidebar rail; below that it is one column. */
+.vip-arch-firm-grid {
+  display: grid; gap: 14px; align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+}
+
+/* ---- architect profile ---- */
+.vip-arch-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 1024px) {
+  .vip-arch-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.vip-arch-scope-note { margin: -6px 0 0; }
+.vip-arch-lead-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.vip-arch-lead-meta > .vip-chip { padding: 2px 8px; font-size: 10.5px; }
+
+/* ---- Lead Detail: a BDM's lead after handoff ---- */
+.vip-handoff-note {
+  margin: 0; padding: 10px 14px; font-size: 13px; color: var(--vip-body);
+  background: var(--vip-teal-soft); border: 1px solid var(--vip-teal);
+  border-radius: var(--vip-r-card);
+}
+
+/* ---- My Leads: a pool lead's owner cell ---- */
+.vip-awaiting-tag { font-size: 12px; font-style: italic; color: var(--vip-muted); }
+
+/* ===========================================================================
+   32. Business development manager — Dashboard (BDM.md Step 5)
+   ===========================================================================
+   The "Right now" tiles reuse section 26's .vip-rightnow-grid and section
+   17's .vip-dd-kpi-tile as-is (BdmRightNow.jsx); the targets card reuses
+   TargetsVsActualsCard's own bar rows. Only Pipeline closed's figure and the
+   Top 5 table are new. Tokens only, so dark mode repaints both. */
+
+/* ---- Pipeline closed ---- */
+.vip-bdm-closed { display: flex; flex-direction: column; gap: 8px; }
+.vip-bdm-closed-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.vip-bdm-closed-value {
+  font-family: var(--vip-display); font-weight: 600; font-size: 30px; line-height: 1;
+  color: var(--vip-won); font-variant-numeric: tabular-nums;
+}
+.vip-bdm-closed-unit { font-size: 13px; color: var(--vip-body); }
+.vip-bdm-closed-line { font-size: 13px; color: var(--vip-muted); }
+
+/* ---- Top 5 architects ----
+   One DOM for both widths. Below 1024px: the header row is hidden and each
+   figure carries its own unit word, wrapping onto a second line under the
+   name. At >=1024px: a four-column table — name, then three numbers whose
+   unit words hide because the header names them. The row is a Link, so the
+   hover tint uses padding, never a negative margin (CLAUDE.md's
+   overflow-scrollbar trap). */
+.vip-bdm-top { display: flex; flex-direction: column; }
+.vip-bdm-top-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 14px; row-gap: 2px;
+  padding: 9px 6px; border-bottom: 1px solid var(--vip-line-soft);
+  color: var(--vip-ink); text-decoration: none; min-width: 0;
+}
+.vip-bdm-top-row:last-child { border-bottom: 0; }
+a.vip-bdm-top-row:hover { background: var(--vip-surface-soft); }
+.vip-bdm-top-headrow { display: none; }
+.vip-bdm-top-name {
+  flex: 1 0 100%; min-width: 0; display: flex; align-items: baseline; gap: 8px;
+  font-size: 14px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-bdm-top-rank {
+  flex: 0 0 auto; font-family: var(--vip-display); font-size: 12px; font-weight: 600;
+  color: var(--vip-faint); font-variant-numeric: tabular-nums;
+}
+.vip-bdm-top-num { font-size: 12.5px; color: var(--vip-muted); white-space: nowrap; padding-left: 18px; }
+.vip-bdm-top-num ~ .vip-bdm-top-num { padding-left: 0; }
+.vip-bdm-top-num b { font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
+
+@media (min-width: 1024px) {
+  .vip-bdm-top-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) 96px 96px 120px;
+    align-items: center; column-gap: 12px;
+  }
+  .vip-bdm-top-headrow {
+    display: grid; padding-top: 0; font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--vip-muted);
+  }
+  .vip-bdm-top-name { flex: none; }
+  .vip-bdm-top-num, .vip-bdm-top-num ~ .vip-bdm-top-num { padding-left: 0; text-align: right; font-size: 14px; }
+  .vip-bdm-top-unit { display: none; }
+}
+
+/* ===========================================================================
+   33. Architect Network (/network, BDM.md Step 6) + the profile's portfolio move
+   ===========================================================================
+   The owner's per-BDM card (BdmNetworkCard), the BDM targets form
+   (BdmTargetsForm), the company-wide directory (ArchitectDirectory) and the
+   owner-only "Change" portfolio control on ArchitectProfile. Stats reuse
+   section 17's .vip-dd-stats; the portfolio tag reuses section 31's. Tokens
+   only, so section 22 repaints all of it for dark. */
+
+.vip-net-tabs { max-width: 420px; }
+.vip-net-note { margin: 0; }
+
+/* ---- per-BDM card: targets | figures, side by side from 1024px ---- */
+.vip-net-bdm-body { display: flex; flex-direction: column; gap: 16px; }
+.vip-net-set-targets { align-self: flex-start; min-height: auto; padding: 0; }
+/* No align-self here: in the phone's flex column it would shrink the grid to
+   its content instead of spanning the card. The desktop grid sets it. */
+.vip-net-bdm-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.vip-net-stat-btn {
+  border: 0; font: inherit; text-align: left; cursor: pointer; color: inherit;
+}
+.vip-net-stat-btn:hover:not(:disabled) { background: var(--vip-surface-soft); }
+.vip-net-stat-btn:disabled { cursor: default; }
+.vip-net-form-title { font-size: 13px; font-weight: 600; color: var(--vip-ink); }
+.vip-net-target-inputs { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+
+@media (min-width: 1024px) {
+  .vip-net-bdm-body {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 28px; align-items: start;
+  }
+  .vip-net-bdm-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); align-self: start; }
+  .vip-net-target-inputs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ---- directory ----
+   One DOM for both widths (the Top 5 card's pattern, section 32). Below
+   1024px a row wraps: the name on its own line, then firm, portfolio, last
+   meeting and figures as one flowing meta line with unit words; blanks (no
+   firm, ₹0) drop out of that line. From 1024px: a seven-column grid table with
+   a sortable header row. Hover tint is padding, never a negative margin
+   (CLAUDE.md's overflow-scrollbar trap). */
+.vip-net-dir-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.vip-net-dir-search { flex: 1 1 100%; min-width: 0; }
+.vip-net-dir-filter { flex: 1 1 0; min-width: 0; }
+.vip-net-dir-count { margin: 10px 0 4px; font-size: 12px; color: var(--vip-muted); }
+
+.vip-net-dir { display: flex; flex-direction: column; }
+.vip-net-dir-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 3px;
+  padding: 10px 6px; border-bottom: 1px solid var(--vip-line-soft);
+  color: var(--vip-ink); text-decoration: none; min-width: 0;
+  font-size: 12.5px;
+}
+.vip-net-dir-row:last-of-type { border-bottom: 0; }
+a.vip-net-dir-row:hover { background: var(--vip-surface-soft); text-decoration: none; }
+a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
+.vip-net-dir-headrow { display: none; }
+.vip-net-dir-name {
+  flex: 1 0 100%; min-width: 0; font-size: 14px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-net-dir-firm, .vip-net-dir-met, .vip-net-dir-none { color: var(--vip-muted); }
+.vip-net-dir-tag { margin-left: 0; }
+.vip-net-dir-num { color: var(--vip-muted); white-space: nowrap; }
+.vip-net-dir-num b { font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
+.vip-net-dir-row:not(.vip-net-dir-headrow) .vip-net-dir-blank { display: none; }
+.vip-net-dir-sort {
+  border: 0; background: none; padding: 0; font: inherit; letter-spacing: inherit;
+  text-transform: inherit; color: inherit; cursor: pointer;
+}
+.vip-net-dir-sort:hover { color: var(--vip-ink); }
+.vip-net-dir-sort.vip-active { color: var(--vip-teal-dark); }
+.vip-net-dir-sort.vip-active::after { content: ' ↓'; }
+
+@media (min-width: 1024px) {
+  .vip-net-dir-search { flex: 1 1 320px; max-width: 420px; }
+  .vip-net-dir-filter { flex: 0 0 220px; }
+  .vip-net-dir-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.4fr) minmax(110px, 1fr) 150px 120px 60px 90px 90px;
+    align-items: center; column-gap: 12px; font-size: 13px;
+  }
+  .vip-net-dir-headrow {
+    display: grid; padding-top: 0; font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--vip-muted);
+  }
+  .vip-net-dir-name { flex: none; }
+  .vip-net-dir-firm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vip-net-dir-row:not(.vip-net-dir-headrow) .vip-net-dir-blank { display: block; color: var(--vip-faint); }
+  .vip-net-dir-num { text-align: right; }
+  .vip-net-dir-unit { display: none; }
+}
+
+/* ---- architect profile: owner's portfolio move ---- */
+.vip-portfolio-change { min-height: auto; padding: 0; font-size: 12px; }
+.vip-portfolio-move { max-width: 520px; }

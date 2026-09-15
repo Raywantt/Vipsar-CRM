@@ -13,6 +13,7 @@ import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
 import { partyTypeLabel } from '../lib/partyTypeOptions'
 import { errorMessage } from '../lib/errorMessage'
+import { isBdm } from '../lib/roles'
 
 // Which party types the "Other's name" field offers. 'firm' (shown as
 // "architect firm") is scanning-only for now, at the owner's direction — the
@@ -46,6 +47,18 @@ const SOURCE_OPTIONS = SOURCE_TYPE_OPTIONS.filter((o) => CAPTURE_SOURCES.include
 function LeadQuickCapture() {
   const { employee } = useAuth()
   const isCoordinator = employee?.role === 'sales_coordinator'
+  // A business development manager's lead (BDM.md §3 Leads) is this same
+  // form — every source, every field — plus three things: Joinery received?
+  // (required yes/no), a capture remark, and a choice of who works it, made by
+  // which of two save buttons they press. The database does the rest: it
+  // tags the lead to the BDM and starts a joinery lead at Joinery follow-up
+  // (Schema/migration_bdm_role.sql STEP 5).
+  const isBdmUser = isBdm(employee?.role)
+  // null = not answered yet. Required, and deliberately not defaulted to No
+  // (owner's ruling): joineries received is one of the BDM's targets, so a
+  // forgotten "Yes" would silently cost them credit.
+  const [joineryReceived, setJoineryReceived] = useState(null)
+  const [bdmRemark, setBdmRemark] = useState('')
 
   const [sourceType, setSourceType] = useState(null)
   const [officeTerritory, setOfficeTerritory] = useState(null)
@@ -91,6 +104,8 @@ function LeadQuickCapture() {
   const [callNotes, setCallNotes] = useState('')
 
   const [submitting, setSubmitting] = useState(false)
+  // Which save button is in flight — only a BDM has two ('self' / 'pool').
+  const [submitMode, setSubmitMode] = useState(null)
   const [submitError, setSubmitError] = useState(null)
   const [warnings, setWarnings] = useState([])
   const [createdLead, setCreatedLead] = useState(null)
@@ -108,7 +123,18 @@ function LeadQuickCapture() {
     }
   }, [isCoordinator, employee?.id])
 
-  const ownerEmployeeId = isCoordinator ? forExec?.id ?? null : employee?.id ?? null
+  // Whose RECORDS the site and any new parties are — sites.discovered_by and
+  // parties.created_by, which decide who may edit them later ("creator or
+  // owner" RLS). The picked exec for a coordinator (entry on behalf); the
+  // person filling the form in for everyone else.
+  //
+  // Kept apart from the lead's OWNER, which it used to share one variable
+  // with: a BDM's "Send to owner" lead has no owner at all, and writing that
+  // NULL into discovered_by/created_by would leave the BDM unable to read back
+  // the very rows they just inserted (INSERT … RETURNING obeys SELECT RLS).
+  // When the owner assigns the lead, the database hands the client and site
+  // to the exec (migration_bdm_role.sql STEP 8).
+  const creatorEmployeeId = isCoordinator ? forExec?.id ?? null : employee?.id ?? null
 
   // The architect-firm options, the site address box, the site nickname and
   // the site stage dropdown are all scanning-only. Site nickname earns its
@@ -169,6 +195,7 @@ function LeadQuickCapture() {
     (!isReferral || Boolean(resolvedReferralFrom)) &&
     (!isWalkIn || Boolean(clientParty)) &&
     (!isCoordinator || Boolean(forExec)) &&
+    (!isBdmUser || joineryReceived !== null) &&
     !submitting
 
   // Changing the source clears the referrer rather than leaving it resolved-
@@ -222,16 +249,34 @@ function LeadQuickCapture() {
     setFirmParty(null)
     setOtherParty(null)
     setCallNotes('')
+    setJoineryReceived(null)
+    setBdmRemark('')
     setSubmitError(null)
     setWarnings([])
     setCreatedLead(null)
   }
 
-  async function handleSubmit(event) {
+  // Enter in a text field submits the form. For everyone but a BDM that's the
+  // one Save button. A BDM has two, and "whichever the browser picks as the
+  // default" is not an answer to "who works this lead?" — so for them Enter
+  // does nothing and only an explicit button press saves.
+  function handleSubmit(event) {
     event.preventDefault()
+    if (isBdmUser) return
+    saveLead('self')
+  }
+
+  // mode: 'self' — the person saving owns the lead (a coordinator: the picked
+  // exec). 'pool' — BDM only: no owner; it waits for the owner to assign it.
+  async function saveLead(mode) {
+    if (!canSubmit) return
     setSubmitError(null)
     setWarnings([])
+    setSubmitMode(mode)
     setSubmitting(true)
+
+    const toPool = isBdmUser && mode === 'pool'
+    const ownerEmployeeId = toPool ? null : creatorEmployeeId
 
     // EVERY lead gets a site row, even when nothing about the site was asked.
     // This is load-bearing, not tidiness: SiteDetailsSection and
@@ -257,7 +302,7 @@ function LeadQuickCapture() {
         locality: asksAddress ? siteAddress.trim() || null : null,
         site_stage: resolvedSiteStage,
         discovered_via: sourceType,
-        discovered_by: ownerEmployeeId,
+        discovered_by: creatorEmployeeId,
       })
       .select('id')
       .single()
@@ -274,7 +319,7 @@ function LeadQuickCapture() {
     // right before it's actually needed, so a rep who fills this in and then
     // navigates away without hitting Save lead never leaves a real, permanent
     // party behind.
-    const clientResult = await materializePartyDraft(clientParty, ownerEmployeeId)
+    const clientResult = await materializePartyDraft(clientParty, creatorEmployeeId)
     if (clientResult.error) {
       setSubmitError(`Couldn't save the client: ${errorMessage(clientResult.error)}`)
       setSubmitting(false)
@@ -282,7 +327,7 @@ function LeadQuickCapture() {
     }
     const resolvedClientParty = clientResult.data
 
-    const referralResult = await materializePartyDraft(resolvedReferralFrom, ownerEmployeeId)
+    const referralResult = await materializePartyDraft(resolvedReferralFrom, creatorEmployeeId)
     if (referralResult.error) {
       setSubmitError(`Couldn't save the referrer: ${errorMessage(referralResult.error)}`)
       setSubmitting(false)
@@ -290,7 +335,7 @@ function LeadQuickCapture() {
     }
     const resolvedReferralParty = referralResult.data
 
-    const otherResult = await materializePartyDraft(otherParty, ownerEmployeeId)
+    const otherResult = await materializePartyDraft(otherParty, creatorEmployeeId)
     if (otherResult.error) {
       setSubmitError(`Couldn't save the other party: ${errorMessage(otherResult.error)}`)
       setSubmitting(false)
@@ -303,7 +348,7 @@ function LeadQuickCapture() {
     const resolvedArchitectParty =
       [resolvedReferralParty, resolvedOtherParty].find((p) => p?.party_type === 'architect') ?? null
 
-    const firmResult = await materializePartyDraft(firmParty, ownerEmployeeId)
+    const firmResult = await materializePartyDraft(firmParty, creatorEmployeeId)
     if (firmResult.error) {
       setSubmitError(`Couldn't save the firm: ${errorMessage(firmResult.error)}`)
       setSubmitting(false)
@@ -344,9 +389,12 @@ function LeadQuickCapture() {
         referred_by_party_id: referredByPartyId,
         referred_by_employee_id: referredByEmployeeId,
         other_party_id: resolvedOtherParty?.id ?? null,
+        // BDM only. The stage is NOT sent: the database derives Joinery
+        // follow-up from this flag, so the two can't disagree.
+        ...(isBdmUser ? { joinery_received: joineryReceived } : {}),
       })
       .select(
-        'id, source_type, office_territory, site_id, party_id, referred_by_party_id, referred_by_employee_id, other_party_id'
+        'id, source_type, office_territory, site_id, party_id, referred_by_party_id, referred_by_employee_id, other_party_id, owner_employee_id, current_stage'
       )
       .single()
 
@@ -371,7 +419,24 @@ function LeadQuickCapture() {
     // scheduled cron drain is the guarantee, and this is only the speed-up
     // so the exec's phone buzzes in about a second instead of waiting out
     // the interval. Never awaited, never allowed to affect the save.
-    if (isLixilHandoff) requestAssignmentPush()
+    // A pool lead's owners were notified by the database inside the insert
+    // ('bdm_pool_lead', one row per active owner) — same fire-and-forget
+    // speed-up.
+    if (isLixilHandoff || toPool) requestAssignmentPush()
+
+    // The BDM's context from the architect meeting — the lead's first remark,
+    // readable by the owner now and the exec after assignment. Capture only
+    // (owner's ruling): once assigned, a BDM reads remarks but can't add them.
+    if (isBdmUser && bdmRemark.trim()) {
+      const { error: remarkError } = await createRemark({
+        leadId: lead.id,
+        employeeId: employee?.id,
+        body: bdmRemark.trim(),
+      })
+      if (remarkError) {
+        nextWarnings.push(`The lead saved, but your remark wasn't saved: ${errorMessage(remarkError)}`)
+      }
+    }
 
     // The call context becomes this lead's first remark (LeadRemarks), not a
     // leads column — see the field below. Optional: a coordinator with
@@ -424,8 +489,18 @@ function LeadQuickCapture() {
     return (
       <div className="vip-card vip-narrow">
         <p className="vip-success" role="status" aria-live="polite" style={{ fontSize: 15, fontWeight: 600 }}>
-          Lead captured.
+          {!isBdmUser
+            ? 'Lead captured.'
+            : createdLead.owner_employee_id == null
+              ? 'Lead sent to the owner.'
+              : "Lead captured — it's yours to work."}
         </p>
+        {isBdmUser && createdLead.owner_employee_id == null && (
+          <p className="vip-form-note" style={{ marginTop: 0 }}>
+            The owner has been notified and will assign it to a sales executive. You'll see it under Handed over on
+            your Dashboard once they do.
+          </p>
+        )}
         <div className="vip-facts" style={{ borderTop: 'none', paddingTop: 0 }}>
           <div>
             <div className="vip-fact-label">Lead ID</div>
@@ -488,6 +563,20 @@ function LeadQuickCapture() {
               <div className="vip-fact-value">Saved — {forExec?.name ?? 'the exec'} will see this and be notified.</div>
             </div>
           )}
+          {isBdmUser && (
+            <div>
+              <div className="vip-fact-label">Joinery received</div>
+              <div className="vip-fact-value">
+                {createdLead.current_stage === 'joinery_follow_up' ? 'Yes — started at Joinery follow-up' : 'No'}
+              </div>
+            </div>
+          )}
+          {isBdmUser && bdmRemark.trim() && (
+            <div>
+              <div className="vip-fact-label">Remark</div>
+              <div className="vip-fact-value">{bdmRemark.trim()}</div>
+            </div>
+          )}
         </div>
         {warnings.map((w) => (
           <p key={w} className="vip-error" role="alert">
@@ -516,7 +605,7 @@ function LeadQuickCapture() {
       deferCreate
       initialSelected={architectParty.firm ?? null}
       onSelect={setFirmParty}
-      createdByEmployeeId={ownerEmployeeId}
+      createdByEmployeeId={creatorEmployeeId}
     />
   )
 
@@ -619,7 +708,7 @@ function LeadQuickCapture() {
         typeOptions={['client']}
         deferCreate
         onSelect={setClientParty}
-        createdByEmployeeId={ownerEmployeeId}
+        createdByEmployeeId={creatorEmployeeId}
       />
 
       {asksAddress && (
@@ -659,7 +748,7 @@ function LeadQuickCapture() {
           typeOptions={REFERRER_TYPES_ARCHITECT}
           deferCreate
           onSelect={setReferralFrom}
-          createdByEmployeeId={ownerEmployeeId}
+          createdByEmployeeId={creatorEmployeeId}
         />
       )}
       {isReferral && !isArchReferral && (
@@ -694,7 +783,7 @@ function LeadQuickCapture() {
               typeOptions={[referrerType]}
               deferCreate
               onSelect={setReferralFrom}
-              createdByEmployeeId={ownerEmployeeId}
+              createdByEmployeeId={creatorEmployeeId}
             />
           )}
         </div>
@@ -770,7 +859,7 @@ function LeadQuickCapture() {
           }
           deferCreate
           onSelect={setOtherParty}
-          createdByEmployeeId={ownerEmployeeId}
+          createdByEmployeeId={creatorEmployeeId}
         />
       )}
 
@@ -778,16 +867,80 @@ function LeadQuickCapture() {
           neither field that can produce one renders), so this needs no gate. */}
       {!isArchReferral && firmField}
 
+      {/* BDM only, last on the form: the two things the BDM brings from the
+          architect meeting that nobody else captures. Joinery is required and
+          pre-selects nothing (see joineryReceived). .vip-choice-row, not
+          .vip-choice-grid — two options split evenly. */}
+      {isBdmUser && (
+        <div className="vip-stack-s">
+          <div className="vip-field-label" id="vip-joinery-label">
+            Joinery received? *
+          </div>
+          <div className="vip-choice-row" role="group" aria-labelledby="vip-joinery-label">
+            {[
+              [true, 'Yes'],
+              [false, 'No'],
+            ].map(([value, label]) => (
+              <button
+                key={label}
+                type="button"
+                className={joineryReceived === value ? 'vip-choice vip-active' : 'vip-choice'}
+                aria-pressed={joineryReceived === value}
+                onClick={() => setJoineryReceived(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {joineryReceived === true && (
+            <p className="vip-form-note" style={{ margin: 0 }}>
+              The lead will start at Joinery follow-up.
+            </p>
+          )}
+        </div>
+      )}
+      {isBdmUser && (
+        <label className="vip-field">
+          Remark <span className="vip-field-hint">optional — what came up with the architect, for the owner and the exec</span>
+          <textarea
+            className="vip-textarea"
+            rows={3}
+            value={bdmRemark}
+            onChange={(e) => setBdmRemark(e.target.value)}
+            placeholder="e.g. Ar. Mehta's client, 3-storey house in Model Town, drawings shared, wants a quote this month"
+          />
+        </label>
+      )}
+
       {submitError && <p className="vip-error" role="alert">{submitError}</p>}
 
       <div className="vip-form-note">
         Duplicate check runs on the name and mobile you type. Pick the existing record if it shows up.
       </div>
 
+      {/* A BDM's footer asks the last question itself (owner's ruling): the
+          button pressed decides who works the lead, so there's no separate
+          field to forget. Both are type="button" — see handleSubmit. */}
       <div className="vip-sticky-footer">
-        <button className="vip-btn" type="submit" disabled={!canSubmit}>
-          {submitting ? 'Saving…' : 'Save lead'}
-        </button>
+        {isBdmUser ? (
+          <div className="vip-btn-row">
+            <button
+              className="vip-btn vip-btn-secondary"
+              type="button"
+              disabled={!canSubmit}
+              onClick={() => saveLead('self')}
+            >
+              {submitting && submitMode === 'self' ? 'Saving…' : 'Work it myself'}
+            </button>
+            <button className="vip-btn" type="button" disabled={!canSubmit} onClick={() => saveLead('pool')}>
+              {submitting && submitMode === 'pool' ? 'Sending…' : 'Send to owner'}
+            </button>
+          </div>
+        ) : (
+          <button className="vip-btn" type="submit" disabled={!canSubmit}>
+            {submitting ? 'Saving…' : 'Save lead'}
+          </button>
+        )}
       </div>
     </form>
   )

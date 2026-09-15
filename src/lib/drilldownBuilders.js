@@ -25,6 +25,8 @@ import { dealValueFor } from './pipelineValue'
 import { daysSince } from './dateMath'
 import { getInitials } from './initials'
 import { leadDisplayName } from './leadName'
+import { ARCHITECT_MEETING_DAYS, lastMetLabel } from './architectStats'
+import { firmLabel } from './firmLabel'
 
 const CLOSED_STAGES = ['won', 'lost']
 
@@ -1213,13 +1215,18 @@ export function buildWinRatePanel({ decidedStageHistory, employees, range, range
   const winRate = inRange.length ? Math.round((won.length / inRange.length) * 100) : null
 
   const byExec = new Map()
+  // The lead's own embedded owner name, for an owner who isn't in the exec
+  // roster — a business development manager working their own lead. Falling
+  // straight to "Unassigned" there mislabelled a real owner (BDM.md Step 2).
+  const embeddedName = new Map()
   inRange.forEach((row) => {
     const key = row.leads.owner_employee_id ?? 'unassigned'
     if (!byExec.has(key)) byExec.set(key, { won: 0, lost: 0 })
+    if (row.leads.employees?.name) embeddedName.set(key, row.leads.employees.name)
   })
   won.forEach((row) => byExec.get(row.leads.owner_employee_id ?? 'unassigned').won++)
   lost.forEach((row) => byExec.get(row.leads.owner_employee_id ?? 'unassigned').lost++)
-  const nameFor = (id) => employees.find((e) => e.id === id)?.name ?? 'Unassigned'
+  const nameFor = (id) => employees.find((e) => e.id === id)?.name ?? embeddedName.get(id) ?? 'Unassigned'
 
   return {
     kind: 'winrate',
@@ -1444,5 +1451,25 @@ export function buildLossPanel({ lossReasons }) {
       .sort((a, b) => b[1].count - a[1].count)
       .map(([name, c]) => ({ name, count: c.count, value: formatCurrencyCompact(c.value) })),
     lostLeads,
+  }
+}
+
+// The business development manager's "Architects to meet" tile (BDM.md
+// Step 5). `rows` are architectsToMeet(...)'s rows — the exact list Today's
+// "Architects to meet" card shows, so the tile, the panel and Today can't
+// disagree. Each row opens that architect's profile.
+export function buildArchitectsToMeetPanel(rows, scopeLabel = 'Company') {
+  return {
+    kind: 'architects',
+    eyebrow: `${scopeLabel} · architects to meet`,
+    title: `Portfolio architects with no meeting in ${ARCHITECT_MEETING_DAYS}+ days`,
+    value: String(rows.length),
+    note: "The clock starts at the later of the last meeting and the day the architect joined the portfolio, so a newly added architect isn't flagged straight away.",
+    architectRows: rows.map((r) => ({
+      id: r.architect.id,
+      name: r.architect.name ?? 'Architect',
+      meta: [firmLabel(r.architect), lastMetLabel(r.lastMetDays)].filter(Boolean).join(' · '),
+      days: `${r.clockDays}d`,
+    })),
   }
 }

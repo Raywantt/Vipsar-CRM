@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import { getInitials } from '../lib/initials'
 import { TAB_ROUTES } from '../lib/tabRoutes'
+import { createActionLabel } from '../lib/roles'
 
 // Static per-route title/sub, matched by exact path first, then by prefix
 // for dynamic routes (/leads/:id). Two routes (Lead Detail, Dashboard) need
@@ -19,12 +20,15 @@ const ROUTE_HEADERS = {
   '/leads/new': { title: 'New lead', sub: 'Required fields are marked *' },
   '/activity': { title: 'Log activity' },
   '/team': { title: 'My Team', sub: 'Your sales team' },
+  '/architects': { title: 'My Architects', sub: 'Your architect portfolio' },
+  '/network': { title: 'Architect Network', sub: 'BDMs and every architect' },
 }
 
 function routeHeader(pathname) {
   if (ROUTE_HEADERS[pathname]) return ROUTE_HEADERS[pathname]
   if (pathname.startsWith('/leads/')) return { title: 'Lead' }
   if (pathname.startsWith('/employees/')) return { title: 'Sales Exec' }
+  if (pathname.startsWith('/architects/')) return { title: 'Architect' }
   return { title: 'VIPSAR CRM' }
 }
 
@@ -59,7 +63,7 @@ function AppNav() {
           Search leads, parties, sites
         </button>
         <Link to="/leads/new" className="vip-header-add">
-          + New Lead
+          + {createActionLabel(employee?.role)}
         </Link>
         {employee && (
           <Link to="/profile" className="vip-avatar" aria-label="Profile">

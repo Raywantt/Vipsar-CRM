@@ -2,8 +2,17 @@ import { useState } from 'react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getInitials } from '../lib/initials'
-import { roleLabel } from '../lib/roles'
-import { IconActivity, IconBell, IconGrid, IconHome, IconList, IconPlus, IconSearch, IconTeam } from './NavIcons'
+import {
+  canCreateLead as canCreateLeadFor,
+  canLogActivity as canLogActivityFor,
+  canSeeTeamDirectory as canSeeTeamDirectoryFor,
+  canSeeMyArchitects as canSeeMyArchitectsFor,
+  canSeeArchitectNetwork as canSeeArchitectNetworkFor,
+  createActionLabel,
+  isBdm,
+  roleLabel,
+} from '../lib/roles'
+import { IconActivity, IconArchitect, IconBell, IconGrid, IconHome, IconList, IconPlus, IconSearch, IconTeam } from './NavIcons'
 import FabSheet from './FabSheet'
 
 function tabClass({ isActive }) {
@@ -55,22 +64,33 @@ function BottomNav() {
   // behalf picker the way a coordinator does — a manager logs only their own
   // work (owner's ruling, 2026-09-03), so these open the ordinary self-scoped
   // forms. See CLAUDE.md's Sales Manager section.
-  const canLogActivity =
-    employee?.role === 'sales_executive' ||
-    employee?.role === 'sales_coordinator' ||
-    employee?.role === 'sales_manager'
-  const canCreateLead =
-    employee?.role === 'sales_executive' ||
-    employee?.role === 'owner' ||
-    employee?.role === 'sales_coordinator' ||
-    employee?.role === 'sales_manager'
+  //
+  // The rules themselves now live in src/lib/roles.js (canCreateLead,
+  // canLogActivity, canSeeTeamDirectory), which App.jsx's allowedRoles also
+  // derive from — so a link and the route it opens can't disagree. A business
+  // development manager gets both actions (BDM.md).
+  const canLogActivity = canLogActivityFor(employee?.role)
+  const canCreateLead = canCreateLeadFor(employee?.role)
   const showFab = canLogActivity || canCreateLead
   // The team directory: the owner's whole roster, or a manager's own reports.
   // Declared here beside the other capability flags so the sidebar link and
   // Dashboard's mobile tile can read ONE value — the split that cost a
   // coordinator two core actions on an entire breakpoint started as exactly
   // this kind of second, separately-computed opinion.
-  const canSeeTeamDirectory = employee?.role === 'owner' || employee?.role === 'sales_manager'
+  const canSeeTeamDirectory = canSeeTeamDirectoryFor(employee?.role)
+  // My Architects (BDM only). Its mobile path is the tile at the top of the
+  // BDM's Dashboard, which reads the same function.
+  const canSeeMyArchitects = canSeeMyArchitectsFor(employee?.role)
+  // Architect Network (owner only). Its mobile path is a tile on the owner's
+  // Dashboard, which reads the same function.
+  const canSeeArchitectNetwork = canSeeArchitectNetworkFor(employee?.role)
+  // A BDM's list is only ever the leads they brought in, so the desktop link
+  // says so. The mobile tab stays "Leads" for everyone (a four-tab bar has no
+  // room for a longer label).
+  const leadsNavLabel = isBdm(employee?.role) ? 'My Leads' : 'All Leads'
+  // "New" for a BDM (a lead or an architect), "New Lead" for everyone else —
+  // the FAB sheet reads the same value.
+  const createLabel = createActionLabel(employee?.role)
 
   const dashTab = location.pathname === '/dashboard' ? new URLSearchParams(location.search).get('tab') : null
   const onLeadsTab = dashTab === 'leads'
@@ -122,9 +142,9 @@ function BottomNav() {
         </Link>
 
         {canCreateLead && (
-          <NavLink to="/leads/new" className={extraTabClass} title="New Lead">
+          <NavLink to="/leads/new" className={extraTabClass} title={createLabel}>
             <IconPlus />
-            <span className="vip-nav-label">New Lead</span>
+            <span className="vip-nav-label">{createLabel}</span>
           </NavLink>
         )}
         {canLogActivity && (
@@ -144,9 +164,9 @@ function BottomNav() {
             into Search instead, see Search.jsx. Both use a manually computed
             active class (above), not NavLink's own matching, since NavLink
             ignores the query string and would light up both links at once. */}
-        <Link to="/dashboard?tab=leads" className={leadsClass} title="All Leads">
+        <Link to="/dashboard?tab=leads" className={leadsClass} title={leadsNavLabel}>
           <IconList />
-          <span className="vip-nav-label">All Leads</span>
+          <span className="vip-nav-label">{leadsNavLabel}</span>
         </Link>
         {/* Follow-ups is a Dashboard category (?tab=followups), same shape as
             All Leads. Its mobile path is the tile at the top of Dashboard —
@@ -161,10 +181,22 @@ function BottomNav() {
             somewhere else. A manager sees the same directory narrowed to
             their own reports (MyTeam.jsx). Its mobile path is the tile at
             the top of Dashboard, which reads the same flag. */}
+        {canSeeMyArchitects && (
+          <NavLink to="/architects" end className={extraTabClass} title="My Architects">
+            <IconArchitect />
+            <span className="vip-nav-label">My Architects</span>
+          </NavLink>
+        )}
         {canSeeTeamDirectory && (
           <NavLink to="/team" className={extraTabClass} title="My Team">
             <IconTeam />
             <span className="vip-nav-label">My Team</span>
+          </NavLink>
+        )}
+        {canSeeArchitectNetwork && (
+          <NavLink to="/network" className={extraTabClass} title="Architect Network">
+            <IconArchitect />
+            <span className="vip-nav-label">Architect Network</span>
           </NavLink>
         )}
         <NavLink to="/search" className={tabClass} title="Search">
@@ -183,6 +215,8 @@ function BottomNav() {
       {sheetOpen && (
         <FabSheet
           canCreateLead={canCreateLead}
+          createLabel={createLabel}
+          createsArchitects={isBdm(employee?.role)}
           canLogActivity={canLogActivity}
           onClose={() => setSheetOpen(false)}
         />

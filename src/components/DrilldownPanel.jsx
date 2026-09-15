@@ -1680,7 +1680,42 @@ function CompletenessBody({ panel }) {
   )
 }
 
+// The business development manager's "Architects to meet" list
+// (buildArchitectsToMeetPanel). Reuses Today's own architect rows
+// (.vip-arch-row, theme section 31) so the list reads the same in both places.
+function ArchitectsBody({ panel }) {
+  return (
+    <div className="vip-dd-section-stack">
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">Architects</div>
+          <div className="vip-dd-hint">most overdue first</div>
+        </div>
+        {panel.architectRows.length === 0 ? (
+          <p className="vip-empty">Every architect in your portfolio has been met recently.</p>
+        ) : (
+          <div className="vip-arch-list">
+            {panel.architectRows.map((r) => (
+              <Link key={r.id} to={`/architects/${r.id}`} className="vip-arch-row">
+                <span className="vip-arch-row-main">
+                  <span className="vip-arch-row-name">{r.name}</span>
+                  <span className="vip-arch-row-meta">{r.meta}</span>
+                </span>
+                <span className="vip-arch-row-days">{r.days}</span>
+                <span className="vip-bdm-updates-chevron" aria-hidden="true">
+                  ›
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const BODIES = {
+  architects: ArchitectsBody,
   log: LogBody,
   ageing: AgeingBody,
   followup: FollowUpBody,

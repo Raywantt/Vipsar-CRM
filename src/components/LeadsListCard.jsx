@@ -18,6 +18,7 @@ import { formatCurrencyCompact } from '../lib/format'
 import NumPadInput from './NumPadInput'
 import { dealValueOrNull } from '../lib/pipelineValue'
 import EmployeeLink from './EmployeeLink'
+import { isPoolLead } from '../lib/poolLeads'
 import { errorMessage } from '../lib/errorMessage'
 import { leadDisplayName, leadSiteLabel } from '../lib/leadName'
 
@@ -92,7 +93,10 @@ function formatLeadValue(lead) {
 // fresh nav-link visit — see usePersistedFilterState's own header comment.
 const FILTERS_STORAGE_KEY = 'vip-filters:leads-list'
 
-function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, managerScope, onManagerScopeChange }) {
+// includePoolLeads: only a BDM's My Leads passes true — a lead they sent to
+// the owner is still theirs to see, while for everyone else a lead waiting in
+// the pool is not on this list until it is assigned (src/lib/poolLeads.js).
+function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, managerScope, onManagerScopeChange, includePoolLeads = false }) {
   const [employeeFilter, setEmployeeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'employeeFilter', '')
   const [stageFilter, setStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'stageFilter', '')
   const [siteStageFilter, setSiteStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'siteStageFilter', '')
@@ -207,6 +211,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
         minValue: minValue !== '' ? Number(minValue) : null,
         maxValue: maxValue !== '' ? Number(maxValue) : null,
         searchOr: searchResult?.or ?? null,
+        includePool: includePoolLeads,
         page: effectivePage,
       })
       if (!active) return
@@ -240,6 +245,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     debouncedSearch,
     page,
     setPage,
+    includePoolLeads,
   ])
 
   // Powers the "last touch" / recency line — independent of the filters
@@ -652,6 +658,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
                         )}
                         <span className="vip-lead-row-sub">
                           {[
+                            isPoolLead(lead) ? 'Awaiting assignment' : null,
                             leadSiteLabel(lead),
                             SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type,
                           ]
@@ -697,7 +704,13 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
                   <span className="vip-leadrow-cell vip-leadrow-party">{partyLabel(lead)}</span>
                   <span className="vip-leadrow-cell">{siteLabel(lead)}</span>
                   <span className="vip-leadrow-cell">
-                    <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />
+                    {/* A pool lead only reaches this list on a BDM's My Leads
+                        (includePoolLeads) — say where it is, not "Unassigned". */}
+                    {isPoolLead(lead) ? (
+                      <span className="vip-awaiting-tag">Awaiting assignment</span>
+                    ) : (
+                      <EmployeeLink id={lead.owner_employee_id} name={lead.employees?.name} />
+                    )}
                   </span>
                   <span>
                     <span className={stageChipClass(lead.current_stage ?? 'calling')}>

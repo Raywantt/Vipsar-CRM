@@ -70,6 +70,37 @@ export async function fetchUnseenAssignments(employeeId) {
   }
 }
 
+// A business development manager's updates about leads they brought in —
+// written by bdm_leads_after_write() (Schema/migration_bdm_role.sql STEP 8)
+// when one is assigned, won or lost. Owner's ruling (BDM.md Step 3): these
+// don't get a card of their own. The BDM's Dashboard lists the handovers and
+// closures for the period; Today only carries a one-line "N updates" link to
+// it (BdmUpdatesLine), and opening the Dashboard marks them seen.
+//
+// Own rows only under RLS, so only a BDM ever has any.
+export const BDM_UPDATE_KINDS = ['bdm_lead_assigned', 'bdm_lead_won', 'bdm_lead_lost']
+
+export function countUnseenBdmUpdates() {
+  return supabase
+    .from('notifications')
+    .select('id', { count: 'exact', head: true })
+    .in('kind', BDM_UPDATE_KINDS)
+    .is('seen_at', null)
+}
+
+// Only writes when there is something to clear — every successful write drops
+// the whole query cache (supabaseFetch.js), which a no-op UPDATE on each
+// Dashboard visit would do for nothing.
+export async function markBdmUpdatesSeen() {
+  const { count, error } = await countUnseenBdmUpdates()
+  if (error || !count) return { error: error ?? null }
+  return supabase
+    .from('notifications')
+    .update({ seen_at: new Date().toISOString() })
+    .in('kind', BDM_UPDATE_KINDS)
+    .is('seen_at', null)
+}
+
 // Marking seen is separate from notified_at on purpose: a rep who has denied
 // notification permission never gets a notified_at, and must still be able to
 // clear the card. The two columns answer different questions.

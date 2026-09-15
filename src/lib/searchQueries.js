@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient'
 import { sanitizeForIlike } from './sanitizeForIlike'
+import { applyPoolExclusion } from './poolLeads'
 
 export const MIN_QUERY_LENGTH = 2
 
@@ -8,7 +9,12 @@ export const MIN_QUERY_LENGTH = 2
 // parties/sites matched via simple .in() filters on leads' own columns —
 // avoids relying on embedded-relation ILIKE filtering, which has no
 // precedent anywhere else in this codebase.
-export async function searchAll(term) {
+//
+// `includePool`: a BDM pool lead is left out of the Leads results unless
+// this is true (src/lib/poolLeads.js — owner's ruling that the pool card is
+// the only place a waiting lead shows). Only a BDM passes true: it is their
+// lead. The client/site themselves still come back under Parties and Sites.
+export async function searchAll(term, { includePool = false } = {}) {
   const clean = sanitizeForIlike(term.trim())
   if (clean.length < MIN_QUERY_LENGTH) {
     return { parties: [], sites: [], leads: [] }
@@ -38,11 +44,14 @@ export async function searchAll(term) {
     if (partyIds.length) orParts.push(`party_id.in.(${partyIds.join(',')})`)
     if (siteIds.length) orParts.push(`site_id.in.(${siteIds.join(',')})`)
 
-    const { data } = await supabase
-      .from('leads')
-      .select('id, current_stage, parties!party_id(name), sites(nickname, locality, house_no)')
-      .or(orParts.join(','))
-      .limit(20)
+    const { data } = await applyPoolExclusion(
+      supabase
+        .from('leads')
+        .select('id, current_stage, parties!party_id(name), sites(nickname, locality, house_no)')
+        .or(orParts.join(','))
+        .limit(20),
+      includePool
+    )
 
     leads = data ?? []
   }

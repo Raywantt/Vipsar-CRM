@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { getInitials } from '../lib/initials'
 import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import AssignedLeadsCard from './AssignedLeadsCard'
+import BdmUpdatesLine from './BdmUpdatesLine'
 
 // The greeting bar shared by every role's Today screen (Home.jsx for
 // owner/sales_executive, CoordinatorToday.jsx for sales_coordinator) — was
@@ -56,6 +57,9 @@ function TodayGreetingHeader({ employee }) {
         the one component all four already render. It returns null when there
         is nothing to show, so no screen pays for it otherwise. */}
     <AssignedLeadsCard />
+    {/* Same one-mount rule, for a business development manager's lead
+        updates (assigned / won / lost). Renders nothing for any other role. */}
+    <BdmUpdatesLine />
     </>
   )
 }

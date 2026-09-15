@@ -28,6 +28,9 @@ import { SOURCE_TYPE_LABELS as SOURCE_LABELS } from '../lib/sourceTypeOptions'
 import { attachFirms, linkPartiesAsSiteContacts } from '../lib/partyQueries'
 import { summariseRfqHistory } from '../lib/rfqKind'
 import { withSelfAssignTestOption } from '../lib/selfAssignTest'
+import { isPoolLead, sourcingArchitect } from '../lib/poolLeads'
+import { canOpenEmployeeProfiles, isBdm } from '../lib/roles'
+import { lossReasonLabel } from '../lib/lossReasonOptions'
 
 // Was a fourth hand-rolled copy of the source labels, which had already
 // drifted ('Other referral' vs the shared list's own wording). One list now —
@@ -81,9 +84,11 @@ function LeadDetail() {
 
   const [lead, setLead] = useState(null)
   const [party, setParty] = useState(null)
-  // The "other" party and the referrer are read during load only, to link them
-  // as site contacts (see the loader below) — nothing renders them directly
-  // any more, so they're locals in the effect rather than state.
+  // The "other" party and the referrer are read during load, to link them as
+  // site contacts (see the loader below). The one thing kept from them is
+  // which of the two is an architect, for a BDM lead's "Sourced by … via
+  // Architect …" line (BDM.md §7).
+  const [sourcingArchitectParty, setSourcingArchitectParty] = useState(null)
   const [site, setSite] = useState(null)
   const [siteContacts, setSiteContacts] = useState([])
   const [stageHistory, setStageHistory] = useState([])
@@ -104,6 +109,11 @@ function LeadDetail() {
   const [addingSite, setAddingSite] = useState(false)
   const [addSiteError, setAddSiteError] = useState(null)
   const [quickActionsSheetOpen, setQuickActionsSheetOpen] = useState(false)
+  // Why a lost lead was lost — shown to whoever may read it (owner's ruling,
+  // BDM.md Step 4). loss_reasons SELECT decides who that is: the owner, a
+  // manager for their team, the BDM for their own leads. For everyone else the
+  // query simply returns nothing and nothing renders.
+  const [lossReason, setLossReason] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -120,7 +130,9 @@ function LeadDetail() {
         // migration_lead_change_log.sql's stamp_lead_creator trigger, which
         // always stamps the real actor). Used by the Deal owner card's
         // "Added by coordinator" note below.
-        .select('*, employees!owner_employee_id(name, office_location), created_by:employees!created_by_employee_id(name, role)')
+        // bdm: which business development manager brought this lead in, if
+        // any — the Deal owner card's "Sourced by" line.
+        .select('*, employees!owner_employee_id(name, office_location), created_by:employees!created_by_employee_id(name, role), bdm:employees!bdm_employee_id(name)')
         .eq('id', id)
         .single()
 
@@ -209,6 +221,7 @@ function LeadDetail() {
       const resolvedReferrerParty = referrerPartyResult.data
         ? (await attachFirms([referrerPartyResult.data]))[0]
         : null
+      setSourcingArchitectParty(sourcingArchitect(resolvedReferrerParty, resolvedOtherParty))
       setSite(siteResult.data ?? null)
 
       // Leads captured before intake started linking these itself (see
@@ -280,6 +293,32 @@ function LeadDetail() {
     return () => setOverride(null)
   }, [lead, leadTitle, setOverride])
 
+  // Keyed on the stage too, so marking the lead lost on this page shows the
+  // reason it was just given without a reload. loss_reasons is append-only, so
+  // the newest row is the current reason.
+  const leadIdForLoss = lead?.id
+  const leadIsLost = lead?.current_stage === 'lost'
+  useEffect(() => {
+    if (!leadIdForLoss || !leadIsLost) {
+      setLossReason(null)
+      return
+    }
+    let active = true
+    supabase
+      .from('loss_reasons')
+      .select('reason, competitor_name, lost_at')
+      .eq('lead_id', leadIdForLoss)
+      .order('lost_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (active) setLossReason(data?.[0] ?? null)
+      })
+    return () => {
+      active = false
+    }
+  }, [leadIdForLoss, leadIsLost])
+
   if (loading) return <p className="vip-state-msg">Loading…</p>
   if (loadError) return <p className="vip-state-msg-error">{loadError}</p>
   if (!lead) return <p className="vip-state-msg">Lead not found.</p>
@@ -305,7 +344,16 @@ function LeadDetail() {
   // the ordinary isMyLead branch below — every limit in this block applies
   // only to a team member's lead.
   const isTeamLeadForManager = isManager && !isMyLead
-  const canEdit = isOwner || isCoordinator || isMyLead
+  // A business development manager (BDM.md Step 4) edits a lead they brought
+  // in only while it waits in the pool; once the owner assigns it, it is view
+  // only for them — the same line bdm_pool_update draws in RLS (an UPDATE on a
+  // handed-off lead matches 0 rows). A lead they work themselves is simply
+  // isMyLead. RLS only ever shows a BDM leads tagged to them or owned by them,
+  // so "tagged to me" needs no further check here.
+  const isBdmViewer = isBdm(employee?.role)
+  const isMyPoolLead = isBdmViewer && isPoolLead(lead) && lead.bdm_employee_id === employee?.id
+  const isMyHandedOffLead = isBdmViewer && !isMyLead && !isPoolLead(lead) && lead.bdm_employee_id === employee?.id
+  const canEdit = isOwner || isCoordinator || isMyLead || isMyPoolLead
 
   // A sales manager supervises without overwriting: on a team member's lead
   // they get the quick actions (stage, follow-up, reassign) but NOT the
@@ -338,7 +386,10 @@ function LeadDetail() {
   // A manager is deliberately NOT in this list: the owner's ruling is that
   // they are held to the same one-way funnel as their reps, on their own
   // leads as well as their team's.
-  const canMoveStageBackward = isOwner || isCoordinator
+  // A BDM may correct a pool lead's stage either way until it's assigned — the
+  // stage trigger allows exactly that (migration_bdm_role.sql STEP 7). On a
+  // lead they work themselves they're held forward-only, like a rep.
+  const canMoveStageBackward = isOwner || isCoordinator || isMyPoolLead
 
   // Log activity is "record work I personally did". A manager logs only
   // their own work (the owner's ruling), so on a TEAM lead the link is
@@ -347,7 +398,12 @@ function LeadDetail() {
   // manager credit themselves with an activity on someone else's deal.
   // A coordinator keeps it: entry-on-behalf is their job, and that screen
   // asks them whose it is.
-  const canLogActivityHere = !isOwner && !isTeamLeadForManager
+  //
+  // A BDM gets it only on a lead they OWN. Not on a pool lead either: an
+  // activity logged there would sit on the exec's lead after assignment,
+  // credited to the BDM — and their architect meetings anchor on the
+  // architect, not a lead, anyway.
+  const canLogActivityHere = !isOwner && !isTeamLeadForManager && (!isBdmViewer || isMyLead)
 
   const stage = lead.current_stage ?? 'calling'
   const isWon = stage === 'won'
@@ -627,17 +683,47 @@ function LeadDetail() {
       <div className="vip-card">
         <h2 className="vip-card-title">Deal owner</h2>
         {lead.owner_employee_id ? (
-          <Link to={`/employees/${lead.owner_employee_id}`} className="vip-owner-link">
-            <span className="vip-profile-avatar vip-profile-avatar-sm">
-              {getInitials(lead.employees?.name)}
-            </span>
-            <span className="vip-owner-link-meta">
-              <span className="vip-owner-link-name">{lead.employees?.name ?? 'Unassigned'}</span>
-              <span className="vip-owner-link-loc">{lead.employees?.office_location ?? '—'}</span>
-            </span>
-          </Link>
+          // A plain block, not a link, for a viewer who can't open a Sales
+          // Exec Profile (a BDM) — a link that bounces them to Today is worse
+          // than no link.
+          (() => {
+            const ownerCard = (
+              <>
+                <span className="vip-profile-avatar vip-profile-avatar-sm">
+                  {getInitials(lead.employees?.name)}
+                </span>
+                <span className="vip-owner-link-meta">
+                  <span className="vip-owner-link-name">{lead.employees?.name ?? 'Unassigned'}</span>
+                  <span className="vip-owner-link-loc">{lead.employees?.office_location ?? '—'}</span>
+                </span>
+              </>
+            )
+            return canOpenEmployeeProfiles(employee?.role) ? (
+              <Link to={`/employees/${lead.owner_employee_id}`} className="vip-owner-link">
+                {ownerCard}
+              </Link>
+            ) : (
+              <div className="vip-owner-link">{ownerCard}</div>
+            )
+          })()
+        ) : isPoolLead(lead) ? (
+          <p className="vip-empty">Not assigned yet — waiting for the owner.</p>
         ) : (
           <p className="vip-empty">Unassigned.</p>
+        )}
+        {/* Every role sees who brought a BDM lead in (BDM.md §7). The BDM's
+            name is plain text (a BDM has no Sales Exec Profile); the
+            architect's name opens their profile, which every role may see. */}
+        {lead.bdm_employee_id != null && (
+          <p className="vip-form-note vip-sourced-by">
+            Sourced by {lead.bdm_employee_id === employee?.id ? 'you' : lead.bdm?.name ?? 'a business development manager'}
+            {sourcingArchitectParty && (
+              <>
+                {' via Architect '}
+                <Link to={`/architects/${sourcingArchitectParty.id}`}>{sourcingArchitectParty.name}</Link>
+              </>
+            )}
+          </p>
         )}
         {lead.created_by?.role === 'sales_coordinator' && lead.created_by_employee_id !== lead.owner_employee_id && (
           <p className="vip-form-note">Added by sales coordinator {lead.created_by.name}</p>
@@ -662,7 +748,14 @@ function LeadDetail() {
           siteContacts.map((c) => (
             <div key={c.id} className="vip-contact-row">
               <div className="vip-contact-row-head">
-                <span className="vip-contact-row-name">{c.parties?.name}</span>
+                <span className="vip-contact-row-name">
+                  {/* An architect has a profile page every role can open. */}
+                  {c.parties?.party_type === 'architect' ? (
+                    <Link to={`/architects/${c.party_id}`}>{c.parties?.name}</Link>
+                  ) : (
+                    c.parties?.name
+                  )}
+                </span>
                 <span className="vip-contact-row-role">{c.role}</span>
               </div>
             </div>
@@ -824,6 +917,12 @@ function LeadDetail() {
             On hold — {holdReason}
           </p>
         )}
+        {isLost && lossReason && (
+          <p className="vip-empty vip-flush">
+            Lost — {lossReasonLabel(lossReason.reason)}
+            {lossReason.competitor_name ? ` (to ${lossReason.competitor_name})` : ''}
+          </p>
+        )}
         <div className="vip-stepper">
           {stageSteps.map((s) => (
             <div
@@ -971,6 +1070,28 @@ function LeadDetail() {
       </div>
     </div>
   )
+
+  // A BDM's lead after the owner assigned it (owner's ruling, BDM.md Step 4):
+  // view only, but WITH the rail — who has it now, "Sourced by you via
+  // Architect …", the handover date — which the generic read-only page below
+  // leaves out. No quick actions (canQuickAct is false) and no Log activity.
+  if (isMyHandedOffLead) {
+    return (
+      <>
+        <div className="vip-cols vip-pad-sticky-footer">
+          <div className="vip-stack">
+            <p className="vip-handoff-note">
+              You brought this lead in — it's now with {lead.employees?.name ?? 'a sales executive'}. You can follow
+              it here but not change it.
+            </p>
+            {mainContent}
+          </div>
+          <div className="vip-stack">{rail}</div>
+        </div>
+        {mobileActionBar}
+      </>
+    )
+  }
 
   if (!canEdit) {
     return (

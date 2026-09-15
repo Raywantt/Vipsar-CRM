@@ -13,6 +13,7 @@ import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
 import DrilldownPanel from '../components/DrilldownPanel'
 import TodayGreetingHeader from '../components/TodayGreetingHeader'
+import BdmPoolCard from '../components/BdmPoolCard'
 import { errorMessage } from '../lib/errorMessage'
 
 // The owner's Today screen — a bird's-eye view of the whole sales team's
@@ -183,6 +184,12 @@ function OwnerToday() {
   return (
     <div className="vip-wide vip-pad-fab-overhang">
       <TodayGreetingHeader employee={employee} />
+
+      {/* Leads a BDM sent over, waiting for the owner to assign — first thing
+          on the page (owner's ruling), and absent entirely when none wait.
+          Rendered outside the roster's loading gate so a slow roster can't
+          hide it; Assign stays disabled until the roster arrives. */}
+      <BdmPoolCard execs={employees} />
 
       {!employeesLoaded ? (
         <p className="vip-empty">Loading your team…</p>

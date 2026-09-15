@@ -1,5 +1,43 @@
 import { describe, it, expect } from 'vitest'
-import { isOpenLead, dealValueFor, sumOpenPipelineValue, sumOnHoldValue } from './pipelineValue'
+import {
+  isOpenLead,
+  dealValueFor,
+  sumOpenPipelineValue,
+  sumOnHoldValue,
+  countOpenPipelineLeads,
+  stageRowsFromLeads,
+} from './pipelineValue'
+import { LEAD_STAGE_OPTIONS } from './leadStageOptions'
+
+describe('countOpenPipelineLeads', () => {
+  it('counts the same set sumOpenPipelineValue sums — on hold, won and lost left out', () => {
+    const leads = [
+      { current_stage: 'rfq' },
+      { current_stage: null },
+      { current_stage: 'on_hold' },
+      { current_stage: 'won' },
+      { current_stage: 'lost' },
+    ]
+    expect(countOpenPipelineLeads(leads)).toBe(2)
+  })
+})
+
+describe('stageRowsFromLeads', () => {
+  it('gives every stage a row, zeros included, with dealValueFor sums', () => {
+    const rows = stageRowsFromLeads([
+      { current_stage: 'rfq', quote_value: 100, order_value: 999 },
+      { current_stage: 'rfq', quote_value: 50 },
+      { current_stage: 'won', order_value: 300, quote_value: 10 },
+      { current_stage: null },
+    ])
+    expect(rows.map((r) => r.stage)).toEqual(LEAD_STAGE_OPTIONS)
+    const by = Object.fromEntries(rows.map((r) => [r.stage, r]))
+    expect(by.rfq).toEqual({ stage: 'rfq', count: 2, value: 150 })
+    expect(by.won).toEqual({ stage: 'won', count: 1, value: 300 })
+    expect(by.calling).toEqual({ stage: 'calling', count: 1, value: 0 })
+    expect(by.negotiation.count).toBe(0)
+  })
+})
 
 describe('isOpenLead', () => {
   it('treats won and lost as closed', () => {

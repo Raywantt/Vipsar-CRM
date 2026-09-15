@@ -4,22 +4,13 @@ import { useAuth } from '../contexts/AuthContext'
 import { sanitizeForIlike } from '../lib/sanitizeForIlike'
 import { partyTypeLabel } from '../lib/partyTypeOptions'
 import { PARTY_COLUMNS, attachFirms } from '../lib/partyQueries'
+import { firmLabel } from '../lib/firmLabel'
+import { portfolioTag } from '../lib/architectStats'
 import { errorMessage } from '../lib/errorMessage'
 import NumPadInput from './NumPadInput'
 
 const DEFAULT_PARTY_TYPES = ['client', 'architect', 'builder', 'firm', 'other', 'pmc']
 
-// One place decides how a party's firm reads, so a linked firm and a legacy
-// text one can't render differently in different lists.
-//
-// The fallback is load-bearing but also a trap worth knowing: it masked a real
-// bug while the firm embed was silently returning nothing, because the legacy
-// firm_name happened to match. Any future change to how .firm is resolved must
-// be re-verified against an architect whose firm_name and linked firm DIFFER —
-// equal values cannot tell the two sources apart.
-export function firmLabel(party) {
-  return party?.firm?.name ?? party?.firm_name ?? null
-}
 const MIN_QUERY_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 350
 
@@ -166,7 +157,10 @@ function PartySearchOrCreate({
 
       const { data, error } = await supabase
         .from('parties')
-        .select(PARTY_COLUMNS)
+        // The portfolio fields ride along only for the "Yours" / "With {BDM}"
+        // tag on an architect row (BDM.md §3) — kept out of PARTY_COLUMNS,
+        // which insert-returning selects across the app also use.
+        .select(`${PARTY_COLUMNS}, bdm_employee_id, bdm:employees!bdm_employee_id(name)`)
         .or(orParts.join(','))
         .order('name')
         .limit(8)
@@ -299,7 +293,12 @@ function PartySearchOrCreate({
     return (
       <div className="vip-row">
         <div className="vip-row-main">
-          <div className="vip-row-title">{selected.name}</div>
+          <div className="vip-row-title">
+            {selected.name}
+            {portfolioTag(selected, employee?.id) && (
+              <span className="vip-portfolio-tag">{portfolioTag(selected, employee?.id)}</span>
+            )}
+          </div>
           <div className="vip-row-sub">
             {partyTypeLabel(selected.party_type)}
             {firmLabel(selected) ? ` · ${firmLabel(selected)}` : ''}
@@ -393,7 +392,12 @@ function PartySearchOrCreate({
           {results.map((party) => (
             <button key={party.id} type="button" className="vip-row vip-clickable" onClick={() => selectExisting(party)}>
               <div className="vip-row-main">
-                <div className="vip-row-title">{party.name}</div>
+                <div className="vip-row-title">
+                  {party.name}
+                  {portfolioTag(party, employee?.id) && (
+                    <span className="vip-portfolio-tag">{portfolioTag(party, employee?.id)}</span>
+                  )}
+                </div>
                 <div className="vip-row-sub">
                   {partyTypeLabel(party.party_type)}
                   {firmLabel(party) ? ` · ${firmLabel(party)}` : ''}

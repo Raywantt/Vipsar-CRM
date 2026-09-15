@@ -4,6 +4,13 @@ import { MIN_QUERY_LENGTH } from './searchQueries'
 import { fetchAllRows } from './fetchAllRows'
 import { cachedQuery } from './queryCache'
 import { todayISO } from './followupDates'
+import { applyPoolExclusion, withoutPoolLeadRows } from './poolLeads'
+
+// BDM POOL LEADS (src/lib/poolLeads.js): every lead query below leaves them
+// out unless `includePool` is passed — the owner's ruling that a lead waiting
+// in the pool is not company pipeline yet. Only a BDM's own screens pass true.
+// The dashboard RPCs further down apply the same rule in SQL
+// (Schema/migration_bdm_handoff.sql).
 
 // The heavy, company-wide reads below go through cachedQuery (see
 // src/lib/queryCache.js for the measurements that motivated it). Two effects:
@@ -43,14 +50,17 @@ export function fetchActivityCounts(range) {
   )
 }
 
-export function fetchNewLeadsBySource(range) {
-  return cachedQuery(`leads:by-source:${range.start.toISOString()}:${range.end.toISOString()}`, () =>
+export function fetchNewLeadsBySource(range, includePool = false) {
+  return cachedQuery(`leads:by-source:${range.start.toISOString()}:${range.end.toISOString()}:${includePool ? 'pool' : 'no-pool'}`, () =>
     fetchAllRows(() =>
-      supabase
-        .from('leads')
-        .select('source_type, owner_employee_id, employees!owner_employee_id(name)', { count: 'exact' })
-        .gte('created_at', range.start.toISOString())
-        .lte('created_at', range.end.toISOString())
+      applyPoolExclusion(
+        supabase
+          .from('leads')
+          .select('source_type, owner_employee_id, employees!owner_employee_id(name)', { count: 'exact' })
+          .gte('created_at', range.start.toISOString())
+          .lte('created_at', range.end.toISOString()),
+        includePool
+      )
     )
   )
 }
@@ -142,7 +152,7 @@ export async function resolveLeadsSearchFilter(term) {
 export const SITE_STAGE_UNSET = '__unset__'
 
 export function fetchLeadsList(filters = {}) {
-  const { employeeId, employeeIds, stage, siteStage, source, status, minValue, maxValue, searchOr, page = 0 } = filters
+  const { employeeId, employeeIds, stage, siteStage, source, status, minValue, maxValue, searchOr, includePool = false, page = 0 } = filters
 
   // Filtering on an EMBEDDED column needs `!inner`, or PostgREST keeps the
   // parent lead row and merely nulls out the non-matching embed — i.e. the
@@ -162,7 +172,7 @@ export function fetchLeadsList(filters = {}) {
   let query = supabase
     .from('leads')
     .select(
-      `id, external_reference_id, current_stage, source_type, order_value, quote_value, created_at, owner_employee_id, parties!party_id(name), ${sitesEmbed}, employees!owner_employee_id(name)`,
+      `id, external_reference_id, current_stage, source_type, order_value, quote_value, created_at, owner_employee_id, bdm_employee_id, parties!party_id(name), ${sitesEmbed}, employees!owner_employee_id(name)`,
       { count: 'exact' }
     )
 
@@ -186,6 +196,7 @@ export function fetchLeadsList(filters = {}) {
   if (minValue != null) query = query.gte('quote_value', minValue)
   if (maxValue != null) query = query.lte('quote_value', maxValue)
   if (searchOr) query = query.or(searchOr)
+  query = applyPoolExclusion(query, includePool)
 
   return query
     .order('created_at', { ascending: false })
@@ -195,23 +206,26 @@ export function fetchLeadsList(filters = {}) {
 
 // Not scoped to a date range — this is a snapshot of the current pipeline,
 // not tied to when leads were created.
-export function fetchClosureForecast() {
-  return cachedQuery('leads:closure-forecast', () =>
+export function fetchClosureForecast(includePool = false) {
+  return cachedQuery(`leads:closure-forecast:${includePool ? 'pool' : 'no-pool'}`, () =>
     fetchAllRows(() =>
-      supabase
-        .from('leads')
-        .select(
-          // The sites embed is what lets a party-less lead be NAMED at all
-          // (src/lib/leadName.js falls through to the address, then the
-          // nickname). Without it this card printed a bare '(no party)' for a
-          // lead carrying a perfectly good address — the join is on the
-          // indexed leads.site_id FK, on a query already embedding two others.
-          'id, current_stage, quote_value, closure_probability, estimated_close_date, owner_employee_id, parties!party_id(name), sites(nickname, locality, house_no), employees!owner_employee_id(name)',
-          { count: 'exact' }
-        )
-        .not('current_stage', 'in', '(won,lost)')
-        .or('quote_sent.eq.true,closure_probability.not.is.null')
-        .order('estimated_close_date', { ascending: true, nullsFirst: false })
+      applyPoolExclusion(
+        supabase
+          .from('leads')
+          .select(
+            // The sites embed is what lets a party-less lead be NAMED at all
+            // (src/lib/leadName.js falls through to the address, then the
+            // nickname). Without it this card printed a bare '(no party)' for a
+            // lead carrying a perfectly good address — the join is on the
+            // indexed leads.site_id FK, on a query already embedding two others.
+            'id, current_stage, quote_value, closure_probability, estimated_close_date, owner_employee_id, parties!party_id(name), sites(nickname, locality, house_no), employees!owner_employee_id(name)',
+            { count: 'exact' }
+          )
+          .not('current_stage', 'in', '(won,lost)')
+          .or('quote_sent.eq.true,closure_probability.not.is.null')
+          .order('estimated_close_date', { ascending: true, nullsFirst: false }),
+        includePool
+      )
     )
   )
 }
@@ -227,15 +241,22 @@ export function fetchClosureForecast() {
 // THE single most-shared query in the app — Dashboard, Today (all four role
 // variants), My Team and the Sales Exec Profile all call it on mount, which
 // is why caching it is worth more than caching anything else here.
-export function fetchLeadsForBreakdown() {
-  return cachedQuery('leads:breakdown', () =>
+// Exported so the business development manager's Dashboard (bdmQueries.js)
+// fetches its leads in exactly this shape — buildPipelinePanel and every
+// breakdown helper read these columns, and a second hand-typed copy is how one
+// of them would silently lose a field.
+export const BREAKDOWN_LEAD_COLUMNS =
+  'id, external_reference_id, current_stage, order_value, site_id, owner_employee_id, bdm_employee_id, source_type, quote_sent, quote_sent_at, rfq_raised, rfq_raised_at, quote_value, closure_probability, estimated_close_date, next_followup_date, created_at, parties!party_id(name), sites(nickname, locality, house_no, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)'
+
+export function fetchLeadsForBreakdown(includePool = false) {
+  return cachedQuery(`leads:breakdown:${includePool ? 'pool' : 'no-pool'}`, () =>
     fetchAllRows(() =>
-      supabase
-        .from('leads')
-        .select(
-          'id, external_reference_id, current_stage, order_value, site_id, owner_employee_id, source_type, quote_sent, quote_sent_at, rfq_raised, rfq_raised_at, quote_value, closure_probability, estimated_close_date, next_followup_date, created_at, parties!party_id(name), sites(nickname, locality, house_no, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)',
-          { count: 'exact' }
-        ),
+      applyPoolExclusion(
+        supabase
+          .from('leads')
+          .select(BREAKDOWN_LEAD_COLUMNS, { count: 'exact' }),
+        includePool
+      ),
       // speculativePages is DELIBERATELY NOT USED HERE — see the row-count
       // note in fetchAllRows.js. The premise ("this table is known to
       // exceed one page") is only ever true for the OWNER: under RLS a
@@ -306,19 +327,22 @@ export function fetchActivityLogForExec(employeeId, activityType, rangeStart) {
 // Same RLS caveat/trick as fetchStageHistoryForFunnel: a sales exec's rows on
 // leads they don't own come back with `leads: null` and must be filtered out
 // client-side to get "own data or owner role" scoping.
-export function fetchDecidedStageHistory() {
-  return cachedQuery('stage_history:decided', () =>
+export function fetchDecidedStageHistory(includePool = false) {
+  return cachedQuery(`stage_history:decided:${includePool ? 'pool' : 'no-pool'}`, () =>
     fetchAllRows(
       () =>
         supabase
           .from('stage_history')
-          .select('lead_id, stage, changed_at, leads(owner_employee_id, order_value)', { count: 'exact' })
+          // The owner's name rides along so buildWinRatePanel can label a lead
+          // owned by someone outside the exec roster (a business development
+          // manager's own lead) by name instead of "Unassigned".
+          .select('lead_id, stage, changed_at, leads(owner_employee_id, bdm_employee_id, order_value, employees!owner_employee_id(name))', { count: 'exact' })
           .in('stage', ['won', 'lost'])
           .order('changed_at', { ascending: false }),
       // Tie-break in the SAME direction as the sort above — consumers here
       // take the first row per key and mean the most recent one.
       { ascending: false }
-    )
+    ).then((res) => (includePool ? res : withoutPoolLeadRows(res)))
   )
 }
 
@@ -352,13 +376,13 @@ export function fetchActivitiesTrendWindow() {
 // relies on — drop those
 // rows client-side to get the same "own data or owner role" scoping every
 // other Dashboard query gets for free.
-export function fetchStageHistoryForFunnel() {
-  return cachedQuery('stage_history:funnel', () =>
+export function fetchStageHistoryForFunnel(includePool = false) {
+  return cachedQuery(`stage_history:funnel:${includePool ? 'pool' : 'no-pool'}`, () =>
     fetchAllRows(
       () =>
         supabase
           .from('stage_history')
-          .select('lead_id, stage, changed_at, leads(owner_employee_id)', { count: 'exact' })
+          .select('lead_id, stage, changed_at, leads(owner_employee_id, bdm_employee_id)', { count: 'exact' })
           .order('changed_at', { ascending: true }),
       // speculativePages is DELIBERATELY NOT USED HERE — see the row-count
       // note in fetchAllRows.js. The premise ("this table is known to
@@ -372,7 +396,7 @@ export function fetchStageHistoryForFunnel() {
       // burst, alongside the real page 0, which then timed out too. The
       // owner's measured saving was ~150-300ms; the cost to everyone else
       // was a blank Dashboard.
-    )
+    ).then((res) => (includePool ? res : withoutPoolLeadRows(res)))
   )
 }
 
@@ -554,8 +578,8 @@ export function fetchCompletenessDetail(ownerIds = null) {
 // embedded `leads` fields are only needed for the `loss` drill-down's
 // "lost this month" list (party/owner/value) — LossReasonsCard's compact
 // view still only reads reason/competitor_name.
-export function fetchLossReasons() {
-  return cachedQuery('loss_reasons:all', () =>
+export function fetchLossReasons(includePool = false) {
+  return cachedQuery(`loss_reasons:all:${includePool ? 'pool' : 'no-pool'}`, () =>
     fetchAllRows(() =>
       supabase
         .from('loss_reasons')
@@ -565,9 +589,9 @@ export function fetchLossReasons() {
           // DECISIONS.md's Phase 9 ruling. loss_reasons is append-only, so the
           // row survives the reopening and the table alone cannot tell you
           // whether the lead is still lost.
-          'id, lead_id, reason, competitor_name, lost_at, leads(current_stage, order_value, quote_value, owner_employee_id, parties!party_id(name), sites(nickname, locality, house_no), employees!owner_employee_id(name))',
+          'id, lead_id, reason, competitor_name, lost_at, leads(current_stage, order_value, quote_value, owner_employee_id, bdm_employee_id, parties!party_id(name), sites(nickname, locality, house_no), employees!owner_employee_id(name))',
           { count: 'exact' }
         )
-    )
+    ).then((res) => (includePool ? res : withoutPoolLeadRows(res)))
   )
 }

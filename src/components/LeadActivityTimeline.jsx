@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { RFQ_KIND_LABELS } from '../lib/rfqKind'
 import { stageLabel } from '../lib/leadStageOptions'
 import { parseTimestamp } from '../lib/dbTime'
 import ShowMoreRows from './ShowMoreRows'
+import { EmployeeNameLink } from './EmployeeLink'
 
 // A lead accumulates stage changes + activities + ownership changes for as
 // long as it stays open — years, for an old one — with nothing to page it.
@@ -87,7 +87,7 @@ function LeadActivityTimeline({ leadId, activities, stageHistory, ownerHistory =
                 </div>
                 {entry.notes && <div className="vip-timeline-detail">{entry.notes}</div>}
                 <div className="vip-timeline-by">
-                  {entry.byId ? <Link to={`/employees/${entry.byId}`}>{entry.by}</Link> : entry.by}
+                  {entry.byId ? <EmployeeNameLink id={entry.byId} name={entry.by} /> : entry.by}
                   {entry.accompaniedBy ? ` · with ${entry.accompaniedBy}` : ''}
                   {entry.loggedByCoordinator ? ` · logged by sales coordinator ${entry.loggedByCoordinator}` : ''}
                 </div>

@@ -12,7 +12,10 @@ import { IconActivity, IconPlus } from './NavIcons'
 // both rows: neither /leads/new nor /activity route to a screen that assumes
 // "you own what you're about to create" anymore — both now ask "who is this
 // for?" and credit the picked exec, not whoever is filling in the form.
-function FabSheet({ canCreateLead, canLogActivity, onClose }) {
+//
+// createLabel/createsArchitects: a business development manager's "+ New"
+// opens a Lead / Architect toggle (BDM.md), so the row is named for both.
+function FabSheet({ canCreateLead, createLabel = 'New Lead', createsArchitects = false, canLogActivity, onClose }) {
   return (
     <>
       <div className="vip-sheet-backdrop" onClick={onClose} />
@@ -25,8 +28,10 @@ function FabSheet({ canCreateLead, canLogActivity, onClose }) {
               <IconPlus style={{ width: 22, height: 22 }} />
             </span>
             <span className="vip-sheet-text">
-              <span className="vip-sheet-title">New lead</span>
-              <span className="vip-sheet-sub">Source + any one field. Details later.</span>
+              <span className="vip-sheet-title">{createsArchitects ? createLabel : 'New lead'}</span>
+              <span className="vip-sheet-sub">
+                {createsArchitects ? 'A lead from an architect, or a new architect' : 'Source + any one field. Details later.'}
+              </span>
             </span>
           </Link>
         )}

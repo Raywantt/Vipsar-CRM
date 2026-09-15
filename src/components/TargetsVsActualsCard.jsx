@@ -395,16 +395,26 @@ export function blendedAttainmentFor(employeeId, actuals, targets) {
   return ratios.reduce((sum, r) => sum + r, 0) / ratios.length
 }
 
-function TargetRow({ row }) {
+// Exported for the business development manager's targets card
+// (BdmTargetsCard.jsx), so a BDM's target bar reads exactly like an exec's.
+// showActualWithoutTarget: print the actual even when no target is on file.
+// Off everywhere a person reads their own card (unchanged behaviour); on for
+// the owner's Architect Network, where a BDM with no targets yet would
+// otherwise show three rows and not one number.
+export function TargetRow({ row, showActualWithoutTarget = false }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--vip-ink)' }}>{row.label}</div>
-        {row.target != null && (
+        {row.target != null ? (
           <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
             {formatValue(row.metric, row.actual)} / {formatValue(row.metric, row.target)}
           </div>
-        )}
+        ) : showActualWithoutTarget && row.actual != null ? (
+          <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
+            {formatValue(row.metric, row.actual)}
+          </div>
+        ) : null}
       </div>
       {row.target == null ? (
         <p className="vip-empty" style={{ margin: 0, padding: 0 }}>

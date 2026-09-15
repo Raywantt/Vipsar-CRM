@@ -53,6 +53,37 @@ const DEFAULT_DUE_TIME = '09:00:00'
 // stop, rather than a phone that will not stop buzzing.
 const ASSIGNMENT_BATCH_LIMIT = 50
 
+// BDM pool (BDM.md Step 3). A lead a business development manager sent to the
+// owner that is still unassigned after this long gets ONE extra push to every
+// active owner (owner's ruling: a push, not a red label on the card). Must
+// match POOL_NUDGE_HOURS in src/lib/poolLeads.js, which this runtime can't
+// import.
+const POOL_NUDGE_HOURS = 24
+
+// Every kind the assignment drain pushes. The four bdm_* kinds are written by
+// bdm_leads_after_write() (Schema/migration_bdm_role.sql); bdm_pool_nudge by
+// queuePoolNudges() below.
+const ASSIGNMENT_KINDS = [
+  'lead_assigned',
+  'lixil_lead_created',
+  'bdm_pool_lead',
+  'bdm_pool_nudge',
+  'bdm_lead_assigned',
+  'bdm_lead_won',
+  'bdm_lead_lost',
+]
+const POOL_KINDS = new Set(['bdm_pool_lead', 'bdm_pool_nudge'])
+
+// src/lib/lossReasonOptions.js's labels, for a "your lead was lost" push.
+const LOSS_REASON_LABELS = {
+  price: 'Price',
+  competitor: 'Lost to a competitor',
+  timeline: 'Timeline',
+  budget_cut: 'Budget cut',
+  site_delay: 'Site delayed',
+  other: 'Other',
+}
+
 // CORS. The cron calls this server-to-server and never needed it, but the
 // browser does: LeadQuickActions invokes this straight after a reassignment
 // to make the new owner's phone buzz immediately, and supabase-js sends an
@@ -245,24 +276,154 @@ async function drainFollowUps(supabase, now) {
 // is harmless: whichever gets there first stamps notified_at, and the other
 // finds nothing to do.
 //
-// Two kinds share this one drain: 'lead_assigned' (reassignment) and
-// 'lixil_lead_created' (a coordinator's Lixil entry-on-behalf — see
-// Schema/migration_lead_remarks_and_lixil_notify.sql). Same fetch, same
-// send/stamp/prune loop; only the payload text below branches on `n.kind`.
+// Every kind in ASSIGNMENT_KINDS shares this one drain: 'lead_assigned'
+// (reassignment), 'lixil_lead_created' (a coordinator's Lixil entry-on-behalf
+// — see Schema/migration_lead_remarks_and_lixil_notify.sql), and the BDM kinds
+// (BDM.md Step 3). Same fetch, same send/stamp/prune loop; only the payload
+// text (assignmentPayload) branches on `n.kind`.
 // ---------------------------------------------------------------------------
+// The push text for one notifications row. Lead-assignment kinds are as they
+// always were; the BDM kinds (BDM.md Step 3) follow.
+function assignmentPayload(n, lossReasonByLead) {
+  const who = n.actor?.name
+  const name = leadName(n.leads)
+
+  if (n.kind === 'bdm_pool_lead' || n.kind === 'bdm_pool_nudge') {
+    // To an owner. Opens Today, where the pool card is — assigning happens
+    // there, not on the lead. Both kinds share one tag, so the 24-hour
+    // reminder replaces the original banner rather than stacking under it.
+    const isNudge = n.kind === 'bdm_pool_nudge'
+    return {
+      title: isNudge ? `Still waiting to be assigned (${POOL_NUDGE_HOURS}h+)` : 'New lead to assign',
+      body: who ? `${name} — from ${who}` : name,
+      url: '/',
+      tag: `bdm-pool-${n.lead_id ?? n.id}`,
+      requireInteraction: true,
+    }
+  }
+
+  if (n.kind === 'bdm_lead_assigned' || n.kind === 'bdm_lead_won' || n.kind === 'bdm_lead_lost') {
+    // To the BDM who brought the lead in. Informational, so no
+    // requireInteraction — nothing here waits on them.
+    const owner = n.leads?.owner?.name
+    const title =
+      n.kind === 'bdm_lead_assigned' ? 'Your lead was assigned' : n.kind === 'bdm_lead_won' ? 'Your lead was won' : 'Your lead was lost'
+    let detail = null
+    if (n.kind === 'bdm_lead_assigned') detail = owner ? `now with ${owner}` : null
+    if (n.kind === 'bdm_lead_won' && n.leads?.order_value != null) {
+      detail = `₹${Number(n.leads.order_value).toLocaleString('en-IN')} booked`
+    }
+    if (n.kind === 'bdm_lead_lost') {
+      const reason = lossReasonByLead.get(n.lead_id)
+      detail = reason ? LOSS_REASON_LABELS[reason] ?? reason : null
+    }
+    return {
+      title,
+      body: detail ? `${name} — ${detail}` : name,
+      url: n.lead_id ? `/leads/${n.lead_id}` : '/',
+      tag: `bdm-update-${n.lead_id ?? n.id}`,
+    }
+  }
+
+  const isLixilCreated = n.kind === 'lixil_lead_created'
+  return {
+    title: isLixilCreated ? 'New Lixil lead assigned to you' : 'New lead assigned to you',
+    body: isLixilCreated
+      ? who
+        ? `${name} — from ${who}'s call`
+        : name
+      : who
+        ? `${name} — assigned by ${who}`
+        : name,
+    url: n.lead_id ? `/leads/${n.lead_id}` : '/',
+    // One notification per lead: re-assigning (or, for a Lixil lead,
+    // re-creating — which can't happen twice for the same row, but keeps
+    // the two kinds in separate tag namespaces on principle) replaces the
+    // previous banner instead of stacking a second one.
+    tag: `${isLixilCreated ? 'lead-created' : 'lead-assigned'}-${n.lead_id ?? n.id}`,
+    // This is the "very clear" part. On Android the banner stays until the
+    // rep actually acts on it rather than auto-dismissing after a few
+    // seconds while the phone is in a pocket. iOS ignores the flag, which
+    // is exactly why the in-app card exists as well.
+    requireInteraction: true,
+  }
+}
+
+// JOB 3 (scheduled runs only): the 24-hour pool nudge. Finds BDM pool leads
+// older than POOL_NUDGE_HOURS that have never been nudged, and writes one
+// 'bdm_pool_nudge' row per active owner — which drainAssignments then pushes
+// in this same run. "Never nudged" is the idempotency: a lead gets this once,
+// however many runs see it waiting.
+//
+// leads.created_at is a naive TIMESTAMP holding a UTC wall clock, so the
+// cutoff is compared as a UTC ISO string (Postgres drops the zone when
+// casting to timestamp without time zone — which is exactly the UTC reading).
+async function queuePoolNudges(supabase, now) {
+  const cutoff = new Date(now.getTime() - POOL_NUDGE_HOURS * 60 * 60 * 1000)
+  const { data: waiting, error } = await supabase
+    .from('leads')
+    .select('id, bdm_employee_id')
+    .is('owner_employee_id', null)
+    .not('bdm_employee_id', 'is', null)
+    .lte('created_at', cutoff.toISOString())
+    .order('created_at', { ascending: true })
+    .limit(ASSIGNMENT_BATCH_LIMIT)
+  if (error) return { queued: 0, error: error.message }
+  if (!waiting?.length) return { queued: 0 }
+
+  const { data: already, error: alreadyError } = await supabase
+    .from('notifications')
+    .select('lead_id')
+    .eq('kind', 'bdm_pool_nudge')
+    .in('lead_id', waiting.map((l) => l.id))
+  if (alreadyError) return { queued: 0, error: alreadyError.message }
+  const nudged = new Set((already ?? []).map((r) => r.lead_id))
+  const due = waiting.filter((l) => !nudged.has(l.id))
+  if (!due.length) return { queued: 0 }
+
+  const { data: owners, error: ownersError } = await supabase
+    .from('employees')
+    .select('id')
+    .eq('role', 'owner')
+    .eq('is_active', true)
+  if (ownersError) return { queued: 0, error: ownersError.message }
+  if (!owners?.length) return { queued: 0 }
+
+  const rows = due.flatMap((l) =>
+    owners.map((o) => ({ employee_id: o.id, kind: 'bdm_pool_nudge', lead_id: l.id, actor_employee_id: l.bdm_employee_id }))
+  )
+  const { error: insertError } = await supabase.from('notifications').insert(rows)
+  if (insertError) return { queued: 0, error: insertError.message }
+  return { queued: rows.length }
+}
+
 async function drainAssignments(supabase) {
   const { data: pending, error: fetchError } = await supabase
     .from('notifications')
     .select(
-      'id, kind, employee_id, lead_id, actor_employee_id, actor:employees!actor_employee_id(name), leads(id, parties!party_id(name), sites(nickname, locality))'
+      'id, kind, employee_id, lead_id, actor_employee_id, actor:employees!actor_employee_id(name), leads(id, owner_employee_id, order_value, parties!party_id(name), sites(nickname, locality), owner:employees!owner_employee_id(name))'
     )
-    .in('kind', ['lead_assigned', 'lixil_lead_created'])
+    .in('kind', ASSIGNMENT_KINDS)
     .is('notified_at', null)
     .order('created_at', { ascending: true })
     .limit(ASSIGNMENT_BATCH_LIMIT)
 
   if (fetchError) return { sent: 0, processed: 0, error: fetchError.message }
   if (!pending?.length) return { sent: 0, processed: 0 }
+
+  // Why a lost lead was lost, for the BDM's push — one bounded query.
+  const lostLeadIds = [...new Set(pending.filter((n) => n.kind === 'bdm_lead_lost' && n.lead_id).map((n) => n.lead_id))]
+  const lossReasonByLead = new Map()
+  if (lostLeadIds.length) {
+    const { data: lossRows } = await supabase
+      .from('loss_reasons')
+      .select('lead_id, reason, lost_at')
+      .in('lead_id', lostLeadIds)
+      .order('lost_at', { ascending: false })
+    for (const r of lossRows ?? []) {
+      if (!lossReasonByLead.has(r.lead_id)) lossReasonByLead.set(r.lead_id, r.reason)
+    }
+  }
 
   const subsByEmployee = await fetchSubscriptionsFor(supabase, [...new Set(pending.map((n) => n.employee_id))])
 
@@ -271,6 +432,14 @@ async function drainAssignments(supabase) {
   const deadEndpoints = []
 
   for (const n of pending) {
+    // A pool push about a lead some owner has ALREADY assigned would send an
+    // owner to a card that no longer has it. Stamp it as handled without
+    // sending, so it never retries.
+    if (POOL_KINDS.has(n.kind) && n.leads?.owner_employee_id != null) {
+      notifiedIds.push(n.id)
+      continue
+    }
+
     const subscriptions = subsByEmployee.get(n.employee_id) ?? []
     // Same rule as follow-ups: an employee with no subscribed device yet is
     // left unstamped so this retries once they subscribe. They are not left
@@ -278,29 +447,7 @@ async function drainAssignments(supabase) {
     // the same row and does not care about notified_at.
     if (!subscriptions.length) continue
 
-    const who = n.actor?.name
-    const isLixilCreated = n.kind === 'lixil_lead_created'
-    const payload = JSON.stringify({
-      title: isLixilCreated ? 'New Lixil lead assigned to you' : 'New lead assigned to you',
-      body: isLixilCreated
-        ? who
-          ? `${leadName(n.leads)} — from ${who}'s call`
-          : leadName(n.leads)
-        : who
-          ? `${leadName(n.leads)} — assigned by ${who}`
-          : leadName(n.leads),
-      url: n.lead_id ? `/leads/${n.lead_id}` : '/',
-      // One notification per lead: re-assigning (or, for a Lixil lead,
-      // re-creating — which can't happen twice for the same row, but keeps
-      // the two kinds in separate tag namespaces on principle) replaces the
-      // previous banner instead of stacking a second one.
-      tag: `${isLixilCreated ? 'lead-created' : 'lead-assigned'}-${n.lead_id ?? n.id}`,
-      // This is the "very clear" part. On Android the banner stays until the
-      // rep actually acts on it rather than auto-dismissing after a few
-      // seconds while the phone is in a pocket. iOS ignores the flag, which
-      // is exactly why the in-app card exists as well.
-      requireInteraction: true,
-    })
+    const payload = JSON.stringify(assignmentPayload(n, lossReasonByLead))
 
     const justSent = await pushToDevices(subscriptions, payload, deadEndpoints)
     if (justSent) {
@@ -346,11 +493,15 @@ Deno.serve(async (req) => {
 
   const results = {}
   if (only !== 'assignments') results.followUps = await drainFollowUps(supabase, now)
+  // The 24-hour pool nudge is a scheduled job, like the reminder sweep — an
+  // instant call after a save is no reason to look for day-old pool leads.
+  // Queued BEFORE the drain, so its pushes go out in this same run.
+  if (only === null) results.poolNudges = await queuePoolNudges(supabase, now)
   if (only !== 'followups') results.assignments = await drainAssignments(supabase)
 
   const sent = (results.followUps?.sent ?? 0) + (results.assignments?.sent ?? 0)
   const processed = (results.followUps?.processed ?? 0) + (results.assignments?.processed ?? 0)
-  const error = results.followUps?.error ?? results.assignments?.error ?? null
+  const error = results.followUps?.error ?? results.assignments?.error ?? results.poolNudges?.error ?? null
 
   // A fetch failure in one job is reported but does not fail the whole run —
   // the other job's pushes have already gone out and a 500 here would tell

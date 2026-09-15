@@ -1,27 +1,11 @@
 import { useEffect, useState } from 'react'
 import { METRIC_OPTIONS, METRIC_LABELS } from '../lib/targetMetrics'
-import { periodForPreset, periodValueForDate, periodRangeLabel, rangeForPeriodValue, shiftPeriodValue } from '../lib/targetPeriods'
+import { periodForPreset, periodRangeLabel } from '../lib/targetPeriods'
 import { insertTarget, fetchTargetsForPeriod } from '../lib/targetQueries'
 import { formatCurrencyCompact } from '../lib/format'
 import { errorMessage } from '../lib/errorMessage'
 import NumPadInput from './NumPadInput'
-
-const PERIOD_TYPES = [
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-  { value: 'quarter', label: 'Quarter' },
-]
-
-// The <input type="date"> below always shows the period's own START date,
-// read as UTC fields (rangeForPeriodValue builds UTC-midnight Dates) so the
-// day the box shows always matches the day periodRangeLabel prints below it,
-// regardless of the viewer's own timezone.
-function toDateInputValue(date) {
-  const y = date.getUTCFullYear()
-  const m = String(date.getUTCMonth() + 1).padStart(2, '0')
-  const d = String(date.getUTCDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
+import PeriodPicker from './PeriodPicker'
 
 // displayPeriod is { periodType, periodValue } for the period the Targets
 // vs. actuals table above this form is currently showing — or null if the
@@ -84,28 +68,6 @@ function SetTargetForm({ employees, displayPeriod = null, onCreated, onCancel })
   // written to.
   const [saved, setSaved] = useState(null)
 
-  function handlePeriodTypeChange(value) {
-    setPeriodType(value)
-    setPeriodValue(periodForPreset(value).periodValue)
-  }
-
-  // Steps by one whole period (± a week/month/quarter) — this plus the date
-  // input below REPLACE the old raw "type an ISO week code" text field. That
-  // field asked for values like "2026-W37", which isn't just unreadable —
-  // it's an easy way to silently save under the wrong period (a one-digit
-  // slip lands on this week instead of next week, with nothing on screen to
-  // catch it). There's no free text left to mistype: every period is either
-  // stepped to or picked from a real calendar date.
-  function step(delta) {
-    setPeriodValue((pv) => shiftPeriodValue(periodType, pv, delta))
-  }
-
-  function jumpToDate(dateStr) {
-    if (!dateStr) return
-    const [y, m, d] = dateStr.split('-').map(Number)
-    setPeriodValue(periodValueForDate(periodType, new Date(y, m - 1, d)))
-  }
-
   // Debounced so walking several weeks forward with the › button fires one
   // request at the end rather than one per click. RLS scopes this to whatever
   // the viewer may read, same as every other targets query.
@@ -126,9 +88,7 @@ function SetTargetForm({ employees, displayPeriod = null, onCreated, onCancel })
     }
   }, [periodType, periodValue, reloadKey])
 
-  const periodRange = rangeForPeriodValue(periodType, periodValue)
   const rangeLabel = periodRangeLabel(periodType, periodValue)
-  const isCurrentPeriod = periodValue === periodForPreset(periodType).periodValue
 
   // Null unless we BOTH know what's on screen and it isn't what was saved —
   // a caller that passes no displayPeriod gets the plain confirmation rather
@@ -193,47 +153,14 @@ function SetTargetForm({ employees, displayPeriod = null, onCreated, onCancel })
         ))}
       </select>
 
-      <select className="vip-select" value={periodType} onChange={(e) => handlePeriodTypeChange(e.target.value)}>
-        {PERIOD_TYPES.map((p) => (
-          <option key={p.value} value={p.value}>
-            {p.label}
-          </option>
-        ))}
-      </select>
-
-      <div className="vip-day-nav">
-        <button type="button" className="vip-iconbtn" onClick={() => step(-1)} aria-label={`Previous ${periodType}`}>
-          ‹
-        </button>
-        {/* The readable range ("14 – 20 Sep 2026") is what's shown — a lone
-            start date doesn't say anything a person can act on. The real
-            <input type="date"> stays fully functional (native picker,
-            keyboard/arrow input all still work) but sits invisibly on top of
-            the label instead of showing its own raw value underneath it. */}
-        <div className="vip-period-picker">
-          <span className="vip-period-picker-label">{rangeLabel}</span>
-          <input
-            type="date"
-            className="vip-period-picker-input"
-            value={periodRange ? toDateInputValue(periodRange.start) : ''}
-            onChange={(e) => jumpToDate(e.target.value)}
-            aria-label={`Pick a date in the ${periodType} — currently ${rangeLabel}`}
-          />
-        </div>
-        <button type="button" className="vip-iconbtn" onClick={() => step(1)} aria-label={`Next ${periodType}`}>
-          ›
-        </button>
-      </div>
-      {!isCurrentPeriod && (
-        <button
-          type="button"
-          className="vip-btn-link"
-          style={{ minHeight: 'auto', padding: 0, alignSelf: 'flex-start' }}
-          onClick={() => setPeriodValue(periodForPreset(periodType).periodValue)}
-        >
-          Jump to current {periodType}
-        </button>
-      )}
+      <PeriodPicker
+        periodType={periodType}
+        periodValue={periodValue}
+        onChange={(next) => {
+          setPeriodType(next.periodType)
+          setPeriodValue(next.periodValue)
+        }}
+      />
 
       {/* What's already on file for the period the stepper points at. The
           heatmap above can only ever show the CURRENT period, so for any

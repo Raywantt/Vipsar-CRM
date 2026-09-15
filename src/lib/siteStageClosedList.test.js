@@ -56,7 +56,10 @@ describe('sites.site_stage is a closed list in every write path', () => {
       it('keeps no custom-stage state to write from', () => {
         // The state is what actually produced the value; the <option> only
         // offered it. Removing one without the other is the real hazard.
-        expect(src).not.toMatch(/\bcustom(Site)?Stage\b/)
+        // Case-insensitive with no leading \b, so the setter counts too: a
+        // stray setCustomStage('') survived the state's removal here once and
+        // the old /\bcustomStage\b/ could not see it.
+        expect(src).not.toMatch(/custom(Site)?Stage\b/i)
       })
 
       it("resolves its stage with no === 'other' branch", () => {

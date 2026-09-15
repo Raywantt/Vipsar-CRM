@@ -7,6 +7,9 @@ import { stageLabel } from '../lib/leadStageOptions'
 import { leadDisplayName } from '../lib/leadName'
 import { fetchRecentParties, searchParties, fetchLeadsForParties, mostRecentLeadByParty } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
+import { isBdm } from '../lib/roles'
+import { portfolioTag } from '../lib/architectStats'
+import { useAuth } from '../contexts/AuthContext'
 import EmployeeLink from '../components/EmployeeLink'
 
 const SEARCH_DEBOUNCE_MS = 350
@@ -51,6 +54,8 @@ function leadTitle(lead) {
 const FILTERS_STORAGE_KEY = 'vip-filters:search'
 
 function Search() {
+  const { employee } = useAuth()
+  const viewerIsBdm = isBdm(employee?.role)
   const [term, setTerm] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'term', '')
   const [results, setResults] = useState({ sites: [], leads: [] })
   const [searching, setSearching] = useState(false)
@@ -143,7 +148,9 @@ function Search() {
     setSearching(true)
 
     const timeout = setTimeout(() => {
-      searchAll(term).then((res) => {
+      // A BDM's own pool leads are theirs to find; for everyone else a lead
+      // still waiting in the pool stays off this list (src/lib/poolLeads.js).
+      searchAll(term, { includePool: viewerIsBdm }).then((res) => {
         if (!active) return
         setResults({ sites: res.sites, leads: res.leads })
         setSearching(false)
@@ -154,7 +161,7 @@ function Search() {
       active = false
       clearTimeout(timeout)
     }
-  }, [term])
+  }, [term, viewerIsBdm])
 
   const employeeMap = useMemo(() => buildEmployeeMap(leadsDirectory), [leadsDirectory])
   const partyLeadMap = useMemo(() => mostRecentLeadByParty(leadsDirectory), [leadsDirectory])
@@ -297,7 +304,12 @@ function Search() {
             const rowContent = (
               <>
                 <div className="vip-row-main">
-                  <div className="vip-row-title">{party.name}</div>
+                  <div className="vip-row-title">
+                    {party.name}
+                    {portfolioTag(party, employee?.id) && (
+                      <span className="vip-portfolio-tag">{portfolioTag(party, employee?.id)}</span>
+                    )}
+                  </div>
                   <div className="vip-row-sub">
                     {[PARTY_TYPE_LABELS[party.party_type] ?? party.party_type, party.mobile].filter(Boolean).join(' · ')}
                   </div>
@@ -314,6 +326,17 @@ function Search() {
                 </div>
               </>
             )
+            // An architect opens their profile (every role may — owner's ruling
+            // at BDM.md Step 4) rather than whichever lead they last appeared
+            // on as the lead's own party, which for an architect is rarely the
+            // useful destination.
+            if (party.party_type === 'architect') {
+              return (
+                <Link key={party.id} to={`/architects/${party.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
+                  {rowContent}
+                </Link>
+              )
+            }
             return leadId ? (
               <Link key={party.id} to={`/leads/${leadId}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
                 {rowContent}

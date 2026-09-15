@@ -45,3 +45,17 @@ export const METRIC_OPTIONS = [
 ]
 
 export const METRIC_LABELS = Object.fromEntries(METRIC_OPTIONS.map((o) => [o.value, o.label]))
+
+// The business development manager's own three targets (BDM.md §3), a
+// separate list on purpose: an exec must never be offered Architect Meeting
+// back as a target (removed 2026-09-08), and a BDM carries none of the exec
+// metrics. Actuals: computeBdmTargetActuals (src/lib/bdmDashboard.js).
+//
+// The `bdm_` prefix keeps these apart from any metric_name an exec target has
+// ever used — targets.metric_name is free text, and a legacy exec row keyed
+// 'architect_meeting' must never be read as a BDM's target.
+export const BDM_METRIC_OPTIONS = [
+  { value: 'bdm_architect_meetings', label: 'Architect meetings' },
+  { value: 'bdm_joineries_received', label: 'Joineries received' },
+  { value: 'bdm_leads_generated', label: 'Leads generated' },
+]

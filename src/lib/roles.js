@@ -15,6 +15,10 @@ export const ROLES = {
   SALES_EXECUTIVE: 'sales_executive',
   SALES_COORDINATOR: 'sales_coordinator',
   SALES_MANAGER: 'sales_manager',
+  // The architect-relationship role — see BDM.md (repo root). Brings leads in
+  // from architects and pushes them to the owner's pool; works few leads
+  // personally, so deliberately NOT in CARRIES_OWN_LEADS below.
+  BDM: 'business_development_manager',
 }
 
 // Order is deliberate: it's the order these appear in every dropdown, running
@@ -25,6 +29,7 @@ export const ROLE_OPTIONS = [
   { value: ROLES.SALES_EXECUTIVE, label: 'Sales Executive' },
   { value: ROLES.SALES_MANAGER, label: 'Sales Manager' },
   { value: ROLES.SALES_COORDINATOR, label: 'Sales Coordinator' },
+  { value: ROLES.BDM, label: 'Business Development Manager' },
   { value: ROLES.OWNER, label: 'Owner' },
 ]
 
@@ -53,6 +58,79 @@ export const ROLE_LABELS = ROLE_OPTIONS.reduce((acc, opt) => {
 // how stageLabel() handles an unrecognized current_stage.
 export function roleLabel(role) {
   return ROLE_LABELS[role] ?? role ?? '—'
+}
+
+// ---- Capabilities ----
+//
+// ONE function per capability, read by every surface that offers it — the
+// mobile FAB and the desktop sidebar, a route's allowedRoles and the link that
+// leads to it. The bug this exists to prevent shipped once: BottomNav computed
+// "can create a lead" twice, the two copies drifted, and a coordinator had no
+// New Lead anywhere on desktop (CLAUDE.md, "every change is a role ×
+// breakpoint matrix"). Every list here is explicit: a role nobody has thought
+// about yet gets nothing, rather than being treated as a rep by default.
+
+export function isBdm(role) {
+  return role === ROLES.BDM
+}
+
+export function canCreateLead(role) {
+  return [ROLES.SALES_EXECUTIVE, ROLES.OWNER, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER, ROLES.BDM].includes(role)
+}
+
+// What the create action is called, wherever it's offered (sidebar link, FAB
+// sheet, header button). A BDM's "+ New" makes a lead OR an architect (BDM.md
+// §3 Screens); everyone else's makes a lead. One function so the three
+// surfaces can't name the same screen three different ways.
+export function createActionLabel(role) {
+  return isBdm(role) ? 'New' : 'New Lead'
+}
+
+// Owner-excluded deliberately: owners don't log field activity (CLAUDE.md's
+// ActivityLog section). A BDM logs their own architect meetings.
+export function canLogActivity(role) {
+  return [ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER, ROLES.BDM].includes(role)
+}
+
+// /team — the owner's whole roster, or a manager's own reports.
+export function canSeeTeamDirectory(role) {
+  return role === ROLES.OWNER || role === ROLES.SALES_MANAGER
+}
+
+// /employees/:id (the Sales Exec Profile). Everyone but a BDM: the page is
+// exec-shaped (targets, rank, site visits), none of which applies to them —
+// the owner's ruling, 2026-09-15. EmployeeProfile itself still decides whose
+// page each allowed role may open.
+export function canOpenEmployeeProfiles(role) {
+  return [ROLES.OWNER, ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER].includes(role)
+}
+
+// /architects — "My Architects", the BDM's own portfolio (BDM.md §7). The
+// owner's company-wide view of architects is the separate Architect Network
+// (Step 6), so this stays BDM-only.
+export function canSeeMyArchitects(role) {
+  return role === ROLES.BDM
+}
+
+// /network — Architect Network (BDM.md Step 6): every BDM's numbers and
+// targets, the company-wide architect directory, and moving an architect
+// between portfolios. Owner only; its mobile path is a tile on the owner's
+// Dashboard, which reads this same function.
+export function canSeeArchitectNetwork(role) {
+  return role === ROLES.OWNER
+}
+
+// /architects/:id — every role (owner's ruling at Step 4: architects are
+// visible company-wide, so the page is too; each role sees only the leads and
+// meetings its own RLS returns). Listed explicitly, like every list here.
+export function canOpenArchitectProfiles(role) {
+  return [ROLES.OWNER, ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER, ROLES.BDM].includes(role)
+}
+
+// A route's allowedRoles, derived from the same capability function the nav
+// link reads — so the link and the route can't disagree about who gets in.
+export function rolesWith(capability) {
+  return ROLE_OPTIONS.map((o) => o.value).filter(capability)
 }
 
 // A sales_executive OR a sales_manager may carry a coordinator_id —

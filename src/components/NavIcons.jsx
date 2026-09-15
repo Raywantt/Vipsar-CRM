@@ -100,3 +100,15 @@ export function IconBell({ className = 'vip-nav-icon', ...rest }) {
     </svg>
   )
 }
+
+// My Architects (BDM only) — a drafting compass: an architect's tool, and
+// nothing else in the sidebar reads like it.
+export function IconArchitect({ className = 'vip-nav-icon', ...rest }) {
+  return (
+    <svg {...baseProps(className)} {...rest}>
+      <circle cx="10" cy="4.2" r="1.6" />
+      <path d="M9.2 5.7 4.5 17M10.8 5.7 15.5 17" />
+      <path d="M6.2 12.8c2.4 1 5.2 1 7.6 0" />
+    </svg>
+  )
+}

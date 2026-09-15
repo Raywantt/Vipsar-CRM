@@ -30,6 +30,17 @@ function startOfYear(date) {
   return new Date(date.getFullYear(), 0, 1)
 }
 
+// How each preset reads mid-sentence ("Reminders · this week"). Shared by
+// Dashboard and the BDM's dashboard so the two can't word a period differently.
+export const RANGE_LABELS = {
+  today: 'today',
+  '15d': 'last 15 days',
+  week: 'this week',
+  month: 'this month',
+  quarter: 'this quarter',
+  custom: 'this range',
+}
+
 // Returns { start: Date, end: Date } for the given preset, or null when a
 // 'custom' preset is missing one of its bounds.
 export function rangeForPreset(preset, customStart, customEnd) {
