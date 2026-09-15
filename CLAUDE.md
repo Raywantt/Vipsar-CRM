@@ -2716,6 +2716,24 @@ hiding the UI.
   an owner has no legitimate reason to set someone else's theme).
   `notifications` additionally has **no INSERT policy for anyone**.
 
+**Test accounts are hidden by RLS, not by the app**
+(`migration_hide_test_accounts.sql`, 2026-09-15 — the CRM is in daily real
+use). `employees.is_test_account` marks the four test logins (`sc`, `exec`,
+`sm`, `Test BDM`; set by SQL only, never from the UI). A `hide_test_accounts`
+**RESTRICTIVE** SELECT policy on 13 tables (employees, leads, activities,
+follow_ups, targets, parties, sites, site_contacts and the five lead-history
+tables) removes them and everything they own/created/brought in, unless the
+viewer is a test account or an owner with Profile → **Test accounts** switched
+on (`employee_preferences.show_test_accounts`). Restrictive policies are
+AND-ed, so they only ever remove rows, and they cover every query and
+SECURITY INVOKER RPC with no app-side filter. A party/site a test account
+created stays visible if a real lead uses it. Consequences worth knowing:
+**an owner-side live trial on test rows needs that owner's switch ON first**
+(and back off after); a real owner cannot see, edit or delete test rows while
+it's off; a new table holding per-employee or per-lead data needs its own
+`hide_test_accounts` policy or test rows leak into it. Undo block at the
+bottom of the migration file.
+
 **A write needs both the table GRANT and the policy to agree.**
 
 Four traps worth knowing:
@@ -2969,7 +2987,9 @@ scoping is already correct.
 **Clean up your own test rows at the end of a live trial** — the owner asked
 for this explicitly, so they don't have to run SQL by hand. An exec or
 coordinator session has **no DELETE grant**, so the delete must run from an
-**owner** session. With an owner logged in on a role port,
+**owner** session — with that owner's Profile → Test accounts switch ON, or
+rows a test login created are invisible to it and the delete matches nothing.
+With an owner logged in on a role port,
 `const { supabase } = await import('/src/lib/supabaseClient.js')` reuses the
 real authenticated client, then `.delete().in('id', […]).select('id')` and
 re-select to confirm.

@@ -9,6 +9,7 @@ import DeletePartySection from '../components/DeletePartySection'
 import ChangePasswordForm from '../components/ChangePasswordForm'
 import { errorMessage } from '../lib/errorMessage'
 import { getStoredTheme, setTheme, fetchAccountTheme, saveAccountTheme } from '../lib/theme'
+import { fetchShowTestAccounts, saveShowTestAccounts } from '../lib/testAccounts'
 
 const THEME_OPTIONS = [
   { value: 'light', label: 'Light' },
@@ -35,6 +36,37 @@ function Profile() {
 
   const [theme, setThemeChoice] = useState(getStoredTheme)
   const [themeSaveWarning, setThemeSaveWarning] = useState(null)
+
+  // Owner only: whether test accounts and their data are visible to them.
+  // null while loading. Changing it bumps employeesVersion so Manage
+  // employees below refetches under the new visibility.
+  const [showTest, setShowTest] = useState(null)
+  const [showTestBusy, setShowTestBusy] = useState(false)
+  const [showTestError, setShowTestError] = useState(null)
+  const [employeesVersion, setEmployeesVersion] = useState(0)
+
+  useEffect(() => {
+    if (!isOwner || !employee?.id) return
+    let active = true
+    fetchShowTestAccounts(employee.id).then(({ data, error }) => {
+      if (!active) return
+      if (error) setShowTestError(errorMessage(error))
+      setShowTest(data)
+    })
+    return () => {
+      active = false
+    }
+  }, [isOwner, employee?.id])
+
+  async function handleShowTestChange(next) {
+    setShowTestBusy(true)
+    setShowTestError(null)
+    const { data, error } = await saveShowTestAccounts(employee.id, next)
+    setShowTestBusy(false)
+    if (error) return setShowTestError(errorMessage(error))
+    setShowTest(Boolean(data?.show_test_accounts))
+    setEmployeesVersion((v) => v + 1)
+  }
 
   function handleThemeChange(value) {
     setTheme(value)
@@ -84,7 +116,7 @@ function Profile() {
     return () => {
       active = false
     }
-  }, [isOwner])
+  }, [isOwner, employeesVersion])
 
   function upsertEmployee(row) {
     setEmployees((prev) => {
@@ -200,6 +232,33 @@ function Profile() {
         <p className="vip-form-note">System matches your phone or browser's own light/dark setting.</p>
         {themeSaveWarning && <p className="vip-error" role="alert">{themeSaveWarning}</p>}
       </div>
+
+      {/* Owner only, both widths. Off (the default) keeps the CRM showing
+          real work only; the hiding is a database rule, so this switch is
+          the one control — see Schema/migration_hide_test_accounts.sql. */}
+      {isOwner && (
+        <div className="vip-card">
+          <h2 className="vip-card-title">Test accounts</h2>
+          <label className="vip-check">
+            <input
+              type="checkbox"
+              checked={Boolean(showTest)}
+              disabled={showTest === null || showTestBusy}
+              onChange={(e) => handleShowTestChange(e.target.checked)}
+            />
+            Show test accounts and their data
+          </label>
+          <p className="vip-form-note">
+            Only for you. When off, the test logins and everything they created are hidden from every screen and figure.
+            Turn on only while testing.
+          </p>
+          {showTestError && (
+            <p className="vip-error" role="alert">
+              {showTestError}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Owner-only admin tooling. Add employee and Delete a party stay
           desktop-only (design_handoff_vipsar_mobile: "not shown on mobile") —
