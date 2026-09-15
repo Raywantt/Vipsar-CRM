@@ -689,6 +689,7 @@ function LeadQuickCapture() {
             <PartySearchOrCreate
               key={referrerType}
               label=""
+              srOnlyLabel="Referrer name"
               defaultPartyType={referrerType}
               typeOptions={[referrerType]}
               deferCreate

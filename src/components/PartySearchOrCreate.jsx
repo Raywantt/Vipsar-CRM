@@ -44,6 +44,17 @@ const SEARCH_DEBOUNCE_MS = 350
 // as a typo: the create form's "New {label}" heading and the
 // "+ Add new {label.toLowerCase()} …" button.
 //
+// srOnlyLabel: pass this (and label="") when a visible question above this
+// field already asks it — LeadQuickCapture's general-referral picker sits
+// right under a "Referral from" type dropdown, so a second visible label
+// here would repeat it. The input still needs a real accessible name for a
+// screen reader, so `label=""` alone is wrong: it renders an empty <label>
+// element, which is no name at all. srOnlyLabel supplies that name via
+// `.vip-sr-only` (visually hidden, still in the accessibility tree — never
+// `display: none`, which would remove it from that tree too) and also
+// backstops the "New {label}" heading / "+ Add new …" button text below, so
+// those don't go blank either.
+//
 // initialSelected seeds the picker with a party already chosen, for the case
 // one screen's field is derived from another's — Log Activity and New Lead
 // both pre-fill a Firm picker from the architect's own firm_party_id. It's a
@@ -80,6 +91,7 @@ const SEARCH_DEBOUNCE_MS = 350
 // search is unaffected either way; it was never a write.
 function PartySearchOrCreate({
   label = 'Party',
+  srOnlyLabel = null,
   defaultPartyType = 'client',
   allowCreate = true,
   required = false,
@@ -92,6 +104,10 @@ function PartySearchOrCreate({
 }) {
   const { employee } = useAuth()
   const effectiveCreatedBy = createdByEmployeeId ?? employee?.id ?? null
+
+  // What "New {…}" / "+ Add new {…}" should call this party when there's no
+  // visible label to borrow text from.
+  const displayLabel = label || srOnlyLabel || 'Party'
 
   const [name, setName] = useState('')
   const [mobile, setMobile] = useState('')
@@ -300,7 +316,7 @@ function PartySearchOrCreate({
   if (creating) {
     return (
       <div className="vip-form vip-section-split">
-        <div style={{ fontFamily: 'var(--vip-display)', fontWeight: 700, color: 'var(--vip-ink)' }}>New {label}</div>
+        <div style={{ fontFamily: 'var(--vip-display)', fontWeight: 700, color: 'var(--vip-ink)' }}>New {displayLabel}</div>
         <label className="vip-field">
           Name
           <input className="vip-input" value={newName} onChange={(e) => setNewName(e.target.value)} />
@@ -347,7 +363,11 @@ function PartySearchOrCreate({
   return (
     <div className="vip-stack-s">
       <label className="vip-field">
-        {required ? `${label} *` : label}
+        {label ? (
+          required ? `${label} *` : label
+        ) : (
+          <span className="vip-sr-only">{required ? `${displayLabel} *` : displayLabel}</span>
+        )}
         {hint && <span className="vip-field-hint">{hint}</span>}
         <input
           className="vip-input"
@@ -387,7 +407,7 @@ function PartySearchOrCreate({
 
       {allowCreate && name.trim().length >= MIN_QUERY_LENGTH && !searching && (
         <button type="button" className="vip-btn-link" onClick={startCreate}>
-          + Add new {label.toLowerCase()} "{name.trim()}"
+          + Add new {displayLabel.toLowerCase()} "{name.trim()}"
         </button>
       )}
     </div>
