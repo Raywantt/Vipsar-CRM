@@ -1,5 +1,12 @@
 # BDM.md — Business Development Manager role (Phase 11)
 
+> **📜 HISTORICAL — the build is complete (2026-09-15).** The role is now
+> documented in `CLAUDE.md` (Roles → Business Development Manager, Routing,
+> migration order). Read this file for *why* — §3's locked decisions, §4's
+> planning corrections, §8's per-step owner answers and §10's session log —
+> but where it disagrees with `CLAUDE.md` or the code, they win. Don't resume
+> "the next step": there isn't one.
+
 The single source of truth for adding the **Business Development Manager**
 (BDM), the app's fifth role. Written 2026-09-15 at the end of a full Q&A with
 the owner. **A new session must be able to resume from this file alone** —
@@ -51,7 +58,7 @@ Standing rules that apply to every step:
 | 5 | BDM Dashboard + BDM targets | ✅ 2026-09-15 — built, figures cross-checked against test rows for every period, all five roles at both widths, test rows cleaned up (no SQL, no deploy) |
 | 6 | Owner's **Architect Network** screen | ✅ 2026-09-15 — built, figures cross-checked against test rows and real architects, targets + portfolio move written through the UI, all five roles at both widths, test rows cleaned up (no SQL, no deploy) |
 | 7 | Meetings → **architect follow-ups** (owner reshaped it: no outcome, no scheduled-meeting concept) | ✅ 2026-09-15 — built, loop driven live as the BDM at both widths + owner view, test rows cleaned up (no SQL, no deploy) |
-| 8 | Docs + cleanup: fold this into `CLAUDE.md`, final full matrix pass | ⬜ |
+| 8 | Docs + cleanup: fold this into `CLAUDE.md`, final full matrix pass | ✅ 2026-09-15 — docs folded in, lint 0 errors, 437 tests, all five roles at both widths |
 
 Mark a step ✅ with the date only once its verification passed. Use 🟡 for
 "built, awaiting the owner's SQL run / deploy / sign-off".
@@ -1184,3 +1191,35 @@ can't forge a BDM tag; existing roles' screens and figures unchanged.
   (same push pipeline as every follow-up; the test BDM has no device), and a
   coordinator/manager logging an architect follow-up (same code path). Next:
   Step 8 — docs + final pass, after the owner's go-ahead.
+- **2026-09-15 — Step 7 committed + pushed** (`f0b79b4`, only Step 7's files;
+  the theme hunk staged alone so the uncommitted redesign stayed out).
+- **2026-09-15 — Step 8 ✅ (docs only; nothing committed yet).** `CLAUDE.md`:
+  five roles / five role ports (5181–5185) in the matrix rule; Current state no
+  longer calls BDM "planned"; the stale "no standalone Follow-ups page" line
+  replaced (the screen exists; only editing a reminder's title/notes has no
+  UI); Structure lists the BDM pages/components/libs; Routing lists
+  `/architects`, `/architects/:id`, `/network` and the `rolesWith(capability)`
+  rule; Today section names `BdmToday` + `BdmUpdatesLine`; the Follow-ups
+  callout says the rebuild shipped and documents architect follow-ups; a new
+  **Roles → Business Development Manager** section; migration order gains step
+  8 plus both BDM layering hazards; the architect-visibility and 6-stage
+  trigger items moved out of Outstanding migrations (confirmed live); Open TODO
+  #4 closed and #5 added (BDM unexercised paths); Roadmap 10 ✅ / 11 ✅.
+  `FOLLOWUPS.md` status line now says the rebuild shipped. This file got its
+  HISTORICAL banner. Found while writing: Lead Detail's "via Architect" uses
+  `sourcingArchitect`, figures use `architectIdForLead` — documented as a pair
+  to keep in step.
+  **Final matrix** (sessions matched names: owner 5181, coordinator 5182, exec
+  5183, manager 5184, BDM 5185), each role crawled through every route at 1280
+  and 375: sidebars as recorded at Steps 2/4/6 (owner adds Architect Network;
+  BDM: Today, New, Activity Log, Dashboard, My Leads, Follow-ups, My Architects,
+  Search); phone tabs Today · Leads · + · Dashboard · Search for all; FAB sheet
+  owner "New lead" only, BDM "New + Log activity", others "New lead + Log
+  activity"; Dashboard tiles owner Team follow-ups · My Team · Architect
+  Network, coordinator Team follow-ups, exec My follow-ups, manager My
+  follow-ups · My Team, BDM My follow-ups · My architects. Gates: `/network`
+  owner only; `/architects` BDM only; `/team` owner + manager; `/activity` not
+  owner; `/employees/:id` → `/` for the BDM, → `/dashboard` for an exec on a
+  colleague; `/architects/609` opens for all five. No visible error, no
+  horizontal scroll, no console errors on any. A real BDM ("Raghav Dhingra")
+  now exists and gets a Network card. **The build is complete.**

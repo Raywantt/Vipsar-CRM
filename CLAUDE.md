@@ -31,15 +31,15 @@ should still just decide. This rule is about **what the user sees and how it
 behaves**.
 
 **If a request doesn't say which role it's for, ask.** Don't infer it from
-whichever role happens to be logged in on the preview tab. This app has four
-(`owner` / `sales_executive` / `sales_coordinator` / `sales_manager`) and
-they diverge constantly.
+whichever role happens to be logged in on the preview tab. This app has five
+(`owner` / `sales_executive` / `sales_coordinator` / `sales_manager` /
+`business_development_manager`) and they diverge constantly.
 
 ## IMPORTANT — every change is a role × breakpoint matrix
 
 **Nothing is done until it has been checked at BOTH widths for EVERY
 affected role.** Mobile (<1024px) and desktop (≥1024px), against each of the
-four roles the change can touch. A capability that appears on a phone but
+five roles the change can touch. A capability that appears on a phone but
 not on desktop (or the reverse) is a bug unless this file records it as a
 deliberate decision.
 
@@ -53,9 +53,9 @@ follow:
   and a desktop control compute the same permission separately. Correcting
   the boolean without merging the two leaves the trap armed. Gate the link,
   not the viewport.
-- **Walk the matrix before declaring done.** Three dev servers
-  (`role-owner`/`role-coordinator`/`role-exec`, ports 5181/5182/5183) let
-  several roles be logged in at once — separate origins mean separate
+- **Walk the matrix before declaring done.** Five dev servers
+  (`role-owner`/`role-coordinator`/`role-exec`/`role-manager`/`role-bdm`,
+  ports 5181/5182/5183/5184/5185) let several roles be logged in at once — separate origins mean separate
   localStorage. **The session on a port may not match the port's name**; key
   off the rendered role in `.vip-sidebar-foot-role`, not the launch-config
   label.
@@ -77,15 +77,11 @@ reverse without discussion") live in `DECISIONS.md`, not here.
 
 ## Current state
 
-Phases 0–6 done (schema + RLS, login, lead intake, activity logging,
-dashboards, PWA). **Phase 10 — Sales Manager role** is current; see the
-Roadmap. Each screen is documented in its own section below.
-
-**📄 Phase 11 — Business Development Manager (5th role) is planned and being
-built step by step. `BDM.md` (repo root) is its single source of truth: read
-it before any BDM work and resume from its Progress table. Stop after every
-step and wait for the owner's go-ahead.** Until its final step folds it in
-here, this file does not describe the BDM role at all.
+Phases 0–11 built — the fifth role, **Business Development Manager**, shipped
+2026-09-15 (see Roles → Business Development Manager). Each screen is
+documented in its own section below. `BDM.md` (repo root) is now a historical
+build log for that role: its §3 decisions and §10 session log explain *why*;
+this file describes *what is*.
 
 **Deliberately not built — don't add as a side effect of unrelated work:**
 
@@ -94,8 +90,10 @@ here, this file does not describe the BDM role at all.
   new ones. The Day Review's day sheet covers one exec on one chosen day, a
   lead's timeline and a Sales Exec Profile cover their own slices — there is
   no "all activities, any range, filterable" screen.
-- **Editing an existing follow-up's details**, and a standalone Follow-ups
-  list page. Only create and mark-done exist in the UI.
+- **Editing an existing follow-up's title/notes.** A Follow-ups screen does
+  exist (`/dashboard?tab=followups`, `FollowUpsCard`, every role): create,
+  Log activity & close, mark done, reschedule, cancel and reopen are all in
+  the UI — see `FOLLOWUPS.md`.
 - **Owner-name badges inside `DrilldownPanel.jsx`'s deeper bodies**
   (ageing/forecast/pipeline/loss row lists) as links, unlike everywhere else
   a person's name appears. A known gap, left deliberately.
@@ -136,16 +134,23 @@ src/
                 NotificationPrompt, OfflineIndicator, UpdateBanner,
                 FollowUpForm, FollowUpList, FabSheet, AssignedLeadsCard,
                 NumPadInput, TodayGreetingHeader, TeamTodayPanel,
-                FollowUpsCard, ShowMoreRows, ErrorBoundary)
+                FollowUpsCard, ShowMoreRows, ErrorBoundary, PeriodPicker,
+                PipelineByStageCard,
+                BDM: BdmPoolCard, BdmUpdatesLine, BdmLeadUpdateCards,
+                BdmRightNow, BdmTargetsCard, BdmTopArchitectsCard,
+                BdmNetworkCard, BdmTargetsForm, ArchitectDirectory,
+                ArchitectFollowUpsCard, NewArchitectForm)
   pages/        Login, Today (the role switch for `/`), Home
                 (sales_executive's own `/`; takes an `embedded` prop),
-                OwnerToday, CoordinatorToday, ManagerToday, Profile, Search,
-                Dashboard, LeadQuickCapture, LeadDetail, EmployeeProfile,
-                MyTeam, ActivityLog, NotFound
+                OwnerToday, CoordinatorToday, ManagerToday, BdmToday, Profile,
+                Search, DashboardRoute (→ Dashboard | BdmDashboard), NewRoute
+                (→ LeadQuickCapture | BdmNew), LeadDetail, EmployeeProfile,
+                MyTeam, ActivityLog, MyArchitects, ArchitectProfile,
+                ArchitectNetwork, NotFound
   contexts/     AuthContext (session + employee lookup);
                 HeaderContext (dynamic {title, sub} override for AppNav)
   hooks/        useOnlineStatus.js, useIsMobile.js (the 1024px breakpoint as
-                a JS boolean)
+                a JS boolean), useBdmPeriodRows.js
   lib/          supabaseClient.js, supabaseFetch.js, queryCache.js,
                 fetchAllRows.js, sanitizeForIlike.js, errorMessage.js,
                 format.js, dbTime.js, initials.js, theme.js, roles.js,
@@ -157,11 +162,13 @@ src/
                 rules: pipelineValue, leadName, attention, stageProgress,
                 meetingBucket, rfqKind, dateRanges, dateMath, targetPeriods,
                 followupDates, dayReview, drilldownBuilders, selfAssignTest,
-                appUpdate,
+                appUpdate, poolLeads, architectStats, bdmDashboard,
+                bdmLeadUpdates, architectNetwork, firmLabel,
                 queries: dashboardQueries, searchQueries, targetQueries,
                 partyQueries, employeeQueries, lookupQueries,
                 leadOwnerHistory, dayReviewQueries, followUpQueries,
-                notificationQueries, authQueries, pushSubscription
+                notificationQueries, authQueries, pushSubscription,
+                bdmQueries, architectQueries
   assets/       images, icons
   sw.js         the service worker source (push handlers only)
   vipsar-theme.css   the app's one design-system stylesheet
@@ -175,10 +182,19 @@ changes the invoke URL and would silently break the configured cron.
 
 ### Routing (`App.jsx`)
 
-`/`, `/profile`, `/search`, `/dashboard`, `/leads/new`, `/leads/:id`,
-`/employees/:id`, plus `/activity` (**not owner** — exec, coordinator and
-manager) and `/team` (**owner + sales_manager**). There is no `/settings` or
-`/account` route; both merged into `/profile`.
+`/`, `/profile`, `/search`, `/dashboard`, `/leads/:id` (every role),
+`/leads/new`, `/employees/:id` (**not the BDM**), `/activity` (**not owner**),
+`/team` (**owner + sales_manager**), `/architects/:id` (every role),
+`/architects` (**BDM only**) and `/network` (**owner only**). There is no
+`/settings` or `/account` route; both merged into `/profile`.
+
+**Every `allowedRoles` is derived from a `roles.js` capability** —
+`rolesWith(canLogActivity)` and so on — and `BottomNav` (sidebar + FAB sheet
+flags) and the Dashboard tiles read the same functions, so a link and its route can't
+disagree. Add a capability function there rather than listing roles in
+`App.jsx`. `DashboardRoute`/`NewRoute`/`Today` pick a per-role page;
+**`Today.jsx` names every role explicitly** and an unknown role gets a
+message, never the exec's `Home` (it used to fall through to it).
 
 `/employees/:id` is gated *inside* `EmployeeProfile.jsx`, not by
 `ProtectedRoute`'s `allowedRoles` — a sales exec may view their own page but
@@ -418,23 +434,25 @@ re-tuned for dark — legible, but not deliberate.
 
 ## Screens
 
-### Today — `/` (`Today.jsx` → `Home` / `OwnerToday` / `CoordinatorToday` / `ManagerToday`)
+### Today — `/` (`Today.jsx` → `Home` / `OwnerToday` / `CoordinatorToday` / `ManagerToday` / `BdmToday`)
 
 The landing page after login, and the one route `AppNav` renders nothing for.
-**Four separate screens, not one component branching on role.** `Today.jsx`
+**Five separate screens, not one component branching on role.** `Today.jsx`
 is a thin wrapper picking one. It's a wrapper *around* `Home`, not an early
 return *inside* it — `Home` fires a dozen hooks and several fetches before it
 renders, none of them scoped to data an owner or coordinator owns, so an
 early return would still pay for all of them.
 
-All four share `TodayGreetingHeader.jsx`: a time-of-day greeting
+All five share `TodayGreetingHeader.jsx`: a time-of-day greeting
 (`greetingForTime`, falling back to "Hello" late at night), a SYNCED/OFFLINE
 `.vip-sync-pill` from `useOnlineStatus()`, an avatar `Link` to `/profile`,
-and `AssignedLeadsCard` — mounted here, once, so every Today screen gets it
-and a fifth would too (see Lead assignment notifications).
+`AssignedLeadsCard` and `BdmUpdatesLine` (renders nothing unless the viewer is
+a BDM) — mounted here, once, so every Today screen gets them and a sixth would
+too (see Lead assignment notifications). `OwnerToday` also leads with the BDM
+pool card; `BdmToday` is described under Roles → Business Development Manager.
 
-All four follow one **Hero → Act now → Recap/Overview → Outlook** grammar,
-with team-shaped content standing in for personal content on the
+The first four follow one **Hero → Act now → Recap/Overview → Outlook**
+grammar, with team-shaped content standing in for personal content on the
 supervising screens.
 
 * **`Home.jsx` — `sales_executive` only.** Hero is the W/M/Q/Y "Order value
@@ -1188,12 +1206,17 @@ Dashboard (its only mobile path since Home's tile grid was removed).
 ### Follow-ups (personal + owner-assigned reminders, with push)
 
 > ⚠️ **SUPERSEDED by `FOLLOWUPS.md` (repo root).** Read that file before
-> touching anything that creates, shows, completes or counts a reminder. Three
-> audits found the feature materially different from the intent below: six
-> create-flows exist and three create no reminder at all, 78% of leads
-> carrying a `next_followup_date` have no `follow_ups` row, and rescheduling a
-> notified reminder permanently kills its push. The text here records what was
-> *intended*, not what is.
+> touching anything that creates, shows, completes or counts a reminder. Its
+> rebuild **shipped** (commit `d484c58`, 2026-08-22): one create path,
+> `open`/`done`/`cancelled` status, `leads.next_followup_date` trigger-derived,
+> "Log activity & close" as the primary completion, and a reschedule re-arms
+> the push via a trigger. Where this section disagrees with it, it wins.
+>
+> **Architect follow-ups (BDM Step 7):** a lead-less follow-up on an
+> architect/firm party is completed the same way — `logActivityPathFor(f)`
+> (`followUpQueries.js`, THE one builder for that link) sends it to
+> `/activity?type=architect_meeting&party=<id>&followup=<id>`, and Architect
+> Meeting's Next follow-up saves `activity_type = 'architect_meeting'`.
 
 `follow_ups` (self-service reminders, not tied to logging an activity) plus
 `push_subscriptions` (one row per browser/device). Required: due date and a
@@ -2114,15 +2137,19 @@ original `<input>`, untouched.
 
 ### Roles
 
-Four roles. **`src/lib/roles.js` is canonical** (`ROLE_OPTIONS`/`ROLE_LABELS`/
-`roleLabel()`/`canHaveCoordinator()`) — adding the third role found the same
-label table hand-rolled in four files, two of them listing only two roles.
-Use it; don't write a fifth copy.
+Five roles. **`src/lib/roles.js` is canonical** (`ROLE_OPTIONS`/`ROLE_LABELS`/
+`roleLabel()`/`canHaveCoordinator()`, plus one function per capability) —
+adding the third role found the same label table hand-rolled in four files,
+two of them listing only two roles. Use it; don't write another copy.
 
 **Nav gates on capabilities, not `role !== 'owner'`.** That shorthand means
 "anyone who isn't an owner is a rep" and offered a coordinator the Activity
-Log link and FAB row, both routing to a page they couldn't reach.
-`BottomNav` computes `canLogActivity`/`canCreateLead` and passes them down.
+Log link and FAB row, both routing to a page they couldn't reach. Adding the
+BDM found ~120 role checks that would have treated a fifth role as an exec by
+default. `roles.js` exports `canCreateLead`, `canLogActivity`,
+`canSeeTeamDirectory`, `canOpenEmployeeProfiles`, `canSeeMyArchitects`,
+`canSeeArchitectNetwork`, `canOpenArchitectProfiles`, `isBdm` and
+`rolesWith(capability)`; `BottomNav` and `App.jsx` both read them.
 **These are ONE flag per capability — do not re-split them.**
 
 #### Sales Coordinator
@@ -2237,6 +2264,123 @@ neither supervisor can see into the other's supervision.
 * **Known gap:** the two real managers own no leads until their Excel import
   lands, so the populated "My day" half is only verified through a test
   account.
+
+#### Business Development Manager
+
+**The architect relationship person.** A BDM meets architects, gets them to
+hand over qualified leads, enters those leads and pushes them to the owner,
+who assigns each to a rep. The BDM then follows how their leads progress but
+does not work them. Nobody reports to a BDM. Role value
+`business_development_manager`, label "Business Development Manager", badge
+"BDM". Built in `BDM.md` Steps 1–8 (2026-09-15) — its §3 holds the owner's
+locked decisions; **don't reverse one without asking.**
+
+* **The BDM is NOT in `CARRIES_OWN_LEADS`**, deliberately — otherwise they'd
+  appear in Reassign/Assign dropdowns, the heatmap, Day Review and exec
+  ranking, and a pool lead could be handed back to them.
+* **Two frozen tags, and every BDM rule reads them.**
+  `leads.bdm_employee_id` = which BDM brought the lead in;
+  `parties.bdm_employee_id` (+ `bdm_since`) = which BDM's portfolio an
+  **architect** is in (`parties_bdm_tag_architect_only` CHECK — never a firm
+  or client). Stamped **by triggers** (`bdm_leads_before_write`,
+  `bdm_parties_before_write`) when a BDM inserts; forced NULL for any other
+  session; silently reverted on update unless the owner (or admin SQL with no
+  `auth.uid()`, which is how imports set them). The app never sends either.
+  Frozen rather than derived from the creator's *current* role, so a person
+  changing role or leaving can't rewrite history — the Client Meeting bucket
+  reasoning again. `created_by_employee_id` was locked the same way (it used to
+  be client-forgeable).
+* **The pool.** A BDM's capture asks **Joinery received?** (required; yes →
+  the lead is created at `joinery_follow_up`, with a trigger-written
+  `stage_history` row), a **Remark** (the lead's first `lead_remarks` row) and
+  offers two saves: **Send to owner** (`owner_employee_id` NULL) or **Work it
+  myself** (owner = the BDM, forward-only stages like an exec). All five
+  sources are offered. **A pool lead is `owner_employee_id IS NULL AND
+  bdm_employee_id IS NOT NULL`** — `src/lib/poolLeads.js` (`isPoolLead`,
+  `NOT_POOL_LEAD_FILTER`, `applyPoolExclusion`) and the same predicate inside
+  8 dashboard RPCs (`migration_bdm_handoff.sql`).
+* **Pool leads are excluded from every owner/company figure until assigned**
+  (owner's ruling) — the pool card is the only place they show. Every lead
+  fetcher feeding a figure takes `includePool` (default **false**); only BDM
+  screens pass true. The RPC predicate is role-aware, so a BDM still counts
+  their own pool leads. **A new lead query feeding a company figure must apply
+  the pool rule** or pool leads leak into owner totals.
+* **Handoff.** `BdmPoolCard` sits at the top of `OwnerToday` (hidden when
+  empty): joinery tag, waiting age, possible-duplicate hint (another lead whose
+  client has the same 10-digit mobile), two-tap **Assign** to
+  `fetchActiveSalesExecs()`. Assign and Lead Detail's Reassign share **one
+  write, `assignLeadOwner()`** (`leadOwnerHistory.js`); the card passes
+  `requireUnassigned` so a second owner's stale click writes nothing. On first
+  assignment `bdm_leads_after_write()` hands the client's `created_by` and the
+  site's `discovered_by` to the new owner (the BDM created them, and
+  parties/sites UPDATE is creator-or-owner); architects/firms stay with the BDM.
+* **A BDM can never change `owner_employee_id`** — not even to take a pool
+  lead themselves. Enforced by a RAISE in the trigger, because WITH CHECK
+  clauses are OR'd across policies and `own_data_or_owner_role_update` would
+  otherwise allow `owner = me`.
+* **Visibility (all additive `bdm_*` policies, role-guarded, hoisted).** A BDM
+  reads their tagged leads and, for those, the client/site/contacts,
+  `stage_history`, `lead_owner_history`, `activities` (the rep's work),
+  `lead_remarks` and `loss_reasons`. May edit a tagged lead **only while it is
+  in the pool**; after assignment the page is read-only with a "now with
+  {rep}" note (`isMyPoolLead`/`isMyHandedOffLead` in `LeadDetail`), no quick
+  actions, no Log activity. Remarks can be added at capture/pool only. **Never
+  an exec's own lead, client or activity.** Architects/firms are universal for
+  every role (`migration_architects_universal_visibility.sql`).
+* **Notifications** (trigger-written, `app.skip_assignment_notifications`
+  respected): `bdm_pool_lead` → every active owner (push only; the card is the
+  in-app signal), `bdm_pool_nudge` → owners once after 24h waiting (queued by
+  the Edge Function's scheduled run), `bdm_lead_assigned`/`_won`/`_lost` → the
+  BDM. The BDM's in-app view is `BdmUpdatesLine` ("N updates on your leads ›",
+  mounted inside `TodayGreetingHeader`, renders nothing for other roles) and the
+  Dashboard's Handed over / Closed cards.
+* **Screens.** Today (`BdmToday`: waiting-for-owner line → Follow-ups due |
+  Architects to meet) · `+ New` (`BdmNew`: Lead / Architect toggle, BDM only —
+  `createActionLabel()` names it "New") · Log Activity · Dashboard
+  (`BdmDashboard`: Right now tiles → date range → Targets | Pipeline closed →
+  Top 5 architects → Handed over | Closed → Closure forecast → Pipeline by
+  stage; `?tab=leads` = My Leads, `?tab=followups` as for everyone) ·
+  **My Architects** (`/architects`, grouped by firm, with an Upcoming
+  follow-ups card; mobile tile on the BDM Dashboard) · Architect profile ·
+  Follow-ups · Search (architects tagged "Yours"/"With {BDM}"). No `/team`, no
+  `/employees/:id` — `EmployeeLink`/`EmployeeNameLink` render plain text when
+  `canOpenEmployeeProfiles` is false.
+* **Architects.** New Architect: name + 10-digit mobile required (an existing
+  architect with that number blocks Save), firm optional, firm address only for
+  a firm created there. **Architects to meet** = portfolio architects with no
+  meeting by that BDM in `ARCHITECT_MEETING_DAYS` (14 — deliberately not
+  `attention.js`'s ATTENTION_DAYS), the clock floored at `bdm_since` so an
+  import doesn't flood. A lead is credited to one architect — the referrer if
+  an architect, else the other party if one — via `sourcingArchitect`
+  (`poolLeads.js`, Lead Detail's **"Sourced by {BDM} via Architect {name}"**
+  line, seen by every role) and its id-level twin `architectIdForLead`
+  (`architectStats.js`, every architect figure). Keep the two in step. **An architect's next
+  meeting is an ordinary follow-up** (owner's ruling, Step 7): no outcome
+  field, no scheduled-meeting concept, "Log activity & close" as for a lead.
+* **Architect profile (`/architects/:id`) opens for every role**; every figure
+  is what the viewer's RLS returns, and anyone but the owner is told so.
+* **Targets.** `BDM_METRIC_OPTIONS` (`bdm_architect_meetings`,
+  `bdm_joineries_received`, `bdm_leads_generated`), `bdm_`-prefixed so no
+  legacy exec `metric_name` can read as a BDM target; computed by
+  `computeBdmTargetActuals` (`bdmDashboard.js`). Kept out of `METRIC_OPTIONS`,
+  so BDMs never reach the heatmap or `blendedAttainmentFor`. **Set only in
+  Architect Network.** `targets.metric_name` has no DB CHECK.
+* **Architect Network (`/network`, owner only)** — sidebar link after My
+  Team, mobile tile on the owner Dashboard. Tabs in the URL: **BDMs** (date
+  range → one `BdmNetworkCard` per active BDM: targets vs actuals, pool waiting,
+  handed over, won, win rate, architects to meet, "+ Set targets" setting all
+  three at once via `PeriodPicker`, blank = leave alone) → Top 5 architects
+  company-wide; **Architects** (`ArchitectDirectory`: search, With BDM / Not
+  with a BDM filter, sortable, all-time figures, pool leads excluded). The owner
+  moves an architect between portfolios **one at a time** from the profile's
+  "Change" control, which restarts the 14-day clock.
+* **`validate_employee_role_assignment()`**: a BDM carries no
+  `coordinator_id`/`manager_id`, and **can't be deactivated or demoted while
+  any architect is tagged to them** (hard block).
+* **Known, deliberately left:** a BDM's "Set follow-up" on a pool lead creates
+  their own reminder that keeps counting on the lead after handoff;
+  `FollowUpForm`'s lead picker lists only leads the BDM owns. The real BDM's
+  portfolio is empty until the owner's architect import runs.
 
 ### Data isolation — audited, don't re-litigate
 
@@ -2457,6 +2601,20 @@ with no error. The layered order is:
 6. `migration_rls_performance_*.sql`
 7. `migration_manager_reassign_any_employee.sql`,
    `migration_architects_universal_visibility.sql`
+8. `migration_bdm_role.sql` → `migration_bdm_handoff.sql`
+
+**The BDM migrations re-install functions other files also define.**
+Re-running `migration_coordinator_can_manage_manager.sql`,
+`migration_lead_change_log.sql`,
+`migration_retire_measurements_design_discussion.sql` or
+`migration_lead_remarks_and_lixil_notify.sql` strips the BDM lines — re-run
+`migration_bdm_role.sql` (then `migration_bdm_handoff.sql`) afterwards.
+Re-running `migration_time_independent_dashboard_metrics.sql`,
+`migration_leads_category_breakdown_rpc.sql` or `migration_stale_7day_tile.sql`
+removes the pool rule from those RPCs, putting pool leads back into owner
+figures — re-run `migration_bdm_handoff.sql` afterwards.
+`Schema/verify_bdm_role.sql` is the behavioural check (it impersonates real
+logins inside a block that deliberately ends in an error, so nothing saves).
 
 **If you re-run anything, re-run everything after it too.** Trigger and
 function names are deliberately kept even when historically inaccurate
@@ -2516,17 +2674,14 @@ removing your own login.
   clauses are OR'd across every applicable policy regardless of which one's
   USING matched, so an unconditional `true` would hand every other role the
   same unrestricted right.
-* **`migration_architects_universal_visibility.sql`** — makes
-  `party_type IN ('architect','firm')` visible to every active employee
-  regardless of team, since an architect is shared infrastructure and
-  team-scoping meant reps just created duplicates. **Edit rights deliberately
-  do not widen**: the creator-or-owner rule is unchanged and the coordinator's
-  team-fallback edit policy is *narrowed* to exclude architect/firm rows.
-* **The trigger half of
-  `migration_retire_measurements_design_discussion.sql`** — the data half is
-  confirmed, but whether `enforce_owner_only_stage_change()` was redeployed
-  with the 6-stage funnel array cannot be seen through PostgREST. Until
-  checked, **don't assume the forward-only rule matches `FUNNEL_SEQUENCE`.**
+
+**Confirmed live since (2026-09-15), no longer outstanding:**
+`migration_architects_universal_visibility.sql` (`migration_bdm_role.sql`
+refuses to run without its policy, and it ran) — architects/firms visible to
+every active employee, edit rights not widened; and
+`enforce_owner_only_stage_change()`'s 6-stage funnel, which
+`migration_bdm_role.sql` re-installed, so the forward-only rule now matches
+`FUNNEL_SEQUENCE`.
 
 **Verify each as a real logged-in session of the affected role — never from
 the SQL Editor**, which runs as `postgres` with BYPASSRLS and no `auth.uid()`,
@@ -2851,7 +3006,7 @@ dev server, for any PWA / service-worker / offline testing.**
 into any field is off-limits, so storing them changes nothing. The working
 flow is that **the user logs in once per origin** and Claude drives the
 already-authenticated app; sessions persist per origin, which is what the
-three role ports are for. **When nothing is logged in, say so and ask** —
+five role ports are for. **When nothing is logged in, say so and ask** —
 don't assume a fresh tab means a fresh session, and don't silently fall back
 to reasoning-only verification.
 
@@ -2883,10 +3038,12 @@ Deliberately deferred, not forgotten. Full detail in `PHASE9_LOG.md`.
 3. **Deferred verification:** push notifications end to end (needs a real
    device), real-device iOS/Android rendering, and installed-PWA (standalone)
    rendering.
-4. **The mobile quick-actions sheet on Lead Detail has never been opened by a
-   real tap** — the sandbox's mouse input wedges at 375px. Both mounts spread
-   one props object, so its contents follow from the desktop mount that was
-   verified; that's an argument from construction, not an observation.
+4. ~~The mobile quick-actions sheet on Lead Detail has never been opened by a
+   real tap.~~ **Closed 2026-09-15:** opened by a real tap during BDM Step 3's
+   live loop, and a lead was marked Won from it.
+5. **BDM, unexercised:** the 24-hour pool nudge (needs a day-old pool lead),
+   any BDM/rep push arriving on a real phone, and a coordinator or manager
+   completing an architect follow-up (same code path as a rep's).
 
 ## Roadmap
 
@@ -2906,13 +3063,15 @@ Deliberately deferred, not forgotten. Full detail in `PHASE9_LOG.md`.
    parties/sites created across teams after the scoping change.
 9. ✅ QA audit across all roles and both breakpoints — findings and the
    deferred items in `PHASE9_LOG.md`.
-10. ⬅️ **current — Sales Manager role** (role 4 of 4). Schema, RLS and every
-    screen shipped and were driven across all four roles at both widths.
-    Still open: the two real managers own no leads until their Excel import
-    lands, and the coordinator's "Reassign owner" dropdown still offers every
-    active rep although the database refuses an out-of-team target.
-11. 🟡 **planned — Business Development Manager role** (role 5). Plan,
-    decisions and progress live in `BDM.md`.
+10. ✅ Sales Manager role (role 4). Schema, RLS and every screen shipped and
+    were driven across all four roles at both widths. Still open: the two
+    real managers own no leads until their Excel import lands, and the
+    coordinator's "Reassign owner" dropdown still offers every active rep
+    although the database refuses an out-of-team target.
+11. ✅ Business Development Manager role (role 5), 2026-09-15 — pool handoff,
+    BDM screens and Dashboard, BDM targets, Architect Network, architect
+    follow-ups. Build log in `BDM.md`. Still open: the real BDM's architect
+    import.
 
 For domain model, lead-sourcing logic, and locked-in design decisions, see
 `DECISIONS.md`.

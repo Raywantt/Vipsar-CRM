@@ -2,7 +2,14 @@
 
 The single source of truth for how follow-ups / reminders work in VIPSAR CRM.
 
-**Status: rules agreed 2026-08-21, build not started.** Sections 1–5 and 8–9 are
+**Status: rules agreed 2026-08-21; the rebuild SHIPPED 2026-08-22 (commit
+`d484c58`).** Sections 6 and 7 below are kept as the pre-build audit and plan —
+they describe what was broken *then*, not the code today. Since then (BDM.md
+Step 7, 2026-09-15) an architect follow-up (lead-less, on an architect/firm
+party) is completed through "Log activity & close" exactly like a lead's —
+`logActivityPathFor` in `followUpQueries.js`.
+
+*Original status note:* sections 1–5 and 8–9 are
 settled product decisions from a full Q&A with the owner. Section 6 is the audited
 state of the code *today* — what's broken, with evidence, from three parallel audits
 (write paths / read paths / data layer, the last verified against the live
