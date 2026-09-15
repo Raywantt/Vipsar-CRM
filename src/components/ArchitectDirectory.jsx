@@ -35,8 +35,11 @@ const COLUMNS = [
 //
 // One DOM for both widths, the Top 5 card's pattern: a grid table with a
 // header row from 1024px; below that each row wraps to a name line and a
-// figures line, each figure carrying its own unit word, and the sort moves
-// into a dropdown (the header is hidden). Both read the same `sort` state.
+// figures line, each figure carrying its own unit word. The sort dropdown
+// shows at every width — below 1024px the header row is hidden so it's the
+// only way to change sort; at 1024px+ it sits alongside the clickable
+// column headers, both driving the one `sort` state below, so the dropdown
+// and a header's active/arrow indicator can never disagree.
 //
 // `rows` are buildDirectoryRows(...) (src/lib/architectNetwork.js); a row's
 // figures match that architect's profile page.
@@ -85,7 +88,7 @@ function ArchitectDirectory({ rows, bdms, loading, error }) {
             <option value={PORTFOLIO_NONE}>Not with a BDM</option>
           </select>
         </label>
-        <label className="vip-field vip-net-dir-filter vip-only-mobile">
+        <label className="vip-field vip-net-dir-filter">
           <span className="vip-sr-only">Sort by</span>
           <select className="vip-select" value={sort} onChange={(e) => update(setSort)(e.target.value)}>
             {DIRECTORY_SORTS.map((o) => (

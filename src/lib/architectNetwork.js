@@ -10,8 +10,17 @@
 
 import { computeBdmTargetActuals, summariseClosedRows } from './bdmDashboard'
 import { buildClosedRows, buildHandedOverRows } from './bdmLeadUpdates'
-import { architectsToMeet, daysSince, lastMeetingByArchitect, leadStatsByArchitect } from './architectStats'
+import {
+  architectIdForLead,
+  architectsToMeet,
+  daysSince,
+  groupArchitectsByFirm,
+  lastMeetingByArchitect,
+  leadStatsByArchitect,
+  summariseArchitectLeads,
+} from './architectStats'
 import { countOpenPipelineLeads, sumOpenPipelineValue } from './pipelineValue'
+import { parseTimestamp } from './dbTime'
 import { firmLabel } from './firmLabel'
 import { BDM_METRIC_OPTIONS } from './targetMetrics'
 
@@ -139,6 +148,91 @@ export function sortDirectoryRows(rows, sort = DEFAULT_DIRECTORY_SORT) {
     met: (a, b) => nullsLast(a.lastMetDays, b.lastMetDays) || (a.lastMetDays ?? 0) - (b.lastMetDays ?? 0),
     name: () => 0,
     firm: (a, b) => nullsLast(a.firm, b.firm) || (a.firm ?? '').localeCompare(b.firm ?? ''),
+  }[sort] ?? (() => 0)
+  return [...(rows ?? [])].sort((a, b) => cmp(a, b) || byName(a, b))
+}
+
+// ---- Firms ----
+
+// One row per firm, all-time, rolling up every architect at that firm — the
+// Architects tab's own third view. Grouped the same way My Architects groups
+// a BDM's own portfolio (groupArchitectsByFirm), so a firm can't be split into
+// two rows here just because this screen wrote its own key logic. The "no
+// firm" bucket that function returns is dropped: a list of firms has nothing
+// to say about architects who aren't at one.
+//
+// Figures are summariseArchitectLeads run over the POOLED leads of every
+// architect at the firm, not an average of each architect's own row — a
+// pooled win rate is the honest one (won / (won+lost) across the whole firm),
+// where averaging per-architect win rates would over-weight an architect with
+// one decided lead against one with twenty.
+export function buildFirmRows({ architects, meetings, leads, now = new Date() }) {
+  const lastMet = lastMeetingByArchitect(meetings)
+  const groups = groupArchitectsByFirm(architects).filter((g) => g.key !== 'none')
+
+  return groups.map((g) => {
+    const architectIds = new Set(g.architects.map((a) => a.id))
+    const firmLeads = (leads ?? []).filter((l) => architectIds.has(architectIdForLead(l)))
+    const s = summariseArchitectLeads(firmLeads)
+
+    let lastMetAt = null
+    for (const a of g.architects) {
+      const t = lastMet.get(a.id)
+      if (t && (!lastMetAt || parseTimestamp(t) > parseTimestamp(lastMetAt))) lastMetAt = t
+    }
+
+    return {
+      key: g.key,
+      // Only a real linked firm party has an id — a legacy firm_name-only
+      // group (no parties.firm_party_id anywhere) has nothing to link to.
+      firmId: g.firmId,
+      name: g.firmName,
+      architectCount: g.architects.length,
+      lastMetAt,
+      lastMetDays: lastMetAt ? daysSince(lastMetAt, now) : null,
+      referred: s.referred,
+      openCount: s.openCount,
+      openValue: s.openValue,
+      wonCount: s.wonCount,
+      wonValue: s.wonValue,
+      lostCount: s.lostCount,
+      winRate: s.winRate,
+    }
+  })
+}
+
+export function filterFirmRows(rows, term = '') {
+  const q = term.trim().toLowerCase()
+  if (!q) return rows ?? []
+  return (rows ?? []).filter((r) => (r.name ?? '').toLowerCase().includes(q))
+}
+
+// Same "numbers high to low, names A→Z, blanks last" shape as
+// DIRECTORY_SORTS/sortDirectoryRows — kept as a separate list rather than
+// merged with it because the columns aren't the same (an architect count and
+// a win rate have no equivalent on that table).
+export const FIRM_SORTS = [
+  { value: 'architects', label: 'Architects' },
+  { value: 'referred', label: 'Leads' },
+  { value: 'open', label: 'Open' },
+  { value: 'won', label: 'Won' },
+  { value: 'winRate', label: 'Win rate' },
+  { value: 'met', label: 'Last met' },
+  { value: 'name', label: 'Name' },
+]
+export const DEFAULT_FIRM_SORT = 'architects'
+
+export function sortFirmRows(rows, sort = DEFAULT_FIRM_SORT) {
+  const byName = (a, b) => (a.name ?? '').localeCompare(b.name ?? '')
+  const nullsLast = (x, y) => (x == null) - (y == null)
+  const cmp = {
+    architects: (a, b) => b.architectCount - a.architectCount,
+    referred: (a, b) => b.referred - a.referred,
+    open: (a, b) => b.openValue - a.openValue,
+    won: (a, b) => b.wonValue - a.wonValue,
+    winRate: (a, b) => nullsLast(a.winRate, b.winRate) || (b.winRate ?? 0) - (a.winRate ?? 0),
+    met: (a, b) => nullsLast(a.lastMetDays, b.lastMetDays) || (a.lastMetDays ?? 0) - (b.lastMetDays ?? 0),
+    name: () => 0,
   }[sort] ?? (() => 0)
   return [...(rows ?? [])].sort((a, b) => cmp(a, b) || byName(a, b))
 }

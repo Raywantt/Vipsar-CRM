@@ -11,7 +11,9 @@ import { fetchActiveBdms } from '../lib/bdmQueries'
 import { ARCHITECT_MEETING_DAYS, architectIdForLead, summariseArchitectLeads } from '../lib/architectStats'
 import { isPoolLead } from '../lib/poolLeads'
 import { isBdm } from '../lib/roles'
+import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import { firmLabel } from '../lib/firmLabel'
+import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { getInitials } from '../lib/initials'
 import { leadDisplayName } from '../lib/leadName'
 import { stageLabel } from '../lib/leadStageOptions'
@@ -141,6 +143,66 @@ function ArchitectProfile() {
     setMoveSaved(data.bdm_employee_id == null ? 'Moved out of every BDM portfolio.' : `Moved to ${data.bdm?.name ?? 'the BDM'}'s portfolio.`)
   }
 
+  // ---- Every role: attach this architect to a firm ----
+  // parties.firm_party_id is otherwise only ever set from Log Activity's
+  // Architect Meeting or New Lead/Lead Detail Contacts (CLAUDE.md's "architect
+  // → firm tree") — nothing lets it be set from the architect's own page.
+  // Open to every role, same as those three: setPartyFirm owns the no-op and
+  // silent-RLS-rejection warning (an architect someone else added can't be
+  // edited by a non-owner), so this doesn't need its own permission check.
+  const [firmOpen, setFirmOpen] = useState(false)
+  const [firmPickerKey, setFirmPickerKey] = useState(0)
+  const [firmDraft, setFirmDraft] = useState(null)
+  const [firmSaving, setFirmSaving] = useState(false)
+  const [firmError, setFirmError] = useState(null)
+  const [firmSaved, setFirmSaved] = useState(null)
+
+  function openFirmEdit() {
+    setFirmDraft(architect.firm ?? null)
+    setFirmError(null)
+    setFirmSaved(null)
+    setFirmOpen(true)
+  }
+
+  function closeFirmEdit() {
+    setFirmOpen(false)
+    // Remounts the picker so its own internal search/selected state doesn't
+    // carry over stale into the next time this is opened.
+    setFirmPickerKey((k) => k + 1)
+  }
+
+  // A brand-new firm typed here (deferCreate) has id: null, same as "no
+  // firm" — so unchanged-ness can't just compare ids, or Save would be
+  // wrongly disabled while creating one.
+  const firmUnchanged = !firmDraft?._isNewPartyDraft && (firmDraft?.id ?? null) === (architect?.firm_party_id ?? null)
+
+  async function handleFirmSave() {
+    setFirmSaving(true)
+    setFirmError(null)
+    const materialized = await materializePartyDraft(firmDraft, employee?.id)
+    if (materialized.error) {
+      setFirmSaving(false)
+      setFirmError(`Couldn't save the firm: ${errorMessage(materialized.error)}`)
+      return
+    }
+    const resolvedFirm = materialized.data ?? null
+    const warning = await setPartyFirm({
+      partyId: architect.id,
+      partyName: architect.name,
+      firmId: resolvedFirm?.id ?? null,
+      currentFirmId: architect.firm_party_id,
+    })
+    setFirmSaving(false)
+    if (warning) {
+      setFirmError(warning)
+      return
+    }
+    setArchitect((a) => ({ ...a, firm_party_id: resolvedFirm?.id ?? null, firm: resolvedFirm }))
+    setFirmOpen(false)
+    setFirmPickerKey((k) => k + 1)
+    setFirmSaved(resolvedFirm ? `Firm set to ${resolvedFirm.name}.` : 'Firm removed.')
+  }
+
   if (loading) return <p className="vip-state-msg">Loading…</p>
   if (!architect) return <p className="vip-state-msg-error">{loadError ?? 'Architect not found.'}</p>
   if (architect.party_type !== 'architect') {
@@ -155,10 +217,8 @@ function ArchitectProfile() {
       ? { label: `With ${architect.bdm?.name ?? 'a BDM'}`, bg: TONE_GOOD_SOFT, fg: TONE_GOOD }
       : { label: 'Not with a BDM', bg: TONE_NEUTRAL_SOFT, fg: TONE_NEUTRAL }
 
-  const subParts = [
-    firmLabel(architect),
-    architect.bdm_since ? `in portfolio since ${formatDateShort(architect.bdm_since)}` : null,
-  ].filter(Boolean)
+  const firmText = firmLabel(architect) ?? 'No firm'
+  const bdmSinceText = architect.bdm_since ? `in portfolio since ${formatDateShort(architect.bdm_since)}` : null
 
   const statTiles = [
     { label: 'Leads referred', value: String(stats.referred), sub: `${stats.openCount} open` },
@@ -189,10 +249,19 @@ function ArchitectProfile() {
               )}
             </div>
             <span className="vip-profile-sub">
-              {subParts.join(' · ')}
+              {firmText}
+              {!firmOpen && (
+                <>
+                  {' '}
+                  <button type="button" className="vip-btn-link vip-portfolio-change" onClick={openFirmEdit}>
+                    {firmLabel(architect) ? 'Change' : 'Add firm'}
+                  </button>
+                </>
+              )}
+              {bdmSinceText && ` · ${bdmSinceText}`}
               {architect.mobile && (
                 <>
-                  {subParts.length ? ' · ' : ''}
+                  {' · '}
                   <a href={`tel:${architect.mobile}`} className="vip-mono">
                     {architect.mobile}
                   </a>
@@ -202,6 +271,40 @@ function ArchitectProfile() {
           </div>
         </div>
       </div>
+
+      {firmOpen && (
+        <div className="vip-card vip-stack-s vip-portfolio-move">
+          <PartySearchOrCreate
+            key={firmPickerKey}
+            label="Firm"
+            hint="the practice this architect works under"
+            defaultPartyType="firm"
+            typeOptions={['firm']}
+            deferCreate
+            initialSelected={architect.firm}
+            onSelect={setFirmDraft}
+            createdByEmployeeId={employee?.id}
+          />
+          {firmError && (
+            <p className="vip-error" role="alert">
+              {firmError}
+            </p>
+          )}
+          <div className="vip-btn-row">
+            <button type="button" className="vip-btn vip-btn-dark vip-btn-sm" onClick={handleFirmSave} disabled={firmSaving || firmUnchanged}>
+              {firmSaving ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={closeFirmEdit} disabled={firmSaving}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {firmSaved && (
+        <p className="vip-success" role="status" aria-live="polite">
+          {firmSaved}
+        </p>
+      )}
 
       {viewerIsOwner && moveOpen && (
         <div className="vip-card vip-stack-s vip-portfolio-move">

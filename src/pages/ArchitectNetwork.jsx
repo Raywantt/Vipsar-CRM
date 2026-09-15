@@ -6,6 +6,7 @@ import DrilldownPanel from '../components/DrilldownPanel'
 import BdmNetworkCard from '../components/BdmNetworkCard'
 import BdmTopArchitectsCard from '../components/BdmTopArchitectsCard'
 import ArchitectDirectory from '../components/ArchitectDirectory'
+import FirmDirectory from '../components/FirmDirectory'
 import { RANGE_LABELS, rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { todayISO } from '../lib/followupDates'
@@ -25,7 +26,7 @@ import {
   fetchArchitectMeetings,
 } from '../lib/architectQueries'
 import { fetchTargetsForPeriod } from '../lib/targetQueries'
-import { buildDirectoryRows, summariseBdm } from '../lib/architectNetwork'
+import { buildDirectoryRows, buildFirmRows, summariseBdm } from '../lib/architectNetwork'
 import { topArchitects } from '../lib/bdmDashboard'
 import { buildArchitectsToMeetPanel } from '../lib/drilldownBuilders'
 
@@ -34,13 +35,16 @@ import { buildArchitectsToMeetPanel } from '../lib/drilldownBuilders'
 // (canSeeArchitectNetwork); desktop sidebar link + a tile on the owner's
 // Dashboard for a phone.
 //
-// Owner's rulings: two tabs, chosen by ?tab= (synced in an effect, not a
+// Owner's rulings: three tabs, chosen by ?tab= (synced in an effect, not a
 // useState initializer, like Dashboard — and in the URL at all so Back from an
 // architect's profile lands on the tab it was opened from):
 //   BDMs (default) — the Dashboard's date range → one card per BDM (targets vs
 //                    actuals, "+ Set targets", pipeline figures) → Top 5
 //                    architects across every BDM for the period.
 //   ?tab=architects — every architect in the company, all-time, no date range.
+//   ?tab=firms — every FIRM in the company, all-time, rolled up from the same
+//                architects/meetings/leads the Architects tab already fetched
+//                (buildFirmRows in architectNetwork.js) — no separate query.
 //
 // Nothing here computes a BDM figure its own way: summariseBdm and topArchitects
 // run the BDM Dashboard's own rules, so the owner and the BDM agree.
@@ -48,14 +52,16 @@ function ArchitectNetwork() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [tab, setTab] = useState('bdms')
   useEffect(() => {
-    setTab(searchParams.get('tab') === 'architects' ? 'architects' : 'bdms')
+    const t = searchParams.get('tab')
+    setTab(t === 'architects' || t === 'firms' ? t : 'bdms')
   }, [searchParams])
   function chooseTab(next) {
-    setSearchParams(next === 'architects' ? { tab: 'architects' } : {}, { replace: true })
+    setSearchParams(next === 'bdms' ? {} : { tab: next }, { replace: true })
   }
   // Read off the URL, not `tab`: that state is 'bdms' for one render even on
-  // ?tab=architects, which would start the BDMs fetches on the wrong tab.
-  const onBdmsTab = searchParams.get('tab') !== 'architects'
+  // ?tab=architects/?tab=firms, which would start the BDMs fetches on the
+  // wrong tab.
+  const onBdmsTab = searchParams.get('tab') !== 'architects' && searchParams.get('tab') !== 'firms'
 
   // Same persisted keys as both Dashboards, so the period reads the same here.
   const [preset, setPreset] = usePersistedFilterState('vip-filters:dashboard', 'preset', 'week')
@@ -152,8 +158,12 @@ function ArchitectNetwork() {
     }
   }, [onBdmsTab, targetPeriod, targetsKey])
 
-  // ---- Architects tab: fetched the first time it's opened, then kept ----
+  // ---- Architects & Firms tabs: fetched the first time either is opened,
+  // then kept. One fetch of architects/meetings/leads feeds both rollups —
+  // buildDirectoryRows (per architect) and buildFirmRows (per firm) — so
+  // opening Firms after Architects (or vice versa) costs no extra request.
   const [directory, setDirectory] = useState({ rows: null, error: null })
+  const [firms, setFirms] = useState({ rows: null, error: null })
   const [directoryRequested, setDirectoryRequested] = useState(false)
   useEffect(() => {
     if (!onBdmsTab) setDirectoryRequested(true)
@@ -165,14 +175,9 @@ function ArchitectNetwork() {
       ([architectsRes, meetingsRes, leadsRes]) => {
         if (!active) return
         const firstError = architectsRes.error ?? meetingsRes.error ?? leadsRes.error
-        setDirectory({
-          rows: buildDirectoryRows({
-            architects: architectsRes.data,
-            meetings: meetingsRes.data,
-            leads: leadsRes.data,
-          }),
-          error: firstError ? errorMessage(firstError) : null,
-        })
+        const rollupInput = { architects: architectsRes.data, meetings: meetingsRes.data, leads: leadsRes.data }
+        setDirectory({ rows: buildDirectoryRows(rollupInput), error: firstError ? errorMessage(firstError) : null })
+        setFirms({ rows: buildFirmRows(rollupInput), error: firstError ? errorMessage(firstError) : null })
       }
     )
     return () => {
@@ -187,7 +192,7 @@ function ArchitectNetwork() {
     <div className="vip-wide vip-stack">
       <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
 
-      <div className="vip-seg vip-net-tabs" role="tablist" aria-label="BDMs or architects">
+      <div className="vip-seg vip-net-tabs" role="tablist" aria-label="BDMs, architects or firms">
         <button
           type="button"
           role="tab"
@@ -205,6 +210,15 @@ function ArchitectNetwork() {
           onClick={() => chooseTab('architects')}
         >
           Architects
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'firms'}
+          className={tab === 'firms' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+          onClick={() => chooseTab('firms')}
+        >
+          Firms
         </button>
       </div>
 
@@ -284,6 +298,8 @@ function ArchitectNetwork() {
       {tab === 'architects' && (
         <ArchitectDirectory rows={directory.rows} bdms={bdms ?? []} loading={directory.rows == null} error={directory.error} />
       )}
+
+      {tab === 'firms' && <FirmDirectory rows={firms.rows} loading={firms.rows == null} error={firms.error} />}
     </div>
   )
 }

@@ -3474,9 +3474,15 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
   .vip-net-dir-row:not(.vip-net-dir-headrow) .vip-net-dir-blank { display: block; color: var(--vip-faint); }
   .vip-net-dir-num { text-align: right; }
   .vip-net-dir-unit { display: none; }
+  /* Firms tab (FirmDirectory.jsx) reuses every .vip-net-dir-* row/cell class
+     above — only the column count and widths differ, since "Architects" and
+     "Win rate" have no equivalent on the architect table. */
+  .vip-net-dir-row.vip-net-firm-row {
+    grid-template-columns: minmax(160px, 1.6fr) 90px 70px 90px 90px 100px 130px;
+  }
 }
 
-/* ---- architect profile: owner's portfolio move ---- */
+/* ---- architect profile: owner's portfolio move + every role's firm edit ---- */
 .vip-portfolio-change { min-height: auto; padding: 0; font-size: 12px; }
 .vip-portfolio-move { max-width: 520px; }
 
