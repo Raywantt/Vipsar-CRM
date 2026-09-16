@@ -156,12 +156,14 @@ function LeadQuickCapture() {
   // site nickname, referrer or other party offered, it's the only thing that
   // can satisfy the lead_needs_an_anchor CHECK).
   const isWalkIn = sourceType === 'showroom_walkin'
-  // The address box is shared by the two sources that meet the site in
-  // person — it's the site's address, not the client's, which is why it's
-  // written straight into the sites.insert() below rather than onto the
-  // party. One flag read by the field and by the write, so the question
-  // asked and the value saved can't drift apart.
-  const asksAddress = isScanning || isWalkIn
+  // Offered on every source, every role (the owner's ruling 2026-09-16,
+  // reversing the earlier scanning/walk-in-only restriction — a rep or BDM
+  // taking a Lixil or referral call may already know the address even
+  // without having seen the site). It's the site's address, not the
+  // client's, which is why it's written straight into the sites.insert()
+  // below rather than onto the party — every lead gets a site row
+  // regardless of source, so there's always somewhere for it to land.
+  const asksAddress = true
 
   // Resolved here rather than at submit time so the same value gates the Save
   // button and gets written — a required field whose emptiness is computed

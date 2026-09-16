@@ -635,12 +635,15 @@ mobile widths.
   spanning on a phone, 5 equal columns on desktop). Pairing two of them puts
   two `display` declarations on one element at equal specificity — the same
   cascade trap as `.vip-leads-layout`.
-* **Address** (Scanning and Walk-in — the two sources that meet the site in
-  person). **One `asksAddress` flag drives both the field and the write**, so
-  the question asked and the value saved can't drift. It writes the **site's**
-  `locality`, not `parties.address`: the address in scanning is the site's,
-  and Lead Detail's Site details reads and writes that same column.
-  `parties.address` is left in the schema, unused.
+* **Address** — optional, every source, every role (reversed 2026-09-16; was
+  Scanning/Walk-in only, on the reasoning that only those two sources meet
+  the site in person — the owner overturned that: a rep or BDM taking a
+  Lixil or referral call may already know it). **One `asksAddress` flag
+  drives both the field and the write**, so the question asked and the value
+  saved can't drift; it is now unconditionally `true`. It writes the
+  **site's** `locality`, not `parties.address`: the address in scanning is
+  the site's, and Lead Detail's Site details reads and writes that same
+  column. `parties.address` is left in the schema, unused.
 * **Site nickname** — Scanning only. A rep who walked past a site can
   describe it; a Lixil or referral lead is a phone call about a site nobody
   has seen. A direct insert, not `SiteSearchOrCreate` — nicknames are free
