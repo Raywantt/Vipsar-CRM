@@ -5,7 +5,7 @@ import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { fetchWonStageHistory, fetchTargetsForPeriod } from '../lib/targetQueries'
-import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor } from '../lib/followUpQueries'
+import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor, reminderSavedMessage } from '../lib/followUpQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildSignificantEntries, buildDaySheetPanel } from '../lib/dayReview'
 import { todayISO } from '../lib/followupDates'
@@ -13,6 +13,7 @@ import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActu
 import { computeAttentionBuckets, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
 import { formatCurrencyCompact } from '../lib/format'
 import { leadDisplayName } from '../lib/leadName'
+import BdmChip from '../components/BdmChip'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
 import { errorMessage } from '../lib/errorMessage'
@@ -85,6 +86,7 @@ function Home({ embedded = false }) {
   const [closing, setClosing] = useState([])
   const [followUps, setFollowUps] = useState([])
   const [addingFollowUp, setAddingFollowUp] = useState(false)
+  const [savedNote, setSavedNote] = useState(null)
   const [panel, setPanel] = useState(null)
   const [followUpError, setFollowUpError] = useState(null)
 
@@ -331,7 +333,7 @@ function Home({ embedded = false }) {
               <h2 className="vip-card-title">Needs your attention today</h2>
               <div className="vip-day-head-actions">
                 {attendCount > 0 && <span className="vip-day-head-count">{attendCount}</span>}
-                <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
+                <button type="button" className="vip-btn-link" onClick={() => { setSavedNote(null); setAddingFollowUp((v) => !v) }}>
                   {addingFollowUp ? 'Cancel' : '+ Add reminder'}
                 </button>
               </div>
@@ -343,12 +345,14 @@ function Home({ embedded = false }) {
                 createdBy={employee.id}
                 onSaved={(row) => {
                   if (row.due_date <= todayISO()) setFollowUps((prev) => [...prev, row])
+                  setSavedNote(reminderSavedMessage(row))
                   setAddingFollowUp(false)
                 }}
                 onCancel={() => setAddingFollowUp(false)}
               />
             )}
 
+            {savedNote && !addingFollowUp && <p className="vip-success" role="status" aria-live="polite">{savedNote}</p>}
             {followUpError && <p className="vip-error" role="alert">{followUpError}</p>}
 
             {openFollowUps.length === 0 ? (
@@ -455,7 +459,10 @@ function Home({ embedded = false }) {
               {closing.map((lead) => (
                 <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
                   <div className="vip-row-main">
-                    <div className="vip-row-title">{leadDisplayName(lead)}</div>
+                    <div className="vip-row-title">
+                      {leadDisplayName(lead)}
+                      <BdmChip bdmEmployeeId={lead.bdm_employee_id} />
+                    </div>
                   </div>
                   <div className="vip-row-side">
                     <div className="vip-row-value">{formatCurrencyCompact(lead.quote_value)}</div>

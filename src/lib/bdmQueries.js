@@ -144,17 +144,22 @@ export function fetchAllBdmLeads() {
 }
 
 // Every active business development manager, for Architect Network's cards,
-// its portfolio filter and the profile's "move to" dropdown. A deactivated
-// BDM can't still hold architects (validate_employee_role_assignment() blocks
-// it), so active-only never hides a portfolio.
+// its portfolio filter, the profile's "move to" dropdown, and BdmChip
+// (src/components/BdmChip.jsx) — which every lead-row-rendering surface in
+// the app now calls this from, so cachedQuery is what keeps that fan-out to
+// one request rather than one per screen. A deactivated BDM can't still hold
+// architects (validate_employee_role_assignment() blocks it), so
+// active-only never hides a portfolio.
 export function fetchActiveBdms() {
-  return fetchAllRows(() =>
-    supabase
-      .from('employees')
-      .select('id, name', { count: 'exact' })
-      .eq('role', 'business_development_manager')
-      .eq('is_active', true)
-      .order('name')
+  return cachedQuery('employees:active-bdms', () =>
+    fetchAllRows(() =>
+      supabase
+        .from('employees')
+        .select('id, name', { count: 'exact' })
+        .eq('role', 'business_development_manager')
+        .eq('is_active', true)
+        .order('name')
+    )
   )
 }
 

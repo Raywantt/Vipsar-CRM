@@ -15,6 +15,7 @@ import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLo
 import { formatTimeRange } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
 import { createFollowUp, markFollowUpDone } from '../lib/followUpQueries'
+import { logsActivityOnBehalf, isBdm } from '../lib/roles'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { fetchArchitect } from '../lib/architectQueries'
@@ -73,7 +74,8 @@ async function hasPriorRfqActivity(leadId) {
 
 function ActivityLog() {
   const { employee } = useAuth()
-  const isCoordinator = employee?.role === 'sales_coordinator'
+  const isCoordinator = logsActivityOnBehalf(employee?.role)
+  const isBdmUser = isBdm(employee?.role)
   const [searchParams] = useSearchParams()
   const preselectedLeadId = searchParams.get('lead')
   // Home's "Log call"/"Log visit" button on a due follow-up (Rule 4.1) hands
@@ -123,6 +125,12 @@ function ActivityLog() {
   // "Log another activity", restores it — same as preselectedLead.
   const [preselectedArchitect, setPreselectedArchitect] = useState(null)
   const [changingArchitect, setChangingArchitect] = useState(false)
+  // BDM only: a Call can anchor on an architect instead of a lead, reusing
+  // Architect Meeting's own party-anchor path (see anchorOnArchitect below)
+  // rather than a lead pick that's often empty for this role. Reset to
+  // 'lead' whenever the type changes away from Call, so it doesn't silently
+  // carry over to some other type that has no architect UI to show for it.
+  const [callAnchorMode, setCallAnchorMode] = useState('lead')
   const [notes, setNotes] = useState('')
   const [accompaniedBy, setAccompaniedBy] = useState('')
   // Office Day's three fields, all required (see canSubmit below). The
@@ -289,19 +297,27 @@ function ActivityLog() {
   const isSiteVisit = activityType === 'site_visit'
   const isArchitectMeeting = activityType === 'architect_meeting'
   const isClientMeeting = activityType === PICKABLE_MEETING
+  // A BDM's Call can anchor on an architect the same way Architect Meeting
+  // does — see the toggle in the JSX below. Not offered for any other type:
+  // Site Visit/RFQ Raised/Booking Update all write fields that only exist on
+  // a lead (site stage, RFQ dates, order value), which is exactly why the
+  // party-fallback-anchor pattern was removed everywhere else (2026-08-09).
+  const canAnchorOnArchitect = isBdmUser && activityType === 'call'
+  const anchorOnArchitect = isArchitectMeeting || (canAnchorOnArchitect && callAnchorMode === 'architect')
   // The Firm box is for an individual architect only — see firmName's own
   // comment. Reading party_type off the selected party (rather than tracking
   // the picker's dropdown) means this is right for an existing party too, not
   // just one created here.
-  const showFirmField = isArchitectMeeting && selectedArchitect?.party_type === 'architect'
+  const showFirmField = anchorOnArchitect && selectedArchitect?.party_type === 'architect'
   // Every lead-anchored activity requires a Lead — Party as a fallback
   // anchor was removed (2026-08-09) so Next follow-up/Order value/Site
   // stage, which all write onto a lead, are never silently hidden behind a
-  // party-only pick. Architect Meeting is its own separate case — it's
-  // anchored on an architect party instead of a lead entirely, so it's
-  // excluded from this lead-picker block the same way Office Day is.
-  const needsAnchor = activityType && !isOfficeDay && !isArchitectMeeting
-  const anchorSatisfied = isOfficeDay || (isArchitectMeeting ? Boolean(selectedArchitect) : Boolean(selectedLead))
+  // party-only pick. Architect Meeting (and a BDM's Call in architect mode)
+  // is its own separate case — anchored on an architect party instead of a
+  // lead entirely, so it's excluded from this lead-picker block the same way
+  // Office Day is.
+  const needsAnchor = activityType && !isOfficeDay && !anchorOnArchitect
+  const anchorSatisfied = isOfficeDay || (anchorOnArchitect ? Boolean(selectedArchitect) : Boolean(selectedLead))
   // Office Day wants all three of its fields, Client Meeting its location.
   // Both are UI-level gates only: the columns are nullable, because every
   // entry logged before these fields existed has no honest value to carry.
@@ -345,20 +361,37 @@ function ActivityLog() {
   // entering it on their behalf, otherwise the logged-in employee. Drives
   // activities.employee_id, the lead search scope, and party attribution.
   const actingForId = isCoordinator ? forExec?.id ?? null : employee?.id ?? null
+  // The reminder this screen was opened from (?followup=) is closed only by an
+  // activity on the lead or architect it was about. logActivityPathFor always
+  // sends one of ?lead= / ?party= with it. Switching lead, architect or to a
+  // type with no anchor used to close it anyway, with the wrong proof.
+  const followUpAnchorMatches = preselectedLeadId
+    ? selectedLead != null && String(selectedLead.id) === preselectedLeadId
+    : preselectedPartyId
+      ? anchorOnArchitect && selectedArchitect?.id != null && String(selectedArchitect.id) === preselectedPartyId
+      : false
 
   function selectActivityType(value) {
     setActivityType(value)
     if (value !== 'site_visit') {
       setAccompaniedBy('')
     }
-    // Leaving Architect Meeting drops its anchor and firm, so a party picked
+    // Leaving Architect Meeting, or leaving a BDM's Call while it was in
+    // architect mode, drops the architect anchor and firm — a party picked
     // and then abandoned can't be written by an activity whose form never
     // showed those fields — same reasoning as LeadQuickCapture's selectSource.
-    if (value !== 'architect_meeting') {
+    // `nextAnchorsOnArchitect` is recomputed from `value`, not read from the
+    // render-scope `anchorOnArchitect`, which still reflects the OUTGOING type.
+    const nextAnchorsOnArchitect =
+      value === 'architect_meeting' || (isBdmUser && value === 'call' && callAnchorMode === 'architect')
+    if (!nextAnchorsOnArchitect) {
       setSelectedArchitect(null)
       setFirmParty(null)
     } else if (preselectedArchitect) {
       setSelectedArchitect(preselectedArchitect)
+    }
+    if (value !== 'call') {
+      setCallAnchorMode('lead')
     }
     // Same reasoning for the two type-specific groups below — a required
     // field filled and then abandoned by switching type must not be written
@@ -379,9 +412,10 @@ function ActivityLog() {
     // Detail's "Log activity" link (?lead=) made it reachable with zero
     // switching, since the lead is preselected on mount.
     //
-    // `needsAnchor` is recomputed from `value`, not read from the render-scope
-    // constant, which still holds the OUTGOING type at this point.
-    const nextNeedsAnchor = value && value !== 'office_day' && value !== 'architect_meeting'
+    // `needsAnchor` is recomputed from `value`/`nextAnchorsOnArchitect`, not
+    // read from the render-scope constants, which still hold the OUTGOING
+    // type at this point.
+    const nextNeedsAnchor = value && value !== 'office_day' && !nextAnchorsOnArchitect
     if (!nextNeedsAnchor) {
       setSelectedLead(null)
       setChangingLead(false)
@@ -395,6 +429,22 @@ function ActivityLog() {
     setFollowupNote('')
   }
 
+  // The BDM-only Lead/Architect toggle for Call. Switching modes clears
+  // whichever anchor the form is about to stop showing — same "don't let an
+  // abandoned field get written" discipline selectActivityType follows above.
+  function selectCallAnchorMode(mode) {
+    setCallAnchorMode(mode)
+    if (mode === 'architect') {
+      setSelectedLead(null)
+      setChangingLead(false)
+    } else {
+      setSelectedArchitect(null)
+      setFirmParty(null)
+    }
+    setNextFollowupDate('')
+    setFollowupNote('')
+  }
+
   function resetForm() {
     setActivityType(null)
     setSelectedLead(preselectedLead)
@@ -402,6 +452,7 @@ function ActivityLog() {
     setFirmParty(null)
     setChangingLead(false)
     setChangingArchitect(false)
+    setCallAnchorMode('lead')
     setNotes('')
     setAccompaniedBy('')
     setWorkSummary('')
@@ -424,7 +475,7 @@ function ActivityLog() {
     // draft from PartySearchOrCreate's deferCreate mode — materialized here,
     // right before the activity that references it, so backing out of this
     // form before Log it never leaves a real, permanent party behind.
-    const architectResult = isArchitectMeeting
+    const architectResult = anchorOnArchitect
       ? await materializePartyDraft(selectedArchitect, actingForId)
       : { data: null }
     if (architectResult.error) {
@@ -465,7 +516,7 @@ function ActivityLog() {
       .insert({
         employee_id: actingForId,
         lead_id: selectedLead?.id ?? null,
-        party_id: isArchitectMeeting ? resolvedArchitect?.id ?? null : null,
+        party_id: anchorOnArchitect ? resolvedArchitect?.id ?? null : null,
         // A Client Meeting is never stored as itself — it lands as an Old
         // or New Meeting. The DB CHECK refuses the unbucketed value, so this
         // resolution cannot be skipped by any future write path either.
@@ -505,11 +556,24 @@ function ActivityLog() {
     // at all, so the reminder stayed open forever no matter what got logged.
     // Guarded on followUpClosed so "Log another activity" (which keeps the
     // same URL) doesn't try to re-close an already-closed reminder.
-    if (followUpId && !followUpClosed) {
-      const { error: followUpCloseError } = await markFollowUpDone(followUpId, activity.id)
+    //
+    // Closed only if the reminder belongs to whoever this activity is credited
+    // to — otherwise a manager could close a rep's reminder with their own work.
+    let reminderClosed = false
+    if (followUpId && !followUpClosed && !followUpAnchorMatches) {
+      warnings.push("The reminder you came from wasn't closed — this activity is on a different lead or architect.")
+    } else if (followUpId && !followUpClosed) {
+      const { data: closedFollowUp, error: followUpCloseError } = await markFollowUpDone(
+        followUpId,
+        activity.id,
+        actingForId
+      )
       setFollowUpClosed(true)
+      reminderClosed = Boolean(closedFollowUp) && !followUpCloseError
       if (followUpCloseError) {
         warnings.push(`Activity logged, but the follow-up couldn't be marked done: ${errorMessage(followUpCloseError)}`)
+      } else if (!closedFollowUp) {
+        warnings.push("Activity logged, but the follow-up wasn't closed — it belongs to someone else.")
       }
     }
 
@@ -609,17 +673,20 @@ function ActivityLog() {
     // real actor, so FollowUpList's "Assigned by {name}" shows correctly when
     // the two differ.
     //
-    // activityType 'architect_meeting' (BDM.md Step 7, owner's ruling: an
-    // architect's next meeting IS a follow-up, exactly like an exec's). It
-    // used to be 'other' on the belief the CHECK refused it; follow_ups'
-    // CHECK has allowed it since migration_architect_meeting.sql. Its
-    // "Log activity & close" then comes back here via ?party=, closing it.
-    if (isArchitectMeeting && resolvedArchitect && nextFollowupDate) {
+    // activityType tags what actually generated this reminder — usually
+    // 'architect_meeting' (BDM.md Step 7, owner's ruling: an architect's next
+    // meeting IS a follow-up, exactly like an exec's), or 'call' for a BDM's
+    // Call logged in architect mode. Either way isArchitectFollowUp() (see
+    // followUpQueries.js) identifies it from the PARTY's type, not this
+    // column, and "Log activity & close" always comes back here via ?party=
+    // regardless of which type is stored — so this only affects how the
+    // reminder is labelled on screen, never how it's closed.
+    if (anchorOnArchitect && resolvedArchitect && nextFollowupDate) {
       const { error: followUpError } = await createFollowUp({
         assignedTo: actingForId,
         createdBy: employee?.id,
         partyId: resolvedArchitect.id,
-        activityType: 'architect_meeting',
+        activityType,
         title: `Follow up with ${resolvedArchitect.name}`,
         // Deliberately does NOT fall back to the activity's own notes. It
         // used to, which meant a rep who left the follow-up note blank got
@@ -652,7 +719,7 @@ function ActivityLog() {
         partyId: selectedLead.party_id ?? null,
         leadId: selectedLead.id,
         activityType,
-        title: `Follow up after ${ACTIVITY_LABELS[activityType] ?? 'activity'}`,
+        title: `Follow up with ${leadLabel(selectedLead)} after ${ACTIVITY_LABELS[activityType] ?? 'activity'}`,
         notes: followupNote.trim() || null,
         dueDate: nextFollowupDate,
       })
@@ -663,7 +730,7 @@ function ActivityLog() {
     }
 
     setSubmitting(false)
-    setResult({ activity, warnings, stageMovedToRfq })
+    setResult({ activity, warnings, stageMovedToRfq, reminderClosed })
   }
 
   if (result) {
@@ -685,7 +752,7 @@ function ActivityLog() {
               </div>
             </div>
           )}
-          {isArchitectMeeting && selectedArchitect && (
+          {anchorOnArchitect && selectedArchitect && (
             <div>
               <div className="vip-fact-label">
                 {selectedArchitect.party_type === 'firm' ? 'Architect firm' : 'Architect'}
@@ -724,6 +791,7 @@ function ActivityLog() {
           <p className="vip-form-note">What you did: {result.activity.work_summary}</p>
         )}
         {result.stageMovedToRfq && <p className="vip-form-note">Stage moved to RFQ Raised.</p>}
+        {result.reminderClosed && <p className="vip-form-note">Reminder closed.</p>}
         {notes && <p className="vip-form-note">Notes: {notes}</p>}
         {result.warnings.map((w) => (
           <p key={w} className="vip-error" role="alert">
@@ -830,6 +898,28 @@ function ActivityLog() {
         ))}
       </div>
 
+      {canAnchorOnArchitect && (
+        <div className="vip-stack-s">
+          <div className="vip-field-label">Who's this call with?</div>
+          <div className="vip-choice-row" role="group" aria-label="Who's this call with?">
+            <button
+              type="button"
+              className={callAnchorMode === 'lead' ? 'vip-choice vip-active' : 'vip-choice'}
+              onClick={() => selectCallAnchorMode('lead')}
+            >
+              A lead
+            </button>
+            <button
+              type="button"
+              className={callAnchorMode === 'architect' ? 'vip-choice vip-active' : 'vip-choice'}
+              onClick={() => selectCallAnchorMode('architect')}
+            >
+              An architect
+            </button>
+          </div>
+        </div>
+      )}
+
       {needsAnchor && (
         <>
           <div className="vip-card-head">
@@ -852,7 +942,7 @@ function ActivityLog() {
         </>
       )}
 
-      {isArchitectMeeting && (
+      {anchorOnArchitect && (
         <>
           <div className="vip-card-head">
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--vip-ink)' }}>Architect</div>
@@ -1102,13 +1192,22 @@ function ActivityLog() {
             </label>
           )}
 
-          {selectedLead && nextStepBlock}
+          {/* anchorSatisfied rather than selectedLead directly — a BDM's Call
+              in architect mode has no selectedLead, but the follow-up block
+              is exactly as relevant once an architect is picked instead. */}
+          {anchorSatisfied && nextStepBlock}
         </>
       )}
 
       {activityType && (
         <>
           {submitError && <p className="vip-error" role="alert">{submitError}</p>}
+          {followUpId && !followUpClosed && !followUpAnchorMatches && (
+            <p className="vip-form-note">
+              This won't close the reminder you came from — it was for a different{' '}
+              {preselectedPartyId ? 'architect' : 'lead'}.
+            </p>
+          )}
 
           <div className="vip-sticky-footer">
             <button className="vip-btn" type="submit" disabled={!canSubmit}>

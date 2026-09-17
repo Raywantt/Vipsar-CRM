@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EmployeeNameLink } from './EmployeeLink'
+import BdmChip from './BdmChip'
 import { ACTIVITY_LABELS } from '../lib/activityTypes'
 import { todayISO, addDays } from '../lib/followupDates'
 import { leadDisplayName, leadNameTier } from '../lib/leadName'
@@ -11,6 +12,7 @@ import {
   isMissed,
   fetchFollowUpHistory,
   isArchitectFollowUp,
+  isCancelBlockedForViewer,
   logActivityPathFor,
 } from '../lib/followUpQueries'
 
@@ -26,6 +28,9 @@ import {
 //   onReopen       (id)              => void      omit to hide
 //   onLogActivity  (followUp)        => void      omit to hide. Rule 4.1 —
 //                  the PRIMARY way a lead-anchored follow-up is completed.
+//   canLogActivityFor (followUp) => boolean       optional per-row gate for
+//                  onLogActivity; pass canCloseByLogging on any list holding
+//                  other people's reminders.
 //   lockedIds      Set<id> that may not be cancelled (Rule 8.2 — an on-hold
 //                  lead's hold review). Reschedule stays available on them.
 //   emptyLabel     string
@@ -98,7 +103,7 @@ const RESCHEDULE_PRESETS = [
   { label: 'Next week', days: 7 },
 ]
 
-function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen, onLogActivity, locked }) {
+function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen, onLogActivity, canLogActivityFor, locked }) {
   const [expanded, setExpanded] = useState(false)
   const [panel, setPanel] = useState(null) // 'cancel' | 'move' | null
   const [reason, setReason] = useState('')
@@ -117,7 +122,9 @@ function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen
   // A lead reminder or an architect reminder (BDM.md Step 7) — the same test
   // that decides where the button navigates, so it's never offered with
   // nowhere to go.
-  const canLogHere = Boolean(onLogActivity) && logActivityPathFor(f) != null
+  const canLogHere =
+    Boolean(onLogActivity) && (canLogActivityFor ? canLogActivityFor(f) : true) && logActivityPathFor(f) != null
+  const cancelBlocked = isCancelBlockedForViewer(viewerId, f)
 
   // Rule 10.2 — fetched lazily, never eagerly for every row in a list.
   async function loadHistory() {
@@ -155,6 +162,7 @@ function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen
             {typeLabel}
             {typeLabel && linkLabel ? ' · ' : ''}
             {linkLabel}
+            <BdmChip bdmEmployeeId={f.leads?.bdm_employee_id} />
           </span>
           {/* Rule 5.8 — a clipped note must look expandable, and the caret
               beside it is the affordance. */}
@@ -260,7 +268,7 @@ function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen
                 Reschedule
               </button>
             )}
-            {open && onCancel && !locked && (
+            {open && onCancel && !locked && !cancelBlocked && (
               <button type="button" className="vip-btn-link" onClick={() => setPanel(panel === 'cancel' ? null : 'cancel')}>
                 Cancel
               </button>
@@ -268,6 +276,11 @@ function FollowUpRow({ f, viewerId, onMarkDone, onCancel, onReschedule, onReopen
             {open && locked && (
               // Rule 8.2 — an on-hold lead always has a live reminder on it.
               <span className="vip-fu-locked-note">Can't be cancelled while the lead is on hold</span>
+            )}
+            {open && onCancel && !locked && cancelBlocked && (
+              <span className="vip-fu-locked-note">
+                Assigned by {f.created_by_employee?.name ?? 'someone else'} — only they can cancel it
+              </span>
             )}
             {!open && onReopen && (
               <button type="button" className="vip-btn-link" onClick={() => onReopen(f.id)}>Reopen</button>
@@ -347,6 +360,7 @@ function FollowUpList({
   onReschedule,
   onReopen,
   onLogActivity,
+  canLogActivityFor,
   lockedIds,
   emptyLabel = 'Nothing here.',
 }) {
@@ -364,6 +378,7 @@ function FollowUpList({
           onReschedule={onReschedule}
           onReopen={onReopen}
           onLogActivity={onLogActivity}
+          canLogActivityFor={canLogActivityFor}
           locked={lockedIds?.has(f.id) ?? false}
         />
       ))}

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import DonutChart from './DonutChart'
 import FollowUpList from './FollowUpList'
 import EmployeeLink from './EmployeeLink'
+import BdmChip from './BdmChip'
 import { createFollowUp } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { todayISO, toISODate } from '../lib/followupDates'
@@ -105,6 +106,7 @@ function AgeRowContent({ r }) {
         <span className="vip-dd-age-head">
           <span className="vip-dd-age-party">{r.party}</span>
           <span className={r.chipClass}>{r.stage}</span>
+          <BdmChip bdmEmployeeId={r.bdmEmployeeId} />
         </span>
         <span className="vip-dd-age-last">{r.last}</span>
       </span>
@@ -301,7 +303,14 @@ function AgeingBody({ panel }) {
     // follow-up on all N" should mean those N, matching what the button
     // itself now says (see the bulk button below, which reads
     // filteredRows.length).
-    const targets = dateSheet === 'bulk' ? filteredRows : rows.filter((r) => r.leadId === dateSheet)
+    const allTargets = dateSheet === 'bulk' ? filteredRows : rows.filter((r) => r.leadId === dateSheet)
+    // Bulk only creates for leads that don't already have one open — the
+    // button's own label counts every filtered row, but silently stacking a
+    // second reminder on a lead that already has one isn't what "set a
+    // follow-up on all N" should do. A single-row "Set date" is a deliberate
+    // per-lead choice, so it skips this check.
+    const targets = dateSheet === 'bulk' ? allTargets.filter((r) => !r.hasOpenFollowUp) : allTargets
+    const skippedCount = allTargets.length - targets.length
     const assignee = panel.viewerEmployeeId
 
     const results = await Promise.all(
@@ -320,10 +329,15 @@ function AgeingBody({ panel }) {
 
     const failed = results.filter((x) => x.error)
     if (dateSheet === 'bulk') {
-      const failedIds = new Set(failed.map((x) => x.leadId))
-      setRows((prev) => prev.filter((r) => failedIds.has(r.leadId)))
-      if (failed.length) {
-        setMessages((m) => ({ ...m, bulk: `${failed.length} of ${targets.length} couldn't be set.` }))
+      const succeededIds = new Set(
+        targets.filter((r) => !failed.some((f) => f.leadId === r.leadId)).map((r) => r.leadId)
+      )
+      setRows((prev) => prev.filter((r) => !succeededIds.has(r.leadId)))
+      const parts = []
+      if (skippedCount) parts.push(`${skippedCount} already had an open reminder`)
+      if (failed.length) parts.push(`${failed.length} couldn't be set`)
+      if (parts.length) {
+        setMessages((m) => ({ ...m, bulk: `Set for ${succeededIds.size} of ${allTargets.length} — ${parts.join('; ')}.` }))
       }
     } else {
       const err = failed[0]?.error
@@ -456,6 +470,8 @@ function AgeingBody({ panel }) {
           </button>
         </div>
       )}
+
+      {messages.bulk && <div className="vip-dd-age-msg">{messages.bulk}</div>}
 
       {panel.queueActions && filteredRows.length > 0 && (
         <button type="button" className="vip-btn" onClick={() => { setDateSheet('bulk'); setDateValue('') }}>
@@ -658,6 +674,7 @@ function PipelineBody({ panel, onDrill }) {
             <Link key={t.leadId} to={`/leads/${t.leadId}`} className="vip-dd-lead-row">
               <span className="vip-dd-lead-party">{t.party}</span>
               <span className={t.chipClass}>{t.stage}</span>
+              <BdmChip bdmEmployeeId={t.bdmEmployeeId} />
               <EmployeeLink id={t.ownerId} name={t.owner} className="vip-dd-lead-owner" />
               <span className="vip-dd-lead-value">{t.value}</span>
               {t.cumulativePct != null && <span className="vip-dd-lead-value">{t.cumulativePct}</span>}
@@ -729,6 +746,7 @@ function StageLeadsBody({ panel }) {
               <Link key={r.leadId} to={`/leads/${r.leadId}`} className="vip-dd-lead-row">
                 <span className="vip-dd-lead-party">{r.party}</span>
                 <span className={r.chipClass}>{r.stage}</span>
+                <BdmChip bdmEmployeeId={r.bdmEmployeeId} />
                 <EmployeeLink id={r.ownerId} name={r.owner} className="vip-dd-lead-owner" />
                 <span className="vip-dd-lead-value">{r.value}</span>
               </Link>
@@ -810,6 +828,7 @@ function ForecastBody({ panel }) {
           <Link key={f.leadId} to={`/leads/${f.leadId}`} className="vip-dd-fc-row">
             <span className="vip-dd-fc-party-col">
               <span className="vip-dd-fc-party">{f.party}</span>
+              <BdmChip bdmEmployeeId={f.bdmEmployeeId} />
               <span className="vip-dd-hint">{f.sub}</span>
             </span>
             <EmployeeLink id={f.ownerId} name={f.owner} className="vip-dd-fc-owner" />
@@ -1120,6 +1139,7 @@ function LossBody({ panel }) {
         {panel.lostLeads.map((l) => (
           <Link key={l.leadId} to={`/leads/${l.leadId}`} className="vip-dd-lead-row">
             <span className="vip-dd-lead-party">{l.party}</span>
+            <BdmChip bdmEmployeeId={l.bdmEmployeeId} />
             <span className="vip-dd-hint">{l.reason}</span>
             <EmployeeLink id={l.ownerId} name={l.owner} className="vip-dd-lead-owner" />
             <span className="vip-dd-lead-value">{l.value}</span>

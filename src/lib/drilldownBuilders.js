@@ -481,6 +481,7 @@ export function buildStageLeadsPanel({ breakdownLeads, stage, scopeLabel = 'Comp
         party: leadDisplayName(l),
         ownerId: l.owner_employee_id ?? null,
         owner: l.employees?.name ?? 'Unassigned',
+        bdmEmployeeId: l.bdm_employee_id ?? null,
         stage: stageLabel(l.current_stage ?? 'calling'),
         chipClass: stageChipClass(l.current_stage ?? 'calling'),
         value: formatCurrencyCompact(dealValueFor(l)),
@@ -549,6 +550,7 @@ function computePipelineScope(leads, stages, breakdownLeads, scopeLabel, noteSuf
       chipClass: stageChipClass(l.current_stage ?? 'calling'),
       ownerId: l.owner_employee_id ?? null,
       owner: l.employees?.name ?? 'Unassigned',
+      bdmEmployeeId: l.bdm_employee_id ?? null,
       value: formatCurrencyCompact(leadValue),
       // Only computed when asked for — a plain top-5 list (every entry
       // point except Concentration) has no "share of total" framing to
@@ -1293,6 +1295,7 @@ export function buildForecastPanel({ forecast, scopeLabel = 'Company' }) {
       sub: stageLabel(l.current_stage ?? 'calling'),
       ownerId: l.owner_employee_id ?? null,
       owner: l.employees?.name ?? 'Unassigned',
+      bdmEmployeeId: l.bdm_employee_id ?? null,
       prob: l.closure_probability != null ? `${l.closure_probability}%` : '—',
       // An unset probability renders as an em-dash — paint it neutral, not
       // the red the old `?? 0` gave it. "Nobody has assessed this lead" is
@@ -1425,6 +1428,7 @@ export function buildLossPanel({ lossReasons }) {
       reason: row.reason ?? 'other',
       ownerId: row.leads?.owner_employee_id ?? null,
       owner: row.leads?.employees?.name ?? 'Unassigned',
+      bdmEmployeeId: row.leads?.bdm_employee_id ?? null,
       value: formatCurrencyCompact(row.leads?.order_value ?? row.leads?.quote_value ?? 0),
       date: row.lost_at ? new Date(row.lost_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—',
     }))

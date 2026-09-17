@@ -18,6 +18,7 @@ import { formatCurrencyCompact } from '../lib/format'
 import NumPadInput from './NumPadInput'
 import { dealValueOrNull } from '../lib/pipelineValue'
 import EmployeeLink from './EmployeeLink'
+import BdmChip from './BdmChip'
 import { isPoolLead } from '../lib/poolLeads'
 import { errorMessage } from '../lib/errorMessage'
 import { leadDisplayName, leadSiteLabel } from '../lib/leadName'
@@ -644,7 +645,10 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
                 return (
                   <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-lead-row">
                     <div className="vip-lead-row-main">
-                      <div className="vip-lead-row-party">{partyLabel(lead)}</div>
+                      <div className="vip-lead-row-party">
+                        {partyLabel(lead)}
+                        <BdmChip bdmEmployeeId={lead.bdm_employee_id} />
+                      </div>
                       {/* Both stages ride as tags, matching the two stage
                           columns on desktop — the site stage was originally
                           folded into the text line below, where a long site
@@ -701,7 +705,10 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
               const siteStage = lead.sites?.site_stage
               return (
                 <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-leadrow vip-clickable">
-                  <span className="vip-leadrow-cell vip-leadrow-party">{partyLabel(lead)}</span>
+                  <span className="vip-leadrow-cell vip-leadrow-party">
+                    {partyLabel(lead)}
+                    <BdmChip bdmEmployeeId={lead.bdm_employee_id} />
+                  </span>
                   <span className="vip-leadrow-cell">{siteLabel(lead)}</span>
                   <span className="vip-leadrow-cell">
                     {/* A pool lead only reaches this list on a BDM's My Leads

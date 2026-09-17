@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { formatCurrencyCompact } from '../lib/format'
 import EmployeeLink from './EmployeeLink'
+import BdmChip from './BdmChip'
 import { leadDisplayName } from '../lib/leadName'
 
 function formatDate(value) {
@@ -50,7 +51,10 @@ function ClosureForecastCard({ leads, onOpenPanel, maxRows = DEFAULT_MAX_ROWS })
               }}
             >
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-                <div className="vip-row-title">{leadDisplayName(lead)}</div>
+                <div className="vip-row-title">
+                  {leadDisplayName(lead)}
+                  <BdmChip bdmEmployeeId={lead.bdm_employee_id} />
+                </div>
                 <div className="vip-row-value">{formatCurrencyCompact(lead.quote_value)}</div>
               </div>
               <div className="vip-bar-row">

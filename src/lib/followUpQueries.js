@@ -1,6 +1,8 @@
 import { supabase } from './supabaseClient'
 import { todayISO } from './followupDates'
 import { fetchAllRows } from './fetchAllRows'
+import { formatDateShort } from './format'
+import { canLogActivity, logsActivityOnBehalf } from './roles'
 
 // THE one module that reads or writes follow_ups. See FOLLOWUPS.md (repo
 // root) for the rules this implements; rule numbers below refer to it.
@@ -41,7 +43,7 @@ const FOLLOW_UP_SELECT =
   'due_date, due_time, status, is_done, done_at, cancelled_at, cancel_reason, ' +
   'completed_by_activity_id, created_at, ' +
   'parties(name, mobile, party_type), ' +
-  'leads(id, current_stage, parties!party_id(name, mobile), sites(nickname, locality, house_no)), ' +
+  'leads(id, current_stage, bdm_employee_id, parties!party_id(name, mobile), sites(nickname, locality, house_no)), ' +
   'created_by_employee:employees!created_by(name), ' +
   'assigned_to_employee:employees!assigned_to(name)'
 
@@ -91,16 +93,55 @@ export function logActivityPathFor(f) {
   return null
 }
 
+// Whether "Log activity & close" is offered to this viewer on this row. The
+// activity is credited to whoever logs it, so a viewer may only close a
+// reminder that is theirs — except a coordinator, whose Log Activity logs in
+// the exec's name. Without the assignee test a manager on the team list
+// closed a rep's reminder with an activity credited to the manager.
+export function canCloseByLogging(viewer, f) {
+  if (!viewer || !canLogActivity(viewer.role)) return false
+  return f.assigned_to === viewer.id || logsActivityOnBehalf(viewer.role)
+}
+
+// The owner's ruling (2026-09-16): a reminder someone else assigned can't be
+// cancelled by the person it was assigned to. The database enforces the same
+// rule (Schema/migration_followups_cancel_rules.sql); this only hides the button.
+export function isCancelBlockedForViewer(viewerId, f) {
+  return viewerId != null && f.assigned_to === viewerId && f.created_by != null && f.created_by !== f.assigned_to
+}
+
+// Open first, then done, then cancelled; soonest due first within each.
+const STATUS_RANK = { open: 0, done: 1, cancelled: 2 }
+export function compareFollowUps(a, b) {
+  const rank = (STATUS_RANK[a.status] ?? 3) - (STATUS_RANK[b.status] ?? 3)
+  if (rank !== 0) return rank
+  if (a.due_date !== b.due_date) return a.due_date < b.due_date ? -1 : 1
+  return a.id - b.id
+}
+
+// Said after a save by any list that won't show the new row — Today lists only
+// what's due now, and a team panel lists none of the assignee's reminders.
+export function reminderSavedMessage(row, assigneeName = null) {
+  const when = formatDateShort(row.due_date)
+  if (assigneeName) return `Reminder assigned to ${assigneeName} for ${when}.`
+  if (row.due_date <= todayISO()) return 'Reminder saved.'
+  return `Reminder saved for ${when}. It will show here on the day.`
+}
+
 // ---------- reads ----------
 
 // Every follow-up assigned to this employee, any status. Callers filter.
+//
+// status DESCENDING is deliberate: the values sort alphabetically, so
+// ascending put cancelled and done ahead of open and buried the live reminders
+// behind "+N more". Descending is open → done → cancelled (compareFollowUps).
 export function fetchFollowUpsForEmployee(employeeId) {
   return fetchAllRows(() =>
     supabase
       .from('follow_ups')
       .select(FOLLOW_UP_SELECT, { count: 'exact' })
       .eq('assigned_to', employeeId)
-      .order('status', { ascending: true })
+      .order('status', { ascending: false })
       .order('due_date', { ascending: true })
   )
 }
@@ -129,7 +170,7 @@ export function fetchFollowUpsForLead(leadId) {
       .from('follow_ups')
       .select(FOLLOW_UP_SELECT, { count: 'exact' })
       .eq('lead_id', leadId)
-      .order('status', { ascending: true })
+      .order('status', { ascending: false })
       .order('due_date', { ascending: true })
   )
 }
@@ -238,13 +279,19 @@ export function createFollowUp({ assignedTo, createdBy, partyId, leadId, activit
 //
 // done_at is stamped by the database trigger, not here, so it can never
 // disagree with the status it describes.
-export function markFollowUpDone(id, activityId = null) {
-  return supabase
+//
+// `onlyIfAssignedTo` makes the close conditional on who holds the reminder;
+// it then resolves `data: null` (not an error) when the row belongs to
+// someone else, so the caller can say so.
+export function markFollowUpDone(id, activityId = null, onlyIfAssignedTo = null) {
+  let query = supabase
     .from('follow_ups')
     .update({ status: FOLLOW_UP_DONE, completed_by_activity_id: activityId })
     .eq('id', id)
-    .select(FOLLOW_UP_SELECT)
-    .single()
+  if (onlyIfAssignedTo != null) {
+    return query.eq('assigned_to', onlyIfAssignedTo).select(FOLLOW_UP_SELECT).maybeSingle()
+  }
+  return query.select(FOLLOW_UP_SELECT).single()
 }
 
 // Rule 2.1 — the third state. A reason is REQUIRED, enforced by a CHECK

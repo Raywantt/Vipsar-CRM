@@ -122,7 +122,7 @@ src/
                 EmployeeSearchSelect, the four LeadDetail *Section components
                 (Sales progress / Site details / Client details / Contacts),
                 LeadQuickActions, LeadStageSection, LeadActivityTimeline,
-                EmployeeLink, DateRangeSelector, the Dashboard cards
+                EmployeeLink, BdmChip, DateRangeSelector, the Dashboard cards
                 (ActivityCountsCard, LeadsBySourceCard, ClosureForecastCard,
                 TargetsVsActualsCard, SetTargetForm, LeadsListCard,
                 LeadsByCategoryCard, SalesFunnelCard, LossReasonsCard,
@@ -132,8 +132,8 @@ src/
                 DayKpiStrip), AddEmployeeForm, ManageEmployeesSection,
                 DeletePartySection, ChangePasswordForm, InstallPrompt,
                 NotificationPrompt, OfflineIndicator, UpdateBanner,
-                FollowUpForm, FollowUpList, FabSheet, AssignedLeadsCard,
-                NumPadInput, TodayGreetingHeader, TeamTodayPanel,
+                FollowUpForm, FollowUpList, LeadFollowUpsCard, FabSheet,
+                AssignedLeadsCard, NumPadInput, TodayGreetingHeader, TeamTodayPanel,
                 FollowUpsCard, ShowMoreRows, ErrorBoundary, PeriodPicker,
                 PipelineByStageCard,
                 BDM: BdmPoolCard, BdmUpdatesLine, BdmLeadUpdateCards,
@@ -150,7 +150,7 @@ src/
   contexts/     AuthContext (session + employee lookup);
                 HeaderContext (dynamic {title, sub} override for AppNav)
   hooks/        useOnlineStatus.js, useIsMobile.js (the 1024px breakpoint as
-                a JS boolean), useBdmPeriodRows.js
+                a JS boolean), useBdmPeriodRows.js, useBdmRoster.js
   lib/          supabaseClient.js, supabaseFetch.js, queryCache.js,
                 fetchAllRows.js, sanitizeForIlike.js, errorMessage.js,
                 format.js, dbTime.js, initials.js, theme.js, roles.js,
@@ -306,6 +306,29 @@ different bugs, so do both**.
   already a `<Link>` (a nested anchor is invalid HTML and breaks the outer
   click target); it navigates via `useNavigate` + `stopPropagation`. Use a
   plain `<Link>` anywhere there's no outer link to nest inside.
+* **`BdmChip`** — a small `.vip-role-tag` badge (the same style Day Review's
+  "MGR" tag uses) marking which BDM brought a lead in, dropped in beside a
+  lead's name wherever one renders company-wide: All Leads, Search, Lead
+  Detail, every Follow-ups surface, Home's Closing Next, the Sales Exec
+  Profile's Leads assigned, Closure forecast, and every lead-row list inside
+  `DrilldownPanel` (Needs Attention, stale leads, pipeline-by-stage,
+  top-leads-by-value, loss reasons). Deliberately **every role**, not
+  owner/BDM-gated like the rest of the BDM feature — the owner's ruling was
+  that anyone who can already see the lead should see this too. Renders
+  nothing for a lead with no `bdm_employee_id`. Fetches its own roster
+  (`useBdmRoster`, wrapping the now-`cachedQuery`-wrapped `fetchActiveBdms`)
+  rather than taking one as a prop, since the row renderers it sits inside
+  are nested several components deep in places (`Dashboard` →
+  `DrilldownPanel` → `AgeingBody`, for one) — threading a prop through every
+  intermediate layer would have touched far more files than the badge
+  itself, and the cached roster means many chips on one screen still cost
+  one request. **Known gap:** `leads_needing_attention()` doesn't return
+  `bdm_employee_id` yet, so Needs Attention and the Stale-leads drill-down
+  show no chip until `migration_needs_attention_bdm_chip.sql` is run (see
+  Outstanding migrations); three smaller RPC-backed panels (follow-up gap,
+  on-hold insights, data completeness) and Home's "Today's activity" recap
+  (which composes the lead name into one text string rather than a separate
+  field) were left uncovered on the same reasoning.
 * **KPI figures compute from data the page already fetched** — no new
   queries. Home's KPI grid and Dashboard's KPI band both reuse
   `computeOrderValueActuals` (exported from `TargetsVsActualsCard.jsx`) for
@@ -1220,6 +1243,40 @@ Dashboard (its only mobile path since Home's tile grid was removed).
 > (`followUpQueries.js`, THE one builder for that link) sends it to
 > `/activity?type=architect_meeting&party=<id>&followup=<id>`, and Architect
 > Meeting's Next follow-up saves `activity_type = 'architect_meeting'`.
+>
+> **Owner's rulings, 2026-09-16** (all in `followUpQueries.js`):
+> - **"Log activity & close" only on a reminder the viewer may close by
+>   logging** — `canCloseByLogging`: their own, or any team row for a
+>   coordinator (who logs in the exec's name). Never an owner (no
+>   `/activity`), never a manager on a rep's reminder (the activity would be
+>   credited to the manager). Any list holding other people's reminders
+>   passes it as `FollowUpList`'s `canLogActivityFor`. `ActivityLog` also
+>   closes `?followup=` only if it's assigned to the credited employee.
+> - **The assignee can't cancel a reminder someone else assigned**
+>   (`isCancelBlockedForViewer`; they can still complete or reschedule it).
+>   The real boundary is a trigger in `migration_followups_cancel_rules.sql`.
+> - **Winning or losing a lead cancels its open reminders** (same migration),
+>   reason "Lead marked won/lost". Reopening the lead doesn't reopen them.
+> - `?followup=` closes the reminder **only if the activity is on the same
+>   lead (`?lead=`) or architect (`?party=`)** — `followUpAnchorMatches` in
+>   `ActivityLog`, with a note before saving and a warning after when it
+>   won't. A real close says "Reminder closed." on the success card.
+> - **Taking a lead off hold cancels its open hold review** ("Lead taken off
+>   hold"), same trigger as won/lost. The hold review is still identified by
+>   `activity_type = 'other'` + title `On hold%`, in both the trigger and
+>   Lead Detail's `holdReview`; change one, change both.
+> - **Lead Detail lists the lead's reminders** (`LeadFollowUpsCard`, main
+>   column between Products in scope and Remarks — owner's placement):
+>   open ones with every action, closed ones behind "Show closed (N)", no
+>   card at all when there are none. Its "Log activity & close" is gated on
+>   `canLogActivityHere && canCloseByLogging`. Every write goes back through
+>   `handleFollowUpSaved`, which upserts and re-derives the lead's date.
+> - "on hold · resumes {date}" reads **the hold review's** due date, not
+>   `leads.next_followup_date` (the earliest of *any* open reminder).
+> - A list that won't show a just-saved reminder (Today screens, the team
+>   panel) says so with `reminderSavedMessage`.
+> - `status` is fetched **descending** (open → done → cancelled);
+>   `compareFollowUps` is the same order client-side.
 
 `follow_ups` (self-service reminders, not tied to logging an activity) plus
 `push_subscriptions` (one row per browser/device). Required: due date and a
@@ -1420,7 +1477,11 @@ rep logging a Site Visit then a Call against one lead is the common case.
 **Party is not a fallback anchor.** Site Visit and Booking Update used to
 accept "lead, party, or both", which silently hid Next follow-up / Order
 value / Site stage — all of which write onto a lead — with no way to fill
-them in. `activities.party_id` is now only ever set for Architect Meeting.
+them in. `activities.party_id` is now only ever set for Architect Meeting —
+**and, narrowly, for a BDM's Call** (see the Business Development Manager
+role section's `canAnchorOnArchitect`). Every other type, and every other
+role on Call, stays lead-only — this is a role-gated exception, not a
+reopening of the old rule.
 
 #### Per-type fields
 
@@ -1555,10 +1616,17 @@ open), so **scope it once at that fetch** and let the Day Review table, the
 per-exec breakdowns and All Leads' owner filter follow. Don't re-add a
 per-consumer role check.
 
-**No in-page tab buttons.** `activeTab` (`'reports' | 'leads'`) is driven
-purely by `?tab=` — `?tab=leads` reaches All Leads, anything else means
-Reports. `LeadsListCard` fetches independently of the Reports effects, since
-it isn't date-range-scoped.
+**No in-page tab buttons.** `activeTab` (`'reports' | 'leads' | 'followups'`)
+is driven purely by `?tab=` — `?tab=leads` reaches All Leads, `?tab=followups`
+the Follow-ups tab, anything else means Reports. `LeadsListCard` fetches
+independently of the Reports effects, since it isn't date-range-scoped.
+
+**Reports-only fetches are gated on `wantsReports`**, a latch set the first
+time Reports is actually shown (read off `searchParams`, since `activeTab` is
+still `'reports'` on the first render). Before, `?tab=followups` fired every
+Reports query too, and the manager's Follow-ups query timed out in the crowd.
+`fetchLeadsForBreakdown` has its own `wantsBreakdown` latch because the Leads
+tab's header reads it. **A new Reports fetch effect must check `wantsReports`.**
 
 **A `sales_manager` gets a page-level My / Team switch**, defaulting to My,
 applied **once** to the fetched rows (`all*` state + scoped `useMemo`s) rather
@@ -2360,6 +2428,19 @@ locked decisions; **don't reverse one without asking.**
   (`architectStats.js`, every architect figure). Keep the two in step. **An architect's next
   meeting is an ordinary follow-up** (owner's ruling, Step 7): no outcome
   field, no scheduled-meeting concept, "Log activity & close" as for a lead.
+* **Log Activity's Call can anchor on an architect instead of a lead**
+  (2026-09-17) — a "Who's this call with? / A lead / An architect" toggle
+  (`canAnchorOnArchitect` in `ActivityLog.jsx`), BDM-only: the plain lead
+  picker is often empty for this role, since a BDM's day-to-day relationship
+  is with architects, not owned leads. In architect mode it reuses Architect
+  Meeting's own anchor path verbatim — same `PartySearchOrCreate`, same Firm
+  field (`showFirmField`), same party-anchored "Next follow-up" — but writes
+  `activity_type = 'call'` with `party_id` set and `lead_id` null, **not**
+  forced to `'architect_meeting'`; `anchorOnArchitect` is `true` for either
+  case and is what every Architect-Meeting-only check (`showFirmField`,
+  `needsAnchor`, the party insert, the follow-up's `activityType`) now reads
+  instead of the literal type. Deliberately narrow to Call — see "Party is
+  not a fallback anchor" above.
 * **Architect profile (`/architects/:id`) opens for every role**; every figure
   is what the viewer's RLS returns, and anyone but the owner is told so.
 * **Targets.** `BDM_METRIC_OPTIONS` (`bdm_architect_meetings`,
@@ -2377,6 +2458,10 @@ locked decisions; **don't reverse one without asking.**
   with a BDM filter, sortable, all-time figures, pool leads excluded). The owner
   moves an architect between portfolios **one at a time** from the profile's
   "Change" control, which restarts the 14-day clock.
+* **Which BDM brought a lead in is visible everywhere that lead is**, not
+  just on BDM/owner screens — see `BdmChip` under Design system's Universal
+  linking. Every role sees it; the owner's ruling was that a lead's rep,
+  coordinator or manager should be able to tell at a glance too.
 * **`validate_employee_role_assignment()`**: a BDM carries no
   `coordinator_id`/`manager_id`, and **can't be deactivated or demoted while
   any architect is tagged to them** (hard block).
@@ -2601,7 +2686,11 @@ with no error. The layered order is:
 3. `migration_sales_coordinator.sql` → `migration_coordinator_entry.sql`
 4. `migration_lead_edit_rights.sql`
 5. `migration_sales_manager.sql`
-6. `migration_rls_performance_*.sql`
+6. `migration_rls_performance_*.sql` (including
+   `migration_rls_performance_follow_ups.sql`, which rewrites every
+   `follow_ups` policy from `rls_policies.sql`, the coordinator and the
+   manager migrations, and `migration_rls_performance_team_select.sql`,
+   which must run after `migration_rls_performance_leads_stage_history.sql`)
 7. `migration_manager_reassign_any_employee.sql`,
    `migration_architects_universal_visibility.sql`
 8. `migration_bdm_role.sql` → `migration_bdm_handoff.sql`
@@ -2667,6 +2756,10 @@ removing your own login.
 
 ### Outstanding migrations
 
+* **Re-run `migration_followups_cancel_rules.sql`** (changed 2026-09-16,
+  after its first run). `cancel_follow_ups_on_lead_close()` gained the
+  off-hold branch; the file also cancels any hold review left open on a lead
+  no longer on hold (none existed when written). Safe to re-run whole.
 * **`migration_manager_reassign_any_employee.sql`** — lets a manager reassign
   a lead they can already reach to **any** active exec, not just their own
   team. **Deliberately narrow — no visibility change**: only the `WITH CHECK`
@@ -2677,6 +2770,45 @@ removing your own login.
   clauses are OR'd across every applicable policy regardless of which one's
   USING matched, so an unconditional `true` would hand every other role the
   same unrestricted right.
+* **`migration_needs_attention_bdm_chip.sql`** (new, 2026-09-17, not yet
+  run) — adds `bdm_employee_id` to `leads_needing_attention()`'s output, so
+  `BdmChip` has something to read on Needs Attention and the Stale-leads
+  drill-down. Layered on top of `migration_bdm_handoff.sql`'s **current**
+  body, pool-exclusion clause included — DROP+CREATE, not `CREATE OR
+  REPLACE`, since adding an output column is a return-type change Postgres
+  won't do in place (same reasoning as `migration_stale_7day_tile.sql`).
+  **If `migration_bdm_handoff.sql` is ever re-run after this, re-run this
+  file again immediately after** — its `CREATE OR REPLACE` would silently
+  drop the new column, same class of trap as every other RPC-layering
+  warning in this section. Fails soft until run: those two surfaces just
+  show no chip, nothing errors.
+
+**Ran and verified live 2026-09-16:**
+
+* **`migration_followups_cancel_rules.sql`** — triggers only. An assignee
+  can't cancel a reminder someone else assigned (a real exec session got
+  42501 with a readable message; rescheduling still worked, and the
+  assigning coordinator could cancel). Won/lost cancels a lead's open
+  reminders, reason "Lead marked won/lost"; its one-time pass cancelled the 7
+  that were open on closed leads. The won/lost trigger itself was not fired
+  live — marking a lead won writes append-only `stage_history`.
+* **`migration_rls_performance_follow_ups.sql`** — no behaviour change.
+  Hoists the helper calls and replaces the per-row
+  `is_my_team_member`/`is_my_managed_member` with id lists computed once
+  (`my_team_member_ids()`/`my_managed_member_ids()`). The leads recipe (a
+  role guard) doesn't help the role the guard names, which is why a manager
+  still paid per row. `select id from follow_ups` went from 0.8–1.2 s to
+  ~130 ms for exec / coordinator / manager, each still seeing the same 5
+  rows.
+* **`migration_rls_performance_team_select.sql`** — no behaviour change.
+  The same id-list swap for the four team READ policies on `leads` and
+  `stage_history` (`coordinator_team_select`, `manager_team_select`); write
+  policies untouched. Manager / coordinator: `leads` 1.0–1.2 s → ~130 ms,
+  `stage_history` ~1 s (spikes to 27 s) → ~130 ms, same ids as before.
+  **Still slow for a manager on their Reports page, not yet investigated:**
+  the `activities` reads (1.2–3.8 s), `leads_needing_attention` (2.5 s) and
+  `loss_reasons` (1.1 s). Likely the same per-row team check (their policies
+  weren't in this pass), but unmeasured.
 
 **Confirmed live since (2026-09-15), no longer outstanding:**
 `migration_architects_universal_visibility.sql` (`migration_bdm_role.sql`
@@ -3067,6 +3199,30 @@ Deliberately deferred, not forgotten. Full detail in `PHASE9_LOG.md`.
 5. **BDM, unexercised:** the 24-hour pool nudge (needs a day-old pool lead),
    any BDM/rep push arriving on a real phone, and a coordinator or manager
    completing an architect follow-up (same code path as a rep's).
+6. **On-hold leads with no live reminder** — 71 of 111 on 2026-09-16 (69 of
+   them with no hold reason either, mostly legacy imports). On-hold leads are
+   excluded from the stale bucket and have no `next_followup_date`, so these
+   sit on no attention list. The owner's call: **leave the data as is** for
+   now. Related, still unbuilt: the on-hold "can't cancel" lock
+   (`FollowUpList`'s `lockedIds`) is never supplied by any caller, so a hold
+   review can still be cancelled by hand.
+7. **Follow-ups audit leftovers (2026-09-16):** BDM pool-lead reminders
+   probably move to the rep on assignment (`reassign_open_follow_ups`,
+   contradicting `BDM.md`; unverified live); overdue pushes repeat daily
+   with no cap and the sender's fetch isn't paged; ~~generic titles~~
+   **partly fixed 2026-09-16:** `ActivityLog`'s lead-anchored "Next
+   follow-up" now writes "Follow up with {lead} after {activity}"
+   (`leadLabel(selectedLead)`); the bulk queue's own `createFollowUp` call
+   (`DrilldownPanel.jsx`'s `handleSaveDate`) still writes the bare
+   `'Follow up'` — untouched; `activity_type` meaning two things; 58% of
+   completions with no activity; reschedule escaping "missed"; two
+   different "overdue" counts; logging from Lead Detail doesn't offer to
+   close a due reminder (**considered and declined** — the per-row "Log
+   activity & close" on the Follow-ups card already covers it, and
+   `FOLLOWUPS.md` Rule 4.5 already reversed a near-identical feature once);
+   ~~bulk "Set a follow-up on all N" has no duplicate check~~ **closed
+   2026-09-16:** skips a lead that already has one open and reports the
+   skip count ("Set for 4 of 5 — 1 already had an open reminder").
 
 ## Roadmap
 

@@ -7,10 +7,11 @@ import { periodForPreset } from '../lib/targetPeriods'
 import { fetchActivityCounts, fetchDecidedStageHistory, fetchLastActivityPerLead, fetchLeadsForBreakdown, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
 import { fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
-import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp } from '../lib/followUpQueries'
+import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp, compareFollowUps } from '../lib/followUpQueries'
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeStale7Bucket, STALE_DAYS, ATTENTION_DAYS, staleGateDays, buildLastStageChangeByLead } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
+import BdmChip from '../components/BdmChip'
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
 import { stageChipClass, attainmentTone } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
@@ -831,7 +832,10 @@ function EmployeeProfile() {
                       <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-dd-age-row">
                         <span className="vip-dd-age-bar" style={{ background: touchColor(days, gate) }} />
                         <span className="vip-dd-age-main">
-                          <span className="vip-dd-age-party">{leadTitle(lead)}</span>
+                          <span className="vip-dd-age-head">
+                            <span className="vip-dd-age-party">{leadTitle(lead)}</span>
+                            <BdmChip bdmEmployeeId={lead.bdm_employee_id} />
+                          </span>
                           <span className="vip-dd-age-last">{[leadSiteLabel(lead), stageLabel(lead.current_stage ?? 'calling')].filter(Boolean).join(' · ')} · {nextStep}</span>
                         </span>
                         <span className="vip-dd-age-side">
@@ -958,9 +962,9 @@ function EmployeeProfile() {
                     assignedTo={execId}
                     createdBy={viewer.id}
                     onSaved={(row) => {
-                      setFollowUps((prev) => [...prev, row])
-                      // A follow-up just assigned right here must be visible
-                      // without also having to tap "+N more" for it.
+                      // Sorted in, not appended: open rows lead the list, so
+                      // the new one lands inside the visible slice.
+                      setFollowUps((prev) => [...prev, row].sort(compareFollowUps))
                       setVisibleFollowUps((v) => v + 1)
                       setAddingFollowUp(false)
                     }}

@@ -47,7 +47,7 @@ export async function searchAll(term, { includePool = false } = {}) {
     const { data } = await applyPoolExclusion(
       supabase
         .from('leads')
-        .select('id, current_stage, parties!party_id(name), sites(nickname, locality, house_no)')
+        .select('id, current_stage, bdm_employee_id, parties!party_id(name), sites(nickname, locality, house_no)')
         .or(orParts.join(','))
         .limit(20),
       includePool

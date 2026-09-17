@@ -249,6 +249,15 @@ function toRow(lead, age, lastDescription) {
     value: leadValue(lead),
     ownerId: lead.owner_employee_id ?? null,
     owner: lead.employees?.name ?? 'Unassigned',
+    // Rule 1.2 — next_followup_date is trigger-derived from this lead's OPEN
+    // follow_ups, so "has one" is a free read, not a new query. Lets a bulk
+    // queue action (buildAgeingPanel's ageRows below) skip a lead that
+    // already carries a live reminder instead of stacking a second one.
+    hasOpenFollowUp: lead.next_followup_date != null,
+    // For BdmChip (src/components/BdmChip.jsx) — which BDM brought this
+    // lead in, if any. null on the RPC path until
+    // migration_needs_attention_bdm_chip.sql has been run.
+    bdmEmployeeId: lead.bdm_employee_id ?? null,
   }
 }
 
@@ -421,6 +430,10 @@ export function computeStale7BucketFromRpc(rpcRows) {
       owner_employee_id: r.owner_id,
       parties: { name: r.party },
       employees: { name: r.owner_name },
+      // So toRow()'s hasOpenFollowUp/bdmEmployeeId read real data here too,
+      // not undefined.
+      next_followup_date: r.next_followup_date ?? null,
+      bdm_employee_id: r.bdm_employee_id ?? null,
     }
     const lastActivityAt = r.last_activity_at ?? null
     const lastStageChangeAt = r.last_stage_change_at ?? null
@@ -537,6 +550,10 @@ export function computeAttentionBucketsFromRpc(rpcRows) {
       owner_employee_id: r.owner_id,
       parties: { name: r.party },
       employees: { name: r.owner_name },
+      // So toRow()'s hasOpenFollowUp/bdmEmployeeId read real data here too,
+      // not undefined.
+      next_followup_date: r.next_followup_date ?? null,
+      bdm_employee_id: r.bdm_employee_id ?? null,
     }
 
     if (r.is_stale) {
@@ -676,6 +693,8 @@ export function buildAgeingPanel(
       // owner.
       ownerId: r.ownerId,
       owner: r.owner,
+      hasOpenFollowUp: r.hasOpenFollowUp,
+      bdmEmployeeId: r.bdmEmployeeId,
     })),
   }
 }

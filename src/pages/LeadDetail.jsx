@@ -14,7 +14,9 @@ import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchAreas, fetchProducts } from '../lib/lookupQueries'
 import { fetchAllRows } from '../lib/fetchAllRows'
 import { fetchLeadOwnerHistory } from '../lib/leadOwnerHistory'
-import { fetchFollowUpsForLead, FOLLOW_UP_OPEN } from '../lib/followUpQueries'
+import LeadFollowUpsCard from '../components/LeadFollowUpsCard'
+import BdmChip from '../components/BdmChip'
+import { fetchFollowUpsForLead, FOLLOW_UP_OPEN, compareFollowUps } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { materializePartyDraft } from '../lib/partyQueries'
 import { leadAddress, leadDisplayName, leadSiteLabel } from '../lib/leadName'
@@ -809,15 +811,18 @@ function LeadDetail() {
   // the soonest one: a lead can carry several at once (Rule 3.1), so blindly
   // taking the newly-saved date would make this screen disagree with the
   // database whenever an earlier reminder already existed.
+  //
+  // Also receives every write from the Follow-ups card (done, cancel,
+  // reschedule, reopen), so it upserts rather than appends.
   function handleFollowUpSaved(followUp) {
-    setLeadFollowUps((prev) => [...prev, followUp])
-    setLead((prev) => {
-      const earliest = [...leadFollowUps, followUp]
-        .filter((f) => f.status === FOLLOW_UP_OPEN)
-        .map((f) => f.due_date)
-        .sort()[0] ?? null
-      return { ...prev, next_followup_date: earliest }
-    })
+    const next = (
+      leadFollowUps.some((f) => f.id === followUp.id)
+        ? leadFollowUps.map((f) => (f.id === followUp.id ? followUp : f))
+        : [...leadFollowUps, followUp]
+    ).sort(compareFollowUps)
+    setLeadFollowUps(next)
+    const earliest = next.filter((f) => f.status === FOLLOW_UP_OPEN).map((f) => f.due_date).sort()[0] ?? null
+    setLead((prev) => ({ ...prev, next_followup_date: earliest }))
   }
 
   // ONE props object, spread into BOTH LeadQuickActions mounts (the desktop
@@ -862,6 +867,7 @@ function LeadDetail() {
           <div className="vip-profile-id-meta">
             <div className="vip-profile-name-row">
               <h2 className="vip-profile-name">{leadTitle}</h2>
+              <BdmChip bdmEmployeeId={lead.bdm_employee_id} />
               <span className="vip-pill" style={{ background: statusStyle.bg, color: statusStyle.fg }}>{statusLabel}</span>
               {healthLabel && (
                 <span className="vip-pill" style={{ background: healthStyle.bg, color: healthStyle.fg }}>{healthLabel}</span>
@@ -908,7 +914,7 @@ function LeadDetail() {
             {isWon
               ? `closed won · ${shortDate(wonAt) ?? ''}`
               : isOnHold
-                ? `on hold · resumes ${shortDate(lead.next_followup_date) ?? 'no date set'}`
+                ? `on hold · resumes ${shortDate(holdReview?.due_date) ?? 'no date set'}`
                 : `stage ${currentIdx + 1} of ${displayStages.length}${daysInPipeline != null ? ` · ${daysInPipeline}d in pipeline` : ''}`}
           </span>
         </div>
@@ -1027,6 +1033,13 @@ function LeadDetail() {
           </div>
         )}
       </div>
+
+      <LeadFollowUpsCard
+        followUps={leadFollowUps}
+        viewer={employee}
+        canLogHere={canLogActivityHere}
+        onChanged={handleFollowUpSaved}
+      />
 
       <LeadRemarks leadId={id} employeeId={employee?.id} canAdd={canEdit} />
 

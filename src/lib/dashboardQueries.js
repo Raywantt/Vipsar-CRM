@@ -218,7 +218,7 @@ export function fetchClosureForecast(includePool = false) {
             // nickname). Without it this card printed a bare '(no party)' for a
             // lead carrying a perfectly good address — the join is on the
             // indexed leads.site_id FK, on a query already embedding two others.
-            'id, current_stage, quote_value, closure_probability, estimated_close_date, owner_employee_id, parties!party_id(name), sites(nickname, locality, house_no), employees!owner_employee_id(name)',
+            'id, current_stage, quote_value, closure_probability, estimated_close_date, owner_employee_id, bdm_employee_id, parties!party_id(name), sites(nickname, locality, house_no), employees!owner_employee_id(name)',
             { count: 'exact' }
           )
           .not('current_stage', 'in', '(won,lost)')

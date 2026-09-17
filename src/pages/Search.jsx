@@ -11,6 +11,7 @@ import { isBdm } from '../lib/roles'
 import { portfolioTag } from '../lib/architectStats'
 import { useAuth } from '../contexts/AuthContext'
 import EmployeeLink from '../components/EmployeeLink'
+import BdmChip from '../components/BdmChip'
 
 const SEARCH_DEBOUNCE_MS = 350
 
@@ -212,7 +213,10 @@ function Search() {
           {results.leads.map((lead) => (
             <Link key={lead.id} to={`/leads/${lead.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
               <div className="vip-row-main">
-                <div className="vip-row-title">{leadTitle(lead)}</div>
+                <div className="vip-row-title">
+                  {leadTitle(lead)}
+                  <BdmChip bdmEmployeeId={lead.bdm_employee_id} />
+                </div>
               </div>
               <span className={stageChipClass(lead.current_stage ?? 'calling')}>{stageLabel(lead.current_stage ?? 'calling')}</span>
             </Link>
