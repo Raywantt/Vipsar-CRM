@@ -7,6 +7,7 @@ import { ACTIVITY_LABELS } from './activityTypes'
 import { SOURCE_TYPE_LABELS } from './sourceTypeOptions'
 import { TONE_GOOD, TONE_BAD, TONE_NEUTRAL, TONE_WON } from './statusColors'
 import { leadDisplayName, leadNameTier, leadSiteLabel } from './leadName'
+import { roleLabel } from './roles'
 
 // Pure shaping for the Day Review — takes the raw rows fetched by
 // dayReviewQueries.js and produces the per-exec table rows, the team totals,
@@ -380,10 +381,18 @@ export function buildDaySheetPanel({ employee, data, dateISO, isPast, changesUna
   return {
     kind: 'daySheet',
     employeeId: employee.id,
+    // Read by DrilldownPanel's "Open full profile →" link — a BDM has no
+    // /employees/:id page at all (App.jsx's canOpenEmployeeProfiles gate), so
+    // that link must not render on a BDM's own day sheet.
+    employeeRole: employee.role,
     avatar: getInitials(employee.name),
     eyebrow: `Day sheet · ${dateLabel}`,
     title: employee.name,
-    note: [employee.role === 'owner' ? 'Owner' : 'Sales Executive', employee.office_location, workedSpan].filter(Boolean).join(' · '),
+    // roleLabel(), not an owner/else ternary — that ternary predated the
+    // third, fourth and fifth roles and printed "Sales Executive" on a
+    // coordinator's, manager's or BDM's own day sheet (the same bug already
+    // fixed in EmployeeProfile.jsx's identity band).
+    note: [roleLabel(employee.role), employee.office_location, workedSpan].filter(Boolean).join(' · '),
     stats: [
       {
         label: 'Activities',

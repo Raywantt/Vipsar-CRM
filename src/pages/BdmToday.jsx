@@ -4,11 +4,16 @@ import { useAuth } from '../contexts/AuthContext'
 import TodayGreetingHeader from '../components/TodayGreetingHeader'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
+import DrilldownPanel from '../components/DrilldownPanel'
+import { DayKpiStrip } from '../components/DayReviewHeader'
 import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor, reminderSavedMessage, lockedFollowUpIds } from '../lib/followUpQueries'
 import { fetchPortfolioArchitects, fetchArchitectMeetings } from '../lib/architectQueries'
 import { countWaitingPoolLeads } from '../lib/bdmQueries'
 import { architectsToMeet, lastMeetingByArchitect, lastMetLabel, ARCHITECT_MEETING_DAYS } from '../lib/architectStats'
 import { firmLabel } from '../lib/firmLabel'
+import { formatCurrencyCompact } from '../lib/format'
+import { fetchDayReview } from '../lib/dayReviewQueries'
+import { buildDayRows, buildSignificantEntries, buildDaySheetPanel } from '../lib/dayReview'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
 
@@ -20,9 +25,14 @@ const ARCHITECT_ROWS = 5
 // The business development manager's Today (BDM.md Step 4). Owner's rulings on
 // the order: greeting (with the one-line "N updates on your leads", mounted in
 // TodayGreetingHeader) → a line when leads are still waiting for the owner →
-// Follow-ups due (one card, overdue first) → Architects to meet (portfolio
-// architects with no meeting in ARCHITECT_MEETING_DAYS, the clock starting at
-// the later of the last meeting and bdm_since).
+// "Done today" KPIs + recap (the same fetchDayReview/dayReview.js pipeline
+// Home.jsx uses for an exec — scopeToEmployee() filters purely by
+// employee/assigned-to id, so it needs no BDM-specific branching: it already
+// shows exactly the activities this BDM logged and the follow-ups closed
+// against their own id) → Follow-ups due (one card, overdue first) →
+// Architects to meet (portfolio architects with no meeting in
+// ARCHITECT_MEETING_DAYS, the clock starting at the later of the last meeting
+// and bdm_since).
 //
 // Deliberately not here: pipeline figures and targets (the BDM Dashboard,
 // Step 5) and scheduled meetings (Step 7).
@@ -40,6 +50,10 @@ function BdmToday() {
   const [architects, setArchitects] = useState(null)
   const [lastMetById, setLastMetById] = useState(new Map())
   const [architectsError, setArchitectsError] = useState(null)
+
+  // "Done today" — same one-day-bounded fetch Home.jsx runs for an exec.
+  const [dayData, setDayData] = useState(null)
+  const [panel, setPanel] = useState(null)
 
   useEffect(() => {
     if (!employee?.id) return
@@ -69,6 +83,18 @@ function BdmToday() {
       setArchitects(data)
     })
 
+    return () => {
+      active = false
+    }
+  }, [employee?.id])
+
+  useEffect(() => {
+    if (!employee?.id) return
+    let active = true
+    fetchDayReview(todayISO()).then((res) => {
+      if (!active) return
+      setDayData(res)
+    })
     return () => {
       active = false
     }
@@ -104,6 +130,46 @@ function BdmToday() {
 
   const toMeet = architects ? architectsToMeet(architects, lastMetById) : []
 
+  const myDay = dayData && employee ? buildDayRows([employee], dayData, false)[0] : null
+  const entries = dayData && employee ? buildSignificantEntries(employee, dayData) : []
+
+  const doneTiles = myDay
+    ? [
+        { key: 'activities', label: 'Activities', value: String(myDay.total), sub: `${myDay.calls} calls · ${myDay.visits} visits` },
+        {
+          key: 'followups',
+          label: 'Follow-ups',
+          value: null,
+          done: myDay.done,
+          missed: myDay.pending,
+          missedIsPending: true,
+          sub: myDay.pending > 0 ? `${myDay.pending} still open` : 'all clear',
+        },
+        { key: 'touched', label: 'Leads touched', value: String(myDay.touched), sub: `${myDay.newLeads} new · ${myDay.changes} changes` },
+        {
+          key: 'quotes',
+          label: 'Quotes sent',
+          value: String(myDay.quotes),
+          sub: myDay.quotesValue > 0 ? formatCurrencyCompact(myDay.quotesValue) : 'none today',
+        },
+      ]
+    : []
+
+  function openMyDaySheet() {
+    if (!dayData || !employee) return
+    setPanel(
+      buildDaySheetPanel({
+        employee,
+        data: dayData,
+        dateISO: todayISO(),
+        isPast: false,
+        changesUnavailable: dayData.changesUnavailable,
+        changeLogStart: null,
+        onReschedule: rescheduleFollowUp,
+      })
+    )
+  }
+
   return (
     <div className="vip-wide vip-pad-fab-overhang">
       <TodayGreetingHeader employee={employee} />
@@ -119,6 +185,13 @@ function BdmToday() {
             ›
           </span>
         </Link>
+      )}
+
+      {doneTiles.length > 0 && (
+        <div className="vip-card">
+          <h2 className="vip-card-title">Done today</h2>
+          <DayKpiStrip kpis={doneTiles} />
+        </div>
       )}
 
       {/* An even pair: side by side from 1024px, stacked (follow-ups first) on a
@@ -230,6 +303,43 @@ function BdmToday() {
           )}
         </div>
       </div>
+
+      {/* Recap: what's already been logged today, the quietest section — same
+          layout as Home's "Today's activity" card. */}
+      {entries.length > 0 && (
+        <div className="vip-card">
+          <div className="vip-card-head">
+            <h2 className="vip-card-title">Today's activity</h2>
+            {myDay?.firstActivityAt && <span className="vip-card-note">since {myDay.firstActivityAt}</span>}
+          </div>
+          {entries.map((e) => (
+            <div key={e.id} className="vip-day-entry">
+              <span className="vip-day-entry-dot" style={{ background: e.color }} />
+              {e.accompanied ? (
+                <span className="vip-day-entry-stack">
+                  <span className="vip-day-entry-text">{e.text}</span>
+                  <span className="vip-day-entry-sub">
+                    <span className="vip-accompanied-tag">Accompanied</span>
+                    <span className="vip-day-entry-sub-text">{e.withText}</span>
+                  </span>
+                </span>
+              ) : e.leadId ? (
+                <Link to={`/leads/${e.leadId}`} className="vip-day-entry-text">
+                  {e.text}
+                </Link>
+              ) : (
+                <span className="vip-day-entry-text">{e.text}</span>
+              )}
+              <span className="vip-day-entry-time">{e.time}</span>
+            </div>
+          ))}
+          <button type="button" className="vip-day-entry-link" onClick={openMyDaySheet}>
+            See everything I logged today
+          </button>
+        </div>
+      )}
+
+      <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
     </div>
   )
 }

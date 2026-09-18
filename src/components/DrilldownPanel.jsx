@@ -10,6 +10,7 @@ import { errorMessage } from '../lib/errorMessage'
 import { todayISO, toISODate } from '../lib/followupDates'
 import ShowMoreRows from './ShowMoreRows'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
+import { canOpenEmployeeProfiles } from '../lib/roles'
 
 // Chunk size for ShowMoreRows in every drill-down body below that renders an
 // otherwise-unbounded list (a Needs Attention bucket, every lead at one
@@ -1567,9 +1568,11 @@ function DaySheetBody({ panel, onDrill }) {
             visit{panel.tomorrow.siteVisits === 1 ? '' : 's'}
           </span>
         </span>
-        <Link to={`/employees/${panel.employeeId}`} className="vip-dd-open-link">
-          Open full profile →
-        </Link>
+        {canOpenEmployeeProfiles(panel.employeeRole) && (
+          <Link to={`/employees/${panel.employeeId}`} className="vip-dd-open-link">
+            Open full profile →
+          </Link>
+        )}
       </div>
     </div>
   )
