@@ -436,7 +436,19 @@ function Home({ embedded = false }) {
               {entries.map((e) => (
                 <div key={e.id} className="vip-day-entry">
                   <span className="vip-day-entry-dot" style={{ background: e.color }} />
-                  {e.leadId ? (
+                  {e.accompanied ? (
+                    // A meeting they went along to on a colleague's lead —
+                    // shown here, never counted in "Done today" above, and
+                    // never a link (they can't open a lead they don't own).
+                    // Two lines, so "with {name}" survives a phone's width.
+                    <span className="vip-day-entry-stack">
+                      <span className="vip-day-entry-text">{e.text}</span>
+                      <span className="vip-day-entry-sub">
+                        <span className="vip-accompanied-tag">Accompanied</span>
+                        <span className="vip-day-entry-sub-text">{e.withText}</span>
+                      </span>
+                    </span>
+                  ) : e.leadId ? (
                     <Link to={`/leads/${e.leadId}`} className="vip-day-entry-text">
                       {e.text}
                     </Link>

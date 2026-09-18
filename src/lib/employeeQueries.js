@@ -2,6 +2,7 @@ import { supabase } from './supabaseClient'
 import { CARRIES_OWN_LEADS } from './roles'
 import { fetchAllRows } from './fetchAllRows'
 import { cachedQuery } from './queryCache'
+import { fetchAccompaniedActivities } from './accompaniedQueries'
 
 // The columns every write below reads back. Shared so adding a field doesn't
 // mean remembering four separate .select() strings — coordinator_id was
@@ -156,6 +157,20 @@ export function fetchActivityLogForEmployee(employeeId, limit = 20) {
     .gte('created_at', since.toISOString())
     .order('created_at', { ascending: false })
     .limit(limit)
+}
+
+// The meetings this person went ALONG to on a colleague's lead, over the same
+// 60-day window as fetchActivityLogForEmployee — merged into that card only,
+// never into the counts above it (see accompaniedQueries.js). Fails soft to
+// an empty list, like every caller of that RPC.
+export function fetchAccompaniedLogForEmployee(employeeId) {
+  const since = new Date()
+  since.setDate(since.getDate() - 60)
+  return fetchAccompaniedActivities({
+    startISO: since.toISOString(),
+    endISO: new Date().toISOString(),
+    companionId: employeeId,
+  })
 }
 
 // A sales_coordinator's own assigned team, for the "Who is this for?" picker

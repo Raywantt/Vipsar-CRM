@@ -6,7 +6,7 @@ import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { fetchActivityCounts, fetchDecidedStageHistory, fetchLastActivityPerLead, fetchLeadsForBreakdown, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
-import { fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
+import { fetchAccompaniedLogForEmployee, fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
 import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp, compareFollowUps, lockedFollowUpIds } from '../lib/followUpQueries'
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeStale7Bucket, STALE_DAYS, ATTENTION_DAYS, staleGateDays, buildLastStageChangeByLead } from '../lib/attention'
@@ -86,6 +86,19 @@ function touchColor(days, gate = days) {
 
 function leadTitle(lead) {
   return leadDisplayName(lead)
+}
+
+// The Activity log card's list: what they logged, plus meetings they went
+// ALONG to on a colleague's lead (accompaniedQueries.js), newest first and
+// capped at the same 20 fetchActivityLogForEmployee already caps at. Only
+// this card merges them — every count on this page reads `activities`, and an
+// accompanied meeting is shown, never counted.
+const ACTIVITY_LOG_LIMIT = 20
+
+function mergeActivityLog(logged, accompanied) {
+  return [...logged, ...accompanied]
+    .sort((a, b) => (parseTimestamp(b.created_at)?.getTime() ?? 0) - (parseTimestamp(a.created_at)?.getTime() ?? 0))
+    .slice(0, ACTIVITY_LOG_LIMIT)
 }
 
 function startOfISOWeek(date) {
@@ -370,9 +383,10 @@ function EmployeeProfile() {
       fetchDecidedStageHistory(),
       period ? fetchTargetsForPeriod(period) : Promise.resolve({ data: [], error: null }),
       fetchLastActivityPerLead(),
-      fetchActivityLogForEmployee(execId),
+      fetchActivityLogForEmployee(execId, ACTIVITY_LOG_LIMIT),
       fetchStageHistoryForFunnel(),
-    ]).then(([act, leads, won, decided, tgt, lastAct, log, stageHist]) => {
+      fetchAccompaniedLogForEmployee(execId),
+    ]).then(([act, leads, won, decided, tgt, lastAct, log, stageHist, accompanied]) => {
       if (!active) return
       setActivities(act.data ?? [])
       setBreakdownLeads(leads.data ?? [])
@@ -386,7 +400,7 @@ function EmployeeProfile() {
       })
       setLastActivityByLead(map)
       setLastStageChangeByLead(buildLastStageChangeByLead(stageHist.data))
-      setActivityLog(log.data ?? [])
+      setActivityLog(mergeActivityLog(log.data ?? [], accompanied.data ?? []))
       setLoading(false)
     })
     return () => {
@@ -928,8 +942,18 @@ function EmployeeProfile() {
                         <span className="vip-dd-log-main">
                           <span className="vip-dd-log-head">
                             <b style={{ fontWeight: 600, fontSize: 12, color: 'var(--vip-ink)' }}>{ACTIVITY_LABELS[a.activity_type] ?? a.activity_type}</b>
-                            <span className="vip-dd-log-party">{a.leads ? leadTitle(a.leads) : ''}</span>
+                            <span className="vip-dd-log-party">
+                              {a.leads ? leadTitle(a.leads) : a.accompanied ? a.parties?.name ?? '' : ''}
+                            </span>
                           </span>
+                          {/* Went along on a colleague's lead — the same tag +
+                              "with {name}" line the day sheet and Today use. */}
+                          {a.accompanied && (
+                            <span className="vip-day-entry-sub">
+                              <span className="vip-accompanied-tag">Accompanied</span>
+                              <span className="vip-dd-log-notes">with {a.withName ?? 'a colleague'}</span>
+                            </span>
+                          )}
                           {a.notes && <span className="vip-dd-log-notes">{a.notes}</span>}
                           {a.logged_by?.role === 'sales_coordinator' && a.logged_by_employee_id !== execId && (
                             <span className="vip-dd-log-notes">Logged by sales coordinator {a.logged_by.name}</span>
@@ -942,7 +966,9 @@ function EmployeeProfile() {
                         {content}
                       </Link>
                     ) : (
-                      <div key={a.id} className="vip-dd-log-row">
+                      // An accompanied row carries no lead_id (name only, never
+                      // a link), so it always lands here.
+                      <div key={a.accompanied ? `acc${a.id}` : a.id} className="vip-dd-log-row">
                         {content}
                       </div>
                     )

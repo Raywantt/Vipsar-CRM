@@ -3494,3 +3494,39 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
    new (that page isn't a .vip-stack). */
 
 .vip-arch-followups { margin-bottom: 14px; }
+
+/* ===========================================================================
+   35. Accompanied tag
+   ===========================================================================
+   Marks a meeting someone went ALONG to on a colleague's lead — in their
+   Today recap, a day sheet and the Sales Exec Profile's Activity log (see
+   src/lib/accompaniedQueries.js). A quiet outline in the .vip-role-tag
+   family, not a filled chip: it says how they were involved, not what kind
+   of activity it was (the type tag beside it already does that). Tokens
+   only, so section 22 repaints it for dark mode with no block of its own. */
+
+.vip-accompanied-tag {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--vip-line);
+  border-radius: 4px;
+  font-family: var(--vip-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vip-muted);
+  white-space: nowrap;
+}
+
+/* Home's "Today's activity" row for an accompanied meeting: the usual one
+   truncating line, then the tag + "with {name}" on a line of its own, so
+   the who survives a phone's width instead of being ellipsised away. */
+.vip-day-entry-stack { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.vip-day-entry-sub { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.vip-day-entry-sub-text {
+  min-width: 0; font-size: 11.5px; color: var(--vip-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}

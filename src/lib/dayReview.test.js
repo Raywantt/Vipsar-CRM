@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel, priorStageMap } from './dayReview'
+import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel, buildSignificantEntries, priorStageMap } from './dayReview'
+import { shapeAccompaniedRow } from './accompaniedQueries'
 import { dayBounds, nextDayISO, prevDayISO } from './dayReviewQueries'
 import { parseTimestamp, formatClockTime } from './dbTime'
 
@@ -313,5 +314,95 @@ describe('buildDaySheetPanel', () => {
     })
     const panel = buildDaySheetPanel({ ...base, data })
     expect(panel.tomorrow).toEqual({ followUps: 2, siteVisits: 1 })
+  })
+})
+
+// A meeting someone went ALONG to on a colleague's lead. The owner's ruling
+// (2026-09-18): it shows in their CRM with an "Accompanied" tag, but never
+// counts, and is named without a link. These pin all three halves.
+describe('accompanied activities', () => {
+  // Rajan (1) owns lead 10 and logged the meeting; Preeti (2) went along.
+  // `logged` is Rajan's own row; `acc` is the same meeting as Preeti sees it
+  // through accompanied_activities() (shaped by shapeAccompaniedRow).
+  const logged = {
+    id: 7, employee_id: 1, activity_type: 'client_meeting_old', lead_id: 10,
+    notes: 'Negotiation', created_at: '2026-08-10T06:00:00', leads: lead(10, 'Kalsi'),
+  }
+  const acc = shapeAccompaniedRow({
+    id: 7, activity_type: 'client_meeting_old', created_at: '2026-08-10T06:00:00',
+    accompanied_by: 2, employee_id: 1, employee_name: 'Rajan Sharma',
+    lead_id: 10, party_id: null, party_name: null,
+    lead_party_name: 'Kalsi', site_nickname: null, site_locality: null, site_house_no: null,
+  })
+  const data = emptyData({ activities: [logged], accompanied: [acc] })
+  const base = {
+    data, dateISO: '2026-08-10', isPast: true, changesUnavailable: false, changeLogStart: null, onReschedule: () => {},
+  }
+
+  it('never counts toward the colleague\'s day-review columns', () => {
+    const [rajan, preeti] = buildDayRows(EMPLOYEES, data, true)
+    expect(rajan.total).toBe(1)
+    expect(preeti.total).toBe(0)
+    expect(preeti.touched).toBe(0)
+    expect(preeti.firstActivityAt).toBeNull()
+    expect(buildDayTotals([rajan, preeti]).total).toBe(1)
+  })
+
+  it('lists it on the colleague\'s day sheet, tagged, unlinked and uncounted', () => {
+    const panel = buildDaySheetPanel({ ...base, employee: PREETI })
+    expect(panel.activities).toHaveLength(1)
+    const [row] = panel.activities
+    expect(row.party).toBe('Kalsi')
+    expect(row.leadId).toBeNull()
+    expect(row.accompaniedWith).toBe('with Rajan Sharma')
+    expect(row.notes).toBeNull()
+    expect(panel.loggedCount).toBe(0)
+    expect(panel.accompaniedCount).toBe(1)
+    expect(panel.stats[0].value).toBe('0')
+  })
+
+  it('leaves the lead owner\'s own day sheet exactly as it was', () => {
+    const panel = buildDaySheetPanel({ ...base, employee: RAJAN })
+    expect(panel.activities).toHaveLength(1)
+    expect(panel.activities[0].leadId).toBe(10)
+    expect(panel.activities[0].accompaniedWith).toBeUndefined()
+    expect(panel.accompaniedCount).toBe(0)
+  })
+
+  it('names an architect meeting by the architect when there is no lead', () => {
+    const arch = shapeAccompaniedRow({
+      id: 8, activity_type: 'architect_meeting', created_at: '2026-08-10T07:00:00',
+      accompanied_by: 2, employee_id: 1, employee_name: 'Rajan Sharma',
+      lead_id: null, party_id: 50, party_name: 'Ar. Mehta',
+      lead_party_name: null, site_nickname: null, site_locality: null, site_house_no: null,
+    })
+    const panel = buildDaySheetPanel({ ...base, data: emptyData({ accompanied: [arch] }), employee: PREETI })
+    expect(panel.activities[0].party).toBe('Ar. Mehta')
+  })
+
+  it('falls through leadName.js\'s chain for a lead with no party', () => {
+    const bySite = shapeAccompaniedRow({
+      id: 9, activity_type: 'site_visit', created_at: '2026-08-10T08:00:00',
+      accompanied_by: 2, employee_id: 1, employee_name: 'Rajan Sharma',
+      lead_id: 11, party_id: null, party_name: null,
+      lead_party_name: null, site_nickname: 'Big plot', site_locality: 'Dugri', site_house_no: '450-D',
+    })
+    const panel = buildDaySheetPanel({ ...base, data: emptyData({ accompanied: [bySite] }), employee: PREETI })
+    expect(panel.activities[0].party).toBe('Dugri, 450-D')
+  })
+
+  it('shows in the colleague\'s Today recap without a link', () => {
+    const [entry] = buildSignificantEntries(PREETI, data)
+    expect(entry.accompanied).toBe(true)
+    expect(entry.leadId).toBeNull()
+    expect(entry.text).toBe('Kalsi — old meeting')
+    expect(entry.withText).toBe('with Rajan Sharma')
+  })
+
+  it('is harmless when the RPC is missing and `accompanied` never arrived', () => {
+    const noField = emptyData({ activities: [logged] })
+    delete noField.accompanied
+    expect(buildDaySheetPanel({ ...base, data: noField, employee: PREETI }).activities).toHaveLength(0)
+    expect(buildSignificantEntries(PREETI, noField)).toHaveLength(0)
   })
 })

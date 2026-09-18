@@ -52,6 +52,13 @@ export const LOGGABLE_ACTIVITY_TYPES = [
   { value: 'booking_update', label: 'Booking Update' },
 ]
 
+// The picked types that offer "Accompanied by" on Log Activity — the ones a
+// colleague physically goes along to (the owner's list, 2026-09-18). Picked
+// values, not stored ones: Client Meeting is one button here and lands as
+// either bucket. A tagged activity also shows, uncounted, in the colleague's
+// own CRM — see src/lib/accompaniedQueries.js.
+export const ACCOMPANIABLE_ACTIVITY_TYPES = ['site_visit', PICKABLE_MEETING, 'architect_meeting']
+
 // Both lists feed the label map. `client_meeting` is no longer storable on an
 // activity, but it is still storable on a follow_up (and still sits on the
 // pre-2026-09-07 rows in Schema/import_*_legacy.sql, should one ever be

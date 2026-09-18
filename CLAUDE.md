@@ -168,7 +168,7 @@ src/
                 partyQueries, employeeQueries, lookupQueries,
                 leadOwnerHistory, dayReviewQueries, followUpQueries,
                 notificationQueries, authQueries, pushSubscription,
-                bdmQueries, architectQueries
+                bdmQueries, architectQueries, accompaniedQueries
   assets/       images, icons
   sw.js         the service worker source (push handlers only)
   vipsar-theme.css   the app's one design-system stylesheet
@@ -1488,9 +1488,8 @@ reopening of the old rule.
 
 * **Site Visit** — lead → **Site stage** (preset + "Other…", shown only once
   the lead has a linked site, so a lead with no site shows nothing rather
-  than a meaningless control) → **Accompanied by** (optional, `employees`
-  minus yourself — the one activity where bringing a colleague is a normal,
-  trackable thing) → Notes → Next follow-up. Site stage is synced to the
+  than a meaningless control) → **Accompanied by** (see below) → Notes →
+  Next follow-up. Site stage is synced to the
   lead's current stage by its own effect and, on submit, writes
   `sites.site_stage` in a separate UPDATE — **skipped entirely if the value
   didn't change**, so picking a lead and submitting never fires a no-op write.
@@ -1567,6 +1566,43 @@ reopening of the old rule.
   Sheet is not** — it's a deliverable following from work already done rather
   than outbound effort a rep gets a number for, the same reasoning that keeps
   Office Day and Booking Update out.
+
+#### Accompanied by (Site Visit, Client Meeting, Architect Meeting)
+
+A colleague — typically a manager at a negotiation — often goes along on a
+lead they don't own, and can't log against it. **The lead's owner logs it
+once and tags them** (`activities.accompanied_by`, one person, every active
+employee minus the credited one — the owner's rulings, 2026-09-18).
+`ACCOMPANIABLE_ACTIVITY_TYPES` (`activityTypes.js`) is the one list; the
+field (`accompaniedByField`, defined once), the type-switch reset and the
+insert all read `offersAccompaniedBy`. The insert also refuses to tag the
+credited employee (a coordinator can switch "Who is this for?" onto the
+person already picked).
+
+**The colleague sees it in their own CRM — shown, never counted, name
+only.** Today's recap, the Day Review day sheet (theirs, or a supervisor's
+view of it) and the Sales Exec Profile's Activity log list it with an
+"Accompanied" tag and "with {owner}"; the lead's name is plain text, never a
+link, since they still can't open that lead.
+
+* **Read only through the `accompanied_activities()` RPC**
+  (`migration_accompanied_activities.sql`, SECURITY DEFINER), never an RLS
+  policy. A permissive `accompanied_by = me` SELECT policy would leak these
+  rows into every existing query that counts what RLS returns, crediting the
+  colleague with the meeting. The RPC returns type, time, logger's name and
+  the naming fields only (no notes, no values) and re-applies
+  `hide_test_accounts` itself, since DEFINER skips RLS. Visible to the
+  colleague, an owner, and the colleague's coordinator/manager.
+* **Kept in its own `accompanied` array** (`fetchDayReview`, `scopeToEmployee`,
+  `mergeActivityLog`) and merged into display lists only. The day sheet
+  reads `loggedCount`, not the list's length. **A new surface that counts
+  activities must not read it.**
+* **Fails soft** — an RPC error is treated as "none", so the app can run
+  ahead of the migration.
+* **Known gap:** the owner, a coordinator or the BDM can be tagged, but none
+  has a personal activity surface for it to appear on (no Home recap, no Day
+  Review row, no Sales Exec Profile). The tag still shows on the lead's own
+  timeline ("with {name}").
 
 #### Rules that hold across every type
 
@@ -2757,6 +2793,21 @@ removing your own login.
 
 ### Outstanding migrations
 
+* **`migration_accompanied_activities.sql`** — **run and verified live
+  2026-09-18**, see below; kept here only until the next tidy-up.
+  Adds the `accompanied_activities()` RPC so a tagged colleague sees a
+  meeting they went along to (see ActivityLog → Accompanied by). No table,
+  column or policy change; every caller fails soft. Safe to re-run. Verify
+  as a real logged-in companion, never the SQL Editor
+  (`current_employee_id()` is NULL there, so it returns nothing).
+  **Live trial (test accounts, rows deleted after):** exec logged a Client
+  Meeting tagging `sm` — sm's Today recap, day sheet and profile Activity log
+  showed it tagged and unlinked, with every count still 0; the owner's Day
+  Review showed sm at 0 and the same row on sm's sheet. A second one tagging
+  `Test BDM` came back from the RPC while a direct SELECT of that activity,
+  lead and site all returned nothing (the no-access path). `sc` and the BDM
+  got nothing for sm's row; an owner with Test accounts OFF got 0 rows
+  (test-data hiding holds inside the DEFINER function).
 * **`migration_followups_rename_activity_type.sql`** (new, 2026-09-18, not
   yet run) — ⚠️ **higher blast radius than a normal migration, deploy
   order matters.** Renames `follow_ups.activity_type` to

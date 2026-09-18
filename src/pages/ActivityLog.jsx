@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 import LeadSearchSelect from '../components/LeadSearchSelect'
 import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import NumPadInput from '../components/NumPadInput'
-import { LOGGABLE_ACTIVITY_TYPES, ACTIVITY_LABELS } from '../lib/activityTypes'
+import { LOGGABLE_ACTIVITY_TYPES, ACTIVITY_LABELS, ACCOMPANIABLE_ACTIVITY_TYPES } from '../lib/activityTypes'
 import { PICKABLE_MEETING, meetingTypeForStage } from '../lib/meetingBucket'
 import { FRESH_RFQ, RFQ_KIND_LABELS, rfqKindForLead, shouldAdvanceToRfq } from '../lib/rfqKind'
 import { stageLabel } from '../lib/leadStageOptions'
@@ -297,6 +297,10 @@ function ActivityLog() {
   const isSiteVisit = activityType === 'site_visit'
   const isArchitectMeeting = activityType === 'architect_meeting'
   const isClientMeeting = activityType === PICKABLE_MEETING
+  // Site Visit, Client Meeting and Architect Meeting — the ones a colleague
+  // physically goes along to. ONE flag read by the field, the type-switch
+  // reset and the insert, so what's asked and what's written can't drift.
+  const offersAccompaniedBy = ACCOMPANIABLE_ACTIVITY_TYPES.includes(activityType)
   // A BDM's Call can anchor on an architect the same way Architect Meeting
   // does — see the toggle in the JSX below. Not offered for any other type:
   // Site Visit/RFQ Raised/Booking Update all write fields that only exist on
@@ -373,7 +377,9 @@ function ActivityLog() {
 
   function selectActivityType(value) {
     setActivityType(value)
-    if (value !== 'site_visit') {
+    // Kept when switching between two types that both ask it (Site Visit →
+    // Client Meeting is the same colleague), cleared for any type that doesn't.
+    if (!ACCOMPANIABLE_ACTIVITY_TYPES.includes(value)) {
       setAccompaniedBy('')
     }
     // Leaving Architect Meeting, or leaving a BDM's Call while it was in
@@ -521,7 +527,13 @@ function ActivityLog() {
         // or New Meeting. The DB CHECK refuses the unbucketed value, so this
         // resolution cannot be skipped by any future write path either.
         activity_type: resolvedMeetingType ?? activityType,
-        accompanied_by: accompaniedBy || null,
+        // Type-guarded like the fields below, and never the person the
+        // activity is credited to — a coordinator switching "Who is this
+        // for?" to the exec already picked here would otherwise tag someone
+        // as accompanying themselves (the dropdown hides them, but the held
+        // value survives the switch).
+        accompanied_by:
+          offersAccompaniedBy && accompaniedBy && Number(accompaniedBy) !== actingForId ? Number(accompaniedBy) : null,
         notes: notes.trim() || null,
         // Each guarded by its own type as well as cleared in
         // selectActivityType — belt-and-braces, matching how leads_generated
@@ -766,6 +778,14 @@ function ActivityLog() {
               <div className="vip-fact-value">{firmParty.name}</div>
             </div>
           )}
+          {result.activity.accompanied_by && (
+            <div>
+              <div className="vip-fact-label">Accompanied by</div>
+              <div className="vip-fact-value">
+                {employees.find((e) => e.id === result.activity.accompanied_by)?.name ?? 'A colleague'}
+              </div>
+            </div>
+          )}
           {isClientMeeting && result.activity.meeting_location && (
             <div>
               <div className="vip-fact-label">Meeting location</div>
@@ -849,6 +869,29 @@ function ActivityLog() {
         </label>
       )}
     </div>
+  )
+
+  // A colleague who came along — typically a manager at a negotiation. The
+  // lead's owner logs the meeting once and tags them here; the colleague then
+  // sees it in their own CRM with an "Accompanied" tag, uncounted and
+  // name-only (see src/lib/accompaniedQueries.js). Every active employee is
+  // offered, as Site Visit always did (the owner's ruling, 2026-09-18).
+  // Defined once and placed in each branch as a fact about the meeting, ahead
+  // of Notes — the same grammar every branch follows.
+  const accompaniedByField = (
+    <label className="vip-field">
+      Accompanied by <span className="vip-field-hint">optional · they'll see it in their CRM</span>
+      <select className="vip-select" value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)}>
+        <option value="">— Not specified —</option>
+        {employees
+          .filter((e) => e.id !== actingForId)
+          .map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.name}
+            </option>
+          ))}
+      </select>
+    </label>
   )
 
   return (
@@ -1026,19 +1069,7 @@ function ActivityLog() {
             </label>
           )}
 
-          <label className="vip-field">
-            Accompanied by <span className="vip-field-hint">optional</span>
-            <select className="vip-select" value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)}>
-              <option value="">— Not specified —</option>
-              {employees
-                .filter((e) => e.id !== actingForId)
-                .map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name}
-                  </option>
-                ))}
-            </select>
-          </label>
+          {accompaniedByField}
 
           <label className="vip-field">
             Notes
@@ -1110,6 +1141,8 @@ function ActivityLog() {
         </>
       ) : isArchitectMeeting ? (
         <>
+          {accompaniedByField}
+
           <label className="vip-field">
             Notes
             <textarea className="vip-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={NOTES_PLACEHOLDER} />
@@ -1181,6 +1214,10 @@ function ActivityLog() {
               )}
             </>
           )}
+
+          {/* Client Meeting is the one generic-branch type that asks it —
+              a fact about the meeting, so it sits with the facts above Notes. */}
+          {offersAccompaniedBy && accompaniedByField}
 
           {/* Notes before the follow-up, for every type. The facts above are
               about the activity; this is what happened during it; the Next

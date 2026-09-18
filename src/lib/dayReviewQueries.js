@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient'
 import { toISODate } from './followupDates'
 import { fetchAllRows } from './fetchAllRows'
+import { fetchAccompaniedActivities } from './accompaniedQueries'
 
 // Every query here is bounded to ONE calendar day. Nothing on the Day Review
 // aggregates beyond that — see the Dashboard section of CLAUDE.md.
@@ -152,7 +153,7 @@ export function fetchDayQuotesSent(dateISO) {
 // stays pure and testable.
 export async function fetchDayReview(dateISO) {
   const bounds = dayBounds(dateISO)
-  const [activities, changes, stageChanges, newLeads, followUps, tomorrowFollowUps, quotesSent] = await Promise.all([
+  const [activities, changes, stageChanges, newLeads, followUps, tomorrowFollowUps, quotesSent, accompanied] = await Promise.all([
     fetchDayActivities(bounds),
     fetchDayLeadChanges(bounds),
     fetchDayStageChanges(bounds),
@@ -160,6 +161,7 @@ export async function fetchDayReview(dateISO) {
     fetchFollowUpsDueOn(dateISO),
     fetchFollowUpsDueOn(nextDayISO(dateISO)),
     fetchDayQuotesSent(dateISO),
+    fetchAccompaniedActivities(bounds),
   ])
 
   // lead_change_log only exists once its migration has been run. Rather than
@@ -186,6 +188,11 @@ export async function fetchDayReview(dateISO) {
     followUps: followUps.data ?? [],
     tomorrowFollowUps: tomorrowFollowUps.data ?? [],
     quotesSent: quotesSent.data ?? [],
+    // Meetings someone went ALONG to on a colleague's lead — shown on their
+    // day sheet and Today recap, never counted (see accompaniedQueries.js).
+    // Deliberately left out of firstError: until its migration runs the RPC
+    // is missing, and that must not fail the whole Day Review.
+    accompanied: accompanied.data ?? [],
   }
 }
 

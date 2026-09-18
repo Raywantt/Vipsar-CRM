@@ -1248,6 +1248,15 @@ function ActivityLogRow({ a, expanded, onExpandNotes }) {
             <span className="vip-day-log-party">{a.party}</span>
           )}
         </span>
+        {/* Went along on a colleague's lead (dayReview.js) — named, never
+            linked, and not part of any count on this sheet. Tag and "with
+            {name}" share one line, the same shape as Home's recap row. */}
+        {a.accompaniedWith && (
+          <span className="vip-day-entry-sub">
+            <span className="vip-accompanied-tag">Accompanied</span>
+            <span className="vip-day-log-notes">{a.accompaniedWith}</span>
+          </span>
+        )}
         {a.notes && (
           <span className="vip-day-log-notes">
             {expanded && a.more ? `${a.notes} ${a.more}` : a.notes}
@@ -1467,7 +1476,12 @@ function DaySheetBody({ panel, onDrill }) {
       <div className="vip-dd-section">
         <div className="vip-dd-section-head">
           <div className="vip-dd-section-title">Activities logged</div>
-          <div className="vip-dd-hint">{panel.activities.length} that day</div>
+          {/* loggedCount, not the list's length — the list also carries
+              meetings they only went along to, which are never counted. */}
+          <div className="vip-dd-hint">
+            {panel.loggedCount ?? panel.activities.length} that day
+            {panel.accompaniedCount > 0 && ` · ${panel.accompaniedCount} accompanied`}
+          </div>
         </div>
         {panel.activities.length === 0 ? (
           <p className="vip-empty">Nothing logged this day.</p>

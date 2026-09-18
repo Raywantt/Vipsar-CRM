@@ -84,7 +84,19 @@ function scopeToEmployee(data, employeeId) {
     followUps: data.followUps.filter((f) => f.assigned_to === employeeId),
     tomorrowFollowUps: data.tomorrowFollowUps.filter((f) => f.assigned_to === employeeId),
     quotesSent: data.quotesSent.filter((l) => l.owner_employee_id === employeeId),
+    // Meetings this person went ALONG to on a colleague's lead. Kept apart
+    // from `activities` on purpose: every count below reads `activities`, and
+    // an accompanied meeting is shown, never counted (the owner's ruling —
+    // see accompaniedQueries.js). Only the display lists read this.
+    accompanied: (data.accompanied ?? []).filter((a) => a.accompanied_by === employeeId),
   }
+}
+
+// "with Rajan Sharma" — who the colleague went along with. Plain text, not a
+// link: the whole row is name-only for the colleague (no Lead Detail), and a
+// rep can't open a peer's profile either.
+function accompaniedWith(a) {
+  return a.withName ? `with ${a.withName}` : 'with a colleague'
 }
 
 // One table row per exec. `isPast` drives the pending/missed split above.
@@ -165,6 +177,20 @@ export function buildSignificantEntries(employee, data, limit = 3) {
           : s.stage === 'won'
             ? `${leadName(s.leads)} — marked won`
             : `${leadName(s.leads)} — moved to ${stageLabel(s.stage)}`,
+    })),
+    // Went along on a colleague's lead: named, never linked (name-only is the
+    // owner's ruling), and flagged so the row renders its "Accompanied" tag.
+    ...own.accompanied.map((a) => ({
+      id: `acc${a.id}`,
+      at: parseTimestamp(a.created_at),
+      color: 'var(--vip-teal)',
+      leadId: null,
+      accompanied: true,
+      text: `${leadName(a.leads, a.parties)} — ${(ACTIVITY_LABELS[a.activity_type] ?? a.activity_type).toLowerCase()}`,
+      // Its own line under the text, not appended to it — this row is one
+      // truncating line on a phone, and "with {name}" is the part that
+      // matters most here, so it can't be the part that gets cut off.
+      withText: accompaniedWith(a),
     })),
   ].sort((a, b) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0))
 
@@ -392,13 +418,16 @@ export function buildDaySheetPanel({ employee, data, dateISO, isPast, changesUna
     },
     onReschedule,
 
-    activities: own.activities
-      .slice()
-      .sort((a, b) => (parseTimestamp(a.created_at) ?? 0) - (parseTimestamp(b.created_at) ?? 0))
-      .map((a) => {
+    // One time-ordered list of what they logged AND what they went along to,
+    // so the day reads as it happened. Only `loggedCount` is a count: the
+    // Activities stat above and the block's own hint read it, never this
+    // list's length, because an accompanied meeting is shown, not counted.
+    activities: [
+      ...own.activities.map((a) => {
         const { line, rest } = firstLine(a.notes)
         return {
           id: a.id,
+          at: parseTimestamp(a.created_at),
           time: formatClockTime(a.created_at),
           tag: activityTag(a.activity_type),
           party: leadName(a.leads, a.parties),
@@ -407,6 +436,22 @@ export function buildDaySheetPanel({ employee, data, dateISO, isPast, changesUna
           more: rest,
         }
       }),
+      // No leadId (name only, no link) and no notes — the RPC doesn't return
+      // them; the colleague's record of this meeting is that they were there.
+      ...own.accompanied.map((a) => ({
+        id: `acc${a.id}`,
+        at: parseTimestamp(a.created_at),
+        time: formatClockTime(a.created_at),
+        tag: activityTag(a.activity_type),
+        party: leadName(a.leads, a.parties),
+        leadId: null,
+        accompaniedWith: accompaniedWith(a),
+        notes: null,
+        more: null,
+      })),
+    ].sort((a, b) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0)),
+    loggedCount: own.activities.length,
+    accompaniedCount: own.accompanied.length,
 
     changeRows,
     changeCount,
