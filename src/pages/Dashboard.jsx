@@ -150,6 +150,22 @@ function Dashboard() {
     const tab = searchParams.get('tab')
     setActiveTab(tab === 'leads' ? 'leads' : tab === 'followups' ? 'followups' : 'reports')
   }, [searchParams])
+
+  // Reports-only data is fetched the first time Reports is actually shown, then
+  // kept. ?tab=followups and ?tab=leads used to fire every Reports query too,
+  // which crowded out the one query those tabs need — the manager's Follow-ups
+  // tab hit a statement timeout that way. Latched rather than tied to the tab,
+  // so switching back and forth doesn't refetch. Read off searchParams, not
+  // activeTab, which is still 'reports' on the first render.
+  const tabParam = searchParams.get('tab')
+  const onReportsTab = tabParam !== 'leads' && tabParam !== 'followups'
+  const [wantsReports, setWantsReports] = useState(onReportsTab)
+  // The Leads tab's header sub also reads breakdownLeads.
+  const [wantsBreakdown, setWantsBreakdown] = useState(tabParam !== 'followups')
+  useEffect(() => {
+    if (onReportsTab) setWantsReports(true)
+    if (tabParam !== 'followups') setWantsBreakdown(true)
+  }, [onReportsTab, tabParam])
   // Persisted across a "click into a lead/exec, then Back" round trip, reset
   // on a fresh nav-link visit — see usePersistedFilterState's own header
   // comment.
@@ -431,7 +447,7 @@ function Dashboard() {
     const range = rangeForPreset(preset, customStart, customEnd)
     // The Day Review runs its own day-scoped queries and renders none of the
     // report cards these two feed — skip the round trip entirely.
-    if (!range || preset === 'today') return
+    if (!wantsReports || !range || preset === 'today') return
     let active = true
     setLoading(true)
     setError(null)
@@ -452,9 +468,10 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [preset, customStart, customEnd])
+  }, [wantsReports, preset, customStart, customEnd])
 
   useEffect(() => {
+    if (!wantsReports) return
     let active = true
     fetchClosureForecast().then(({ data, error }) => {
       if (!active) return
@@ -463,7 +480,7 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [])
+  }, [wantsReports])
 
   // Scoped once, here, rather than at each of the ~8 places `employees` is
   // consumed downstream (the Day Review table, per-exec breakdowns, every
@@ -505,6 +522,7 @@ function Dashboard() {
   // migration hasn't been run yet) just leaves categoryBreakdown null,
   // which every consumer below already treats as "use the slow path".
   useEffect(() => {
+    if (!wantsReports) return
     let active = true
     fetchLeadsNeedingAttention().then(({ data, error }) => {
       if (!active) return
@@ -520,9 +538,10 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [])
+  }, [wantsReports])
 
   useEffect(() => {
+    if (!wantsReports) return
     let active = true
     fetchCategoryBreakdown().then(({ data, error }) => {
       if (!active) return
@@ -540,7 +559,7 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [])
+  }, [wantsReports])
 
   // The "Right now" strip's snapshot — unlike fetchCategoryBreakdown above,
   // THIS one is wired to the manager's own My/Team toggle (via
@@ -552,6 +571,7 @@ function Dashboard() {
   // snapshotOwnerIds itself, since that's a fresh array literal every render
   // and would refire this effect on every render if used directly.
   useEffect(() => {
+    if (!wantsReports) return
     let active = true
     fetchDashboardSnapshotMetrics(snapshotOwnerIds).then(({ data, error }) => {
       if (!active) return
@@ -562,9 +582,10 @@ function Dashboard() {
       active = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isManager, managerScope, employee?.id, managedIds])
+  }, [wantsReports, isManager, managerScope, employee?.id, managedIds])
 
   useEffect(() => {
+    if (!wantsReports) return
     let active = true
     fetchWonStageHistory().then(({ data, error }) => {
       if (!active) return
@@ -573,13 +594,14 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [])
+  }, [wantsReports])
 
   useEffect(() => {
     if (!targetPeriod) {
       setTargets([])
       return
     }
+    if (!wantsReports) return
     let active = true
     fetchTargetsForPeriod(targetPeriod).then(({ data, error }) => {
       if (!active) return
@@ -588,9 +610,10 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [targetPeriod])
+  }, [wantsReports, targetPeriod])
 
   useEffect(() => {
+    if (!wantsBreakdown) return
     let active = true
     fetchLeadsForBreakdown().then(({ data, error }) => {
       if (!active) return
@@ -599,7 +622,7 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [])
+  }, [wantsBreakdown])
 
   // Powers Needs Attention (src/lib/attention.js) — "no activity in N days"
   // needs each lead's most recent activity, reduced client-side from every
@@ -611,7 +634,7 @@ function Dashboard() {
   // issued. A manager always needs it (the RPC can't honour their My/Team
   // toggle), and so does anyone whose RPC call failed.
   useEffect(() => {
-    if (!isManager && !attentionRpcFailed) return
+    if (!wantsReports || (!isManager && !attentionRpcFailed)) return
     let active = true
     fetchLastActivityPerLead().then(({ data, error }) => {
       if (!active) return
@@ -629,10 +652,11 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [isManager, attentionRpcFailed])
+  }, [wantsReports, isManager, attentionRpcFailed])
 
   // Powers the win-rate KPI/drill-down and the `loss` kind's lost-leads list.
   useEffect(() => {
+    if (!wantsReports) return
     let active = true
     fetchDecidedStageHistory().then(({ data, error }) => {
       if (!active) return
@@ -641,12 +665,13 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [])
+  }, [wantsReports])
 
   // One 8-week-back window, sliced into weekly buckets for the KPI row's
   // sparklines (src/components/KpiSparkRow.jsx) — unbounded from the
   // selected preset on purpose, see fetchActivitiesTrendWindow's own comment.
   useEffect(() => {
+    if (!wantsReports) return
     let active = true
     fetchActivitiesTrendWindow().then(({ data, error }) => {
       if (!active) return
@@ -655,9 +680,10 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [])
+  }, [wantsReports])
 
   useEffect(() => {
+    if (!wantsReports) return
     let active = true
     fetchStageHistoryForFunnel().then(({ data, error }) => {
       if (!active) return
@@ -666,7 +692,7 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [])
+  }, [wantsReports])
 
   useEffect(() => {
     // The owner, and now a sales manager for their own team's lost deals
@@ -680,6 +706,7 @@ function Dashboard() {
       setLossReasons([])
       return
     }
+    if (!wantsReports) return
     let active = true
     fetchLossReasons().then(({ data, error }) => {
       if (!active) return
@@ -703,12 +730,12 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [isOwner, isManager])
+  }, [wantsReports, isOwner, isManager])
 
   // Everything on the Day Review reloads when the date changes — nothing here
   // is cached across days, since every figure is bounded to the one day.
   useEffect(() => {
-    if (!isDayReview) return
+    if (!wantsReports || !isDayReview) return
     let active = true
     setDayLoading(true)
     setDayError(null)
@@ -723,12 +750,12 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [isDayReview, dayDate])
+  }, [wantsReports, isDayReview, dayDate])
 
   // When the trail actually begins, for the day sheet's honest empty state on
   // any date before the audit trail shipped. Fetched once, not per day.
   useEffect(() => {
-    if (!isDayReview || changeLogStart !== null) return
+    if (!wantsReports || !isDayReview || changeLogStart !== null) return
     let active = true
     fetchChangeLogStart().then(({ data }) => {
       if (!active) return
@@ -739,7 +766,7 @@ function Dashboard() {
     return () => {
       active = false
     }
-  }, [isDayReview, changeLogStart])
+  }, [wantsReports, isDayReview, changeLogStart])
 
   // A sales exec sees only their own row. Their queries are already RLS-scoped
   // to their own data, so listing the whole team would render every colleague
