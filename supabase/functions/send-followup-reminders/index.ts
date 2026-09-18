@@ -53,6 +53,23 @@ const DEFAULT_DUE_TIME = '09:00:00'
 // stop, rather than a phone that will not stop buzzing.
 const ASSIGNMENT_BATCH_LIMIT = 50
 
+// PostgREST caps any single response at max-rows (1,000 on this project,
+// same limit CLAUDE.md's "Querying Supabase" section documents for the app
+// itself) whether or not a .limit() was asked for — silently, with no error
+// and no flag on the response. The follow-up fetch below had no .range()
+// paging at all, so once open-and-due reminders crossed that line the tail
+// of the list simply stopped being processed: no push, no notified_at, and
+// nothing anywhere to say so. FOLLOWUP_PAGE_SIZE pages through in the same
+// shape as src/lib/fetchAllRows.js (this runtime can't import it directly).
+const FOLLOWUP_PAGE_SIZE = 1000
+// A hard ceiling on one run's total, independent of paging — the schema has
+// no cap on how many reminders can be open-and-overdue at once, and this
+// function runs on a schedule with its own timeout. 20,000 is far beyond any
+// realistic single-run volume for this company; it exists so a runaway
+// backlog degrades into "some reminders wait one more run" rather than a
+// function that never returns.
+const FOLLOWUP_RUN_LIMIT = 20000
+
 // BDM pool (BDM.md Step 3). A lead a business development manager sent to the
 // owner that is still unassigned after this long gets ONE extra push to every
 // active owner (owner's ruling: a push, not a red label on the card). Must
@@ -207,16 +224,32 @@ async function drainFollowUps(supabase, now) {
   // eventually truncate it, arbitrarily, with reminders silently vanishing
   // and no error anywhere. `lte(due_date, today IST)` also lets the partial
   // index actually serve a seek rather than only its WHERE clause helping.
-  const { data: candidates, error: fetchError } = await supabase
-    .from('follow_ups')
-    .select('id, assigned_to, title, notes, due_date, due_time, notified_at, lead_id, parties(name)')
-    .eq('status', 'open')
-    .lte('due_date', istToday(now))
-    .order('due_date', { ascending: true })
+  //
+  // Still needs real paging even with that predicate — the candidate set is
+  // every OPEN-AND-OVERDUE reminder in the company, which only grows as long
+  // as anything stays undealt-with, so it can cross the 1,000-row cap on its
+  // own with no help from a missing date filter. Paged with .range() and a
+  // deterministic id order, same two requirements fetchAllRows enforces
+  // everywhere else in this app: no .order() means no guarantee two .range()
+  // calls walk the same order, so pages could repeat or skip rows.
+  const candidates = []
+  let offset = 0
+  while (offset < FOLLOWUP_RUN_LIMIT) {
+    const { data: page, error: fetchError } = await supabase
+      .from('follow_ups')
+      .select('id, assigned_to, title, notes, due_date, due_time, notified_at, lead_id, parties(name)')
+      .eq('status', 'open')
+      .lte('due_date', istToday(now))
+      .order('due_date', { ascending: true })
+      .order('id', { ascending: true })
+      .range(offset, offset + FOLLOWUP_PAGE_SIZE - 1)
+    if (fetchError) return { sent: 0, processed: 0, error: fetchError.message }
+    candidates.push(...(page ?? []))
+    if (!page || page.length < FOLLOWUP_PAGE_SIZE) break
+    offset += FOLLOWUP_PAGE_SIZE
+  }
 
-  if (fetchError) return { sent: 0, processed: 0, error: fetchError.message }
-
-  const due = (candidates ?? []).filter((f) => isDue(f, now) && !alreadyNotifiedToday(f, now))
+  const due = candidates.filter((f) => isDue(f, now) && !alreadyNotifiedToday(f, now))
   if (!due.length) return { sent: 0, processed: 0 }
 
   const subsByEmployee = await fetchSubscriptionsFor(supabase, [...new Set(due.map((f) => f.assigned_to))])

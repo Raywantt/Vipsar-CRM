@@ -110,6 +110,29 @@ export function isCancelBlockedForViewer(viewerId, f) {
   return viewerId != null && f.assigned_to === viewerId && f.created_by != null && f.created_by !== f.assigned_to
 }
 
+// Rule 8.2 — an on-hold lead always carries a live "On hold" reminder, and it
+// must never be cancellable: cancelling it would leave a paused lead with no
+// working reminder at all and no way back onto anyone's radar. Read off the
+// embedded lead's own current_stage, which FOLLOW_UP_SELECT always carries,
+// so no caller needs a second query. Same identifying test as LeadDetail's
+// own `holdReview` and the cancel_follow_ups_on_lead_close() trigger — change
+// one, change all three.
+export function isHoldReviewFollowUp(f) {
+  return (
+    f.leads?.current_stage === 'on_hold' &&
+    f.activity_type === 'other' &&
+    typeof f.title === 'string' &&
+    f.title.startsWith('On hold')
+  )
+}
+
+// FollowUpList's `lockedIds` prop, built from whatever list a caller already
+// has. Was never supplied by any caller — a hold review could be cancelled
+// by hand from every follow-up list in the app despite the rule above.
+export function lockedFollowUpIds(followUps) {
+  return new Set(followUps.filter(isHoldReviewFollowUp).map((f) => f.id))
+}
+
 // Open first, then done, then cancelled; soonest due first within each.
 const STATUS_RANK = { open: 0, done: 1, cancelled: 2 }
 export function compareFollowUps(a, b) {

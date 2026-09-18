@@ -322,10 +322,11 @@ different bugs, so do both**.
   `DrilldownPanel` → `AgeingBody`, for one) — threading a prop through every
   intermediate layer would have touched far more files than the badge
   itself, and the cached roster means many chips on one screen still cost
-  one request. **Known gap:** `leads_needing_attention()` doesn't return
-  `bdm_employee_id` yet, so Needs Attention and the Stale-leads drill-down
-  show no chip until `migration_needs_attention_bdm_chip.sql` is run (see
-  Outstanding migrations); three smaller RPC-backed panels (follow-up gap,
+  one request. **Known gap, closed 2026-09-18:** `leads_needing_attention()`
+  now returns `bdm_employee_id` (`migration_needs_attention_bdm_chip.sql`
+  run — see Outstanding migrations), so Needs Attention and the Stale-leads
+  drill-down can show the chip; not yet re-checked in the browser. Three
+  smaller RPC-backed panels (follow-up gap,
   on-hold insights, data completeness) and Home's "Today's activity" recap
   (which composes the lead name into one text string rather than a separate
   field) were left uncovered on the same reasoning.
@@ -2756,10 +2757,6 @@ removing your own login.
 
 ### Outstanding migrations
 
-* **Re-run `migration_followups_cancel_rules.sql`** (changed 2026-09-16,
-  after its first run). `cancel_follow_ups_on_lead_close()` gained the
-  off-hold branch; the file also cancels any hold review left open on a lead
-  no longer on hold (none existed when written). Safe to re-run whole.
 * **`migration_manager_reassign_any_employee.sql`** — lets a manager reassign
   a lead they can already reach to **any** active exec, not just their own
   team. **Deliberately narrow — no visibility change**: only the `WITH CHECK`
@@ -2770,18 +2767,26 @@ removing your own login.
   clauses are OR'd across every applicable policy regardless of which one's
   USING matched, so an unconditional `true` would hand every other role the
   same unrestricted right.
-* **`migration_needs_attention_bdm_chip.sql`** (new, 2026-09-17, not yet
-  run) — adds `bdm_employee_id` to `leads_needing_attention()`'s output, so
-  `BdmChip` has something to read on Needs Attention and the Stale-leads
-  drill-down. Layered on top of `migration_bdm_handoff.sql`'s **current**
-  body, pool-exclusion clause included — DROP+CREATE, not `CREATE OR
-  REPLACE`, since adding an output column is a return-type change Postgres
-  won't do in place (same reasoning as `migration_stale_7day_tile.sql`).
-  **If `migration_bdm_handoff.sql` is ever re-run after this, re-run this
-  file again immediately after** — its `CREATE OR REPLACE` would silently
-  drop the new column, same class of trap as every other RPC-layering
-  warning in this section. Fails soft until run: those two surfaces just
-  show no chip, nothing errors.
+**Run 2026-09-18, not yet behaviourally verified against live data** (SQL
+confirmed run by the owner; nobody has driven the specific new paths yet —
+verify each as a real logged-in session, not from the SQL Editor):
+
+* **`migration_followups_bdm_pool_reassign_fix.sql`** —
+  `reassign_open_follow_ups()` moved EVERY open follow-up on a lead to its
+  new owner, not just the previous owner's own reminders. Fine for an
+  ordinary A→B reassignment; wrong for a BDM pool lead's first assignment
+  (owner NULL → rep), where it swept up a BDM's own reminder and handed it
+  to the rep. Now scoped to `assigned_to = OLD.owner_employee_id`, which is
+  never true when `OLD.owner_employee_id IS NULL`. **Needs verifying against
+  a real BDM pool-lead assignment** — nothing has exercised this path live
+  yet, either before or after the fix.
+* **`migration_needs_attention_bdm_chip.sql`** — adds `bdm_employee_id` to
+  `leads_needing_attention()`'s output, so `BdmChip` has something to read on
+  Needs Attention and the Stale-leads drill-down. Layered on top of
+  `migration_bdm_handoff.sql`'s current body, pool-exclusion clause
+  included. **If `migration_bdm_handoff.sql` is ever re-run after this,
+  re-run this file again immediately after** — its `CREATE OR REPLACE` would
+  silently drop the new column.
 
 **Ran and verified live 2026-09-16:**
 
@@ -2792,6 +2797,9 @@ removing your own login.
   reminders, reason "Lead marked won/lost"; its one-time pass cancelled the 7
   that were open on closed leads. The won/lost trigger itself was not fired
   live — marking a lead won writes append-only `stage_history`.
+  **Re-run 2026-09-18** (SQL confirmed run) with the off-hold branch added:
+  taking a lead off hold now cancels its hold review, reason "Lead taken off
+  hold" — **not yet exercised live**, no lead has come off hold since.
 * **`migration_rls_performance_follow_ups.sql`** — no behaviour change.
   Hoists the helper calls and replaces the per-row
   `is_my_team_member`/`is_my_managed_member` with id lists computed once
@@ -3203,24 +3211,56 @@ Deliberately deferred, not forgotten. Full detail in `PHASE9_LOG.md`.
    them with no hold reason either, mostly legacy imports). On-hold leads are
    excluded from the stale bucket and have no `next_followup_date`, so these
    sit on no attention list. The owner's call: **leave the data as is** for
-   now. Related, still unbuilt: the on-hold "can't cancel" lock
-   (`FollowUpList`'s `lockedIds`) is never supplied by any caller, so a hold
-   review can still be cancelled by hand.
-7. **Follow-ups audit leftovers (2026-09-16):** BDM pool-lead reminders
+   now. ~~Related, still unbuilt: the on-hold "can't cancel" lock
+   (`FollowUpList`'s `lockedIds`) is never supplied by any caller~~ **closed
+   2026-09-18:** `followUpQueries.js`'s `isHoldReviewFollowUp`/
+   `lockedFollowUpIds` (reads the embedded lead's own `current_stage`, so no
+   caller needs a second query) is now wired into every list that renders a
+   Cancel button — `LeadFollowUpsCard`, `FollowUpsCard`, `EmployeeProfile`,
+   `Home`, `OwnerToday`, `BdmToday`, and Home's `followUpPanel` drill-down.
+   Verified live on Sandeep Jain's lead (#1446, owner session): the hold
+   review's row shows "Can't be cancelled while the lead is on hold" with no
+   Cancel button, same as before, but now for real everywhere instead of by
+   accident nowhere.
+7. **Follow-ups audit leftovers (2026-09-16):** ~~BDM pool-lead reminders
    probably move to the rep on assignment (`reassign_open_follow_ups`,
-   contradicting `BDM.md`; unverified live); overdue pushes repeat daily
-   with no cap and the sender's fetch isn't paged; ~~generic titles~~
-   **partly fixed 2026-09-16:** `ActivityLog`'s lead-anchored "Next
-   follow-up" now writes "Follow up with {lead} after {activity}"
-   (`leadLabel(selectedLead)`); the bulk queue's own `createFollowUp` call
-   (`DrilldownPanel.jsx`'s `handleSaveDate`) still writes the bare
-   `'Follow up'` — untouched; `activity_type` meaning two things; 58% of
+   contradicting `BDM.md`; unverified live)~~ **fixed 2026-09-18, SQL run:**
+   the trigger reassigned EVERY open follow-up on a lead to the new owner,
+   not just the previous owner's — so a BDM's own reminder on a pool lead
+   (owner NULL → rep) got swept up and handed to the rep on first
+   assignment. `Schema/migration_followups_bdm_pool_reassign_fix.sql` scopes
+   the UPDATE to `assigned_to = OLD.owner_employee_id`, which is never true
+   when `OLD.owner_employee_id IS NULL` (a pool lead's first assignment), so
+   a BDM's reminder is now left alone; an ordinary A→B reassignment is
+   unaffected. **Still needs verifying against a real BDM pool
+   assignment** — nothing has exercised this path live yet. ~~overdue pushes repeat daily with no cap and the sender's
+   fetch isn't paged~~ **paging fixed 2026-09-18, not yet deployed:**
+   `send-followup-reminders/index.ts`'s `drainFollowUps` had no `.range()`
+   paging at all, so once open-and-overdue reminders crossed PostgREST's
+   1,000-row cap the tail silently stopped being processed — no push, no
+   error, nothing to say so. Now pages in `FOLLOWUP_PAGE_SIZE` (1,000)
+   chunks ordered by `due_date, id` with a `FOLLOWUP_RUN_LIMIT` (20,000)
+   ceiling per run. The daily-repeat behaviour itself is unchanged and still
+   deliberate (an overdue reminder is meant to nag every morning until
+   dealt with) — "no cap" here meant the fetch, not the repetition. Needs
+   `supabase functions deploy send-followup-reminders`. ~~generic titles~~
+   **fixed 2026-09-18** (half done 2026-09-16): `ActivityLog`'s
+   lead-anchored "Next follow-up" already wrote "Follow up with {lead} after
+   {activity}"; the bulk queue's own `createFollowUp` call
+   (`DrilldownPanel.jsx`'s `handleSaveDate`) was passing `r.title`, a field
+   that doesn't exist on an ageing-panel row (the real field is `r.party`) —
+   so the notes annotation silently never fired and the title stayed the
+   bare `'Follow up'` no matter what. Both now read `r.party`, matching the
+   `ActivityLog` wording. `activity_type` meaning two things; 58% of
    completions with no activity; reschedule escaping "missed"; two
-   different "overdue" counts; logging from Lead Detail doesn't offer to
-   close a due reminder (**considered and declined** — the per-row "Log
-   activity & close" on the Follow-ups card already covers it, and
-   `FOLLOWUPS.md` Rule 4.5 already reversed a near-identical feature once);
-   ~~bulk "Set a follow-up on all N" has no duplicate check~~ **closed
+   different "overdue" counts — Today's counts leads with an overdue
+   reminder, the Follow-ups tab counts overdue reminders themselves (a lead
+   can carry more than one); **not fixed, needs a product decision on which
+   unit is correct** before touching either screen. Logging from Lead Detail
+   doesn't offer to close a due reminder (**considered and declined** — the
+   per-row "Log activity & close" on the Follow-ups card already covers it,
+   and `FOLLOWUPS.md` Rule 4.5 already reversed a near-identical feature
+   once); ~~bulk "Set a follow-up on all N" has no duplicate check~~ **closed
    2026-09-16:** skips a lead that already has one open and reports the
    skip count ("Set for 4 of 5 — 1 already had an open reminder").
 

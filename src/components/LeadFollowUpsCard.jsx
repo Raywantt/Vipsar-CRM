@@ -5,6 +5,7 @@ import {
   FOLLOW_UP_OPEN,
   canCloseByLogging,
   cancelFollowUp,
+  lockedFollowUpIds,
   logActivityPathFor,
   markFollowUpDone,
   reopenFollowUp,
@@ -63,7 +64,7 @@ function LeadFollowUpsCard({ followUps, viewer, canLogHere, onChanged }) {
           {error}
         </p>
       )}
-      <FollowUpList followUps={open} emptyLabel="No open reminders." {...handlers} />
+      <FollowUpList followUps={open} lockedIds={lockedFollowUpIds(open)} emptyLabel="No open reminders." {...handlers} />
       {closed.length > 0 && (
         <>
           <button type="button" className="vip-btn-link" onClick={() => setShowClosed((v) => !v)}>

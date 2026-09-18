@@ -5,7 +5,7 @@ import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
 import { fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { computeAttentionBuckets, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
-import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp } from '../lib/followUpQueries'
+import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reminderSavedMessage, lockedFollowUpIds } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import DayReviewCard from '../components/DayReviewCard'
 import { DayKpiStrip } from '../components/DayReviewHeader'
@@ -52,6 +52,7 @@ function OwnerToday() {
 
   const [followUps, setFollowUps] = useState([])
   const [addingFollowUp, setAddingFollowUp] = useState(false)
+  const [savedNote, setSavedNote] = useState(null)
   const [followUpError, setFollowUpError] = useState(null)
 
   useEffect(() => {
@@ -257,7 +258,7 @@ function OwnerToday() {
               <div className="vip-card">
                 <div className="vip-card-head">
                   <h2 className="vip-card-title">Your reminders</h2>
-                  <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
+                  <button type="button" className="vip-btn-link" onClick={() => { setSavedNote(null); setAddingFollowUp((v) => !v) }}>
                     {addingFollowUp ? 'Cancel' : '+ Add reminder'}
                   </button>
                 </div>
@@ -267,14 +268,16 @@ function OwnerToday() {
                     createdBy={employee.id}
                     onSaved={(row) => {
                       if (row.due_date <= todayISO()) setFollowUps((prev) => [...prev, row])
+                      setSavedNote(reminderSavedMessage(row))
                       setAddingFollowUp(false)
                     }}
                     onCancel={() => setAddingFollowUp(false)}
                   />
                 )}
+                {savedNote && !addingFollowUp && <p className="vip-success" role="status" aria-live="polite">{savedNote}</p>}
                 {followUpError && <p className="vip-error" role="alert">{followUpError}</p>}
                 {followUps.length === 0 ? (
-                  <p className="vip-empty">Nothing set.</p>
+                  <p className="vip-empty">Nothing due today.</p>
                 ) : (
                   <FollowUpList
                     followUps={followUps}
@@ -282,7 +285,8 @@ function OwnerToday() {
                     onMarkDone={handleMarkDone}
                     onCancel={handleCancelFollowUp}
                     onReschedule={handleReschedule}
-                    emptyLabel="Nothing set."
+                    lockedIds={lockedFollowUpIds(followUps)}
+                    emptyLabel="Nothing due today."
                   />
                 )}
               </div>

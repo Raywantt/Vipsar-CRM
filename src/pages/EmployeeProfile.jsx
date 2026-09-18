@@ -7,7 +7,7 @@ import { periodForPreset } from '../lib/targetPeriods'
 import { fetchActivityCounts, fetchDecidedStageHistory, fetchLastActivityPerLead, fetchLeadsForBreakdown, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
 import { fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
-import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp, compareFollowUps } from '../lib/followUpQueries'
+import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp, compareFollowUps, lockedFollowUpIds } from '../lib/followUpQueries'
 import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeStale7Bucket, STALE_DAYS, ATTENTION_DAYS, staleGateDays, buildLastStageChangeByLead } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
@@ -979,6 +979,7 @@ function EmployeeProfile() {
                   onCancel={handleCancelFollowUp}
                   onReschedule={handleRescheduleFollowUp}
                   onReopen={handleReopenFollowUp}
+                  lockedIds={lockedFollowUpIds(followUps)}
                   emptyLabel="No follow-ups set."
                 />
                 <ShowMoreRows

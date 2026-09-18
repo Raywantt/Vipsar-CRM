@@ -5,7 +5,7 @@ import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { fetchWonStageHistory, fetchTargetsForPeriod } from '../lib/targetQueries'
-import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor, reminderSavedMessage } from '../lib/followUpQueries'
+import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor, reminderSavedMessage, lockedFollowUpIds } from '../lib/followUpQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildSignificantEntries, buildDaySheetPanel } from '../lib/dayReview'
 import { todayISO } from '../lib/followupDates'
@@ -74,6 +74,7 @@ function followUpPanel(title, rows, viewerId, onMarkDone, onCancel, onReschedule
     onCancel,
     onReschedule,
     onLogActivity,
+    lockedIds: lockedFollowUpIds(rows),
   }
 }
 
@@ -374,6 +375,7 @@ function Home({ embedded = false }) {
                   onCancel={handleCancelFollowUp}
                   onReschedule={handleMove}
                   onLogActivity={handleLogActivityFor}
+                  lockedIds={lockedFollowUpIds(shownFollowUps)}
                   emptyLabel="Nothing outstanding."
                 />
                 {openFollowUps.length > shownFollowUps.length && (

@@ -3,7 +3,7 @@ import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
 import { fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { computeAttentionBuckets, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
-import { rescheduleFollowUp } from '../lib/followUpQueries'
+import { rescheduleFollowUp, reminderSavedMessage } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import DayReviewCard from './DayReviewCard'
 import { DayKpiStrip } from './DayReviewHeader'
@@ -65,6 +65,7 @@ function TeamTodayPanel({
 
   const [addingFollowUp, setAddingFollowUp] = useState(false)
   const [pickedExec, setPickedExec] = useState(null)
+  const [savedNote, setSavedNote] = useState(null)
 
   // Same day-scoped fetch Home.jsx's own "Done today" runs — RLS alone
   // decides whose rows come back (this supervisor's team, via
@@ -204,7 +205,11 @@ function TeamTodayPanel({
                 <button
                   type="button"
                   className="vip-btn-link"
-                  onClick={() => (addingFollowUp ? closeAssignForm() : setAddingFollowUp(true))}
+                  onClick={() => {
+                    setSavedNote(null)
+                    if (addingFollowUp) closeAssignForm()
+                    else setAddingFollowUp(true)
+                  }}
                 >
                   {addingFollowUp ? 'Cancel' : '+ Assign follow-up'}
                 </button>
@@ -230,8 +235,18 @@ function TeamTodayPanel({
             )}
 
             {addingFollowUp && pickedExec && (
-              <FollowUpForm assignedTo={pickedExec.id} createdBy={employee.id} onSaved={closeAssignForm} onCancel={closeAssignForm} />
+              <FollowUpForm
+                assignedTo={pickedExec.id}
+                createdBy={employee.id}
+                onSaved={(row) => {
+                  setSavedNote(reminderSavedMessage(row, pickedExec.name))
+                  closeAssignForm()
+                }}
+                onCancel={closeAssignForm}
+              />
             )}
+
+            {savedNote && !addingFollowUp && <p className="vip-success" role="status" aria-live="polite">{savedNote}</p>}
 
             {!attentionBuckets ? (
               <p className="vip-empty">Loading…</p>

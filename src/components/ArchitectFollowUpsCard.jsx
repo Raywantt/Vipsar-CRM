@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import FollowUpList from './FollowUpList'
 import ShowMoreRows from './ShowMoreRows'
-import { cancelFollowUp, logActivityPathFor, markFollowUpDone, rescheduleFollowUp } from '../lib/followUpQueries'
-import { canLogActivity } from '../lib/roles'
+import { canCloseByLogging, cancelFollowUp, logActivityPathFor, markFollowUpDone, rescheduleFollowUp } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
 
 const ROW_CHUNK = 5
@@ -76,16 +75,11 @@ function ArchitectFollowUpsCard({ employee, load, loadKey, title = 'Follow-ups',
               prev.map((f) => (f.id === id ? data : f)).sort((a, b) => (a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0))
           )
         }
-        // The owner can't log activities (no /activity route), so no button
-        // that would only bounce them back to Today.
-        onLogActivity={
-          canLogActivity(employee.role)
-            ? (f) => {
-                const path = logActivityPathFor(f)
-                if (path) navigate(path)
-              }
-            : undefined
-        }
+        onLogActivity={(f) => {
+          const path = logActivityPathFor(f)
+          if (path) navigate(path)
+        }}
+        canLogActivityFor={(f) => canCloseByLogging(employee, f)}
       />
       <ShowMoreRows
         shown={Math.min(shown, rows.length)}

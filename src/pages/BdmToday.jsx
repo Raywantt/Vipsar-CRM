@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import TodayGreetingHeader from '../components/TodayGreetingHeader'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
-import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor } from '../lib/followUpQueries'
+import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor, reminderSavedMessage, lockedFollowUpIds } from '../lib/followUpQueries'
 import { fetchPortfolioArchitects, fetchArchitectMeetings } from '../lib/architectQueries'
 import { countWaitingPoolLeads } from '../lib/bdmQueries'
 import { architectsToMeet, lastMeetingByArchitect, lastMetLabel, ARCHITECT_MEETING_DAYS } from '../lib/architectStats'
@@ -35,6 +35,7 @@ function BdmToday() {
   const [followUps, setFollowUps] = useState(null)
   const [followUpError, setFollowUpError] = useState(null)
   const [addingFollowUp, setAddingFollowUp] = useState(false)
+  const [savedNote, setSavedNote] = useState(null)
 
   const [architects, setArchitects] = useState(null)
   const [lastMetById, setLastMetById] = useState(new Map())
@@ -126,7 +127,7 @@ function BdmToday() {
         <div className="vip-card">
           <div className="vip-card-head">
             <h2 className="vip-card-title">Follow-ups due</h2>
-            <button type="button" className="vip-btn-link" onClick={() => setAddingFollowUp((v) => !v)}>
+            <button type="button" className="vip-btn-link" onClick={() => { setSavedNote(null); setAddingFollowUp((v) => !v) }}>
               {addingFollowUp ? 'Cancel' : '+ Add reminder'}
             </button>
           </div>
@@ -137,10 +138,17 @@ function BdmToday() {
               createdBy={employee.id}
               onSaved={(row) => {
                 if (row.due_date <= todayISO()) setFollowUps((prev) => [...(prev ?? []), row])
+                setSavedNote(reminderSavedMessage(row))
                 setAddingFollowUp(false)
               }}
               onCancel={() => setAddingFollowUp(false)}
             />
+          )}
+
+          {savedNote && !addingFollowUp && (
+            <p className="vip-success" role="status" aria-live="polite">
+              {savedNote}
+            </p>
           )}
 
           {followUpError && (
@@ -163,6 +171,7 @@ function BdmToday() {
               onCancel={handleCancel}
               onReschedule={handleReschedule}
               onLogActivity={handleLogActivityFor}
+              lockedIds={lockedFollowUpIds(followUps)}
               emptyLabel="Nothing due."
             />
           )}

@@ -319,8 +319,8 @@ function AgeingBody({ panel }) {
           assignedTo: r.ownerId ?? assignee,
           createdBy: assignee,
           leadId: r.leadId,
-          title: 'Follow up',
-          notes: r.title ? `Set from the ${panel.title ?? 'work queue'} — ${r.title}` : null,
+          title: r.party ? `Follow up with ${r.party}` : 'Follow up',
+          notes: r.party ? `Set from the ${panel.title ?? 'work queue'} — ${r.party}` : null,
           dueDate: dateValue,
         })
         return { leadId: r.leadId, error }

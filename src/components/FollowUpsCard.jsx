@@ -12,8 +12,10 @@ import {
   FOLLOW_UP_DONE,
   FOLLOW_UP_CANCELLED,
   logActivityPathFor,
+  canCloseByLogging,
+  lockedFollowUpIds,
 } from '../lib/followUpQueries'
-import { todayISO } from '../lib/followupDates'
+import { todayISO, toISODate } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
 import { getInitials } from '../lib/initials'
 import { TONE_BAD, TONE_WARN, TONE_GOOD, TONE_NEUTRAL } from '../lib/statusColors'
@@ -129,8 +131,10 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) 
   // the fetch deliberately runs to a far horizon rather than range.end — a
   // period filter that hid everything still to come would make the Upcoming
   // bucket permanently empty.
-  const startISO = range ? range.start.toISOString().slice(0, 10) : null
-  const endISO = range ? range.end.toISOString().slice(0, 10) : null
+  // Local calendar dates. toISOString() converts to UTC first, which turned
+  // IST midnight into the previous day and stretched every period back by one.
+  const startISO = range ? toISODate(range.start) : null
+  const endISO = range ? toISODate(range.end) : null
 
   useEffect(() => {
     if (!startISO) return
@@ -290,6 +294,8 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) 
           onReschedule={handleReschedule}
           onReopen={handleReopen}
           onLogActivity={handleLogActivity}
+          canLogActivityFor={(f) => canCloseByLogging(viewer, f)}
+          lockedIds={lockedFollowUpIds(visible)}
           emptyLabel={`Nothing ${BUCKETS.find((b) => b.key === bucket)?.label.toLowerCase()}.`}
         />
         <ShowMoreRows
