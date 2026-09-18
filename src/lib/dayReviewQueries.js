@@ -123,7 +123,7 @@ export function fetchFollowUpsDueOn(dateISO) {
     supabase
       .from('follow_ups')
       .select(
-        `id, assigned_to, created_by, party_id, lead_id, activity_type, title, notes, due_date, due_time, status, is_done, done_at, cancelled_at, cancel_reason, completed_by_activity_id, parties(name), ${LEAD_NAME_EMBED}`,
+        `id, assigned_to, created_by, party_id, lead_id, activity_type:planned_activity_type, title, notes, due_date, due_time, status, is_done, done_at, cancelled_at, cancel_reason, completed_by_activity_id, parties(name), ${LEAD_NAME_EMBED}`,
         { count: 'exact' }
       )
       .eq('due_date', dateISO)

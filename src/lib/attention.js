@@ -484,7 +484,11 @@ function assembleBuckets({ stale, silentQuotes, followupsOverdue, slipped, pendi
     },
     {
       key: 'followups_overdue',
-      title: 'Follow-ups overdue',
+      // "Leads with", not bare "Follow-ups overdue" — the Follow-ups tab has
+      // its own "Overdue" bucket counting REMINDERS, not leads, and a lead
+      // can carry more than one, so the two numbers legitimately disagree.
+      // Both are honest; only the unmarked title made it read as a bug.
+      title: 'Leads with overdue follow-ups',
       sub: `Across ${uniqueOwners(followupsOverdue)} exec${uniqueOwners(followupsOverdue) === 1 ? '' : 's'}`,
       count: followupsOverdue.length,
       color: '#b4232a',

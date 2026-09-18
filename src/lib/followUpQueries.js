@@ -38,8 +38,18 @@ import { canLogActivity, logsActivityOnBehalf } from './roles'
 // embed rather than erroring. Callers must tolerate a null `leads`/`parties`
 // on a row that legitimately has a lead_id. Don't "fix" it by dropping the
 // embed; the fallback chain in followUpLabel handles it.
+//
+// `activity_type:planned_activity_type` — the underlying column was renamed
+// (migration_followups_rename_activity_type.sql, 2026-09-18) to stop it
+// reading as the same fact as activities.activity_type, which it never was:
+// this one is what a reminder is FOR, not what someone did. Aliased back to
+// `activity_type` here so every OTHER file in the app — FollowUpList,
+// FollowUpForm, ActivityLog, isHoldReviewFollowUp, logActivityPathFor — keeps
+// reading `f.activity_type` on a follow-up row exactly as before. This file
+// (createFollowUp/updateFollowUp below) is the only place the raw column
+// name matters.
 const FOLLOW_UP_SELECT =
-  'id, assigned_to, created_by, party_id, lead_id, activity_type, title, notes, ' +
+  'id, assigned_to, created_by, party_id, lead_id, activity_type:planned_activity_type, title, notes, ' +
   'due_date, due_time, status, is_done, done_at, cancelled_at, cancel_reason, ' +
   'completed_by_activity_id, created_at, ' +
   'parties(name, mobile, party_type), ' +
@@ -284,7 +294,7 @@ export function createFollowUp({ assignedTo, createdBy, partyId, leadId, activit
       created_by: createdBy,
       party_id: partyId || null,
       lead_id: leadId || null,
-      activity_type: activityType || null,
+      planned_activity_type: activityType || null,
       title,
       notes: notes || null,
       due_date: dueDate,
@@ -369,6 +379,6 @@ export function updateFollowUp(id, fields) {
   if ('notes' in fields) patch.notes = fields.notes || null
   if ('dueDate' in fields) patch.due_date = fields.dueDate
   if ('dueTime' in fields) patch.due_time = fields.dueTime || null
-  if ('activityType' in fields) patch.activity_type = fields.activityType || null
+  if ('activityType' in fields) patch.planned_activity_type = fields.activityType || null
   return supabase.from('follow_ups').update(patch).eq('id', id).select(FOLLOW_UP_SELECT).single()
 }

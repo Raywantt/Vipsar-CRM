@@ -2757,6 +2757,22 @@ removing your own login.
 
 ### Outstanding migrations
 
+* **`migration_followups_rename_activity_type.sql`** (new, 2026-09-18, not
+  yet run) — ⚠️ **higher blast radius than a normal migration, deploy
+  order matters.** Renames `follow_ups.activity_type` to
+  `follow_ups.planned_activity_type` (fixes it sharing a name with
+  `activities.activity_type` while meaning something different — see Open
+  TODOs #7). The matching code
+  (`followUpQueries.js`/`dayReviewQueries.js` aliasing the renamed column
+  straight back to `activity_type` in the JSON) is already written but
+  **must not reach production before this migration has run** — until it
+  has, the aliased `SELECT` asks PostgREST for a column that doesn't exist
+  yet, and since `FOLLOW_UP_SELECT` is what nearly every follow-ups query
+  in the app uses, that's not one broken screen, it's every follow-ups
+  list, on every role, at once (see "A migration that adds a column the
+  new code SELECTs" below — this is that trap, in the rename direction).
+  **Run this SQL file first; only push the code once it's confirmed run.**
+  Ends with `NOTIFY pgrst, 'reload schema'`. Safe to re-run whole.
 * **`migration_manager_reassign_any_employee.sql`** — lets a manager reassign
   a lead they can already reach to **any** active exec, not just their own
   team. **Deliberately narrow — no visibility change**: only the `WITH CHECK`
@@ -3234,7 +3250,7 @@ Deliberately deferred, not forgotten. Full detail in `PHASE9_LOG.md`.
    a BDM's reminder is now left alone; an ordinary A→B reassignment is
    unaffected. **Still needs verifying against a real BDM pool
    assignment** — nothing has exercised this path live yet. ~~overdue pushes repeat daily with no cap and the sender's
-   fetch isn't paged~~ **paging fixed 2026-09-18, not yet deployed:**
+   fetch isn't paged~~ **paging fixed and deployed 2026-09-18:**
    `send-followup-reminders/index.ts`'s `drainFollowUps` had no `.range()`
    paging at all, so once open-and-overdue reminders crossed PostgREST's
    1,000-row cap the tail silently stopped being processed — no push, no
@@ -3242,8 +3258,12 @@ Deliberately deferred, not forgotten. Full detail in `PHASE9_LOG.md`.
    chunks ordered by `due_date, id` with a `FOLLOWUP_RUN_LIMIT` (20,000)
    ceiling per run. The daily-repeat behaviour itself is unchanged and still
    deliberate (an overdue reminder is meant to nag every morning until
-   dealt with) — "no cap" here meant the fetch, not the repetition. Needs
-   `supabase functions deploy send-followup-reminders`. ~~generic titles~~
+   dealt with) — "no cap" here meant the fetch, not the repetition.
+   `supabase functions deploy send-followup-reminders` run 2026-09-18;
+   **not yet verified against a real >1,000-row backlog** (the company is
+   nowhere near that volume today, so this can only be verified by reading
+   the deployed code's behaviour, not by observing a real truncation fixed).
+   ~~generic titles~~
    **fixed 2026-09-18** (half done 2026-09-16): `ActivityLog`'s
    lead-anchored "Next follow-up" already wrote "Follow up with {lead} after
    {activity}"; the bulk queue's own `createFollowUp` call
@@ -3251,13 +3271,36 @@ Deliberately deferred, not forgotten. Full detail in `PHASE9_LOG.md`.
    that doesn't exist on an ageing-panel row (the real field is `r.party`) —
    so the notes annotation silently never fired and the title stayed the
    bare `'Follow up'` no matter what. Both now read `r.party`, matching the
-   `ActivityLog` wording. `activity_type` meaning two things; 58% of
-   completions with no activity; reschedule escaping "missed"; two
-   different "overdue" counts — Today's counts leads with an overdue
-   reminder, the Follow-ups tab counts overdue reminders themselves (a lead
-   can carry more than one); **not fixed, needs a product decision on which
-   unit is correct** before touching either screen. Logging from Lead Detail
-   doesn't offer to close a due reminder (**considered and declined** — the
+   `ActivityLog` wording. ~~`activity_type` meaning two things~~ **fixed in
+   code 2026-09-18, migration not yet run — see Outstanding migrations,
+   deploy-order warning:** `follow_ups.activity_type` (what a reminder is
+   FOR) and `activities.activity_type` (what someone actually DID) shared a
+   name and a value list but never meant the same thing.
+   `Schema/migration_followups_rename_activity_type.sql` renames the
+   `follow_ups` column to `planned_activity_type`; `activities.activity_type`
+   is untouched. `followUpQueries.js`'s `FOLLOW_UP_SELECT` and
+   `dayReviewQueries.js`'s `fetchFollowUpsDueOn` both alias it straight back
+   to `activity_type` in the returned JSON
+   (`activity_type:planned_activity_type`), so every other file that reads
+   `f.activity_type` off a follow-up row — `FollowUpList`, `dayReview.js`,
+   `LeadDetail`'s `holdReview`, `logActivityPathFor`, `isArchitectFollowUp`
+   — needed no change at all; only `createFollowUp`/`updateFollowUp` (the
+   two writers) and the two SELECT strings touch the raw column name.
+   **The owner chose "rename the column" over "leave it" or a bigger
+   planned-vs-actual restructure** — an AskUserQuestion menu of three
+   options, tradeoffs explained, 2026-09-18. Reschedule escaping "missed"
+   and 58% of completions with no activity — **both explicitly left as-is**,
+   same menu: the owner picked "leave it" for both rather than adding a
+   persistent missed-counter or gating the "Just mark done" shortcut.
+   ~~Two different "overdue" counts~~ **labelled, not unified, 2026-09-18**
+   (owner's pick off the same menu): Today's count is LEADS with an overdue
+   reminder, the Follow-ups tab's is overdue REMINDERS themselves (a lead
+   can carry more than one) — legitimately different questions, not a bug.
+   `attention.js`'s `followups_overdue` bucket title is now "Leads with
+   overdue follow-ups" (was the bare, collision-prone "Follow-ups overdue");
+   `FollowUpsCard.jsx`'s hint line now reads "… · counts are reminders, not
+   leads". Logging from Lead Detail doesn't offer to close a due reminder
+   (**considered and declined** — the
    per-row "Log activity & close" on the Follow-ups card already covers it,
    and `FOLLOWUPS.md` Rule 4.5 already reversed a near-identical feature
    once); ~~bulk "Set a follow-up on all N" has no duplicate check~~ **closed

@@ -268,7 +268,11 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) 
       <div className="vip-card">
         <div className="vip-card-head">
           <h2 className="vip-card-title">All reminders</h2>
-          <div className="vip-dd-hint">any due date — not scoped to {rangeLabel}</div>
+          {/* "reminders, not leads" — Needs Attention's own overdue count is
+              LEADS with an overdue reminder; a lead can carry more than one,
+              so the two numbers disagree on purpose. Both are honest, but
+              side by side with no note it reads as a bug. */}
+          <div className="vip-dd-hint">any due date — not scoped to {rangeLabel} · counts are reminders, not leads</div>
         </div>
         <div className="vip-seg vip-seg-outline">
           {BUCKETS.map((b) => (
