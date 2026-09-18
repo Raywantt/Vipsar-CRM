@@ -92,6 +92,12 @@ export function canLogActivity(role) {
   return [ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER, ROLES.BDM].includes(role)
 }
 
+// Log Activity's "Who is this for?" picker — the one role that logs work in
+// someone else's name. A manager logs only their own work.
+export function logsActivityOnBehalf(role) {
+  return role === ROLES.SALES_COORDINATOR
+}
+
 // /team — the owner's whole roster, or a manager's own reports.
 export function canSeeTeamDirectory(role) {
   return role === ROLES.OWNER || role === ROLES.SALES_MANAGER
