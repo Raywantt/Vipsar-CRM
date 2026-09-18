@@ -2727,7 +2727,9 @@ with no error. The layered order is:
    `migration_rls_performance_follow_ups.sql`, which rewrites every
    `follow_ups` policy from `rls_policies.sql`, the coordinator and the
    manager migrations, and `migration_rls_performance_team_select.sql`,
-   which must run after `migration_rls_performance_leads_stage_history.sql`)
+   which must run after `migration_rls_performance_leads_stage_history.sql`,
+   and `migration_rls_performance_activities_team_select.sql`, which must
+   run after `migration_rls_performance_parties_sites_activities.sql`)
 7. `migration_manager_reassign_any_employee.sql`,
    `migration_architects_universal_visibility.sql`
 8. `migration_bdm_role.sql` → `migration_bdm_handoff.sql`
@@ -2880,10 +2882,21 @@ verify each as a real logged-in session, not from the SQL Editor):
   `stage_history` (`coordinator_team_select`, `manager_team_select`); write
   policies untouched. Manager / coordinator: `leads` 1.0–1.2 s → ~130 ms,
   `stage_history` ~1 s (spikes to 27 s) → ~130 ms, same ids as before.
-  **Still slow for a manager on their Reports page, not yet investigated:**
-  the `activities` reads (1.2–3.8 s), `leads_needing_attention` (2.5 s) and
-  `loss_reasons` (1.1 s). Likely the same per-row team check (their policies
-  weren't in this pass), but unmeasured.
+  **Its `activities` half ran 2026-09-18** as
+  `migration_rls_performance_activities_team_select.sql` — see below.
+* **`migration_rls_performance_activities_team_select.sql`** (run and
+  verified live 2026-09-18) — no behaviour change. The same id-list swap for
+  `activities`' `coordinator_team_select`/`manager_team_select`. **It fixed a
+  real production error:** a manager's Dashboard showed "current transaction
+  is aborted, commands ignored until end of transaction block" in place of
+  the Reports cards — the per-row `is_my_managed_member()` put the
+  `activities` reads at ~5.2 s under a concurrent page load, against the 8 s
+  statement timeout, and that is how the timeout surfaced. Measured as `sm`:
+  `select id from activities` 1.3–1.7 s → ~130 ms (same 9 ids); on page load
+  the activities reads fell from ~5.2 s to under 0.45 s and
+  `leads_needing_attention` from 4.9 s to 0.7 s. `loss_reasons` measured
+  ~0.2 s for `sm` and was left alone. **Coordinator side not yet re-timed
+  live.**
 
 **Confirmed live since (2026-09-15), no longer outstanding:**
 `migration_architects_universal_visibility.sql` (`migration_bdm_role.sql`
