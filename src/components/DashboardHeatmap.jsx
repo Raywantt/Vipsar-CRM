@@ -9,7 +9,7 @@ import {
   blendedAttainmentFor,
   targetFor,
 } from './TargetsVsActualsCard'
-import { buildOrderValueAttainPanel, buildOverallAttainPanel, buildScanningLeadsAttainPanel } from '../lib/drilldownBuilders'
+import { buildOverallAttainPanel, buildScanningLeadsAttainPanel } from '../lib/drilldownBuilders'
 import { attainmentHeatClass } from '../lib/statusColors'
 
 // Driven off METRIC_OPTIONS' underlying pieces (see targetMetrics.js) rather
@@ -32,7 +32,7 @@ const COLS = [
 // entries on demand (`onOpenLog`, async — see Dashboard.jsx); scanning
 // leads, order value and overall are built synchronously from state already
 // on the page.
-function DashboardHeatmap({ employees, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel, onOpenLog, onOpenPanel, canCancelTarget = false }) {
+function DashboardHeatmap({ employees, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel, onOpenLog, onOpenPanel, onOpenBooked, canCancelTarget = false }) {
   const orderActuals = computeOrderValueActuals(wonStageHistory, range, true)
   const scanningActuals = computeScanningLeadsActuals(breakdownLeads, range, true)
   const activityActuals = computeActivityActuals(activities, true)
@@ -79,10 +79,9 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, bre
               actual = orderActuals.get(emp.id) ?? 0
               target = targetFor(targets, emp.id, 'order_value')
               sub = target != null ? `₹${(actual / 100000).toFixed(1)}/${(target / 100000).toFixed(0)}L` : '—'
-              onClick = () =>
-                onOpenPanel(
-                  buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId: emp.id, rangeLabel, canCancelTarget })
-                )
+              // The Orders booked popup, opened on this exec — Dashboard builds
+              // it (see its `bookedFor`), so the cell only says whose.
+              onClick = () => onOpenBooked(emp.id)
             } else if (c.value === 'scanning_leads') {
               actual = scanningActuals.get(emp.id) ?? 0
               target = targetFor(targets, emp.id, 'scanning_leads')

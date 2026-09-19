@@ -12,6 +12,7 @@ import {
   buildOverallAttainPanel,
   buildLogPanel,
   buildOrderValueAttainPanel,
+  buildBookedPanel,
   buildScanningLeadsAttainPanel,
   buildArchitectsToMeetPanel,
 } from './drilldownBuilders'
@@ -392,6 +393,87 @@ describe('buildOrderValueAttainPanel cancelTarget', () => {
     // Company-wide (employeeId: null) has no single row to cancel, even with the flag on.
     const companyWide = buildOrderValueAttainPanel({ employees, targets, wonStageHistory: [], range, employeeId: null, rangeLabel: 'this week', canCancelTarget: true })
     expect(companyWide.cancelTarget).toBeNull()
+  })
+})
+
+describe('buildBookedPanel', () => {
+  const employees = [
+    { id: 1, name: 'Raghav Gupta' },
+    { id: 2, name: 'Vishal Kumar' },
+  ]
+  const targets = [{ id: 601, employee_id: 1, metric_name: 'order_value', target_value: 500000 }]
+  const breakdownLeads = [
+    { id: 10, created_at: '2026-08-01T05:00:00', source_type: 'scanning', office_territory: 'ludhiana', parties: { name: 'Sharma' }, employees: { name: 'Raghav Gupta' }, products: { name: 'TOSTEM' } },
+    { id: 11, created_at: '2026-08-01T05:00:00', source_type: 'referral_other', office_territory: 'amritsar', parties: { name: 'Gill' }, employees: { name: 'Vishal Kumar' }, products: { name: 'TOSTEM' } },
+  ]
+  const wonStageHistory = [
+    { lead_id: 11, changed_at: '2026-08-20T05:00:00', leads: { owner_employee_id: 2, bdm_employee_id: null, order_value: 900000 } },
+    { lead_id: 10, changed_at: '2026-08-10T05:00:00', leads: { owner_employee_id: 1, bdm_employee_id: null, order_value: 300000 } },
+  ]
+  const base = { employees, targets, wonStageHistory, breakdownLeads, range, rangeLabel: 'this month' }
+
+  it('is its own kind, headed by the same figure the KPI tile shows', () => {
+    const panel = buildBookedPanel(base)
+    expect(panel.kind).toBe('booked')
+    expect(panel.title).toBe('Orders booked')
+    expect(panel.value).toBe('₹12.0L')
+    // The strip is in the body, following the filters; the head carries none.
+    expect(panel.stats).toBeNull()
+  })
+
+  it('offers the owner and source filters the period supports', () => {
+    const panel = buildBookedPanel(base)
+    expect(panel.filters.owners.map((o) => o.name)).toEqual(['Raghav Gupta', 'Vishal Kumar'])
+    expect(panel.filters.sources.map((s) => s.key)).toEqual(['scanning', 'referral_other'])
+    expect(panel.filters.total).toBe(2)
+  })
+
+  it('offers no Owner filter for a single-person view, even though the roster holds everyone', () => {
+    // A sales exec's `employees` is the whole company roster. BookedBody shows
+    // "Closed by" only when there are owners to choose between, so an empty facet
+    // is what keeps every colleague off the list at ₹0.
+    const solo = buildBookedPanel({ ...base, compareExecs: false })
+    expect(solo.filters.owners).toEqual([])
+    // A zero-deal colleague never enters the view's roster, only the deals' owners do.
+    const rosterHeavy = buildBookedPanel({ ...base, compareExecs: false, employees: [...employees, { id: 3, name: 'Colleague' }] })
+    expect(rosterHeavy.viewFor({}, 'latest').byExec.map((e) => e.name)).not.toContain('Colleague')
+    // …and the figures themselves are untouched.
+    expect(solo.viewFor({}, 'latest').total).toBe(2)
+    expect(buildBookedPanel(base).filters.owners).toHaveLength(2)
+  })
+
+  it('says it is not ready while the leads fetch is still in flight, rather than naming deals by id', () => {
+    expect(buildBookedPanel(base).ready).toBe(true)
+    expect(buildBookedPanel({ ...base, leadsReady: false }).ready).toBe(false)
+  })
+
+  it('re-derives every section for a filter through viewFor', () => {
+    const panel = buildBookedPanel(base)
+    expect(panel.viewFor({}, 'latest').rows.map((r) => r.leadId)).toEqual([11, 10])
+    expect(panel.viewFor({ owner: '1' }, 'latest').rows.map((r) => r.leadId)).toEqual([10])
+  })
+
+  it('opens on one exec when the heatmap asks, and keeps that exec’s target-cancel control', () => {
+    const panel = buildBookedPanel({ ...base, employeeId: 1, canCancelTarget: true })
+    expect(panel.initialOwner).toBe('1')
+    expect(panel.cancelTarget).toEqual({ id: 601 })
+    expect(panel.eyebrow).toBe('Raghav Gupta · order value')
+    // The company-wide entry has no single target to cancel and opens on everyone.
+    const company = buildBookedPanel({ ...base, canCancelTarget: true })
+    expect(company.initialOwner).toBe('')
+    expect(company.cancelTarget).toBeNull()
+  })
+
+  it('compares against the previous period it is given, and against nothing when it is not', () => {
+    const previous = { range: { start: new Date(2026, 6, 1), end: new Date(2026, 6, 31, 23, 59, 59) }, label: 'last month' }
+    const priorHistory = [
+      ...wonStageHistory,
+      { lead_id: 12, changed_at: '2026-07-05T05:00:00', leads: { owner_employee_id: 1, bdm_employee_id: null, order_value: 600000 } },
+    ]
+    const compared = buildBookedPanel({ ...base, wonStageHistory: priorHistory, previous })
+    expect(compared.previousLabel).toBe('last month')
+    expect(compared.viewFor({}, 'latest').stats[0].sub).toBe('▲ 100% vs last month')
+    expect(buildBookedPanel(base).viewFor({}, 'latest').stats[0].sub).toBe('this period')
   })
 })
 

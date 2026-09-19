@@ -288,7 +288,7 @@ export function fetchClosureForecast(includePool = false) {
 // breakdown helper read these columns, and a second hand-typed copy is how one
 // of them would silently lose a field.
 export const BREAKDOWN_LEAD_COLUMNS =
-  'id, external_reference_id, current_stage, order_value, site_id, owner_employee_id, bdm_employee_id, source_type, quote_sent, quote_sent_at, rfq_raised, rfq_raised_at, quote_value, closure_probability, estimated_close_date, next_followup_date, created_at, parties!party_id(name), sites(nickname, locality, house_no, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)'
+  'id, external_reference_id, current_stage, order_value, site_id, owner_employee_id, bdm_employee_id, source_type, office_territory, quote_sent, quote_sent_at, rfq_raised, rfq_raised_at, quote_value, closure_probability, estimated_close_date, next_followup_date, created_at, parties!party_id(name), sites(nickname, locality, house_no, site_stage, area_id, areas(area_name)), employees!owner_employee_id(name), products!product_id(name, category)'
 
 export function fetchLeadsForBreakdown(includePool = false) {
   return cachedQuery(`leads:breakdown:${includePool ? 'pool' : 'no-pool'}`, () =>

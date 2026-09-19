@@ -3558,3 +3558,17 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
    it wraps onto two lines. */
 .vip-act-lead-count { flex: 0 0 64px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
 .vip-act-notes { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ===========================================================================
+   37. Orders booked popup (vip-bk-*)
+   ===========================================================================
+   BookedBody (DrilldownPanel.jsx) is built almost entirely from section 36's
+   rows and the drill-down's own .vip-dd-log-row; the one thing it adds is the
+   value column at the right of a closed deal. Tokens only, so section 22
+   repaints it for dark mode. */
+
+.vip-bk-deal-value {
+  flex: 0 0 auto; align-self: flex-start; padding-top: 1px;
+  font-size: 13px; font-weight: 600; color: var(--vip-ink);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}

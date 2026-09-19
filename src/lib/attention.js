@@ -111,7 +111,7 @@ const HISTORY_FLOOR_MS = new Date(`${HISTORY_STARTS_AT}T00:00:00`).getTime()
 // 'legacy-<sheet row>', and nothing in the app ever writes it. It is selected
 // by fetchLeadsForBreakdown for this. A lead reaching here without the field
 // is treated as app-created — the safe default, since it means "show it".
-function isImportedLead(lead) {
+export function isImportedLead(lead) {
   return typeof lead?.external_reference_id === 'string' && lead.external_reference_id.startsWith('legacy-')
 }
 

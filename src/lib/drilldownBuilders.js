@@ -28,6 +28,8 @@ import { leadDisplayName } from './leadName'
 import { activityTag } from './dayReview'
 import { ARCHITECT_MEETING_DAYS, lastMetLabel } from './architectStats'
 import { firmLabel } from './firmLabel'
+import { changeVs } from './periodChange'
+import { closedDeals, dealsIn, bookedFacets, computeBookedView } from './bookedOrders'
 
 const CLOSED_STAGES = ['won', 'lost']
 
@@ -165,6 +167,76 @@ export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory
   }
 }
 
+// ---------- booked: the "Orders booked" popup (KPI tile + heatmap's Order value cell) ----------
+//
+// Its own panel kind rather than the `attain` one above, for the same reason the
+// Activities popup is: it is a different SHAPE. `attain` is one figure against a
+// target (a pace chart and a contribution list); this is a filterable read of
+// the period's closed deals — who closed what, how the execs compare, where the
+// orders came from. The target pace chart and the Target/Gap tiles are gone
+// from it on purpose (the owner's call, 2026-09-19): the Targets card is where
+// a target is judged, and this popup is where its result is explained.
+//
+// What survives of the target is the header — the headline figure, the
+// "of ₹X target" line and, on the heatmap's single-exec entry, "Cancel this
+// target". Those come from buildOrderValueAttainPanel so the header, and the
+// only place an owner can cancel an order-value target, are defined once.
+//
+// Same architecture as the pipeline and Activities popups: pure, returns
+// `viewFor(filters, sort)` and the body re-derives every section per filter
+// combination. Nothing is fetched — every deal, and the previous period's, is
+// read out of `wonStageHistory` (all time) and `breakdownLeads`, both already on
+// the Dashboard. `employeeId` opens it on one exec (the heatmap cell).
+export function buildBookedPanel({
+  employees,
+  targets,
+  wonStageHistory,
+  breakdownLeads,
+  range,
+  rangeLabel,
+  previous = null,
+  scopeLabel = 'Company',
+  employeeId = null,
+  canCancelTarget = false,
+  // False for a single-person view (a sales exec, a manager's "My numbers"): no
+  // Owner filter and no "Closed by" list. Not derivable from `employees` — an
+  // exec's roster is the whole company (employee names are readable by design),
+  // so trusting it listed every colleague at ₹0 under "Closed by", which reads
+  // as though they had closed nothing when the exec simply cannot see their work.
+  compareExecs = true,
+  // False while the leads fetch is still in flight: the deals are known, but
+  // their names, sources and offices are not, and a popup drawn without them
+  // would print "Lead #1205" and "Unassigned" as though that were the answer.
+  leadsReady = true,
+}) {
+  const head = buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId, rangeLabel, scopeLabel, canCancelTarget })
+  const all = closedDeals({ wonStageHistory, breakdownLeads, employees })
+  const deals = dealsIn(all, range)
+  const previousDeals = previous ? dealsIn(all, previous.range) : null
+  const roster = compareExecs ? employees : []
+  const filters = bookedFacets(deals, roster)
+  if (!compareExecs) filters.owners = []
+
+  return {
+    kind: 'booked',
+    eyebrow: head.eyebrow,
+    title: 'Orders booked',
+    value: head.value,
+    delta: head.delta,
+    note: `${rangeLabel}. Leads marked won in the period, credited to their current owner at the order value on file.`,
+    // The stat strip lives in the body — it follows the filters; the header
+    // above it, like every other filterable panel's, stays as it opened.
+    stats: null,
+    cancelTarget: head.cancelTarget,
+    ready: leadsReady,
+    previousLabel: previous?.label ?? null,
+    initialOwner: employeeId != null ? String(employeeId) : '',
+    filters,
+    viewFor: (chosen, sort) =>
+      computeBookedView({ deals, previousDeals, roster, filters: chosen, sort, previousLabel: previous?.label ?? null }),
+  }
+}
+
 // Mirrors wonEventsInRange above but for Scanning Leads — one event per lead
 // created inside the range whose source is Scanning, dated by creation
 // rather than a stage change.
@@ -253,20 +325,6 @@ export function buildScanningLeadsAttainPanel({ employees, targets, breakdownLea
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const mondayFirstIndex = (date) => (date.getDay() + 6) % 7
 const TOP_LEADS = 5
-
-// "▲ 12% vs last week". `previous` null means the comparison hasn't loaded (or
-// couldn't), which reads as no comparison at all rather than as a zero.
-function changeVs(current, previous, label) {
-  if (previous == null) return null
-  if (previous === 0) return current === 0 ? { text: `none in ${label} either`, up: null } : { text: `new — none in ${label}`, up: true }
-  const pct = Math.round(((current - previous) / previous) * 100)
-  if (pct === 0) return { text: `level with ${label}`, up: null }
-  // Capped for reading: against a near-empty previous period (a month that had
-  // one call in it) the true figure is "▲ 52300%", which is arithmetic, not
-  // information — "999%+" says the same thing.
-  const shown = Math.abs(pct) > 999 ? '999%+' : `${Math.abs(pct)}%`
-  return { text: `${pct > 0 ? '▲' : '▼'} ${shown} vs ${label}`, up: pct > 0 }
-}
 
 function targetForActivities(targets, employees, ownerKey, type) {
   const scoped = ownerKey ? employees.filter((e) => String(e.id) === ownerKey) : employees

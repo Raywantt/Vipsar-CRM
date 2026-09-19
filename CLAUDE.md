@@ -164,6 +164,7 @@ src/
                 followupDates, dayReview, drilldownBuilders, selfAssignTest,
                 appUpdate, poolLeads, architectStats, bdmDashboard,
                 bdmLeadUpdates, architectNetwork, firmLabel,
+                bookedOrders, periodChange,
                 queries: dashboardQueries, searchQueries, targetQueries,
                 partyQueries, employeeQueries, lookupQueries,
                 leadOwnerHistory, dayReviewQueries, followUpQueries,
@@ -393,8 +394,8 @@ itself — a single element resized by media query (full-screen sheet below
 content.
 
 `src/lib/drilldownBuilders.js` holds one pure `build*Panel` per panel kind
-(`log`/`ageing`/`attain`/`pipeline`/`winrate`/`forecast`/`mix`/`loss`/
-`daySheet`/`followup`/`stageLeads`). Each shapes already-fetched state into
+(`log`/`ageing`/`attain`/`activities`/`booked`/`pipeline`/`winrate`/`forecast`/
+`mix`/`loss`/`daySheet`/`followup`/`stageLeads`). Each shapes already-fetched state into
 props and makes **no network calls**; none produces a verdict/narrative
 field, and `DrilldownPanel` has no section that would render one.
 `src/lib/attention.js` is the deliberate exception, owning both Needs
@@ -477,6 +478,64 @@ Load-bearing choices:
   counts); days are bucketed with `parseTimestamp`; the weekday rows are an
   **average per such day**, so a month with five Mondays can't make Monday look
   busier. `fetchActivityCounts` now selects `lead_id` too.
+
+**The Orders booked popup** (2026-09-19; the KPI tile "Order value booked" and the
+owner heatmap's Order value cell) is its own panel kind, `booked`
+(`buildBookedPanel` + `BookedBody`; the pure data is `src/lib/bookedOrders.js`).
+It replaced the `attain` view for order value: the pace chart, the Target/Gap
+tiles and the Contribution bars are **gone at the owner's choice** ("no target
+view here"). Two target things deliberately survive, both borrowed from
+`buildOrderValueAttainPanel` so they are defined once: the header's
+"of ₹X target" line and, on the heatmap entry, "Cancel this target" (otherwise
+the only place an owner can cancel an order-value target would vanish).
+Layout: filters (Owner select + **Source, Deal size, Product** chips) → strip
+(Booked / Deals closed / Average deal / Biggest deal, each ▲/▼ against the same
+point of the previous period via `previousRangeFor`) → **Closed by** (per exec) →
+**Where the orders came from** (source, office, product, a "brought in by a
+BDM" line) → **Closed deals** (Latest/Biggest, "+N more"). Load-bearing:
+- **A deal is a lead's most recent `'won'` row, and period membership is
+  EXACTLY `computeOrderValueActuals`'s rule**, so the popup cannot total
+  differently from the tile or heatmap cell that opened it — a test pins it.
+  **"Who closed" is the lead's current owner**, the attribution every booked
+  figure uses, not whoever pressed Won.
+- **It opens by REQUEST, not as a built panel.** Dashboard holds `bookedFor`
+  (undefined closed · null everyone · an id one exec) and derives the panel in a
+  memo, with `breakdownSettled` → `panel.ready`. It joins the won history to
+  `breakdownLeads`, the slowest read on the page; a panel built at click time
+  froze whatever had arrived — "Lead #1205", no Source filter, execs shown as
+  "Unassigned" — and a phone on poor signal hits that constantly. Until the
+  leads land it says "Loading the deals…". The heatmap cell only calls
+  `onOpenBooked(id)`.
+- **`compareExecs` (= `seesOthersData`) gates the Owner filter and "Closed by".**
+  It can't be read off `employees`: a sales exec's roster is the whole company,
+  and trusting it listed every colleague at ₹0 — which reads as "closed
+  nothing" when the exec simply cannot see their work.
+- **Breakdowns never filter by their own dimension** (Closed by ignores the
+  owner filter, By source the source one), and an exec who closed nothing stays
+  in Closed by at the bottom — a finding, not noise.
+- **Import dates are tagged, not hidden.** Won rows on imported leads stamped
+  exactly `12:00:00` between 1–6 Sep 2026 carry the import day, not the order
+  date (8 "wins", ₹1.01 Cr, on Pawan Kumar's sheet — so September reads as one
+  exec's month). They still count, because the KPI tile does; the row gets an
+  "import date" tag and a footnote says how many. **Whether to exclude them from
+  the booked figure is the owner's to decide — don't do it in passing.**
+- **Left out on purpose, each because the real data can't support it.**
+  *Time to close*: an imported lead's `created_at` is the import day and most app
+  leads were entered at the moment they were won (0, 1, 1, 2 days), so it would
+  show when someone typed a deal in, not how fast it closed. *Order vs quote*:
+  4 of 89 won leads have a `quote_value`. *By area*: 48 distinct values for 89
+  deals, many one-off spellings — the office (`office_territory`) answers the
+  geographic question. *Product category*: `products.category` is null on every
+  won lead, so the Product facet uses the product **name** like Leads by
+  product does (TOSTEM 85 / VOX 1 / none 3) and, like every facet, hides itself
+  when the period has one choice.
+- Deal-size bands are closed edges (₹5L / ₹10L / ₹20L — each holds 16–29 of the
+  89 real deals); a won lead with no order value belongs to no band and shows
+  "—", never ₹0. Every figure goes through `money()` (rounded): the shared
+  `formatCurrencyCompact` prints anything under ₹1L raw, decimals and all.
+- `office_territory` was added to `BREAKDOWN_LEAD_COLUMNS` (the BDM Dashboard's
+  fetch shares it; the column already existed live). `OwnerStageFilters` gained a
+  `more` prop for extra chip facets; `changeVs` moved to `periodChange.js`.
 
 ### Colour tokens
 
@@ -1953,8 +2012,9 @@ blended attainment · one bar) expanding to the full breakdown — the flat
 employee × metric list measured 3,388px on this card alone.
 
 **Drill-downs.** Activity cells fetch that exec's log entries **on demand**,
-never preloaded for everyone. Order value and Scanning Leads build
-synchronously from state already on the page.
+never preloaded for everyone. Scanning Leads builds synchronously from state
+already on the page; **Order value opens the Orders booked popup** (see Drill-down
+plumbing) on that exec, via `onOpenBooked`.
 **The entry list is scoped to the selected period**, matching the panel's own
 headline count — it used to list everything fetched (up to ~60 days) with
 nothing on screen to say the entries fell outside the period. The

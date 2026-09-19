@@ -261,6 +261,9 @@ function TargetsVsActualsCard({
   rangeLabel,
   onOpenLog,
   onOpenPanel,
+  // Opens the Orders booked popup on one exec — Dashboard owns it (it has to
+  // follow the leads fetch as it lands), so this asks rather than builds.
+  onOpenBooked,
   canCancelTarget = false,
   // { periodType, periodValue } for the period this card is showing —
   // passed through to SetTargetForm so it can say out loud when a target is
@@ -275,7 +278,7 @@ function TargetsVsActualsCard({
   // The heatmap only makes sense with more than one row to compare — a
   // sales exec (showByEmployee false) keeps the plain bar-list view at every
   // width, same as before this redesign.
-  const showHeatmap = showByEmployee && onOpenLog && onOpenPanel
+  const showHeatmap = showByEmployee && onOpenLog && onOpenPanel && onOpenBooked
 
   return (
     <div className="vip-card">
@@ -293,6 +296,7 @@ function TargetsVsActualsCard({
             rangeLabel={rangeLabel}
             onOpenLog={onOpenLog}
             onOpenPanel={onOpenPanel}
+            onOpenBooked={onOpenBooked}
             canCancelTarget={canCancelTarget}
           />
         </div>

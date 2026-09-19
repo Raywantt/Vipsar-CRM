@@ -233,7 +233,28 @@ function SwipeAgeRow({ r, onLogCall, onRequestDate, busy, message, allowLogCall 
 // hidden here, once, so no caller has to remember to — and the whole block
 // goes when both are. `owners` are `{ key, name, count }`, `stages`
 // `{ key, label }`; an empty-string value is "All". `stageLabel` renames the
-// second facet ("Type" for activities — they have no stage).
+// second facet ("Type" for activities — they have no stage). `more` adds further
+// chip facets under it, each `{ label, options, value, onChange }` in the same
+// shape (Orders booked has Source, Deal size and Product); one with a single
+// choice is hidden here, like the others.
+function ChipFacet({ label, options, value, onChange, style }) {
+  return (
+    <div className="vip-stack-s" style={{ gap: 6, ...style }}>
+      <div className="vip-fact-label">{label}</div>
+      <div className="vip-chip-wrap">
+        <button type="button" className="vip-chip-select" aria-pressed={value === ''} onClick={() => onChange('')}>
+          All
+        </button>
+        {options.map((s) => (
+          <button key={s.key} type="button" className="vip-chip-select" aria-pressed={value === s.key} onClick={() => onChange(s.key)}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function OwnerStageFilters({
   owners,
   ownerValue,
@@ -243,10 +264,12 @@ function OwnerStageFilters({
   stageValue,
   onStageChange,
   stageLabel: facetLabel = 'Stage',
+  more = [],
 }) {
   const showOwner = owners.length > 1
   const showStage = stages.length > 1
-  if (!showOwner && !showStage) return null
+  const extra = more.filter((f) => f.options.length > 1)
+  if (!showOwner && !showStage && !extra.length) return null
   return (
     <div className="vip-dd-section">
       {showOwner && (
@@ -262,27 +285,17 @@ function OwnerStageFilters({
           </select>
         </div>
       )}
-      {showStage && (
-        <div className="vip-stack-s" style={{ gap: 6 }}>
-          <div className="vip-fact-label">{facetLabel}</div>
-          <div className="vip-chip-wrap">
-            <button type="button" className="vip-chip-select" aria-pressed={stageValue === ''} onClick={() => onStageChange('')}>
-              All
-            </button>
-            {stages.map((s) => (
-              <button
-                key={s.key}
-                type="button"
-                className="vip-chip-select"
-                aria-pressed={stageValue === s.key}
-                onClick={() => onStageChange(s.key)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {showStage && <ChipFacet label={facetLabel} options={stages} value={stageValue} onChange={onStageChange} />}
+      {extra.map((f, i) => (
+        <ChipFacet
+          key={f.label}
+          label={f.label}
+          options={f.options}
+          value={f.value}
+          onChange={f.onChange}
+          style={showStage || i > 0 ? { marginTop: 10 } : undefined}
+        />
+      ))}
     </div>
   )
 }
@@ -880,6 +893,258 @@ function ActivitiesBody({ panel }) {
               noun="entries"
               onShowMore={() => setVisibleEntries((v) => v + ENTRY_CHUNK)}
             />
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// The Orders booked popup (buildBookedPanel in drilldownBuilders.js; the data
+// is src/lib/bookedOrders.js). Every deal, and the previous period's, is read
+// out of state the Dashboard already holds, so unlike the Activities popup it
+// opens fully drawn — there is no loader and nothing arrives late.
+//
+// A breakdown never filters by its own dimension: "Closed by" ignores the owner
+// filter and "Where the orders came from › By source" ignores the source one, so
+// picking an exec doesn't reduce the exec list to one row.
+const DEAL_CHUNK = 10
+const BOOKED_SORTS = [
+  { key: 'latest', label: 'Latest' },
+  { key: 'biggest', label: 'Biggest' },
+]
+
+function BreakdownRows({ rows }) {
+  return rows.map((r) => (
+    <div key={r.key} className={r.active ? 'vip-act-row vip-act-row-selected' : 'vip-act-row'}>
+      <div className="vip-act-row-main">
+        <span className="vip-dd-contrib-label" style={r.active ? { fontWeight: 700 } : undefined}>
+          {r.label}
+        </span>
+        <span className="vip-dd-contrib-track">
+          <span className="vip-dd-contrib-fill" style={{ width: r.pct }} />
+        </span>
+        <span className="vip-dd-contrib-value">{r.value}</span>
+      </div>
+      <div className="vip-act-row-sub">
+        <span>{r.sub}</span>
+      </div>
+    </div>
+  ))
+}
+
+function BookedBody({ panel }) {
+  const { filters } = panel
+  const [owner, setOwner] = useState(panel.initialOwner ?? '')
+  const [source, setSource] = useState('')
+  const [size, setSize] = useState('')
+  const [product, setProduct] = useState('')
+  const [sort, setSort] = useState('latest')
+  const [visible, setVisible] = useState(DEAL_CHUNK)
+
+  useEffect(() => {
+    setOwner(panel.initialOwner ?? '')
+    setSource('')
+    setSize('')
+    setProduct('')
+    setSort('latest')
+    setVisible(DEAL_CHUNK)
+  }, [panel])
+
+  // A choice the panel doesn't offer (the options are fixed per panel, so this
+  // only guards a stale value across panels) is treated as "All".
+  const offered = (options, value) => (options.some((o) => o.key === value) ? value : '')
+  const activeOwner = offered(filters.owners, owner)
+  const activeSource = offered(filters.sources, source)
+  const activeSize = offered(filters.sizes, size)
+  const activeProduct = offered(filters.products, product)
+  const chosen = [
+    filters.owners.find((o) => o.key === activeOwner)?.name,
+    filters.sources.find((s) => s.key === activeSource)?.label,
+    filters.sizes.find((s) => s.key === activeSize)?.label,
+    filters.products.find((p) => p.key === activeProduct)?.label,
+  ].filter(Boolean)
+  const isFiltered = chosen.length > 0
+  const multiPerson = filters.owners.length > 0
+
+  const view = useMemo(
+    () => panel.viewFor({ owner: activeOwner, source: activeSource, size: activeSize, product: activeProduct }, sort),
+    [panel, activeOwner, activeSource, activeSize, activeProduct, sort]
+  )
+
+  useEffect(() => {
+    setVisible(DEAL_CHUNK)
+  }, [activeOwner, activeSource, activeSize, activeProduct, sort])
+
+  function clearFilters() {
+    setOwner('')
+    setSource('')
+    setSize('')
+    setProduct('')
+  }
+
+  const comparison = panel.previousLabel ? `vs ${panel.previousLabel}` : null
+  const shown = view.rows.slice(0, visible)
+  const sourceRows = view.bySource.length > 1 ? view.bySource : []
+  const territoryRows = view.byTerritory.length > 1 ? view.byTerritory : []
+  const hasOrigins = sourceRows.length > 0 || territoryRows.length > 0 || view.byProduct.length > 0 || view.viaBdm
+
+  // The deals are known from the moment the tile is tapped, but who they were
+  // for is not until the leads fetch lands. Saying so beats drawing "Lead #1205".
+  if (!panel.ready) return <p className="vip-empty">Loading the deals…</p>
+
+  return (
+    <div className="vip-dd-section-stack">
+      <OwnerStageFilters
+        owners={filters.owners}
+        ownerValue={activeOwner}
+        onOwnerChange={setOwner}
+        allOwnersCount={filters.total}
+        stages={filters.sources}
+        stageValue={activeSource}
+        onStageChange={setSource}
+        stageLabel="Source"
+        more={[
+          { label: 'Deal size', options: filters.sizes, value: activeSize, onChange: setSize },
+          { label: 'Product', options: filters.products, value: activeProduct, onChange: setProduct },
+        ]}
+      />
+      {isFiltered && (
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-hint">
+            {view.total} of {filters.total} deals · {chosen.join(' · ')}
+          </div>
+          <button type="button" className="vip-btn-link" onClick={clearFilters}>
+            Clear filters
+          </button>
+        </div>
+      )}
+
+      <StatsGrid stats={view.stats} />
+      {view.imported > 0 && (
+        <p className="vip-act-silent">
+          {view.imported} of these {view.imported === 1 ? 'carries' : 'carry'} an import date (1–6 Sep), not the day the order was won.
+        </p>
+      )}
+      {view.unpriced > 0 && (
+        <p className="vip-dd-hint">
+          {view.unpriced} won with no order value on file — counted as ₹0 and left out of the average.
+        </p>
+      )}
+
+      {/* ---- who closed: follows every filter except the owner one ---- */}
+      {multiPerson && view.byExec.length > 0 && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-head">
+            <div className="vip-dd-section-title">Closed by</div>
+            <div className="vip-dd-hint">{[isFiltered ? 'filtered' : 'all deals', comparison].filter(Boolean).join(' · ')}</div>
+          </div>
+          {view.byExec.map((e) => (
+            <div key={e.key} className={e.selected ? 'vip-act-row vip-act-row-selected' : 'vip-act-row'}>
+              <div className="vip-act-row-main">
+                <span className="vip-dd-avatar vip-dd-avatar-sm">{e.initials}</span>
+                <EmployeeLink id={e.id} name={e.name} className="vip-dd-contrib-label" />
+                <span className="vip-dd-contrib-track">
+                  <span className="vip-dd-contrib-fill" style={{ width: e.pct }} />
+                </span>
+                <span className="vip-dd-contrib-value">{e.value}</span>
+              </div>
+              <div className="vip-act-row-sub">
+                <span>{e.sub}</span>
+                <ChangeText change={e.change} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ---- where they came from ---- */}
+      {hasOrigins && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-head">
+            <div className="vip-dd-section-title">Where the orders came from</div>
+          </div>
+          {sourceRows.length > 0 && (
+            <div className="vip-stack-s" style={{ gap: 6 }}>
+              <div className="vip-fact-label">By source</div>
+              <BreakdownRows rows={sourceRows} />
+            </div>
+          )}
+          {territoryRows.length > 0 && (
+            <div className="vip-stack-s" style={{ gap: 6, marginTop: 12 }}>
+              <div className="vip-fact-label">By office</div>
+              <BreakdownRows rows={territoryRows} />
+            </div>
+          )}
+          {view.byProduct.length > 0 && (
+            <div className="vip-stack-s" style={{ gap: 6, marginTop: 12 }}>
+              <div className="vip-fact-label">By product</div>
+              <BreakdownRows rows={view.byProduct} />
+            </div>
+          )}
+          {view.viaBdm && (
+            <p className="vip-dd-hint" style={{ marginTop: 12 }}>
+              Brought in by a BDM: {view.viaBdm.count} deal{view.viaBdm.count === 1 ? '' : 's'} · {view.viaBdm.value}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ---- the deals ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">Closed deals</div>
+          <div className="vip-seg-mini" role="tablist" aria-label="Order the deals by">
+            {BOOKED_SORTS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                role="tab"
+                aria-selected={sort === s.key}
+                className={sort === s.key ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setSort(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {view.rows.length === 0 ? (
+          <p className="vip-empty">{isFiltered ? 'Nothing was booked for this filter.' : 'Nothing booked in this period yet.'}</p>
+        ) : (
+          <>
+            {shown.map((r) => (
+              <div key={r.leadId} className="vip-dd-log-row">
+                <div className="vip-dd-log-when">
+                  <span>{r.date}</span>
+                </div>
+                <div className="vip-dd-log-main">
+                  <div className="vip-dd-log-head">
+                    <Link to={`/leads/${r.leadId}`} className="vip-dd-log-party">
+                      {r.name}
+                    </Link>
+                    <BdmChip bdmEmployeeId={r.bdmId} />
+                    {r.importDate && (
+                      <span className="vip-role-tag" title="Imported from a spreadsheet — this date is the import day, not the day the order was won">
+                        import date
+                      </span>
+                    )}
+                  </div>
+                  <div className="vip-dd-log-notes">
+                    {multiPerson && (
+                      <>
+                        by <EmployeeLink id={r.ownerId} name={r.ownerName} />
+                      </>
+                    )}
+                    {r.meta && `${multiPerson ? ' · ' : ''}${r.meta}`}
+                  </div>
+                </div>
+                <div className="vip-bk-deal-value" title={r.hasValue ? undefined : 'No order value on file'}>
+                  {r.value}
+                </div>
+              </div>
+            ))}
+            <ShowMoreRows shown={shown.length} total={view.rows.length} noun="deals" onShowMore={() => setVisible((v) => v + DEAL_CHUNK)} />
           </>
         )}
       </div>
@@ -2152,6 +2417,7 @@ const BODIES = {
   dayItems: DayItemsBody,
   attain: AttainBody,
   activities: ActivitiesBody,
+  booked: BookedBody,
   pipeline: PipelineBody,
   stageLeads: StageLeadsBody,
   winrate: WinRateBody,

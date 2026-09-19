@@ -46,7 +46,7 @@ import {
   sumOnHoldValue,
 } from '../lib/pipelineValue'
 import {
-  buildOrderValueAttainPanel,
+  buildBookedPanel,
   buildActivitiesPanel,
   shapeActivityEntry,
   shapeLeadNames,
@@ -219,6 +219,17 @@ function Dashboard() {
   const [allDecidedStageHistory, setDecidedStageHistory] = useState([])
   const [activitiesTrendWindow, setActivitiesTrendWindow] = useState([])
   const [panel, setPanel] = useState(null)
+  // The Orders booked popup is held as a REQUEST, not a built panel like the
+  // others: it joins the won history to the leads fetch, the slowest read on the
+  // page, so a panel built at click time would freeze whatever had arrived by
+  // then — no client names, no Source or Product filters, execs shown as
+  // "Unassigned". Derived below from live data instead, so it fills in when the
+  // leads land. undefined = closed · null = everyone · an id = opened on one
+  // exec (the heatmap cell).
+  const [bookedFor, setBookedFor] = useState(undefined)
+  // fetchLeadsForBreakdown has no other "done" signal — an empty array reads the
+  // same whether it is loading, failed or genuinely empty.
+  const [breakdownSettled, setBreakdownSettled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -622,6 +633,7 @@ function Dashboard() {
     fetchLeadsForBreakdown().then(({ data, error }) => {
       if (!active) return
       if (!error) setBreakdownLeads(data ?? [])
+      setBreakdownSettled(true)
     })
     return () => {
       active = false
@@ -826,6 +838,37 @@ function Dashboard() {
   const openLeadCount = countOpenPipelineLeads(breakdownLeads)
 
   const rangeLabel = RANGE_LABELS[preset]
+
+  // Rebuilt whenever the data it reads changes (see bookedFor). Keyed on the
+  // range's timestamps, not the object — `range` is a fresh one every render.
+  const rangeStartMs = range?.start.getTime()
+  const rangeEndMs = range?.end.getTime()
+  const bookedPanel = useMemo(
+    () =>
+      bookedFor === undefined || !range
+        ? null
+        : buildBookedPanel({
+            employees,
+            targets,
+            wonStageHistory,
+            breakdownLeads,
+            range,
+            rangeLabel,
+            previous: previousRangeFor(preset, range),
+            scopeLabel,
+            employeeId: bookedFor,
+            canCancelTarget: bookedFor != null && isOwner,
+            compareExecs: seesOthersData,
+            leadsReady: breakdownSettled,
+          }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `range` is rebuilt every render; its two timestamps stand for it
+    [bookedFor, employees, targets, wonStageHistory, breakdownLeads, breakdownSettled, rangeStartMs, rangeEndMs, rangeLabel, preset, scopeLabel, isOwner, seesOthersData]
+  )
+  function closePanel() {
+    setPanel(null)
+    setBookedFor(undefined)
+  }
+
   // Fast path when the RPC answered; otherwise the original client-side
   // reduction over every lead, unchanged.
   const attentionBuckets = fastAttentionRows
@@ -927,7 +970,7 @@ function Dashboard() {
     const { error } = await deleteTarget(cancelTarget.id)
     if (error) return { error }
     setTargets((prev) => prev.filter((t) => t.id !== cancelTarget.id))
-    setPanel(null)
+    closePanel()
     return { error: null }
   }
 
@@ -973,7 +1016,7 @@ function Dashboard() {
 
   return (
     <div className="vip-wide vip-pad-fab-overhang">
-      <DrilldownPanel panel={panel} onClose={() => setPanel(null)} onCancelTarget={handleCancelTarget} />
+      <DrilldownPanel panel={bookedPanel ?? panel} onClose={closePanel} onCancelTarget={handleCancelTarget} />
 
       {activeTab === 'reports' && (
         <>
@@ -1170,11 +1213,7 @@ function Dashboard() {
                 wonStageHistory={wonStageHistory}
                 activitiesTrendWindow={activitiesTrendWindow}
                 decidedStageHistory={decidedStageHistory}
-                onOpenOrderValue={() =>
-                  setPanel(
-                    buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId: null, rangeLabel, scopeLabel })
-                  )
-                }
+                onOpenOrderValue={() => setBookedFor(null)}
                 onOpenActivities={handleOpenActivities}
                 onOpenWinRate={() => setPanel(buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel, scopeLabel }))}
                 onOpenForecast={() => setPanel(buildForecastPanel({ forecast, scopeLabel }))}
@@ -1207,6 +1246,7 @@ function Dashboard() {
                     onTargetCreated={(row) => setTargets((prev) => mergeTargetRow(prev, row, targetPeriod))}
                     onOpenLog={handleOpenLog}
                     onOpenPanel={setPanel}
+                    onOpenBooked={setBookedFor}
                     canCancelTarget={isOwner}
                   />
                   {!loading && <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} scopeLabel={scopeLabel} showListFilters={seesOthersData} />}
