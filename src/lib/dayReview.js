@@ -267,7 +267,7 @@ export function buildDayKpis(data, rows, isPast) {
 // exec's own Today screen). Read-only except the Reschedule buttons.
 // ---------------------------------------------------------------------------
 
-function activityTag(type) {
+export function activityTag(type) {
   return { label: ACTIVITY_LABELS[type] ?? type, className: `vip-dd-day-tag vip-dd-day-tag-${type}` }
 }
 

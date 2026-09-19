@@ -24,7 +24,7 @@ import { fetchDayReview, fetchChangeLogStart } from '../lib/dayReviewQueries'
 import { rescheduleFollowUp } from '../lib/followUpQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
 import { formatClockTime } from '../lib/dbTime'
-import { RANGE_LABELS, rangeForPreset } from '../lib/dateRanges'
+import { RANGE_LABELS, rangeForPreset, previousRangeFor } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
@@ -47,7 +47,9 @@ import {
 } from '../lib/pipelineValue'
 import {
   buildOrderValueAttainPanel,
-  buildActivitiesAttainPanel,
+  buildActivitiesPanel,
+  shapeActivityEntry,
+  shapeLeadNames,
   buildPipelinePanel,
   buildWinRatePanel,
   buildForecastPanel,
@@ -62,6 +64,8 @@ import {
 } from '../lib/drilldownBuilders'
 import {
   fetchActivityCounts,
+  fetchActivityEntries,
+  fetchLeadNamesByIds,
   fetchNewLeadsBySource,
   fetchClosureForecast,
   fetchLeadsForBreakdown,
@@ -866,6 +870,52 @@ function Dashboard() {
     setPanel(buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows: data ?? [], canCancelTarget: isOwner }))
   }
 
+  // The Activities logged popup — opened from the KPI tile AND from Activity
+  // counts' Details, so both go through here rather than each building its own.
+  // It opens at once from the rows already held; the previous period, the
+  // latest entries for whichever filter is on, and the names of the
+  // most-worked leads are fetched by the popup itself when it needs them (the
+  // loaders), so opening it costs nothing extra. Every loader is scoped the way
+  // `activities` is — the previous period through `inScope` (a manager's
+  // My/Team switch), the entries through `snapshotOwnerIds` for the same
+  // reason; every other role is already scoped by RLS.
+  function handleOpenActivities() {
+    if (!range) return
+    const previousWindow = previousRangeFor(preset, range)
+    setPanel(
+      buildActivitiesPanel({
+        activities,
+        targets,
+        employees,
+        range,
+        rangeLabel,
+        scopeLabel,
+        previousLabel: previousWindow.label,
+        loaders: {
+          loadPrevious: async () => {
+            const { data, error: previousError } = await fetchActivityCounts(previousWindow.range)
+            if (previousError) throw previousError
+            return (data ?? []).filter((r) => inScope(r.employee_id))
+          },
+          loadEntries: async ({ ownerId, type }) => {
+            const { data, error: entriesError } = await fetchActivityEntries(range, {
+              employeeId: ownerId,
+              employeeIds: snapshotOwnerIds,
+              activityType: type,
+            })
+            if (entriesError) throw entriesError
+            return (data ?? []).map(shapeActivityEntry)
+          },
+          loadLeadNames: async (ids) => {
+            const { data, error: namesError } = await fetchLeadNamesByIds(ids)
+            if (namesError) throw namesError
+            return shapeLeadNames(data)
+          },
+        },
+      })
+    )
+  }
+
   // "Cancel this target" from a heatmap cell's drill-down — `targets` DELETE
   // is owner-only in RLS (see deleteTarget's own comment), which is why the
   // option is only ever attached to a panel (buildLogPanel/
@@ -1027,7 +1077,9 @@ function Dashboard() {
             workloadLightestName={snapshotMetrics?.workload_lightest_name ?? null}
             workloadLightestCount={numOrNull(snapshotMetrics?.workload_lightest_count)}
             concentrationPct={numOrNull(snapshotMetrics?.concentration_pct)}
-            onOpenActive={() => setPanel(buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel }))}
+            onOpenActive={() =>
+              setPanel(buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel, showListFilters: seesOthersData }))
+            }
             // Repointed at the real On-hold pipeline insights panel
             // (Milestone 6 panel 4) — this used to open the generic
             // pipeline panel's "On hold" toggle position as an interim
@@ -1040,7 +1092,7 @@ function Dashboard() {
             // ATTENTION_DAYS(14) 'stale' entry — the count and its
             // drill-down must show the same set of leads, so this has to
             // read `stale7Bucket` too, not just the tile's own count above.
-            onOpenStale={() => setPanel(buildAgeingPanel(stale7Bucket, scopeLabel, null, false))}
+            onOpenStale={() => setPanel(buildAgeingPanel(stale7Bucket, scopeLabel, null, false, undefined, seesOthersData))}
             // Same pipeline panel again, defaulted to "Active" (the set
             // concentration is defined over) with concentrationMode on —
             // Milestone 6 panel 2. isSinglePersonScope reuses the exact
@@ -1123,7 +1175,7 @@ function Dashboard() {
                     buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId: null, rangeLabel, scopeLabel })
                   )
                 }
-                onOpenActivities={() => setPanel(buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel, scopeLabel }))}
+                onOpenActivities={handleOpenActivities}
                 onOpenWinRate={() => setPanel(buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel, scopeLabel }))}
                 onOpenForecast={() => setPanel(buildForecastPanel({ forecast, scopeLabel }))}
               />
@@ -1157,13 +1209,13 @@ function Dashboard() {
                     onOpenPanel={setPanel}
                     canCancelTarget={isOwner}
                   />
-                  {!loading && <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} scopeLabel={scopeLabel} />}
+                  {!loading && <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} scopeLabel={scopeLabel} showListFilters={seesOthersData} />}
                 </div>
               </div>
             ) : (
               !loading && (
                 <div className="vip-span-2">
-                  <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} wide scopeLabel={scopeLabel} />
+                  <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} wide scopeLabel={scopeLabel} showListFilters={seesOthersData} />
                 </div>
               )
             )}
@@ -1177,7 +1229,7 @@ function Dashboard() {
                 <ActivityCountsCard
                   activities={activities}
                   rangeLabel={rangeLabel}
-                  onOpenPanel={range ? () => setPanel(buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel, scopeLabel })) : undefined}
+                  onOpenPanel={range ? handleOpenActivities : undefined}
                 />
                 <LeadsBySourceCard
                   leads={leads}
@@ -1201,7 +1253,9 @@ function Dashboard() {
                 would defeat that. */}
             <PipelineByStageCard
               rows={stageRows}
-              onOpenPanel={() => setPanel(buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel }))}
+              onOpenPanel={() =>
+                setPanel(buildPipelinePanel({ breakdownLeads, funnelStageHistory, scopeLabel, showListFilters: seesOthersData }))
+              }
             />
 
             {/* No "Details" here — its drill-down used to open the exact

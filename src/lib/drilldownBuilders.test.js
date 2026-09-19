@@ -7,6 +7,8 @@ import {
   buildWinRatePanel,
   buildPipelinePanel,
   buildForecastPanel,
+  buildActivitiesPanel,
+  shapeActivityEntry,
   buildOverallAttainPanel,
   buildLogPanel,
   buildOrderValueAttainPanel,
@@ -182,6 +184,90 @@ describe('buildPipelinePanel', () => {
     const panel = buildPipelinePanel({ breakdownLeads, funnelStageHistory: [] })
     expect(panel.stats.find((s) => s.label === 'Open value').sub).toBe('1 leads')
   })
+
+  describe('owner + lead-stage filters (showListFilters)', () => {
+    const lead = (id, owner, name, stage, quote) => ({
+      id,
+      current_stage: stage,
+      quote_value: quote,
+      order_value: null,
+      owner_employee_id: owner,
+      employees: owner ? { name } : null,
+    })
+    const breakdownLeads = [
+      lead('L1', 1, 'Asha', 'calling', 100000),
+      lead('L2', 1, 'Asha', 'negotiation', 300000),
+      lead('L3', 2, 'Ravi', 'negotiation', 200000),
+      lead('L4', 2, 'Ravi', 'on_hold', 50000),
+      lead('L5', null, null, 'calling', 10000),
+      lead('L6', 1, 'Asha', 'won', 999999), // closed — never in any view
+    ]
+    const build = (extra = {}) => buildPipelinePanel({ breakdownLeads, funnelStageHistory: [], showListFilters: true, ...extra })
+
+    it('is off unless asked for, so a viewer of one person\'s leads gets no filters', () => {
+      expect(buildPipelinePanel({ breakdownLeads, funnelStageHistory: [] }).filters).toBeNull()
+    })
+
+    it('is off in concentration mode, whose focused header a filter would contradict', () => {
+      expect(build({ concentrationMode: true }).filters).toBeNull()
+    })
+
+    it('offers each view its own owners (busiest first) and its own stages, in funnel order', () => {
+      const { options } = build().filters
+      expect(options.all.total).toBe(5)
+      expect(options.all.owners.map((o) => [o.key, o.name, o.count])).toEqual([
+        ['1', 'Asha', 2],
+        ['2', 'Ravi', 2],
+        ['unassigned', 'Unassigned', 1],
+      ])
+      expect(options.all.stages.map((s) => s.key)).toEqual(['calling', 'negotiation', 'on_hold'])
+      // Active excludes the on-hold lead, so its owner list and chips shrink with it.
+      expect(options.active.total).toBe(4)
+      expect(options.active.stages.map((s) => s.key)).toEqual(['calling', 'negotiation'])
+    })
+
+    it('hides a facet with only one choice — one owner or one stage is decoration', () => {
+      const { options } = build().filters
+      expect(options.onHold.total).toBe(1)
+      expect(options.onHold.owners).toEqual([])
+      expect(options.onHold.stages).toEqual([])
+    })
+
+    it('re-derives the stage bars, count and value from the filtered leads, listing all of them', () => {
+      const { viewFor } = build().filters
+      const view = viewFor('all', '1', '')
+      expect(view.note).toMatch(/^2 open leads/) // L1 + L2; L6 is won, so it's in no view
+      expect(view.topLeadsTotal).toBe(2)
+      expect(view.topLeads.map((t) => t.leadId)).toEqual(['L2', 'L1']) // by value, not capped at 5
+      const negotiation = view.stageRows.find((r) => r.label === 'Negotiation')
+      expect(negotiation.count).toBe(1)
+      expect(view.stageRows.find((r) => r.label === 'Calling').count).toBe(1)
+    })
+
+    it('lists every match rather than the usual top 5', () => {
+      const many = Array.from({ length: 9 }, (_, i) => lead(`M${i}`, 1, 'Asha', 'calling', 1000 + i))
+      const { viewFor } = buildPipelinePanel({
+        breakdownLeads: [...many, lead('X', 2, 'Ravi', 'calling', 5)],
+        funnelStageHistory: [],
+        showListFilters: true,
+      }).filters
+      expect(viewFor('all', '1', '').topLeads).toHaveLength(9)
+      expect(buildPipelinePanel({ breakdownLeads: many, funnelStageHistory: [] }).scopeViews.all.topLeads).toHaveLength(5)
+    })
+
+    it('combines owner and stage, and the unassigned owner has a key of its own', () => {
+      const { viewFor } = build().filters
+      expect(viewFor('all', '2', 'negotiation').topLeads.map((t) => t.leadId)).toEqual(['L3'])
+      expect(viewFor('all', 'unassigned', '').topLeads.map((t) => t.leadId)).toEqual(['L5'])
+      expect(viewFor('all', '1', 'on_hold').topLeads).toEqual([])
+    })
+
+    it('scopes a bar\'s drill-down to the chosen owner, so its count and its list agree', () => {
+      const { viewFor } = build().filters
+      const drill = viewFor('all', '1', '').stageRows.find((r) => r.label === 'Negotiation').drill
+      expect(drill.leadRows.map((r) => r.leadId)).toEqual(['L2']) // not Ravi's L3
+    })
+  })
 })
 
 describe('buildForecastPanel', () => {
@@ -322,5 +408,189 @@ describe('buildScanningLeadsAttainPanel cancelTarget', () => {
 
     const companyWide = buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads: [], range, employeeId: null, rangeLabel: 'this week', canCancelTarget: true })
     expect(companyWide.cancelTarget).toBeNull()
+  })
+})
+
+describe('buildActivitiesPanel', () => {
+  // Mon 7 – Sun 13 Sep 2026: wholly in the past, so every day counts as elapsed
+  // whenever the suite runs. Employee ids are NUMBERS on purpose — the owner
+  // filter's keys are strings (a <select> hands back strings), and a fixture
+  // with string ids would hide exactly the mismatch that broke the pipeline
+  // panel's owner filter.
+  const range = { start: new Date(2026, 8, 7), end: new Date(2026, 8, 13, 23, 59, 59, 999) }
+  const at = (day, hour = 10) => `2026-09-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00`
+  const act = (id, emp, name, type, day, leadId = null) => ({
+    id,
+    employee_id: emp,
+    employees: { name },
+    activity_type: type,
+    created_at: at(day),
+    lead_id: leadId,
+    rfq_kind: null,
+  })
+  const activities = [
+    act(1, 1, 'Asha', 'call', 7, 100),
+    act(2, 1, 'Asha', 'call', 7, 100),
+    act(3, 1, 'Asha', 'site_visit', 8, 101),
+    act(4, 2, 'Ravi', 'call', 8, 100),
+    act(5, 2, 'Ravi', 'office_day', 9, null),
+  ]
+  const build = (over = {}) =>
+    buildActivitiesPanel({
+      activities,
+      targets: [],
+      employees: [{ id: 1, name: 'Asha' }, { id: 2, name: 'Ravi' }],
+      range,
+      rangeLabel: 'this week',
+      previousLabel: 'last week',
+      ...over,
+    })
+
+  it('offers each owner (busiest first) and only the types actually logged, in the app\'s own order', () => {
+    const { filters } = build()
+    expect(filters.owners.map((o) => [o.key, o.name, o.count])).toEqual([['1', 'Asha', 3], ['2', 'Ravi', 2]])
+    expect(filters.types.map((t) => t.key)).toEqual(['site_visit', 'call', 'office_day'])
+    expect(filters.total).toBe(5)
+  })
+
+  it('offers no owner choice to a single-person view, which is also what keeps By exec off it', () => {
+    const solo = build({ activities: activities.filter((a) => a.employee_id === 1) })
+    expect(solo.filters.owners).toEqual([])
+    expect(solo.filters.types.length).toBeGreaterThan(1)
+  })
+
+  it('counts leads touched and ranks the most-worked leads, ignoring activity on no lead', () => {
+    const view = build().viewFor('', '', null)
+    expect(view.total).toBe(5)
+    expect(view.leadsTouched).toBe(2)
+    expect(view.topLeads).toEqual([{ leadId: 100, count: 3 }, { leadId: 101, count: 1 }])
+    expect(view.stats.find((s) => s.label === 'Leads touched').sub).toBe('2.0 activities per lead')
+  })
+
+  it('reads the rhythm off real days: active days, busiest day, quiet weekdays', () => {
+    const view = build().viewFor('', '', null)
+    expect(view.rhythm).toHaveLength(7)
+    expect(view.rhythm.filter((d) => d.filled)).toHaveLength(3) // Mon, Tue, Wed
+    expect(view.stats.find((s) => s.label === 'Per active day')).toMatchObject({ value: '1.7', sub: '3 active days of 7' })
+    expect(view.stats.find((s) => s.label === 'Busiest day').value).toBe('2')
+    expect(view.silentWeekdays).toBe(2) // Thu and Fri — a quiet weekend is not counted
+  })
+
+  it('averages per weekday rather than totalling, so a weekday that occurs more often cannot look busier', () => {
+    const view = build().viewFor('', '', null)
+    expect(view.weekday.map((w) => w.label)).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
+    expect(view.weekday[0]).toMatchObject({ avg: '2', total: 2 })
+    expect(view.weekday[3]).toMatchObject({ avg: '0', total: 0 })
+  })
+
+  it('filters by owner and type together, keyed on a STRING owner key against numeric ids', () => {
+    const panel = build()
+    expect(panel.viewFor('2', '', null).total).toBe(2)
+    expect(panel.viewFor('1', 'call', null).total).toBe(2)
+    expect(panel.viewFor('2', 'call', null).topLeads).toEqual([{ leadId: 100, count: 1 }])
+  })
+
+  it('never filters a breakdown by its own dimension', () => {
+    const view = build().viewFor('1', 'call', null)
+    // By type follows the OWNER filter (Asha's 2 calls + 1 visit), not the type one.
+    const byType = Object.fromEntries(view.byType.map((t) => [t.key, t.value]))
+    expect(byType).toMatchObject({ call: '2', site_visit: '1', office_day: '0' })
+    expect(view.byType.find((t) => t.key === 'call').active).toBe(true)
+    // By exec follows the TYPE filter (calls only), not the owner one — both
+    // execs still there, the chosen one marked.
+    expect(view.byExec.map((e) => [e.name, e.total, e.selected])).toEqual([['Asha', 2, true], ['Ravi', 1, false]])
+  })
+
+  it('shows what each exec\'s total is made of, top three types', () => {
+    const asha = build().viewFor('', '', null).byExec.find((e) => e.name === 'Asha')
+    expect(asha.mix).toBe('2 Call · 1 Site Visit')
+  })
+
+  it('states the change against the previous period only once it has loaded', () => {
+    const panel = build()
+    expect(panel.viewFor('', '', null).stats[0].sub).not.toMatch(/vs last week/)
+    const previous = [act(90, 1, 'Asha', 'call', 1), act(91, 1, 'Asha', 'call', 2)] // 2 last week → 5 now
+    const view = panel.viewFor('', '', previous)
+    expect(view.stats[0].sub).toBe('▲ 150% vs last week')
+    expect(view.byType.find((t) => t.key === 'call').change).toMatchObject({ up: true })
+    expect(view.byExec.find((e) => e.name === 'Ravi').change).toMatchObject({ up: true, text: 'new — none in last week' })
+  })
+
+  it('caps a swing against a near-empty previous period rather than printing "52300%"', () => {
+    const many = Array.from({ length: 5 }, (_, i) => act(300 + i, 1, 'Asha', 'call', 1))
+    const panel = build({ activities: [...activities, ...Array.from({ length: 1200 }, (_, i) => act(400 + i, 1, 'Asha', 'call', 8))] })
+    // 1205 now vs 5 before = +24000%
+    expect(panel.viewFor('', '', many).stats[0].sub).toBe('▲ 999%+ vs last week')
+  })
+
+  it('reads a drop as down, and a flat period as neither', () => {
+    const panel = build()
+    const more = Array.from({ length: 10 }, (_, i) => act(100 + i, 1, 'Asha', 'call', 1))
+    expect(panel.viewFor('', '', more).stats[0].sub).toBe('▼ 50% vs last week')
+    const same = Array.from({ length: 5 }, (_, i) => act(200 + i, 1, 'Asha', 'call', 1))
+    expect(panel.viewFor('', '', same).stats[0].sub).toBe('level with last week')
+  })
+
+  it('pins the target to whoever and whatever is in view', () => {
+    const targets = [
+      { employee_id: 1, metric_name: 'call', target_value: 10 },
+      { employee_id: 2, metric_name: 'call', target_value: 6 },
+    ]
+    const panel = build({ targets })
+    expect(panel.delta).toBe('of 16 target') // the header, as the popup opened
+    expect(panel.viewFor('1', '', null).target).toBe(10)
+    expect(panel.viewFor('', 'site_visit', null).target).toBeNull() // Site Visit isn't targetable
+  })
+
+  describe('shapeActivityEntry', () => {
+    it('names a lead-anchored entry by the lead and tags its type', () => {
+      const e = shapeActivityEntry({
+        id: 9,
+        activity_type: 'call',
+        created_at: at(8),
+        notes: '  Sent the revised quote  ',
+        lead_id: 100,
+        employee_id: 1,
+        employees: { name: 'Asha' },
+        leads: { id: 100, current_stage: 'negotiation', parties: { name: 'Mr. Jain' }, sites: null },
+        parties: null,
+      })
+      expect(e).toMatchObject({ party: 'Mr. Jain', leadId: 100, stage: 'Negotiation', exec: 'Asha', execId: 1, notes: 'Sent the revised quote' })
+      expect(e.tag).toEqual({ label: 'Call', className: 'vip-dd-day-tag vip-dd-day-tag-call' })
+    })
+
+    it('has no name for an Office Day, and shows its hours as the meta line', () => {
+      const e = shapeActivityEntry({
+        id: 10,
+        activity_type: 'office_day',
+        created_at: at(9),
+        notes: null,
+        lead_id: null,
+        employee_id: 2,
+        employees: { name: 'Ravi' },
+        leads: null,
+        parties: null,
+        start_time: '10:00',
+        end_time: '17:30',
+      })
+      expect(e.party).toBeNull()
+      expect(e.leadId).toBeNull()
+      expect(e.meta).toBe('10:00 am – 5:30 pm')
+      expect(e.notes).toBeNull()
+    })
+
+    it('falls back to the party when an entry is anchored on an architect rather than a lead', () => {
+      const e = shapeActivityEntry({
+        id: 11,
+        activity_type: 'architect_meeting',
+        created_at: at(9),
+        lead_id: null,
+        employee_id: 2,
+        employees: { name: 'Ravi' },
+        leads: null,
+        parties: { name: 'Ar. Bedi' },
+      })
+      expect(e.party).toBe('Ar. Bedi')
+    })
   })
 })

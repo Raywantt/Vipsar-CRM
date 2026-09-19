@@ -633,17 +633,26 @@ export function countDistinctLeads(buckets) {
 // sales manager's TEAM queue the first is exactly right and the second would
 // credit the manager with a call their rep made — the one thing the owner
 // ruled out for that role (2026-09-03: a manager logs only their own work).
+//
+// `showListFilters` opts into the Owner dropdown + Stage chips the follow-up
+// gap popup carries (AgeingBody's own `showListFilters` gate — see
+// buildFollowupGapPanel). Off by default: a caller passes its own "sees other
+// people's data" flag, so a viewer of one person's leads never gets an owner
+// filter with nothing to choose between. Dashboard's Stale Leads tile and its
+// five Needs Attention rows pass it (2026-09-19); Today's own popups do not.
 export function buildAgeingPanel(
   bucket,
   scopeLabel = 'Company',
   viewerEmployeeId = null,
   queueActions = scopeLabel !== 'Company',
-  allowLogCall = queueActions
+  allowLogCall = queueActions,
+  showListFilters = false
 ) {
   const owners = new Map()
   bucket.rows.forEach((row) => {
     const key = row.ownerId ?? 'unassigned'
-    if (!owners.has(key)) owners.set(key, { name: row.owner, count: 0, value: 0 })
+    // `id` is what the owner dropdown keys on (null = the unassigned bucket).
+    if (!owners.has(key)) owners.set(key, { id: row.ownerId ?? null, name: row.owner, count: 0, value: 0 })
     const entry = owners.get(key)
     entry.count += 1
     entry.value += row.value
@@ -669,7 +678,9 @@ export function buildAgeingPanel(
       { label: 'Owners involved', value: String(ownerRows.length), sub: 'sales execs', color: '#101617' },
     ],
     ownerTitle: 'Whose leads these are',
+    showListFilters,
     ownerRows: ownerRows.map((o) => ({
+      id: o.id,
       initials: getInitials(o.name),
       name: o.name,
       count: o.count,

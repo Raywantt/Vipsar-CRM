@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { rangeForPreset, startOfWeek } from './dateRanges'
+import { rangeForPreset, startOfWeek, previousRangeFor } from './dateRanges'
 
 describe('startOfWeek', () => {
   it('returns the same Monday for any day within that week', () => {
@@ -93,5 +93,54 @@ describe('rangeForPreset', () => {
 
   it('returns null for an unrecognized preset', () => {
     expect(rangeForPreset('bogus')).toBeNull()
+  })
+})
+
+describe('previousRangeFor', () => {
+  const ymd = (d) => [d.getFullYear(), d.getMonth() + 1, d.getDate()]
+
+  it('compares a part-week against the SAME part of last week, not the days just before it', () => {
+    const range = { start: new Date(2026, 8, 14), end: new Date(2026, 8, 16, 23, 59, 59, 999) } // Mon–Wed
+    const prev = previousRangeFor('week', range)
+    expect(prev.label).toBe('last week')
+    expect(ymd(prev.range.start)).toEqual([2026, 9, 7]) // last Monday
+    expect(ymd(prev.range.end)).toEqual([2026, 9, 9]) // last Wednesday — not Sunday the 13th
+  })
+
+  it('compares a month-to-date against the same days of last month', () => {
+    const range = { start: new Date(2026, 8, 1), end: new Date(2026, 8, 16, 23, 59, 59, 999) }
+    const prev = previousRangeFor('month', range)
+    expect(prev.label).toBe('last month')
+    expect(ymd(prev.range.start)).toEqual([2026, 8, 1])
+    expect(ymd(prev.range.end)).toEqual([2026, 8, 16])
+  })
+
+  it('caps at the previous month\'s own last day when this month has run longer than it had', () => {
+    // 31 days elapsed of a 31-day month, against a 30-day September.
+    const range = { start: new Date(2026, 9, 1), end: new Date(2026, 9, 31, 23, 59, 59, 999) }
+    const prev = previousRangeFor('month', range)
+    expect(ymd(prev.range.end)).toEqual([2026, 9, 30]) // not Oct 1
+  })
+
+  it('reaches back a whole quarter, across a year boundary', () => {
+    const range = { start: new Date(2026, 0, 1), end: new Date(2026, 0, 20, 23, 59, 59, 999) } // Q1 to date
+    const prev = previousRangeFor('quarter', range)
+    expect(prev.label).toBe('last quarter')
+    expect(ymd(prev.range.start)).toEqual([2025, 10, 1])
+    expect(ymd(prev.range.end)).toEqual([2025, 10, 20])
+  })
+
+  it('compares a range with no calendar identity against the equal window immediately before it', () => {
+    const range = { start: new Date(2026, 8, 2), end: new Date(2026, 8, 16, 23, 59, 59, 999) } // 15 days
+    const prev = previousRangeFor('15d', range)
+    expect(prev.label).toBe('the 15 days before')
+    expect(ymd(prev.range.start)).toEqual([2026, 8, 18])
+    expect(ymd(prev.range.end)).toEqual([2026, 9, 1])
+    // It ends the instant before the range starts, so the two never overlap.
+    expect(prev.range.end.getTime()).toBe(range.start.getTime() - 1)
+  })
+
+  it('has nothing to compare against when there is no range', () => {
+    expect(previousRangeFor('custom', null)).toBeNull()
   })
 })

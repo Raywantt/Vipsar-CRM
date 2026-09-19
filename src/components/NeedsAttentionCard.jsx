@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { buildAgeingPanel, countDistinctLeads } from '../lib/attention'
 
-function AttnRow({ bucket, onOpenPanel, scopeLabel }) {
+function AttnRow({ bucket, onOpenPanel, scopeLabel, showListFilters }) {
   return (
     <button
       type="button"
       className="vip-dd-attn-row"
-      onClick={() => onOpenPanel(buildAgeingPanel(bucket, scopeLabel, null, false))}
+      onClick={() => onOpenPanel(buildAgeingPanel(bucket, scopeLabel, null, false, undefined, showListFilters))}
     >
       <span className="vip-dd-attn-bar" style={{ background: bucket.color }} />
       <span className="vip-dd-attn-main">
@@ -27,7 +27,10 @@ function AttnRow({ bucket, onOpenPanel, scopeLabel }) {
 // 1024px this always caps to the first 3 buckets + a "+N more buckets"
 // expand link (design_handoff_vipsar_mobile's Dashboard screen), since a
 // phone-width tile grid was never an option here in the first place.
-function NeedsAttentionCard({ buckets, onOpenPanel, wide = false, scopeLabel = 'Company' }) {
+// `showListFilters` is Dashboard's own "sees other people's data" flag: it puts
+// the Owner dropdown + Stage chips on each row's popup (see buildAgeingPanel).
+// Every other mount leaves it off.
+function NeedsAttentionCard({ buckets, onOpenPanel, wide = false, scopeLabel = 'Company', showListFilters = false }) {
   const [expanded, setExpanded] = useState(false)
   const total = countDistinctLeads(buckets)
   const hiddenCount = Math.max(0, buckets.length - 3)
@@ -46,7 +49,7 @@ function NeedsAttentionCard({ buckets, onOpenPanel, wide = false, scopeLabel = '
         <>
           <div className="vip-only-mobile vip-dd-attn-list">
             {mobileVisible.map((bucket) => (
-              <AttnRow key={bucket.key} bucket={bucket} onOpenPanel={onOpenPanel} scopeLabel={scopeLabel} />
+              <AttnRow key={bucket.key} bucket={bucket} onOpenPanel={onOpenPanel} scopeLabel={scopeLabel} showListFilters={showListFilters} />
             ))}
             {!expanded && hiddenCount > 0 && (
               <button type="button" className="vip-dd-more-row" onClick={() => setExpanded(true)}>
@@ -56,7 +59,7 @@ function NeedsAttentionCard({ buckets, onOpenPanel, wide = false, scopeLabel = '
           </div>
           <div className={wide ? 'vip-only-desktop vip-dd-attn-list vip-dd-attn-grid' : 'vip-only-desktop vip-dd-attn-list'}>
             {buckets.map((bucket) => (
-              <AttnRow key={bucket.key} bucket={bucket} onOpenPanel={onOpenPanel} scopeLabel={scopeLabel} />
+              <AttnRow key={bucket.key} bucket={bucket} onOpenPanel={onOpenPanel} scopeLabel={scopeLabel} showListFilters={showListFilters} />
             ))}
           </div>
         </>

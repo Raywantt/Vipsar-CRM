@@ -43,10 +43,52 @@ export function fetchActivityCounts(range) {
     fetchAllRows(() =>
       supabase
         .from('activities')
-        .select('activity_type, employee_id, rfq_kind, created_at, employees!employee_id(name)', { count: 'exact' })
+        // `lead_id` rides along for the Activities logged popup's "leads
+        // touched" and most-worked-leads figures; every other consumer only
+        // counts rows, so for them it is an unused extra column.
+        .select('activity_type, employee_id, rfq_kind, created_at, lead_id, employees!employee_id(name)', { count: 'exact' })
         .gte('created_at', range.start.toISOString())
         .lte('created_at', range.end.toISOString())
     )
+  )
+}
+
+// The Activities logged popup's "latest entries" list — the most recent real
+// entries in the period, optionally narrowed to one employee, a set of them
+// (a manager's My/Team scope, which RLS alone can't express) and/or one
+// activity type, so the list follows the popup's own filters. Bounded on
+// purpose (`limit`, never "every row"): the popup shows a handful, and the
+// filters are applied HERE rather than after fetching so a narrow filter still
+// gets its own latest entries instead of whatever few survived out of a
+// company-wide page. Not cached: it is fired per filter change and the rows
+// are small.
+export function fetchActivityEntries(range, { employeeId = null, employeeIds = null, activityType = null, limit = 30 } = {}) {
+  let query = supabase
+    .from('activities')
+    .select(
+      'id, activity_type, created_at, notes, lead_id, employee_id, start_time, end_time, employees!employee_id(name), leads(id, current_stage, parties!party_id(name), sites(nickname, locality, house_no)), parties!party_id(name)'
+    )
+    .gte('created_at', range.start.toISOString())
+    .lte('created_at', range.end.toISOString())
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (employeeId != null) query = query.eq('employee_id', employeeId)
+  else if (employeeIds) query = query.in('employee_id', employeeIds)
+  if (activityType) query = query.eq('activity_type', activityType)
+  return query
+}
+
+// Names + stages for a handful of leads (the popup's most-worked leads),
+// fetched when the popup needs them rather than embedded in every activity
+// row — the list depends on the popup's filters, so it isn't known up front.
+// The lead-naming embed is the one leadDisplayName needs (see leadName.js).
+export function fetchLeadNamesByIds(ids) {
+  if (!ids.length) return Promise.resolve({ data: [], error: null })
+  return fetchAllRows(() =>
+    supabase
+      .from('leads')
+      .select('id, current_stage, parties!party_id(name), sites(nickname, locality, house_no)', { count: 'exact' })
+      .in('id', ids)
   )
 }
 

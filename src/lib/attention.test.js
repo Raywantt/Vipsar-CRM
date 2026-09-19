@@ -428,6 +428,38 @@ describe('buildAgeingPanel', () => {
     const panel = buildAgeingPanel(bucket)
     expect(panel.ownerRows).toHaveLength(1)
   })
+
+  describe('owner + stage filters (showListFilters)', () => {
+    const bucket = {
+      title: 'Stale',
+      note: 'note',
+      listTitle: 't',
+      listHint: 'h',
+      count: 2,
+      rows: [
+        { leadId: '1', ownerId: 7, owner: 'Asha', value: 1000, age: 10, party: 'P1', stage: 'Calling', chipClass: 'c', last: 'x' },
+        { leadId: '2', ownerId: null, owner: 'Unassigned', value: 2000, age: 20, party: 'P2', stage: 'Negotiation', chipClass: 'c', last: 'x' },
+      ],
+    }
+
+    it('is off unless asked for, so Today\'s own popups are untouched', () => {
+      expect(buildAgeingPanel(bucket).showListFilters).toBe(false)
+      expect(buildAgeingPanel(bucket, 'You', 'emp-1').showListFilters).toBe(false)
+    })
+
+    it('is on when the caller passes it, leaving the other arguments\' defaults alone', () => {
+      // The 5th argument left `undefined` must still default to queueActions.
+      const panel = buildAgeingPanel(bucket, 'Company', null, false, undefined, true)
+      expect(panel.showListFilters).toBe(true)
+      expect(panel.queueActions).toBe(false)
+      expect(panel.allowLogCall).toBe(false)
+    })
+
+    it('carries each owner\'s id (numeric) for the dropdown to key on, null for unassigned', () => {
+      const ids = buildAgeingPanel(bucket, 'Company', null, false, undefined, true).ownerRows.map((o) => o.id)
+      expect(ids.sort()).toEqual([7, null].sort())
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------

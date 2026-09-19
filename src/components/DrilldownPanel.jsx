@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import DonutChart from './DonutChart'
@@ -225,6 +225,68 @@ function SwipeAgeRow({ r, onLogCall, onRequestDate, busy, message, allowLogCall 
   )
 }
 
+// Owner dropdown + stage chips, shared by the follow-up gap popup and every
+// other ageing popup (AgeingBody), the pipeline panel (PipelineBody) and the
+// Activities logged popup (ActivitiesBody) so they read as one control, not
+// three lookalikes. Presentational: the caller owns the state and decides what
+// a key means. A facet with a single choice (a lone owner, a lone stage) is
+// hidden here, once, so no caller has to remember to — and the whole block
+// goes when both are. `owners` are `{ key, name, count }`, `stages`
+// `{ key, label }`; an empty-string value is "All". `stageLabel` renames the
+// second facet ("Type" for activities — they have no stage).
+function OwnerStageFilters({
+  owners,
+  ownerValue,
+  onOwnerChange,
+  allOwnersCount,
+  stages,
+  stageValue,
+  onStageChange,
+  stageLabel: facetLabel = 'Stage',
+}) {
+  const showOwner = owners.length > 1
+  const showStage = stages.length > 1
+  if (!showOwner && !showStage) return null
+  return (
+    <div className="vip-dd-section">
+      {showOwner && (
+        <div className="vip-stack-s" style={{ gap: 6, marginBottom: 10 }}>
+          <div className="vip-fact-label">Owner</div>
+          <select className="vip-select" value={ownerValue} onChange={(e) => onOwnerChange(e.target.value)}>
+            <option value="">All owners ({allOwnersCount})</option>
+            {owners.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.name} ({o.count})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {showStage && (
+        <div className="vip-stack-s" style={{ gap: 6 }}>
+          <div className="vip-fact-label">{facetLabel}</div>
+          <div className="vip-chip-wrap">
+            <button type="button" className="vip-chip-select" aria-pressed={stageValue === ''} onClick={() => onStageChange('')}>
+              All
+            </button>
+            {stages.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className="vip-chip-select"
+                aria-pressed={stageValue === s.key}
+                onClick={() => onStageChange(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AgeingBody({ panel }) {
   const [rows, setRows] = useState(panel.ageRows)
   const [busyLeadId, setBusyLeadId] = useState(null)
@@ -370,43 +432,16 @@ function AgeingBody({ panel }) {
         </div>
       )}
 
-      {panel.showListFilters && (panel.ownerRows.length > 0 || stagesPresent.length > 1) && (
-        <div className="vip-dd-section">
-          {panel.ownerRows.length > 0 && (
-            <div className="vip-stack-s" style={{ gap: 6, marginBottom: 10 }}>
-              <div className="vip-fact-label">Owner</div>
-              <select className="vip-select" value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
-                <option value="">All owners ({rows.length})</option>
-                {panel.ownerRows.map((o) => (
-                  <option key={o.id ?? 'unassigned'} value={o.id ?? 'unassigned'}>
-                    {o.name} ({o.count})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {stagesPresent.length > 1 && (
-            <div className="vip-stack-s" style={{ gap: 6 }}>
-              <div className="vip-fact-label">Stage</div>
-              <div className="vip-chip-wrap">
-                <button type="button" className="vip-chip-select" aria-pressed={stageFilter === ''} onClick={() => setStageFilter('')}>
-                  All
-                </button>
-                {stagesPresent.map((stage) => (
-                  <button
-                    key={stage}
-                    type="button"
-                    className="vip-chip-select"
-                    aria-pressed={stageFilter === stage}
-                    onClick={() => setStageFilter(stage)}
-                  >
-                    {stage}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+      {panel.showListFilters && (
+        <OwnerStageFilters
+          owners={panel.ownerRows.map((o) => ({ key: o.id ?? 'unassigned', name: o.name, count: o.count }))}
+          ownerValue={ownerFilter}
+          onOwnerChange={setOwnerFilter}
+          allOwnersCount={rows.length}
+          stages={stagesPresent.map((label) => ({ key: label, label }))}
+          stageValue={stageFilter}
+          onStageChange={setStageFilter}
+        />
       )}
 
       <div className="vip-dd-section">
@@ -483,32 +518,40 @@ function AgeingBody({ panel }) {
   )
 }
 
+// The cumulative-vs-target chart, shared by every `attain` panel and the
+// Activities logged popup — one drawing, so the two can't drift apart.
+function PaceChart({ pace }) {
+  return (
+    <>
+      <svg viewBox="0 0 560 150" className="vip-dd-pace-svg">
+        <line x1="0" y1="126" x2="560" y2="126" stroke="var(--vip-line)" strokeWidth="1" />
+        <line x1="0" y1="84" x2="560" y2="84" stroke="var(--vip-line-soft)" strokeWidth="1" />
+        <line x1="0" y1="42" x2="560" y2="42" stroke="var(--vip-line-soft)" strokeWidth="1" />
+        {pace.targetPath && <path d={pace.targetPath} fill="none" stroke="var(--vip-lost)" strokeWidth="2" strokeDasharray="5 4" />}
+        <path d={pace.areaPath} fill="var(--vip-teal)" fillOpacity="0.09" />
+        <path d={pace.actualPath} fill="none" stroke="var(--vip-teal)" strokeWidth="2.5" strokeLinejoin="round" />
+      </svg>
+      <div className="vip-dd-pace-legend">
+        <span>
+          <span className="vip-dd-legend-swatch" style={{ background: 'var(--vip-teal)' }} /> Cumulative actual
+        </span>
+        {pace.targetPath && (
+          <span>
+            <span className="vip-dd-legend-swatch vip-dd-legend-dash" /> Straight-line pace to target
+          </span>
+        )}
+      </div>
+    </>
+  )
+}
+
 function AttainBody({ panel }) {
   return (
     <div className="vip-dd-section-stack">
       {panel.pace && (
         <div className="vip-dd-section">
           <div className="vip-dd-section-title">Cumulative vs target pace</div>
-          <svg viewBox="0 0 560 150" className="vip-dd-pace-svg">
-            <line x1="0" y1="126" x2="560" y2="126" stroke="var(--vip-line)" strokeWidth="1" />
-            <line x1="0" y1="84" x2="560" y2="84" stroke="var(--vip-line-soft)" strokeWidth="1" />
-            <line x1="0" y1="42" x2="560" y2="42" stroke="var(--vip-line-soft)" strokeWidth="1" />
-            {panel.pace.targetPath && (
-              <path d={panel.pace.targetPath} fill="none" stroke="var(--vip-lost)" strokeWidth="2" strokeDasharray="5 4" />
-            )}
-            <path d={panel.pace.areaPath} fill="var(--vip-teal)" fillOpacity="0.09" />
-            <path d={panel.pace.actualPath} fill="none" stroke="var(--vip-teal)" strokeWidth="2.5" strokeLinejoin="round" />
-          </svg>
-          <div className="vip-dd-pace-legend">
-            <span>
-              <span className="vip-dd-legend-swatch" style={{ background: 'var(--vip-teal)' }} /> Cumulative actual
-            </span>
-            {panel.pace.targetPath && (
-              <span>
-                <span className="vip-dd-legend-swatch vip-dd-legend-dash" /> Straight-line pace to target
-              </span>
-            )}
-          </div>
+          <PaceChart pace={panel.pace} />
         </div>
       )}
 
@@ -530,6 +573,320 @@ function AttainBody({ panel }) {
   )
 }
 
+// The Activities logged popup (buildActivitiesPanel in drilldownBuilders.js).
+//
+// It opens at once from the `activities` array the Dashboard already holds and
+// fills in the rest as it arrives: the previous period (for the ▲/▼ change
+// figures), the latest real entries for the CURRENT filter, and names for the
+// most-worked leads. Each is a loader the caller injected, so this stays free
+// of queries — same shape as the pipeline panel's `viewFor`. A loader that
+// fails or is absent just leaves its section saying so; nothing else waits on
+// it.
+const ENTRY_CHUNK = 10
+
+function ChangeText({ change }) {
+  if (!change) return null
+  const cls = change.up == null ? 'vip-act-change' : change.up ? 'vip-act-change vip-act-change-up' : 'vip-act-change vip-act-change-down'
+  return <span className={cls}>{change.text}</span>
+}
+
+function ActivitiesBody({ panel }) {
+  const { filters, loaders } = panel
+  const [ownerFilter, setOwnerFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  // undefined = still loading · null = couldn't be had · array = the rows.
+  const [previous, setPrevious] = useState(undefined)
+  const [entries, setEntries] = useState({ status: 'loading', rows: [] })
+  const [names, setNames] = useState(() => new Map())
+  const requestedNames = useRef(new Set())
+  const [visibleEntries, setVisibleEntries] = useState(ENTRY_CHUNK)
+
+  useEffect(() => {
+    setOwnerFilter('')
+    setTypeFilter('')
+    setNames(new Map())
+    requestedNames.current = new Set()
+    setPrevious(undefined)
+    if (!loaders.loadPrevious) {
+      setPrevious(null)
+      return undefined
+    }
+    let live = true
+    loaders
+      .loadPrevious()
+      .then((rows) => live && setPrevious(rows))
+      .catch(() => live && setPrevious(null))
+    return () => {
+      live = false
+    }
+  }, [panel, loaders])
+
+  // A choice the panel doesn't offer (the options are fixed per panel, so this
+  // only guards a stale value across panels) is treated as "All".
+  const activeOwner = filters.owners.some((o) => o.key === ownerFilter) ? ownerFilter : ''
+  const activeType = filters.types.some((t) => t.key === typeFilter) ? typeFilter : ''
+  const isFiltered = !!(activeOwner || activeType)
+  const ownerOption = filters.owners.find((o) => o.key === activeOwner)
+  const typeOption = filters.types.find((t) => t.key === activeType)
+  const multiPerson = filters.owners.length > 0
+
+  const view = useMemo(
+    () => panel.viewFor(activeOwner, activeType, previous ?? null),
+    [panel, activeOwner, activeType, previous]
+  )
+
+  // The latest entries are fetched per filter, server-side, so a narrow filter
+  // gets its own most recent rows rather than whichever few survived out of a
+  // company-wide page.
+  const ownerId = ownerOption?.id ?? null
+  useEffect(() => {
+    setVisibleEntries(ENTRY_CHUNK)
+    if (!loaders.loadEntries) {
+      setEntries({ status: 'unavailable', rows: [] })
+      return undefined
+    }
+    let live = true
+    setEntries({ status: 'loading', rows: [] })
+    loaders
+      .loadEntries({ ownerId, type: activeType || null })
+      .then((rows) => live && setEntries({ status: 'ready', rows }))
+      .catch(() => live && setEntries({ status: 'error', rows: [] }))
+    return () => {
+      live = false
+    }
+  }, [panel, loaders, ownerId, activeType])
+
+  // Names only for the leads this view's list actually shows, and only the
+  // ones not already fetched — so flipping a filter back and forth is free.
+  // `requestedNames` (not `names`) decides what's missing: state that this
+  // effect itself updates can't also be its dependency without refetching on
+  // its own result.
+  const topKey = view.topLeads.map((l) => l.leadId).join(',')
+  useEffect(() => {
+    if (!loaders.loadLeadNames) return undefined
+    const missing = (topKey ? topKey.split(',').map(Number) : []).filter((id) => !requestedNames.current.has(id))
+    if (!missing.length) return undefined
+    missing.forEach((id) => requestedNames.current.add(id))
+    let live = true
+    loaders
+      .loadLeadNames(missing)
+      .then((map) => live && setNames((prev) => new Map([...prev, ...map])))
+      .catch(() => missing.forEach((id) => requestedNames.current.delete(id)))
+    return () => {
+      live = false
+    }
+  }, [topKey, loaders])
+
+  const comparison = previous === undefined ? 'comparing…' : previous === null ? 'comparison unavailable' : `vs ${panel.previousLabel}`
+  const shownEntries = entries.rows.slice(0, visibleEntries)
+
+  return (
+    <div className="vip-dd-section-stack">
+      <OwnerStageFilters
+        owners={filters.owners}
+        ownerValue={activeOwner}
+        onOwnerChange={setOwnerFilter}
+        allOwnersCount={filters.total}
+        stages={filters.types}
+        stageValue={activeType}
+        onStageChange={setTypeFilter}
+        stageLabel="Type"
+      />
+      {isFiltered && (
+        <div className="vip-dd-hint">
+          {view.total} of {filters.total} activities · {[ownerOption?.name, typeOption?.label].filter(Boolean).join(' · ')}
+        </div>
+      )}
+
+      <StatsGrid stats={view.stats} />
+
+      {view.pace && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-title">Cumulative vs target pace</div>
+          <PaceChart pace={view.pace} />
+        </div>
+      )}
+
+      {/* ---- by activity type: follows the owner filter, not the type one ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">By activity type</div>
+          <div className="vip-dd-hint">actual / target · {comparison}</div>
+        </div>
+        {view.byType.map((t) => (
+          <div key={t.key} className="vip-act-row">
+            <div className="vip-act-row-main">
+              <span className="vip-dd-contrib-label" style={t.active ? { fontWeight: 700 } : undefined}>
+                {t.label}
+              </span>
+              <span className="vip-dd-contrib-track">
+                <span className="vip-dd-contrib-fill" style={{ width: t.pct }} />
+              </span>
+              <span className="vip-dd-contrib-value">{t.value}</span>
+            </div>
+            {t.change && (
+              <div className="vip-act-row-sub">
+                <ChangeText change={t.change} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* ---- by exec: follows the type filter, not the owner one ---- */}
+      {multiPerson && view.byExec.length > 0 && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-head">
+            <div className="vip-dd-section-title">By exec</div>
+            <div className="vip-dd-hint">
+              {typeOption ? `${typeOption.label} only` : 'all types'} · {comparison}
+            </div>
+          </div>
+          {view.byExec.map((e) => (
+            <div key={e.key} className={e.selected ? 'vip-act-row vip-act-row-selected' : 'vip-act-row'}>
+              <div className="vip-act-row-main">
+                <span className="vip-dd-avatar vip-dd-avatar-sm">{e.initials}</span>
+                <EmployeeLink id={e.id} name={e.name} className="vip-dd-contrib-label" />
+                <span className="vip-dd-contrib-track">
+                  <span className="vip-dd-contrib-fill" style={{ width: e.pct }} />
+                </span>
+                <span className="vip-dd-contrib-value">{e.total}</span>
+              </div>
+              <div className="vip-act-row-sub">
+                <span>{e.mix}</span>
+                <ChangeText change={e.change} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ---- rhythm ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">Day by day</div>
+          <div className="vip-dd-hint">pale = nothing logged</div>
+        </div>
+        {view.rhythm.length > 0 ? (
+          <>
+            <div className="vip-dd-rhythm">
+              {view.rhythm.map((d, i) => (
+                <span
+                  key={i}
+                  title={d.tip}
+                  className={d.filled ? 'vip-dd-rhythm-bar vip-dd-rhythm-filled' : 'vip-dd-rhythm-bar'}
+                  style={{ height: d.h }}
+                />
+              ))}
+            </div>
+            <div className="vip-dd-rhythm-range">
+              <span>{view.rhythmFrom}</span>
+              <span>{view.rhythmTo}</span>
+            </div>
+          </>
+        ) : (
+          <p className="vip-empty">No days in this period yet.</p>
+        )}
+        {view.weekday.map((w) => (
+          <div key={w.label} className="vip-act-row">
+            <div className="vip-act-row-main">
+              <span className="vip-dd-contrib-label">{w.label}</span>
+              <span className="vip-dd-contrib-track">
+                <span className="vip-dd-contrib-fill" style={{ width: w.pct }} />
+              </span>
+              <span className="vip-dd-contrib-value" title={`${w.total} in total`}>
+                {w.avg === '—' ? '—' : `${w.avg} / day`}
+              </span>
+            </div>
+          </div>
+        ))}
+        {view.silentWeekdays > 0 && (
+          <p className="vip-act-silent">
+            {view.silentWeekdays} weekday{view.silentWeekdays === 1 ? '' : 's'} with nothing logged.
+          </p>
+        )}
+      </div>
+
+      {/* ---- leads ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">Most-worked leads</div>
+          <div className="vip-dd-hint">{view.leadsTouched} lead{view.leadsTouched === 1 ? '' : 's'} touched</div>
+        </div>
+        {view.topLeads.length === 0 ? (
+          <p className="vip-empty">No activity here was logged against a lead.</p>
+        ) : (
+          view.topLeads.map((l) => {
+            const n = names.get(l.leadId)
+            return (
+              <Link key={l.leadId} to={`/leads/${l.leadId}`} className="vip-dd-lead-row">
+                <span className="vip-dd-lead-party">{n?.party ?? `Lead #${l.leadId}`}</span>
+                {n && <span className={n.chipClass}>{n.stage}</span>}
+                <span className="vip-act-lead-count">{l.count} logged</span>
+              </Link>
+            )
+          })
+        )}
+      </div>
+
+      {/* ---- latest entries ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">Latest entries</div>
+          <div className="vip-dd-hint">
+            {entries.status === 'ready' && entries.rows.length > 0 ? `most recent ${entries.rows.length}` : 'most recent first'}
+          </div>
+        </div>
+        {entries.status === 'loading' ? (
+          <p className="vip-empty">Loading entries…</p>
+        ) : entries.status !== 'ready' ? (
+          <p className="vip-empty">The latest entries couldn&apos;t be loaded.</p>
+        ) : entries.rows.length === 0 ? (
+          <p className="vip-empty">Nothing logged for this filter.</p>
+        ) : (
+          <>
+            {shownEntries.map((e) => (
+              <div key={e.id} className="vip-dd-log-row">
+                <div className="vip-dd-log-when">
+                  <span>{e.date}</span>
+                  <span className="vip-dd-log-time">{e.time}</span>
+                </div>
+                <div className="vip-dd-log-main">
+                  <div className="vip-dd-log-head">
+                    <span className={e.tag.className}>{e.tag.label}</span>
+                    {e.leadId ? (
+                      <Link to={`/leads/${e.leadId}`} className="vip-dd-log-party">
+                        {e.party}
+                      </Link>
+                    ) : (
+                      e.party && <span className="vip-dd-log-party">{e.party}</span>
+                    )}
+                    {e.stage && <span className={e.chipClass}>{e.stage}</span>}
+                  </div>
+                  {multiPerson && e.exec && (
+                    <div className="vip-dd-log-notes">
+                      by <EmployeeLink id={e.execId} name={e.exec} />
+                      {e.meta ? ` · ${e.meta}` : ''}
+                    </div>
+                  )}
+                  {!multiPerson && e.meta && <div className="vip-dd-log-notes">{e.meta}</div>}
+                  {e.notes && <div className="vip-dd-log-notes vip-act-notes">{e.notes}</div>}
+                </div>
+              </div>
+            ))}
+            <ShowMoreRows
+              shown={shownEntries.length}
+              total={entries.rows.length}
+              noun="entries"
+              onShowMore={() => setVisibleEntries((v) => v + ENTRY_CHUNK)}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // Unchanged from the original except that each stage row is now a button —
 // clicking one drills one level deeper into that stage's own lead list
 // (panel.stageRows[].drill, prebuilt by buildPipelinePanel), pushed onto
@@ -547,6 +904,11 @@ const PIPELINE_SCOPES = [
 function PipelineBody({ panel, onDrill }) {
   const [scope, setScope] = useState(panel.initialScope ?? 'all')
   const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
+  // Owner dropdown + stage chips — opt-in via panel.filters (see
+  // buildPipelineFilters in drilldownBuilders.js), null for a viewer who sees
+  // only their own leads and in concentration mode.
+  const [ownerFilter, setOwnerFilter] = useState('')
+  const [stageFilter, setStageFilter] = useState('')
 
   // Reset to the panel's own default scope whenever a NEW pipeline panel
   // opens (not on every re-render) — same reset-on-panel-change pattern
@@ -555,16 +917,31 @@ function PipelineBody({ panel, onDrill }) {
   // toggle position from last time.
   useEffect(() => {
     setScope(panel.initialScope ?? 'all')
+    setOwnerFilter('')
+    setStageFilter('')
   }, [panel])
 
-  // Also resets on the scope itself — every entry point except
-  // Concentration only ever has 5 rows here, so this mostly matters for
-  // Concentration's own wider list (up to "all" in single-person scope).
+  // The filters sit above the All/Active/On-hold toggle and persist across it,
+  // but what's on offer differs per view (On hold has no stage to pick, and
+  // may lack the chosen owner altogether). A choice the current view doesn't
+  // offer is treated as "All" rather than clearing state, so it comes back if
+  // the toggle goes back to a view that does offer it.
+  const filterOptions = panel.filters?.options[scope]
+  const activeOwner = filterOptions?.owners.some((o) => o.key === ownerFilter) ? ownerFilter : ''
+  const activeStage = filterOptions?.stages.some((s) => s.key === stageFilter) ? stageFilter : ''
+  const isFiltered = !!(activeOwner || activeStage)
+
+  // Also resets on the scope and both filters — a narrowed list should start
+  // from its own top, and Concentration's wider list is the only unfiltered
+  // one long enough to have scrolled.
   useEffect(() => {
     setVisibleCount(ROW_CHUNK)
-  }, [panel, scope])
+  }, [panel, scope, activeOwner, activeStage])
 
-  const view = panel.scopeViews?.[scope] ?? panel
+  const view = useMemo(
+    () => (isFiltered ? panel.filters.viewFor(scope, activeOwner, activeStage) : panel.scopeViews?.[scope] ?? panel),
+    [panel, scope, activeOwner, activeStage, isFiltered]
+  )
   // Concentration is a genuinely different, focused view — not "Open
   // pipeline by stage" with an extra section. It has its own header
   // (title/value/note/stats, set in buildPipelinePanel), so the toggle
@@ -596,6 +973,17 @@ function PipelineBody({ panel, onDrill }) {
           leads list resizing to match. */}
       {panel.scopeViews && !isConcentration && (
         <>
+          {panel.filters && (
+            <OwnerStageFilters
+              owners={filterOptions.owners}
+              ownerValue={activeOwner}
+              onOwnerChange={setOwnerFilter}
+              allOwnersCount={filterOptions.total}
+              stages={filterOptions.stages}
+              stageValue={activeStage}
+              onStageChange={setStageFilter}
+            />
+          )}
           <div className="vip-seg-mini" role="tablist" aria-label="Which leads to show">
             {PIPELINE_SCOPES.map((s) => (
               <button
@@ -661,13 +1049,17 @@ function PipelineBody({ panel, onDrill }) {
         </div>
       )}
 
+      {isFiltered && view.topLeads.length === 0 && <p className="vip-empty">No leads match this filter.</p>}
+
       {view.topLeads?.length > 0 && (
         <div className="vip-dd-section">
           <div className="vip-dd-section-head">
-            <div className="vip-dd-section-title">{leadsTitle}</div>
+            <div className="vip-dd-section-title">{isFiltered ? 'Matching leads' : leadsTitle}</div>
             <div className="vip-dd-hint">
               {isConcentration
                 ? `${view.topLeads.length} of ${view.topLeadsTotal} · value · running % of active pipeline`
+                : isFiltered
+                ? `${view.topLeads.length} of ${filterOptions.total} · by value`
                 : 'by value'}
             </div>
           </div>
@@ -1759,6 +2151,7 @@ const BODIES = {
   daySheet: DaySheetBody,
   dayItems: DayItemsBody,
   attain: AttainBody,
+  activities: ActivitiesBody,
   pipeline: PipelineBody,
   stageLeads: StageLeadsBody,
   winrate: WinRateBody,

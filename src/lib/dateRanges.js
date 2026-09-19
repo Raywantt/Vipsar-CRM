@@ -41,6 +41,49 @@ export const RANGE_LABELS = {
   custom: 'this range',
 }
 
+function addDays(date, n) {
+  const d = new Date(date)
+  d.setDate(d.getDate() + n)
+  return d
+}
+
+// The window a period is fairly compared against: `{ range, label }`, or null
+// for no range. Week/Month/Quarter compare against the SAME POINT of the
+// previous whole period (this week Mon–Wed vs last week Mon–Wed), never the
+// equal-length window immediately before — that would set Mon–Wed against
+// Fri–Sun, or a month-to-date against the tail of the previous month, and read
+// a calendar effect as a trend. A month/quarter that is longer than its
+// predecessor is capped at the predecessor's own last day rather than spilling
+// into the period after it. Anything without a calendar identity (15D, Custom,
+// Today) compares against the equal-length window immediately before it.
+export function previousRangeFor(preset, range) {
+  if (!range) return null
+  const DAY = 24 * 60 * 60 * 1000
+  const days = Math.round((atStartOfDay(range.end) - atStartOfDay(range.start)) / DAY) + 1
+
+  if (preset === 'week') {
+    return { range: { start: addDays(range.start, -7), end: addDays(range.end, -7) }, label: 'last week' }
+  }
+
+  if (preset === 'month' || preset === 'quarter') {
+    const months = preset === 'month' ? 1 : 3
+    const start = new Date(range.start.getFullYear(), range.start.getMonth() - months, 1)
+    // Day 0 of the current period's first month is the last day of the period
+    // before it, whichever length that one was.
+    const periodEnd = atEndOfDay(new Date(range.start.getFullYear(), range.start.getMonth(), 0))
+    const sameElapsed = atEndOfDay(addDays(start, days - 1))
+    return {
+      range: { start, end: sameElapsed > periodEnd ? periodEnd : sameElapsed },
+      label: preset === 'month' ? 'last month' : 'last quarter',
+    }
+  }
+
+  return {
+    range: { start: atStartOfDay(addDays(range.start, -days)), end: new Date(range.start.getTime() - 1) },
+    label: `the ${days} days before`,
+  }
+}
+
 // Returns { start: Date, end: Date } for the given preset, or null when a
 // 'custom' preset is missing one of its bounds.
 export function rangeForPreset(preset, customStart, customEnd) {

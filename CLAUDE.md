@@ -410,6 +410,74 @@ Sub-panels are **prebuilt eagerly** by their parent builder rather than
 constructed on click, which is what keeps `DrilldownPanel` presentational —
 no builder imports, no data of its own.
 
+**The pipeline panel's Owner dropdown + Stage chips** (2026-09-19; opened from
+"Right now"'s Active Pipeline chip, Pipeline by stage's Details, and the BDM
+Dashboard's Open pipeline tile) are the follow-up gap popup's own two filters,
+rendered by one shared `OwnerStageFilters` in `DrilldownPanel.jsx` — change one
+and you change every popup that carries them (below). **Stage here is the LEAD stage** (Calling…Negotiation, On
+hold), not site stage; the owner chose that explicitly. They sit above the
+All / Active / On hold toggle and persist across it; a choice the current view
+doesn't offer (On hold has no stage to pick) is treated as "All" rather than
+cleared. Opt-in via `buildPipelinePanel`'s `showListFilters` — Dashboard passes
+`seesOthersData`, BdmDashboard `true` — so a sales exec and a manager's "My"
+view get no bar, and concentration mode never does. Two departures from the
+"prebuilt eagerly" rule above, both deliberate: the owner × stage × view
+combinations are too many to prebuild, so `filters.viewFor()` builds one on
+demand (pure, no network); and while a filter is on, the lead list shows every
+match (paged) rather than the top 5. The stage bars, the value · count line and
+each bar's drill-down all follow the filter; the panel's own header figure, the
+Reached stats and Stage-to-stage conversion do not (lifetime funnel — same
+precedent as the toggle). **Owner keys are strings** (`String(owner_employee_id)`):
+ids are numbers and a `<select>` returns strings, so a numeric key made the
+filter silently do nothing until a live run caught it — the unit tests now use
+numeric ids for that reason. A facet with a single choice (one owner, one
+stage) is hidden **by `OwnerStageFilters` itself, once** — so a coordinator or
+manager with a one-exec team sees the chips only, and so does the follow-up gap
+popup now (it used to show a one-option dropdown).
+
+**The same two filters are on the Stale Leads popup and all five Needs
+Attention popups** (2026-09-19): `buildAgeingPanel`'s sixth argument
+`showListFilters`, passed by Dashboard as `seesOthersData` at `onOpenStale` and
+through `NeedsAttentionCard`'s `showListFilters` prop. Off by default, so
+**Today's own popups (Home, OwnerToday, TeamTodayPanel) are untouched** — the
+owner scoped it to the Dashboard. Its `ownerRows` now carry `id`, which the
+dropdown keys on. As on the gap popup, the header stats and owner rollup stay
+unfiltered; only the row list follows.
+
+**The Activities logged popup** (KPI tile and Activity counts' Details — both
+through Dashboard's one `handleOpenActivities`) is its own panel kind,
+`activities` (`buildActivitiesPanel` + `ActivitiesBody`), not another `attain`.
+Sections: stats (total with change vs the previous period, leads touched, per
+active day, busiest day), pace chart, By activity type, By exec, Day by day
+(rhythm strip + per-weekday average), Most-worked leads, Latest entries — with
+Owner + **Type** chips above. For every role that sees the tile; the owner facet
+and By exec vanish for a single-person view (a sales exec, a manager's "My").
+Load-bearing choices:
+- **It opens instantly from the `activities` array Dashboard holds and fills in
+  through injected `loaders`**: `loadPrevious` (previous period, for the ▲/▼
+  figures), `loadEntries({ownerId,type})` (latest 30 real entries, filtered
+  SERVER-side so a narrow filter still gets its own latest rows) and
+  `loadLeadNames(ids)` (only the leads currently in the top-5). Each is scoped
+  like `activities` (`inScope` / `snapshotOwnerIds` for a manager). A failed or
+  absent loader leaves that section saying so; nothing else waits on it.
+- **A breakdown never filters by its own dimension**: By type follows the owner
+  filter but not the type one, By exec follows the type filter but not the
+  owner one — otherwise picking Calls leaves one bar and picking an exec leaves
+  one row. (The pipeline panel's stage bars do follow their own stage filter;
+  that shipped first.)
+- **The comparison is like-for-like** (`previousRangeFor`, `dateRanges.js`):
+  Week/Month/Quarter set the same point of the previous whole period against
+  each other (this week Mon–Wed vs last week Mon–Wed; a month capped at the
+  previous month's own last day), never the equal window immediately before —
+  that would set Mon–Wed against Fri–Sun. 15D/Custom use the equal window before.
+  Percentages over 999 read "999%+": against a near-empty previous period
+  (the imports started in September) the true figure is arithmetic, not
+  information.
+- Counts are the **raw tally, revised RFQs included** (same rule as Activity
+  counts); days are bucketed with `parseTimestamp`; the weekday rows are an
+  **average per such day**, so a month with five Mondays can't make Monday look
+  busier. `fetchActivityCounts` now selects `lead_id` too.
+
 ### Colour tokens
 
 **Never redeclare a hex constant locally.** Shared tone tokens
@@ -1780,7 +1848,9 @@ days ago with no quote. Thresholds are named constants at the top of
 * **Activity counts** — one row per `ACTIVITY_TYPES` entry, a fixed height
   regardless of headcount. Its old "by exec" matrix was dropped for exactly
   that reason; per-exec counts live on the heatmap, and "Details" opens the
-  `attain` panel broken down by type.
+  Activities logged popup (`activities` kind — see Drill-down plumbing), where
+  the by-exec view now lives on purpose: a popup can afford the height a
+  card can't.
 * **New leads by source** — a sales exec sees only `SALES_EXEC_SOURCES`
   (Scanning/Walk-in); Lixil and referrals are distributed by the owner, not
   something a rep sources, so showing all 5 was mostly zeros. Donut + legend

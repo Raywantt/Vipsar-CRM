@@ -25,6 +25,7 @@ import { dealValueFor } from './pipelineValue'
 import { daysSince } from './dateMath'
 import { getInitials } from './initials'
 import { leadDisplayName } from './leadName'
+import { activityTag } from './dayReview'
 import { ARCHITECT_MEETING_DAYS, lastMetLabel } from './architectStats'
 import { firmLabel } from './firmLabel'
 
@@ -220,51 +221,293 @@ export function buildScanningLeadsAttainPanel({ employees, targets, breakdownLea
   }
 }
 
-// ---------- attain: activity volume (company-wide for the owner, own-only for a sales exec) ----------
-export function buildActivitiesAttainPanel({ activities, targets, employees, range, rangeLabel, scopeLabel = 'Company' }) {
-  const actual = activities.length
-  // Activity counts are whole numbers; target_value can be stored as a
-  // decimal (SetTargetForm's number input allows it, and a company total is
-  // a sum of several employees' targets) — round every target here so it
-  // reads as a count, not raw arithmetic.
-  const rawTarget = ACTIVITY_TYPES.reduce((s, t) => s + (companyTargetFor(targets, employees, t.value) ?? 0), 0) || null
-  const target = rawTarget != null ? Math.round(rawTarget) : null
-  const daily = dailyTotals(activities, range, (a) => a.created_at)
-  const pace = buildPaceChart(daily, target)
+// ---------- activities: the "Activities logged" popup (KPI tile + Activity counts' Details) ----------
+//
+// Its own panel kind rather than another `attain`, because it is a different
+// SHAPE: a filterable, multi-section read of one period's log (volume vs the
+// previous period, who logged it, the day-by-day rhythm, the leads worked, the
+// latest real entries) instead of a single figure against a target.
+//
+// Same architecture as the pipeline panel's filters (buildPipelineFilters):
+// the builder is pure and returns `viewFor(ownerKey, type, previous)`, which
+// re-derives every section for a filter combination on demand — the panel
+// can't prebuild owner × type. Three things the body cannot derive from the
+// `activities` array alone arrive as async `loaders`, so the popup opens at
+// once and fills in: `loadPrevious()` (the previous period's rows, for the
+// change figures), `loadEntries({ ownerId, type })` (the latest real entries
+// for the CURRENT filter — server-side, so a narrow filter still gets its own
+// latest rows) and `loadLeadNames(ids)` (names for the most-worked leads).
+//
+// A BREAKDOWN NEVER FILTERS BY ITS OWN DIMENSION. "By activity type" follows
+// the owner filter but not the type filter, and "By exec" follows the type
+// filter but not the owner filter — otherwise picking Calls collapses the type
+// breakdown to one bar and picking an exec collapses the exec breakdown to one
+// row, and the section that was meant to compare stops comparing. (The pipeline
+// panel's stage bars do follow their own stage filter; that shipped first and
+// is the one that reads oddly.)
+//
+// Counts are the RAW tally, revised RFQs included — same rule as
+// ActivityCountsCard: "how much was logged" is not "how much counted toward a
+// quota". Days are bucketed with parseTimestamp (activities.created_at is a
+// naive UTC TIMESTAMP), so an entry lands on the day it happened in IST.
+const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const mondayFirstIndex = (date) => (date.getDay() + 6) % 7
+const TOP_LEADS = 5
 
-  const contrib = ACTIVITY_TYPES.map((t) => {
-    const typeActual = activities.filter((a) => a.activity_type === t.value).length
-    const rawTypeTarget = companyTargetFor(targets, employees, t.value)
-    return { value: t.value, label: t.label, actual: typeActual, target: rawTypeTarget != null ? Math.round(rawTypeTarget) : null }
+// "▲ 12% vs last week". `previous` null means the comparison hasn't loaded (or
+// couldn't), which reads as no comparison at all rather than as a zero.
+function changeVs(current, previous, label) {
+  if (previous == null) return null
+  if (previous === 0) return current === 0 ? { text: `none in ${label} either`, up: null } : { text: `new — none in ${label}`, up: true }
+  const pct = Math.round(((current - previous) / previous) * 100)
+  if (pct === 0) return { text: `level with ${label}`, up: null }
+  // Capped for reading: against a near-empty previous period (a month that had
+  // one call in it) the true figure is "▲ 52300%", which is arithmetic, not
+  // information — "999%+" says the same thing.
+  const shown = Math.abs(pct) > 999 ? '999%+' : `${Math.abs(pct)}%`
+  return { text: `${pct > 0 ? '▲' : '▼'} ${shown} vs ${label}`, up: pct > 0 }
+}
+
+function targetForActivities(targets, employees, ownerKey, type) {
+  const scoped = ownerKey ? employees.filter((e) => String(e.id) === ownerKey) : employees
+  const types = type ? [type] : ACTIVITY_TYPES.map((t) => t.value)
+  const raw = types.reduce((s, t) => s + (companyTargetFor(targets, scoped, t) ?? 0), 0)
+  // Counts are whole numbers; a stored target can be a decimal (and a company
+  // total is a sum of several) — round it so it reads as a count.
+  return raw > 0 ? Math.round(raw) : null
+}
+
+function computeActivitiesView({ activities, previous, ownerKey, type, range, targets, employees, previousLabel }) {
+  const byOwner = (a) => !ownerKey || String(a.employee_id) === ownerKey
+  const byType = (a) => !type || a.activity_type === type
+  const rows = activities.filter((a) => byOwner(a) && byType(a))
+  const prevRows = previous ? previous.filter((a) => byOwner(a) && byType(a)) : null
+  const total = rows.length
+  const target = targetForActivities(targets, employees, ownerKey, type)
+
+  // ---- the days ----
+  const now = new Date()
+  const days = enumerateDays(range.start, range.end)
+  const elapsed = days.filter((d) => d <= now) // a day that hasn't happened isn't "silent"
+  const daily = dailyTotals(rows, range, (a) => parseTimestamp(a.created_at))
+  const elapsedDaily = daily.slice(0, elapsed.length)
+  const activeDays = elapsedDaily.filter((c) => c > 0).length
+  const maxDay = Math.max(0, ...elapsedDaily)
+  const busiestIdx = maxDay > 0 ? elapsedDaily.indexOf(maxDay) : -1
+  const dayLabel = (d) => d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
+
+  const rhythm = elapsedDaily.map((c, i) => ({
+    h: c ? `${Math.max(18, Math.round((c / Math.max(1, maxDay)) * 100))}%` : '10%',
+    filled: c > 0,
+    tip: `${dayLabel(elapsed[i])} · ${c ? `${c} logged` : 'nothing logged'}`,
+  }))
+
+  // Per weekday, as an AVERAGE per such day: a month with five Mondays and
+  // four Sundays would otherwise make Monday look busier for arithmetic alone.
+  const weekdayTotals = Array(7).fill(0)
+  const weekdayDays = Array(7).fill(0)
+  elapsed.forEach((d, i) => {
+    weekdayTotals[mondayFirstIndex(d)] += elapsedDaily[i]
+    weekdayDays[mondayFirstIndex(d)] += 1
   })
-  const maxContrib = Math.max(1, ...contrib.map((c) => c.actual))
-  // Looked up by value, not position — ACTIVITY_TYPES has grown twice since
-  // this stats row was written (client_meeting/architect_meeting were
-  // inserted ahead of rfq_raised), and a positional contrib[2] silently
-  // started reading Client Meeting's numbers under the "RFQ raised" label.
-  const contribFor = (value) => contrib.find((c) => c.value === value)
+  const weekdayAvg = weekdayTotals.map((t, i) => (weekdayDays[i] ? t / weekdayDays[i] : 0))
+  const maxWeekdayAvg = Math.max(0, ...weekdayAvg)
+  const weekday = WEEKDAY_LABELS.map((label, i) => ({
+    label,
+    avg: weekdayDays[i] ? (Math.round(weekdayAvg[i] * 10) / 10).toString() : '—',
+    total: weekdayTotals[i],
+    pct: maxWeekdayAvg > 0 ? `${Math.round((weekdayAvg[i] / maxWeekdayAvg) * 100)}%` : '0%',
+  }))
+  // Mon–Fri only: a quiet Sunday is the norm, a quiet Tuesday is a fact worth
+  // stating.
+  const silentWeekdays = elapsed.filter((d, i) => mondayFirstIndex(d) < 5 && elapsedDaily[i] === 0).length
+
+  // ---- leads touched ----
+  const perLead = new Map()
+  rows.forEach((a) => {
+    if (a.lead_id == null) return
+    perLead.set(a.lead_id, (perLead.get(a.lead_id) ?? 0) + 1)
+  })
+  const onALead = [...perLead.values()].reduce((s, c) => s + c, 0)
+  const topLeads = [...perLead.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+    .slice(0, TOP_LEADS)
+    .map(([leadId, count]) => ({ leadId, count }))
+
+  // ---- by activity type (follows the owner filter, not the type filter) ----
+  const ownerRows = activities.filter(byOwner)
+  const prevOwnerRows = previous ? previous.filter(byOwner) : null
+  const typeCounts = ACTIVITY_TYPES.map((t) => ({
+    key: t.value,
+    label: t.label,
+    actual: ownerRows.filter((a) => a.activity_type === t.value).length,
+    prev: prevOwnerRows ? prevOwnerRows.filter((a) => a.activity_type === t.value).length : null,
+    target: targetForActivities(targets, employees, ownerKey, t.value),
+  }))
+  const maxType = Math.max(1, ...typeCounts.map((t) => t.actual))
+  const byTypeRows = typeCounts.map((t) => ({
+    key: t.key,
+    label: t.label,
+    value: t.target != null ? `${t.actual} / ${t.target}` : String(t.actual),
+    pct: `${Math.round((t.actual / maxType) * 100)}%`,
+    change: changeVs(t.actual, t.prev, previousLabel),
+    active: type === t.key,
+  }))
+
+  // ---- by exec (follows the type filter, not the owner filter) ----
+  const typeRowsAll = activities.filter(byType)
+  const prevTypeRowsAll = previous ? previous.filter(byType) : null
+  const execs = new Map()
+  typeRowsAll.forEach((a) => {
+    const key = String(a.employee_id)
+    if (!execs.has(key)) execs.set(key, { key, id: a.employee_id, name: a.employees?.name ?? 'Unknown', total: 0, mix: new Map() })
+    const e = execs.get(key)
+    e.total += 1
+    e.mix.set(a.activity_type, (e.mix.get(a.activity_type) ?? 0) + 1)
+  })
+  const maxExec = Math.max(1, ...[...execs.values()].map((e) => e.total))
+  const byExec = [...execs.values()]
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+    .map((e) => ({
+      key: e.key,
+      id: e.id,
+      name: e.name,
+      initials: getInitials(e.name),
+      total: e.total,
+      pct: `${Math.round((e.total / maxExec) * 100)}%`,
+      // Top three types, so a row says WHAT the total was made of.
+      mix: [...e.mix.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([t, c]) => `${c} ${ACTIVITY_LABELS[t] ?? t}`)
+        .join(' · '),
+      change: prevTypeRowsAll
+        ? changeVs(e.total, prevTypeRowsAll.filter((a) => String(a.employee_id) === e.key).length, previousLabel)
+        : null,
+      selected: e.key === ownerKey,
+    }))
 
   return {
-    kind: 'attain',
-    eyebrow: `${scopeLabel} · activity volume`,
-    title: 'Activities logged, by type',
-    value: String(actual),
-    delta: target != null ? `of ${target} target` : null,
-    note: `${rangeLabel}. Every logged site visit, call, RFQ, office day and booking update${scopeLabel === 'Company' ? ', across every exec' : ''}.`,
+    total,
     stats: [
-      { label: 'Total logged', value: String(actual), sub: target != null ? `of ${target} target` : rangeLabel, color: '#101617' },
-      { label: 'Site visit', value: String(contribFor('site_visit')?.actual ?? 0), sub: contribFor('site_visit')?.target != null ? `of ${contribFor('site_visit').target}` : 'no target set', color: '#101617' },
-      { label: 'Call', value: String(contribFor('call')?.actual ?? 0), sub: contribFor('call')?.target != null ? `of ${contribFor('call').target}` : 'no target set', color: '#101617' },
-      { label: 'RFQ raised', value: String(contribFor('rfq_raised')?.actual ?? 0), sub: contribFor('rfq_raised')?.target != null ? `of ${contribFor('rfq_raised').target}` : 'no target set', color: '#101617' },
+      {
+        label: 'Total logged',
+        value: String(total),
+        sub: changeVs(total, prevRows ? prevRows.length : null, previousLabel)?.text ?? (target != null ? `of ${target} target` : 'this period'),
+        color: '#101617',
+      },
+      {
+        label: 'Leads touched',
+        value: String(perLead.size),
+        sub: perLead.size ? `${(onALead / perLead.size).toFixed(1)} activities per lead` : 'none anchored on a lead',
+        color: '#101617',
+      },
+      {
+        label: 'Per active day',
+        value: activeDays ? (total / activeDays).toFixed(1) : '—',
+        sub: `${activeDays} active day${activeDays === 1 ? '' : 's'} of ${elapsed.length}`,
+        color: '#101617',
+      },
+      {
+        label: 'Busiest day',
+        value: busiestIdx >= 0 ? String(maxDay) : '—',
+        sub: busiestIdx >= 0 ? dayLabel(elapsed[busiestIdx]) : 'nothing logged',
+        color: '#101617',
+      },
     ],
-    pace,
-    contribTitle: 'By activity type · actual vs target',
-    contrib: contrib.map((c) => ({
-      label: c.label,
-      value: c.target != null ? `${c.actual} / ${c.target}` : `${c.actual}`,
-      pct: `${Math.round((c.actual / maxContrib) * 100)}%`,
-    })),
+    pace: buildPaceChart(daily, target),
+    target,
+    byType: byTypeRows,
+    byExec,
+    rhythm,
+    rhythmFrom: elapsed[0]?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+    rhythmTo: elapsed[elapsed.length - 1]?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+    weekday,
+    silentWeekdays,
+    topLeads,
+    leadsTouched: perLead.size,
   }
+}
+
+export function buildActivitiesPanel({
+  activities,
+  targets,
+  employees,
+  range,
+  rangeLabel,
+  scopeLabel = 'Company',
+  previousLabel = 'the previous period',
+  loaders = {},
+}) {
+  // Options come from the UNFILTERED rows, so picking an owner never shrinks
+  // the type chips underneath it. A facet with one choice is returned empty:
+  // a single-person view (a sales exec, a manager's "My" view) has no owner to
+  // choose, and it is also what keeps By exec off their screen.
+  const owners = new Map()
+  activities.forEach((a) => {
+    const key = String(a.employee_id)
+    if (!owners.has(key)) owners.set(key, { key, id: a.employee_id, name: a.employees?.name ?? 'Unknown', count: 0 })
+    owners.get(key).count += 1
+  })
+  const types = ACTIVITY_TYPES.filter((t) => activities.some((a) => a.activity_type === t.value)).map((t) => ({
+    key: t.value,
+    label: t.label,
+  }))
+  const target = targetForActivities(targets, employees, '', '')
+
+  return {
+    kind: 'activities',
+    eyebrow: `${scopeLabel} · activity volume`,
+    title: 'Activities logged',
+    value: String(activities.length),
+    delta: target != null ? `of ${target} target` : null,
+    note: `${rangeLabel}. Every logged site visit, call, meeting, RFQ, office day and booking update${scopeLabel === 'Company' ? ', across every exec' : ''}.`,
+    // The stat tiles live in the body (they follow the filters); the header
+    // above them, like every other filterable panel's, stays as it opened.
+    stats: null,
+    rangeLabel,
+    previousLabel,
+    loaders,
+    filters: {
+      owners: owners.size > 1 ? [...owners.values()].sort((a, b) => b.count - a.count) : [],
+      types: types.length > 1 ? types : [],
+      total: activities.length,
+    },
+    viewFor: (ownerKey, type, previous) =>
+      computeActivitiesView({ activities, previous, ownerKey, type, range, targets, employees, previousLabel }),
+  }
+}
+
+// One real entry for the popup's "latest entries" list — the shape LogBody's
+// rows already read, plus the exec and the type tag. A lead-less entry (an
+// Office Day) simply has no name to show.
+export function shapeActivityEntry(r) {
+  const at = parseTimestamp(r.created_at)
+  const stage = r.leads?.current_stage ?? null
+  return {
+    id: r.id,
+    date: at.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+    time: at.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+    tag: activityTag(r.activity_type),
+    exec: r.employees?.name ?? null,
+    execId: r.employee_id ?? null,
+    party: r.leads ? leadDisplayName(r.leads) : (r.parties?.name ?? null),
+    leadId: r.lead_id ?? null,
+    stage: stage ? stageLabel(stage) : null,
+    chipClass: stage ? stageChipClass(stage) : null,
+    notes: r.notes?.trim() || null,
+    meta: formatTimeRange(r.start_time, r.end_time),
+  }
+}
+
+// id -> { party, stage, chipClass } for the most-worked leads.
+export function shapeLeadNames(rows) {
+  return new Map(
+    (rows ?? []).map((l) => {
+      const stage = l.current_stage ?? 'calling'
+      return [l.id, { party: leadDisplayName(l), stage: stageLabel(stage), chipClass: stageChipClass(stage) }]
+    })
+  )
 }
 
 // ---------- attain: one exec's blended attainment across every targetable metric (heatmap "overall" column) ----------
@@ -519,6 +762,12 @@ export function buildStageLeadsPanel({ breakdownLeads, stage, scopeLabel = 'Comp
 // (2026-09-08, Milestone 6 panel 2) — see buildPipelinePanel's own comment
 // for when these are set to anything other than the "top 5, no cumulative"
 // default every other entry point still gets.
+const PIPELINE_NOTE_SUFFIX = {
+  all: "open leads, across every stage that isn't won or lost.",
+  active: 'active leads — open, excluding anything on hold.',
+  onHold: 'leads currently on hold.',
+}
+
 function computePipelineScope(leads, stages, breakdownLeads, scopeLabel, noteSuffix, { topLeadsCount = 5, withCumulative = false } = {}) {
   const total = leads.reduce((s, l) => s + dealValueFor(l), 0)
 
@@ -575,6 +824,67 @@ function computePipelineScope(leads, stages, breakdownLeads, scopeLabel, noteSuf
   }
 }
 
+// Owner dropdown + lead-stage chips for the pipeline panel's three views —
+// the same two filters the follow-up gap popup carries (AgeingBody's
+// `showListFilters`), opted into by `buildPipelinePanel`'s own
+// `showListFilters` flag.
+//
+// Unlike the gap popup, whose rows are one flat list a body can filter as it
+// stands, every figure here (stage bars, value, lead count, ranked list,
+// per-stage drill-down) is derived from the lead subset, so a filter has to
+// re-run `computePipelineScope`. The owner × stage × scope combinations are
+// far too many to prebuild the way `scopeViews` is, so `viewFor` builds ONE on
+// demand — still pure, no network, and DrilldownPanel still imports nothing.
+//
+// `options[scope]` is computed from that scope's UNFILTERED leads (as the gap
+// popup's chips are from all its rows), so picking an owner never makes the
+// stage chips shrink underneath it. An owner list of one and a stage list of
+// one are returned empty: a filter with a single choice is decoration.
+const UNASSIGNED_KEY = 'unassigned'
+// A STRING, always: employee ids are numbers, and the value that comes back
+// from the <select> is a string, so a numeric key would never match it (the
+// owner filter would silently do nothing).
+const ownerKeyOf = (l) => String(l.owner_employee_id ?? UNASSIGNED_KEY)
+const stageOf = (l) => l.current_stage ?? 'calling'
+
+function buildPipelineFilters({ scopeLeads, scopeStages, breakdownLeads, scopeLabel }) {
+  const options = {}
+  Object.entries(scopeLeads).forEach(([scope, leads]) => {
+    const owners = new Map()
+    leads.forEach((l) => {
+      const key = ownerKeyOf(l)
+      if (!owners.has(key)) owners.set(key, { key, name: l.employees?.name ?? 'Unassigned', count: 0 })
+      owners.get(key).count += 1
+    })
+    const stages = LEAD_STAGE_OPTIONS.filter((s) => leads.some((l) => stageOf(l) === s)).map((s) => ({
+      key: s,
+      label: stageLabel(s),
+    }))
+    options[scope] = {
+      total: leads.length,
+      owners: owners.size > 1 ? [...owners.values()].sort((a, b) => b.count - a.count) : [],
+      stages: stages.length > 1 ? stages : [],
+    }
+  })
+
+  // Every lead in the filtered set is listed (topLeadsCount = its length), not
+  // just the top 5 — a narrowed list is the thing being asked for, and
+  // PipelineBody pages it with ShowMoreRows. The per-stage drill-downs are
+  // built from the owner-filtered leads too, so a bar's count and the list
+  // behind it agree.
+  function viewFor(scope, ownerKey, stage) {
+    const scoped = scopeLeads[scope].filter(
+      (l) => (!ownerKey || ownerKeyOf(l) === ownerKey) && (!stage || stageOf(l) === stage)
+    )
+    const drillLeads = ownerKey ? breakdownLeads.filter((l) => ownerKeyOf(l) === ownerKey) : breakdownLeads
+    return computePipelineScope(scoped, scopeStages[scope], drillLeads, scopeLabel, PIPELINE_NOTE_SUFFIX[scope], {
+      topLeadsCount: scoped.length,
+    })
+  }
+
+  return { options, viewFor }
+}
+
 // `concentrationMode`/`isSinglePersonScope` back metric #7 (Pipeline
 // concentration, Milestone 6 panel 2) — see TIME-INDEPENDENT-METRICS-LOG.md.
 // Concentration is defined over the ACTIVE set only (same on-hold exclusion
@@ -594,6 +904,13 @@ export function buildPipelinePanel({
   initialScope = 'all',
   concentrationMode = false,
   isSinglePersonScope = false,
+  // Opt-in Owner dropdown + stage chips (see buildPipelineFilters). Off by
+  // default so a caller that sees one person's leads (a sales exec, a
+  // manager's "My" view) never gets an owner filter with nothing to choose
+  // between; the caller passes its own "sees other people's data" flag.
+  // Ignored in concentration mode, whose focused header a filter would
+  // contradict (same reason PipelineBody hides its toggle there).
+  showListFilters = false,
 }) {
   const openLeads = breakdownLeads.filter((l) => !CLOSED_STAGES.includes(l.current_stage ?? 'calling'))
   const activeLeads = openLeads.filter((l) => (l.current_stage ?? 'calling') !== 'on_hold')
@@ -610,13 +927,13 @@ export function buildPipelinePanel({
     : undefined
 
   const scopeViews = {
-    all: computePipelineScope(openLeads, stagesAll, breakdownLeads, scopeLabel, "open leads, across every stage that isn't won or lost."),
+    all: computePipelineScope(openLeads, stagesAll, breakdownLeads, scopeLabel, PIPELINE_NOTE_SUFFIX.all),
     active: computePipelineScope(
       activeLeads,
       stagesActive,
       breakdownLeads,
       scopeLabel,
-      'active leads — open, excluding anything on hold.',
+      PIPELINE_NOTE_SUFFIX.active,
       activeTopLeadsOptions
     ),
     // No stage bar chart for on-hold — every one of these leads shares the
@@ -627,8 +944,18 @@ export function buildPipelinePanel({
     // Milestone 6's own On-hold pipeline insights panel (duration buckets,
     // hold reasons, owner breakdown) replaces this toggle position outright
     // per the brief's "don't build two UIs for the same slice" instruction.
-    onHold: computePipelineScope(onHoldLeads, [], breakdownLeads, scopeLabel, 'leads currently on hold.'),
+    onHold: computePipelineScope(onHoldLeads, [], breakdownLeads, scopeLabel, PIPELINE_NOTE_SUFFIX.onHold),
   }
+
+  const filters =
+    showListFilters && !concentrationMode
+      ? buildPipelineFilters({
+          scopeLeads: { all: openLeads, active: activeLeads, onHold: onHoldLeads },
+          scopeStages: { all: stagesAll, active: stagesActive, onHold: [] },
+          breakdownLeads,
+          scopeLabel,
+        })
+      : null
 
   const funnel = computeFunnel(funnelStageHistory, breakdownLeads)
   // 'lost' is a parallel exit a lead can hit from any stage, not the next
@@ -742,6 +1069,7 @@ export function buildPipelinePanel({
     // true — see this function's own note above on why switching away from
     // "Active" would contradict the concentration-specific header above.
     scopeViews,
+    filters,
     initialScope,
     // Tells PipelineBody to render the cumulative-% column and the wider
     // (top-10%-or-all) row count on the 'active' scope's own leads list,

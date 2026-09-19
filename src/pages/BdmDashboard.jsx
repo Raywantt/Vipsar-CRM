@@ -216,7 +216,14 @@ function BdmDashboard() {
     setPanelError(null)
     const { data, error } = await fetchStageHistoryForFunnel(true)
     if (error) return setPanelError(errorMessage(error))
-    setPanel(buildPipelinePanel({ breakdownLeads: labelPoolOwnerLeads(leads), funnelStageHistory: data ?? [], scopeLabel }))
+    setPanel(
+      buildPipelinePanel({
+        breakdownLeads: labelPoolOwnerLeads(leads),
+        funnelStageHistory: data ?? [],
+        scopeLabel,
+        showListFilters: true,
+      })
+    )
   }
 
   async function openCompleteness() {

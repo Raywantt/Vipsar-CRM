@@ -5,8 +5,9 @@ import { OLD_MEETING, NEW_MEETING, PICKABLE_MEETING } from './meetingBucket'
 // dashboard.
 //
 // This list fans out further than it looks. Adding an entry also adds: a row
-// on Dashboard's Activity card, a slice of buildActivitiesAttainPanel's
-// contribution breakdown, a tag in the Day Review's day sheet, and a label in
+// on Dashboard's Activity card, a row (and a filter chip) in
+// buildActivitiesPanel's By activity type breakdown, a tag in the Day Review's
+// day sheet, and a label in
 // every activity timeline — which is why a new value needs the activities
 // CHECK constraint widened. (It no longer automatically adds a Log Activity
 // button or a follow-up chip — those come from LOGGABLE_ACTIVITY_TYPES below,

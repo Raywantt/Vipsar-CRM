@@ -3530,3 +3530,31 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
   min-width: 0; font-size: 11.5px; color: var(--vip-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* ===========================================================================
+   36. Activities logged popup (vip-act-*)
+   ===========================================================================
+   The extra rows/lines ActivitiesBody (DrilldownPanel.jsx) needs on top of the
+   drill-down vocabulary it reuses (.vip-dd-contrib-*, .vip-dd-rhythm*,
+   .vip-dd-lead-row, .vip-dd-log-row, .vip-dd-stats). A breakdown row is two
+   lines: the label/bar/value line the contrib rows already draw, then a quiet
+   line for what the total is made of and how it moved against the previous
+   period. Tokens only, so section 22 repaints all of it for dark mode. */
+
+.vip-act-row { display: flex; flex-direction: column; gap: 3px; padding-bottom: 8px; border-bottom: 1px solid var(--vip-line-soft); }
+.vip-act-row-main { display: flex; align-items: center; gap: 10px; }
+/* A fixed-width value column, so every row's bar starts at the same x — with
+   the contrib row's own auto width the bar's left edge followed the digits. */
+.vip-act-row-main .vip-dd-contrib-value { flex: 0 0 72px; }
+.vip-act-row-sub { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--vip-muted); }
+/* The exec the owner filter is currently on — the row inset by padding rather
+   than a negative margin, so it can't create horizontal scroll. */
+.vip-act-row-selected { background: var(--vip-surface-soft); border-radius: 6px; padding: 6px 6px 8px; }
+.vip-act-change { font-size: 11px; color: var(--vip-faint); white-space: nowrap; }
+.vip-act-change-up { color: var(--vip-teal); }
+.vip-act-change-down { color: var(--vip-lost); }
+.vip-act-silent { margin: 0; font-size: 11px; color: var(--vip-status-warn); }
+/* .vip-dd-lead-value is a 54px money column; "14 logged" needs its own room or
+   it wraps onto two lines. */
+.vip-act-lead-count { flex: 0 0 64px; text-align: right; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--vip-ink); font-variant-numeric: tabular-nums; }
+.vip-act-notes { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
