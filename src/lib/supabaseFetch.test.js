@@ -127,6 +127,70 @@ describe('createSupabaseFetch', () => {
     expect(value.status).toBe(500)
   })
 
+  // The 2026-09-21 outage: "current transaction is aborted, commands ignored
+  // until end of transaction block". The request was refused at BEGIN on a
+  // pooled connection some earlier request had left broken, so nothing ran —
+  // the same request on another connection succeeds.
+  describe('server errors proving the request never ran', () => {
+    const pgError = (code, status = 500) => () =>
+      new Response(JSON.stringify({ code, message: `pg ${code}`, details: null, hint: null }), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      })
+
+    it('retries a read refused with 25P02, and succeeds', async () => {
+      const base = vi.fn().mockImplementationOnce(pgError('25P02')).mockResolvedValue(ok('row'))
+      const { value } = await settle(createSupabaseFetch(base)('/rest/v1/employees', { method: 'GET' }))
+
+      expect(base).toHaveBeenCalledTimes(2)
+      expect(await value.text()).toBe('row')
+    })
+
+    it('retries a POST refused with 25P02 — its transaction never began, so this cannot duplicate', async () => {
+      const base = vi.fn().mockImplementationOnce(pgError('25P02')).mockResolvedValue(ok())
+      const { value } = await settle(createSupabaseFetch(base)('/rest/v1/activities', { method: 'POST' }))
+
+      expect(base).toHaveBeenCalledTimes(2)
+      expect(value.status).toBe(200)
+    })
+
+    it('retries a pool-acquisition timeout (PGRST003, a 504)', async () => {
+      const base = vi.fn().mockImplementationOnce(pgError('PGRST003', 504)).mockResolvedValue(ok())
+      const { value } = await settle(createSupabaseFetch(base)('/rest/v1/leads', { method: 'POST' }))
+
+      expect(base).toHaveBeenCalledTimes(2)
+      expect(value.status).toBe(200)
+    })
+
+    it('hands the real error back, body intact, once the attempts run out', async () => {
+      const base = vi.fn().mockImplementation(pgError('25P02'))
+      const { value } = await settle(createSupabaseFetch(base)('/rest/v1/employees', { method: 'GET' }))
+
+      expect(base).toHaveBeenCalledTimes(3)
+      expect(value.status).toBe(500)
+      expect((await value.json()).code).toBe('25P02')
+    })
+
+    it('does NOT retry a statement timeout (57014) — asking twice only adds load', async () => {
+      const base = vi.fn().mockImplementation(pgError('57014'))
+      const { value } = await settle(createSupabaseFetch(base)('/rest/v1/leads', { method: 'GET' }))
+
+      expect(base).toHaveBeenCalledTimes(1)
+      expect(value.status).toBe(500)
+    })
+
+    it('retries PGRST001 for a read but never for a POST, which may have landed', async () => {
+      const read = vi.fn().mockImplementationOnce(pgError('PGRST001', 503)).mockResolvedValue(ok())
+      await settle(createSupabaseFetch(read)('/rest/v1/leads', { method: 'GET' }))
+      expect(read).toHaveBeenCalledTimes(2)
+
+      const write = vi.fn().mockImplementation(pgError('PGRST001', 503))
+      const { value } = await settle(createSupabaseFetch(write)('/rest/v1/leads', { method: 'POST' }))
+      expect(write).toHaveBeenCalledTimes(1)
+      expect(value.status).toBe(503)
+    })
+  })
+
   it('defaults to GET when no method is given', async () => {
     const base = vi.fn().mockRejectedValueOnce(networkError()).mockResolvedValue(ok())
     const { value } = await settle(createSupabaseFetch(base)('/leads'))

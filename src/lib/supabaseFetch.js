@@ -55,6 +55,55 @@ const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'PATCH', 'D
 const TIMEOUT = Symbol('supabase-fetch-timeout')
 
 // ---------------------------------------------------------------------------
+// SERVER ANSWERS THAT MEAN "NOTHING RAN — ASK AGAIN". Added 2026-09-21 after
+// the CRM went down for everyone with "current transaction is aborted,
+// commands ignored until end of transaction block" (SQLSTATE 25P02) — the
+// third time that error was seen, and the first time it took every screen,
+// the login lookup included.
+//
+// 25P02 on a PostgREST request means the pooled database connection it was
+// handed was ALREADY inside a failed transaction left behind by some earlier
+// request; this request's own BEGIN was refused, so none of its statements
+// ran and nothing was written. The same request on another connection
+// succeeds, which is what a person pressing reload was doing by hand.
+//
+// These are safe to re-send for ANY method, POST included, because each one
+// proves the request never executed:
+//   25P02    — refused at BEGIN on a poisoned connection (see above)
+//   40001    — serialization failure: Postgres rolled the transaction back
+//   40P01    — deadlock victim: rolled back
+//   PGRST000 — PostgREST could not connect to the database at all
+//   PGRST003 — timed out waiting for a free connection from PostgREST's pool
+//
+// PGRST001 ("unexpected connection error") is only retried for idempotent
+// methods: the connection may have dropped mid-statement, so for a POST it's
+// genuinely unknowable whether the row landed — the same reasoning that keeps
+// a timed-out POST from ever being re-sent.
+//
+// DELIBERATELY NOT RETRIED: 57014 (statement timeout). A query that just took
+// 8 seconds on a struggling database would take another 8 seconds and add to
+// the very load that caused the timeout. That one is fixed by making queries
+// cheaper, not by asking twice.
+const TRANSIENT_ANY_METHOD = new Set(['25P02', '40001', '40P01', 'PGRST000', 'PGRST003'])
+const TRANSIENT_IDEMPOTENT_ONLY = new Set(['PGRST001'])
+
+// Reads the PostgREST error code off a 5xx WITHOUT consuming the body the
+// real caller still has to read (hence clone()). Only ever called on a 5xx,
+// whose body is a few hundred bytes of JSON, so the extra parse is free.
+async function transientServerCode(response, idempotent) {
+  if (response.status < 500) return null
+  try {
+    const code = (await response.clone().json())?.code
+    if (typeof code !== 'string') return null
+    if (TRANSIENT_ANY_METHOD.has(code)) return code
+    if (idempotent && TRANSIENT_IDEMPOTENT_ONLY.has(code)) return code
+    return null
+  } catch {
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
 // IN-FLIGHT WRITE COUNT. Read by src/lib/appUpdate.js, which must never reload
 // the page to apply a new build while a save is on the wire: the reload
 // cancels the request at the network layer, and for a POST that leaves it
@@ -247,6 +296,15 @@ export function createSupabaseFetch(baseFetch = globalThis.fetch.bind(globalThis
 
         try {
           const response = await baseFetch(input, { ...init, signal: controller.signal })
+          // A server answer proving the request never ran (see
+          // TRANSIENT_ANY_METHOD) gets the same retry as a dropped connection.
+          // On the last attempt it's handed back as-is, so the caller still
+          // sees the real error rather than a generic one.
+          if (attempt < maxAttempts - 1 && (await transientServerCode(response, idempotent))) {
+            response.body?.cancel().catch(() => {})
+            attempt++
+            continue
+          }
           warnIfSilentlyTruncated(input, init, response)
           invalidateCacheAfterWrite(input, method, response)
           return response

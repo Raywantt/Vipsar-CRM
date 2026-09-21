@@ -5,13 +5,17 @@ import { useAuth } from '../contexts/AuthContext'
 import { errorMessage } from '../lib/errorMessage'
 
 function Login() {
-  const { session, employee, loading } = useAuth()
+  const { session, loading } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
 
-  if (!loading && session && employee) {
+  // Signed in → the route guard owns what comes next: the app, "Loading…",
+  // "Account not linked" or "Couldn't load your account". Waiting here for the
+  // employee row as well used to leave someone whose lookup failed staring at
+  // a login form they had already filled in, with no message at all.
+  if (!loading && session) {
     return <Navigate to="/" replace />
   }
 

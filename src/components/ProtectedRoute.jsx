@@ -5,7 +5,7 @@ import AppNav from './AppNav'
 import BottomNav from './BottomNav'
 
 function ProtectedRoute({ allowedRoles, children }) {
-  const { session, employee, employeeError, loading, signOut } = useAuth()
+  const { session, employee, employeeError, employeeStatus, loading, retryEmployee, signOut } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -14,6 +14,35 @@ function ProtectedRoute({ allowedRoles, children }) {
 
   if (!session) {
     return <Navigate to="/login" replace />
+  }
+
+  if (!employee && (employeeStatus === 'loading' || employeeStatus === 'idle')) {
+    return <p style={{ padding: 24 }}>Loading…</p>
+  }
+
+  // The lookup ERRORED (after AuthContext's own retries) — the server or the
+  // connection failed, which says nothing about the account. This used to fall
+  // through to "Account not linked", which is how a database hiccup on
+  // 2026-09-21 told every employee their login was broken.
+  if (!employee && employeeStatus === 'error') {
+    return (
+      <main style={{ padding: 24 }}>
+        <h1>Couldn't load your account</h1>
+        <p>
+          The CRM couldn't reach its server just now. Your account is fine —
+          try again in a moment.
+        </p>
+        {employeeError && <p style={{ color: 'var(--vip-muted)' }}>{employeeError}</p>}
+        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+          <button type="button" className="vip-btn" style={{ width: 'auto', padding: '0 20px' }} onClick={retryEmployee}>
+            Try again
+          </button>
+          <button type="button" className="vip-btn vip-btn-secondary" style={{ width: 'auto' }} onClick={signOut}>
+            Log out
+          </button>
+        </div>
+      </main>
+    )
   }
 
   if (!employee) {

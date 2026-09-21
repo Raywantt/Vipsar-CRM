@@ -14,6 +14,15 @@ const CODE_MESSAGES = {
   '23503': "Still linked to other records — can't be deleted yet.",
   // insufficient_privilege — an RLS policy rejected the request.
   '42501': "You don't have access to do that.",
+  // in_failed_sql_transaction — the request was handed a database connection
+  // an earlier request had left broken (the 2026-09-21 outage). Nothing ran;
+  // supabaseFetch.js has already retried it before this message is reached.
+  '25P02': 'The server had a hiccup and nothing was saved. Please try again.',
+  // query_canceled — Postgres's statement timeout (8s for app users).
+  '57014': 'That took too long to load. Please try again in a moment.',
+  // PostgREST couldn't get a database connection at all.
+  PGRST000: "Couldn't reach the database. Please try again in a moment.",
+  PGRST003: 'The server is busy right now. Please try again in a moment.',
 }
 
 // A network-layer failure that survived supabaseFetch.js's retries. The rep

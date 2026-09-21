@@ -213,6 +213,18 @@ see every query come back empty.
 **`AuthContext` is the single source of truth for who's logged in and what
 their role is.** Use `useAuth()`; never re-query `employees` in a component.
 
+**The employee lookup runs ONCE per signed-in user, and an error is never
+"Account not linked"** (2026-09-21 outage). auth-js fires `SIGNED_IN` every
+time the app returns to the foreground and `TOKEN_REFRESHED` hourly; the old
+listener re-queried `employees` on each and set `employee = null` on any
+error, so one failed request replaced the whole app with "Account not
+linked" for every employee at once. Now `employeeStatus` is
+`loading`/`ready`/`unlinked`/`error`: `unlinked` only when the database
+answers with no row, `error` (after one retry) shows `ProtectedRoute`'s
+"Couldn't load your account" + Try again, and a failure never discards an
+employee already loaded. Don't reintroduce a lookup per auth event, and
+don't `await` Supabase calls inside the `onAuthStateChange` callback.
+
 `ProtectedRoute` renders `<div className="vip-app">` containing `AppNav`
 (`vip-header`), `{children}` (`vip-body`) and `BottomNav`
 (`vip-bottom-nav`). Heights come from `--vip-header-h` /
@@ -2925,6 +2937,14 @@ removing your own login.
 
 ### Outstanding migrations
 
+* **`migration_stuck_api_connection_watchdog.sql`** — **run 2026-09-21**
+  (cron job 2, every 30s). Closes `authenticator` connections sitting in an
+  aborted transaction >30s; logs each rescue as `close_stuck_api_connections`
+  in Postgres logs. **Not yet seen firing** — the next burst will tell.
+  `diagnose_transaction_aborted.sql` is the one-paste read-only check
+  (connections, role timeouts, table sizes, top queries from
+  `pg_stat_statements`).
+
 * **`migration_accompanied_activities.sql`** — **run and verified live
   2026-09-18**, see below; kept here only until the next tidy-up.
   Adds the `accompanied_activities()` RPC so a tagged colleague sees a
@@ -3276,7 +3296,26 @@ The rules, and don't loosen them casually:
   whether the server already ran it, and guessing wrong writes a row nobody
   asked for.
 * A caller's own abort is never retried, and an HTTP 4xx/5xx passes straight
-  through — that's the server answering, not a dropped connection.
+  through — that's the server answering, not a dropped connection —
+  **except a 5xx whose code proves nothing ran** (added 2026-09-21):
+  `25P02` (the request was handed a pooled connection already inside a
+  failed transaction — the "current transaction is aborted" outage),
+  `40001`/`40P01` (rolled back), `PGRST000`/`PGRST003` (never reached a
+  connection) retry for ANY method, POST included; `PGRST001` for idempotent
+  methods only. **`57014` (statement timeout) is deliberately never
+  retried** — re-running an 8s query on a struggling database adds to the
+  load that caused it.
+
+**⚠️ The 25P02 outage is burst-triggered.** Free/Nano runs PostgREST with an
+11-connection pool; a burst of ~100+ concurrent requests (the team opening
+Today at 10am, or five logged-in dev tabs HMR-refetching at once — which
+reproduced it live on 2026-09-21) queues requests into the 8s
+statement_timeout and leaves connections refusing every request with 25P02
+until the burst ends. Mitigations: the retry above, and the pg_cron
+watchdog `ops.close_stuck_api_connections()`
+(`migration_stuck_api_connection_watchdog.sql`). **The cure is fewer and
+lighter requests per screen** — and in dev, park the other role tabs before
+saving a file.
 
 **`errorMessage.js`** turns a surviving network failure into "Couldn't reach
 the server. Check your connection and try again." It deliberately does **not**
