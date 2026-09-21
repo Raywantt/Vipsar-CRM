@@ -4,6 +4,12 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Stamps each build so remembered screen data saved by an older build is
+  // discarded instead of rendered by code expecting a different shape — see
+  // src/lib/queryClient.js (`buster`).
+  define: {
+    __APP_BUILD_ID__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     react(),
     VitePWA({

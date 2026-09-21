@@ -1,4 +1,6 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
+import { queryClient, persistOptions } from './lib/queryClient'
 import { AuthProvider } from './contexts/AuthContext'
 import { HeaderProvider } from './contexts/HeaderContext'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -39,6 +41,7 @@ const EVERY_ROLE = ['owner', 'sales_executive', 'sales_coordinator', 'sales_mana
 
 function App() {
   return (
+    <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
     <AuthProvider>
       <BrowserRouter>
         <HeaderProvider>
@@ -174,6 +177,7 @@ function App() {
         </HeaderProvider>
       </BrowserRouter>
     </AuthProvider>
+    </PersistQueryClientProvider>
   )
 }
 

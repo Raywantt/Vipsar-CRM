@@ -1,3 +1,5 @@
+import { queryClient } from './queryClient'
+
 // A session-scoped read cache with in-flight request de-duplication.
 //
 // WHY THIS EXISTS — measured, not assumed (2026-09-04). Loading Dashboard
@@ -118,6 +120,9 @@ export function cachedQuery(key, fn, { staleTime = DEFAULT_STALE_TIME_MS } = {})
 // reads here, so the blunt version is both safer and cheap.
 export function invalidateAllQueries() {
   cache.clear()
+  // The remembered screen queries (src/lib/queryClient.js) follow the same
+  // rule: after the viewer's own write, whatever is on screen refetches.
+  queryClient.invalidateQueries()
 }
 
 // Sign-out must not leave one employee's data readable by whoever logs in

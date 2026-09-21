@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import { isBdm } from '../lib/roles'
 import { countUnseenBdmUpdates, markBdmUpdatesSeen } from '../lib/notificationQueries'
 
@@ -16,20 +17,17 @@ import { countUnseenBdmUpdates, markBdmUpdatesSeen } from '../lib/notificationQu
 function BdmUpdatesLine() {
   const { employee } = useAuth()
   const viewerIsBdm = isBdm(employee?.role)
-  const [count, setCount] = useState(0)
-
-  useEffect(() => {
-    if (!viewerIsBdm) return
-    let active = true
-    countUnseenBdmUpdates().then(({ count: n, error }) => {
-      // Silent on failure, like AssignedLeadsCard: an additive line is better
-      // absent than replaced by an error above the greeting.
-      if (active && !error) setCount(n ?? 0)
-    })
-    return () => {
-      active = false
-    }
-  }, [viewerIsBdm, employee?.id])
+  // Remembered on the device like the rest of Today (src/lib/queryClient.js).
+  // Tapping the line hides it at once; the refetch after the "seen" write
+  // brings the real count back.
+  const [dismissed, setDismissed] = useState(false)
+  const query = useCachedQuery(['today', 'bdm-updates-count', employee?.id], () =>
+    // Silent on failure, like AssignedLeadsCard: an additive line is better
+    // absent than replaced by an error above the greeting.
+    countUnseenBdmUpdates().then(({ count: n, error }) => ({ data: n ?? 0, error })),
+    { enabled: viewerIsBdm }
+  )
+  const count = dismissed || query.result?.error ? 0 : (query.result?.data ?? 0)
 
   if (!viewerIsBdm || count === 0) return null
 
@@ -40,7 +38,7 @@ function BdmUpdatesLine() {
       onClick={() => {
         // The Dashboard marks them seen too; doing it here as well means the
         // line is gone on Back even if the Dashboard is still loading.
-        setCount(0)
+        setDismissed(true)
         markBdmUpdatesSeen()
       }}
     >

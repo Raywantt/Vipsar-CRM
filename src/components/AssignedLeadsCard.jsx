@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchUnseenAssignments, markNotificationsSeen, ASSIGNED_CARD_LIMIT } from '../lib/notificationQueries'
 import { parseTimestamp } from '../lib/dbTime'
 import { stageLabel } from '../lib/leadStageOptions'
@@ -68,19 +69,18 @@ function AssignedLeadsCard() {
   const [rows, setRows] = useState([])
   const [dismissing, setDismissing] = useState(false)
 
+  // Remembered on the device like the rest of Today (src/lib/queryClient.js),
+  // and seeded into state because "Got it" and each row's tap remove rows
+  // locally the moment they're acknowledged.
+  const query = useCachedQuery(['today', 'unseen-assignments', employee?.id], () => fetchUnseenAssignments(employee.id), {
+    enabled: Boolean(employee?.id),
+  })
   useEffect(() => {
-    let cancelled = false
-    if (!employee?.id) return
-    fetchUnseenAssignments(employee.id).then(({ data }) => {
-      // A failure here is silent on purpose: this card is additive, and an
-      // error banner above the greeting for a table that may not be migrated
-      // yet would be worse than the card simply not appearing.
-      if (!cancelled) setRows(data ?? [])
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [employee?.id])
+    // A failure here is silent on purpose: this card is additive, and an
+    // error banner above the greeting for a table that may not be migrated
+    // yet would be worse than the card simply not appearing.
+    if (query.result && !query.result.error) setRows(query.result.data ?? [])
+  }, [query.result])
 
   if (!rows.length) return null
 

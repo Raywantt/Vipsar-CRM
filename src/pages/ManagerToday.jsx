@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchMyManagedExecs } from '../lib/employeeQueries'
 import TeamTodayPanel from '../components/TeamTodayPanel'
 import TodayGreetingHeader from '../components/TodayGreetingHeader'
@@ -40,27 +41,21 @@ function ManagerToday() {
   const { employee } = useAuth()
 
   const [tab, setTab] = useState('day')
-  const [execs, setExecs] = useState([])
-  const [execsLoaded, setExecsLoaded] = useState(false)
-  const [loadError, setLoadError] = useState(null)
 
   // The roster is fetched on mount rather than when the team tab is first
   // opened, so the tab's own count is honest before it is tapped — and
   // because `employees` SELECT is open to every active employee, this is a
   // single small query, not something worth deferring.
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchMyManagedExecs(employee.id).then(({ data, error }) => {
-      if (!active) return
-      if (error) setLoadError(errorMessage(error))
-      setExecs(data ?? [])
-      setExecsLoaded(true)
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
+  // Remembered on the device (instant open — src/lib/queryClient.js).
+  const rosterQuery = useCachedQuery(['today', 'managed-execs', employee?.id], () => fetchMyManagedExecs(employee.id), {
+    enabled: Boolean(employee?.id),
+  })
+  const execs = rosterQuery.result?.data ?? []
+  const execsLoaded = rosterQuery.result !== undefined
+  const loadError = useMemo(
+    () => (rosterQuery.result?.error ? errorMessage(rosterQuery.result.error) : null),
+    [rosterQuery.result]
+  )
 
   return (
     <div className="vip-wide vip-pad-fab-overhang">

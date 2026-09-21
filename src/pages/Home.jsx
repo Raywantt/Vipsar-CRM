@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { rangeForPreset } from '../lib/dateRanges'
@@ -12,6 +12,7 @@ import { todayISO } from '../lib/followupDates'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { buildAgeingPanel } from '../lib/attention'
 import { useAttentionBuckets } from '../hooks/useAttentionBuckets'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import { formatCurrencyCompact } from '../lib/format'
 import { leadDisplayName } from '../lib/leadName'
 import BdmChip from '../components/BdmChip'
@@ -84,42 +85,35 @@ function Home({ embedded = false }) {
   const navigate = useNavigate()
 
   const [period, setPeriod] = useState('week')
-  const [target, setTarget] = useState(undefined) // undefined = loading, null = no target for this period
-  const [closing, setClosing] = useState([])
   const [followUps, setFollowUps] = useState([])
   const [addingFollowUp, setAddingFollowUp] = useState(false)
   const [savedNote, setSavedNote] = useState(null)
   const [panel, setPanel] = useState(null)
   const [followUpError, setFollowUpError] = useState(null)
 
+  // Remembered on the device (instant open — src/lib/queryClient.js): a
+  // repeat open paints these at once and refreshes behind the "Updating…"
+  // pill. Day-scoped ones are keyed by the day, so yesterday's never stand in
+  // for today's.
+  const enabled = Boolean(employee?.id)
+  const today = todayISO()
+
+  // Seeded into state because the row actions (done, cancel, reschedule)
+  // edit the list in place; re-seeded whenever the query refreshes.
+  const followUpsQuery = useCachedQuery(
+    ['today', 'due-follow-ups', employee?.id, today],
+    () => fetchDueFollowUpsForEmployee(employee.id),
+    { enabled }
+  )
+  useEffect(() => {
+    const res = followUpsQuery.result
+    if (res && !res.error) setFollowUps(res.data ?? [])
+  }, [followUpsQuery.result])
+
   // One day-scoped fetch powering the whole "Done today" half — the same
   // queries the Dashboard's Day Review runs, scoped by RLS to this employee.
-  const [dayData, setDayData] = useState(null)
-
-
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchDueFollowUpsForEmployee(employee.id).then(({ data, error }) => {
-      if (!active) return
-      if (!error) setFollowUps(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
-
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchDayReview(todayISO()).then((res) => {
-      if (!active) return
-      setDayData(res)
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
+  const dayQuery = useCachedQuery(['today', 'day-review', today], () => fetchDayReview(today), { enabled })
+  const dayData = dayQuery.result ?? null
 
   // The attention buckets, scoped to this employee's own leads — a manager's
   // RLS also returns their team's leads, so `onlyOwnerId` is the "make it
@@ -167,34 +161,34 @@ function Home({ embedded = false }) {
     if (path) navigate(path)
   }
 
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    const range = rangeForPreset(period)
+  // The period's target bar and "Closing next". Won history + forecast +
+  // targets in one remembered query per period.
+  const targetQuery = useCachedQuery(
+    ['today', 'target', employee?.id, period],
+    () => {
+      const targetPeriod = periodForPreset(period)
+      return Promise.all([
+        fetchWonStageHistory(),
+        fetchClosureForecast(),
+        targetPeriod ? fetchTargetsForPeriod(targetPeriod) : Promise.resolve({ data: [], error: null }),
+      ]).then(([wonRes, forecastRes, targetsRes]) => ({
+        data: { won: wonRes.data ?? [], forecast: forecastRes.data ?? [], targets: targetsRes.data ?? [] },
+        error: null,
+      }))
+    },
+    { enabled }
+  )
+  const closing = useMemo(() => (targetQuery.result?.data?.forecast ?? []).slice(0, 4), [targetQuery.result])
+  // undefined = loading, null = no target for this period
+  const target = useMemo(() => {
+    const data = targetQuery.result?.data
+    if (!data || !employee?.id) return undefined
     const targetPeriod = periodForPreset(period)
-
-    Promise.all([
-      fetchWonStageHistory(),
-      fetchClosureForecast(),
-      targetPeriod ? fetchTargetsForPeriod(targetPeriod) : Promise.resolve({ data: [], error: null }),
-    ]).then(([wonRes, forecastRes, targetsRes]) => {
-      if (!active) return
-
-      setClosing((forecastRes.data ?? []).slice(0, 4))
-
-      if (!targetPeriod) {
-        setTarget(null)
-      } else {
-        const targetValue = targetFor(targetsRes.data ?? [], employee.id, 'order_value')
-        const myWon = computeOrderValueActuals(wonRes.data ?? [], range, true).get(employee.id) ?? 0
-        setTarget(targetValue == null ? null : { value: targetValue, actual: myWon })
-      }
-    })
-
-    return () => {
-      active = false
-    }
-  }, [period, employee?.id])
+    if (!targetPeriod) return null
+    const targetValue = targetFor(data.targets, employee.id, 'order_value')
+    const myWon = computeOrderValueActuals(data.won, rangeForPreset(period), true).get(employee.id) ?? 0
+    return targetValue == null ? null : { value: targetValue, actual: myWon }
+  }, [targetQuery.result, period, employee?.id])
 
   // "Done today" — one row's worth of the same aggregation the Dashboard's
   // team table builds, for this employee alone.

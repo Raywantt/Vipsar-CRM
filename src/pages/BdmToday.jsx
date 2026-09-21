@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import TodayGreetingHeader from '../components/TodayGreetingHeader'
 import FollowUpForm from '../components/FollowUpForm'
 import FollowUpList from '../components/FollowUpList'
@@ -40,65 +41,66 @@ function BdmToday() {
   const { employee } = useAuth()
   const navigate = useNavigate()
 
-  const [waitingCount, setWaitingCount] = useState(0)
-
   const [followUps, setFollowUps] = useState(null)
   const [followUpError, setFollowUpError] = useState(null)
   const [addingFollowUp, setAddingFollowUp] = useState(false)
   const [savedNote, setSavedNote] = useState(null)
-
-  const [architects, setArchitects] = useState(null)
-  const [lastMetById, setLastMetById] = useState(new Map())
-  const [architectsError, setArchitectsError] = useState(null)
-
-  // "Done today" — same one-day-bounded fetch Home.jsx runs for an exec.
-  const [dayData, setDayData] = useState(null)
   const [panel, setPanel] = useState(null)
 
+  // Remembered on the device (instant open — src/lib/queryClient.js): a
+  // repeat open paints these at once and refreshes behind the "Updating…"
+  // pill. Day-scoped ones are keyed by the day.
+  const enabled = Boolean(employee?.id)
+  const today = todayISO()
+
+  const waitingQuery = useCachedQuery(
+    ['today', 'bdm-waiting', employee?.id],
+    () => countWaitingPoolLeads(employee.id).then(({ count, error }) => ({ data: count ?? 0, error })),
+    { enabled }
+  )
+  const waitingCount = waitingQuery.result?.error ? 0 : (waitingQuery.result?.data ?? 0)
+
+  // Seeded into state because the row actions edit the list in place;
+  // re-seeded whenever the query refreshes.
+  const followUpsQuery = useCachedQuery(
+    ['today', 'due-follow-ups', employee?.id, today],
+    () => fetchDueFollowUpsForEmployee(employee.id),
+    { enabled }
+  )
   useEffect(() => {
-    if (!employee?.id) return
-    let active = true
+    const res = followUpsQuery.result
+    if (!res) return
+    setFollowUpError(res.error ? errorMessage(res.error) : null)
+    setFollowUps(res.data ?? [])
+  }, [followUpsQuery.result])
 
-    countWaitingPoolLeads(employee.id).then(({ count, error }) => {
-      if (active && !error) setWaitingCount(count ?? 0)
-    })
-
-    fetchDueFollowUpsForEmployee(employee.id).then(({ data, error }) => {
-      if (!active) return
-      if (error) setFollowUpError(errorMessage(error))
-      setFollowUps(data ?? [])
-    })
-
-    fetchPortfolioArchitects(employee.id).then(async ({ data, error }) => {
-      if (!active) return
-      if (error) {
-        setArchitectsError(errorMessage(error))
-        setArchitects([])
-        return
-      }
+  // The portfolio and its meetings in one query. Meetings are kept as the
+  // raw rows (a Map can't be stored) and reduced to "last met" below.
+  const architectsQuery = useCachedQuery(
+    ['today', 'bdm-architects', employee?.id],
+    async () => {
+      const { data, error } = await fetchPortfolioArchitects(employee.id)
+      if (error) return { data: null, error }
       const meetings = await fetchArchitectMeetings(data.map((a) => a.id))
-      if (!active) return
-      if (meetings.error) setArchitectsError(errorMessage(meetings.error))
-      setLastMetById(lastMeetingByArchitect(meetings.data))
-      setArchitects(data)
-    })
+      return { data: { architects: data, meetings: meetings.data ?? [], meetingsError: meetings.error ?? null }, error: null }
+    },
+    { enabled }
+  )
+  const architectsResult = architectsQuery.result
+  const architects = architectsResult ? (architectsResult.error ? [] : architectsResult.data.architects) : null
+  const lastMetById = useMemo(
+    () => lastMeetingByArchitect(architectsResult?.data?.meetings ?? []),
+    [architectsResult]
+  )
+  const architectsError = useMemo(() => {
+    if (!architectsResult) return null
+    if (architectsResult.error) return errorMessage(architectsResult.error)
+    return architectsResult.data.meetingsError ? errorMessage(architectsResult.data.meetingsError) : null
+  }, [architectsResult])
 
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
-
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchDayReview(todayISO()).then((res) => {
-      if (!active) return
-      setDayData(res)
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
+  // "Done today" — same one-day-bounded fetch Home.jsx runs for an exec.
+  const dayQuery = useCachedQuery(['today', 'day-review', today], () => fetchDayReview(today), { enabled })
+  const dayData = dayQuery.result ?? null
 
   async function handleMarkDone(id) {
     const { data, error } = await markFollowUpDone(id)

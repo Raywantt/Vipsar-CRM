@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
 import { buildAgeingPanel } from '../lib/attention'
 import { useAttentionBuckets } from '../hooks/useAttentionBuckets'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import { rescheduleFollowUp, reminderSavedMessage } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import DayReviewCard from './DayReviewCard'
@@ -55,7 +56,6 @@ function TeamTodayPanel({
   // half is ever enabled — see the allowLogCall argument below.
   rowActions = false,
 }) {
-  const [dayData, setDayData] = useState(null)
 
   const [panel, setPanel] = useState(null)
   const [selectedExecId, setSelectedExecId] = useState(null)
@@ -68,17 +68,13 @@ function TeamTodayPanel({
   // decides whose rows come back (this supervisor's team, via
   // coordinator_team_select or manager_team_select), so the call is
   // byte-identical for either role.
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchDayReview(todayISO()).then((res) => {
-      if (!active) return
-      setDayData(res)
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
+  // Remembered on the device (instant open — src/lib/queryClient.js), keyed
+  // by the day.
+  const today = todayISO()
+  const dayQuery = useCachedQuery(['today', 'day-review', today], () => fetchDayReview(today), {
+    enabled: Boolean(employee?.id),
+  })
+  const dayData = dayQuery.result ?? null
 
 
   const dayRows = dayData ? buildDayRows(execs, dayData, false) : []

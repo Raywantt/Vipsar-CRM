@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchPoolLeads, fetchPossibleDuplicates } from '../lib/bdmQueries'
 import { assignLeadOwner, ALREADY_ASSIGNED_CODE } from '../lib/leadOwnerHistory'
 import { sourcingArchitect, waitingLabel } from '../lib/poolLeads'
@@ -29,6 +30,15 @@ import { errorMessage } from '../lib/errorMessage'
 // Assign is two taps (pick, then confirm) rather than Lead Detail's one-tap
 // owner grid: here a list of several leads sits under the owner's thumb, and
 // a mis-tap would hand a lead to the wrong person with a push already sent.
+async function fetchPoolWithDuplicates() {
+  const pool = await fetchPoolLeads()
+  if (pool.error) return pool
+  const leads = pool.data ?? []
+  // A failed duplicate lookup only loses the hints, never the pool itself.
+  const dupRes = leads.length ? await fetchPossibleDuplicates(leads) : { data: new Map(), error: null }
+  return { data: { leads, duplicates: dupRes.error ? [] : [...dupRes.data.entries()] }, error: null }
+}
+
 function BdmPoolCard({ execs }) {
   const { employee } = useAuth()
   const [leads, setLeads] = useState(null)
@@ -36,25 +46,23 @@ function BdmPoolCard({ execs }) {
   const [loadError, setLoadError] = useState(null)
   const [flash, setFlash] = useState(null)
 
+  // Remembered on the device like the rest of Today (src/lib/queryClient.js).
+  // The duplicate hints ride in the same query, as entries rather than a Map
+  // (a Map can't be stored), and both are seeded into state because an
+  // Assign edits them in place.
+  const query = useCachedQuery(['today', 'bdm-pool'], fetchPoolWithDuplicates)
   useEffect(() => {
-    let active = true
-    fetchPoolLeads().then(async ({ data, error }) => {
-      if (!active) return
-      if (error) {
-        setLoadError(errorMessage(error))
-        setLeads([])
-        return
-      }
-      setLeads(data ?? [])
-      if (data?.length) {
-        const dupRes = await fetchPossibleDuplicates(data)
-        if (active && !dupRes.error) setDuplicates(dupRes.data)
-      }
-    })
-    return () => {
-      active = false
+    const res = query.result
+    if (!res) return
+    if (res.error) {
+      setLoadError(errorMessage(res.error))
+      setLeads([])
+      return
     }
-  }, [])
+    setLoadError(null)
+    setLeads(res.data.leads)
+    setDuplicates(new Map(res.data.duplicates))
+  }, [query.result])
 
   function removeLead(leadId) {
     setLeads((prev) => (prev ?? []).filter((l) => l.id !== leadId))

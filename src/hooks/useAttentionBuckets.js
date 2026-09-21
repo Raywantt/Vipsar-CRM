@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
 import { fetchLeadsNeedingAttention, fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { computeAttentionBuckets, computeAttentionBucketsFromRpc, buildLastStageChangeByLead } from '../lib/attention'
+import { todayISO } from '../lib/followupDates'
+import { useCachedQuery } from './useCachedQuery'
 
 // The Needs Attention buckets for a Today screen — Home (a rep, or a
 // manager's "My day"), OwnerToday and TeamTodayPanel (coordinator, and a
@@ -23,54 +25,52 @@ import { computeAttentionBuckets, computeAttentionBucketsFromRpc, buildLastStage
 // `onlyOwnerId` is the one extra filter, and it is Home's own existing rule
 // ("my queue" means leads I own, even for a manager who can see a team).
 //
+// REMEMBERED ON THE DEVICE (instant open, src/lib/queryClient.js): the RPC's
+// rows are small (a few hundred), so a repeat open paints the buckets at once
+// and refreshes behind the "Updating…" pill. Keyed by the day, because every
+// threshold in them is measured in whole days.
+//
 // FAILS SOFT, the Dashboard's way: if the function errors (or doesn't exist
 // in some environment), the original download-everything path runs instead,
-// so the buckets still appear — just slower.
+// so the buckets still appear — just slower. That payload is large and only
+// ever a fallback, so it is kept in memory, not on the device.
 //
 // Returns null while loading, then the buckets array from attention.js.
+function fetchFallbackRows() {
+  return Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead(), fetchStageHistoryForFunnel()]).then(
+    ([leadsRes, activityRes, stageRes]) => ({
+      data: { leads: leadsRes.data ?? [], activities: activityRes.data ?? [], stages: stageRes.data ?? [] },
+      error: leadsRes.error ?? activityRes.error ?? stageRes.error ?? null,
+    })
+  )
+}
+
 export function useAttentionBuckets(employeeId, { onlyOwnerId = null } = {}) {
-  const [buckets, setBuckets] = useState(null)
+  const enabled = Boolean(employeeId)
+  const rpc = useCachedQuery(['attention', todayISO()], fetchLeadsNeedingAttention, { enabled })
+  const rpcFailed = Boolean(rpc.result?.error)
+  const fallback = useCachedQuery(['attention-fallback'], fetchFallbackRows, {
+    enabled: enabled && rpcFailed,
+    persist: false,
+  })
 
-  useEffect(() => {
-    if (!employeeId) return
-    let active = true
+  const rpcRows = rpc.result && !rpc.result.error ? rpc.result.data : null
+  const fallbackData = rpcFailed ? fallback.result?.data : null
 
-    async function load() {
-      const { data, error } = await fetchLeadsNeedingAttention()
-      if (!active) return
-      if (!error && data) {
-        const rows = onlyOwnerId == null ? data : data.filter((r) => r.owner_id === onlyOwnerId)
-        setBuckets(computeAttentionBucketsFromRpc(rows))
-        return
-      }
-
-      // Fallback — the exact computation these screens ran before.
-      const [leadsRes, activityRes, stageRes] = await Promise.all([
-        fetchLeadsForBreakdown(),
-        fetchLastActivityPerLead(),
-        fetchStageHistoryForFunnel(),
-      ])
-      if (!active) return
+  return useMemo(() => {
+    if (rpcRows) {
+      const rows = onlyOwnerId == null ? rpcRows : rpcRows.filter((r) => r.owner_id === onlyOwnerId)
+      return computeAttentionBucketsFromRpc(rows)
+    }
+    if (fallbackData) {
       const lastActivityByLead = new Map()
-      ;(activityRes.data ?? []).forEach((row) => {
+      fallbackData.activities.forEach((row) => {
         const existing = lastActivityByLead.get(row.lead_id)
         if (!existing || new Date(row.created_at) > new Date(existing)) lastActivityByLead.set(row.lead_id, row.created_at)
       })
-      const leads = leadsRes.data ?? []
-      setBuckets(
-        computeAttentionBuckets(
-          onlyOwnerId == null ? leads : leads.filter((l) => l.owner_employee_id === onlyOwnerId),
-          lastActivityByLead,
-          buildLastStageChangeByLead(stageRes.data)
-        )
-      )
+      const leads = onlyOwnerId == null ? fallbackData.leads : fallbackData.leads.filter((l) => l.owner_employee_id === onlyOwnerId)
+      return computeAttentionBuckets(leads, lastActivityByLead, buildLastStageChangeByLead(fallbackData.stages))
     }
-
-    load()
-    return () => {
-      active = false
-    }
-  }, [employeeId, onlyOwnerId])
-
-  return buckets
+    return null
+  }, [rpcRows, fallbackData, onlyOwnerId])
 }

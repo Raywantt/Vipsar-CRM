@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { getInitials } from '../lib/initials'
 import { useOnlineStatus } from '../hooks/useOnlineStatus'
+import { useSyncState } from '../hooks/useCachedQuery'
 import AssignedLeadsCard from './AssignedLeadsCard'
 import BdmUpdatesLine from './BdmUpdatesLine'
 
@@ -17,8 +18,21 @@ function greetingForTime(hour, minute) {
   return 'Hello'
 }
 
+// The pill: Offline beats everything; otherwise it tracks the screen's
+// remembered data (src/lib/queryClient.js). "Updating…" while numbers shown
+// from the last visit are being refreshed — the owner's choice over a silent
+// swap — and "Not updated" if that refresh failed, so saved numbers are never
+// passed off as current.
+function pillFor(isOnline, sync) {
+  if (!isOnline) return { className: 'vip-sync-pill vip-sync-pill-offline', text: 'Offline' }
+  if (sync === 'updating') return { className: 'vip-sync-pill vip-sync-pill-updating', text: 'Updating…' }
+  if (sync === 'stale') return { className: 'vip-sync-pill vip-sync-pill-offline', text: 'Not updated' }
+  return { className: 'vip-sync-pill', text: 'Synced' }
+}
+
 function TodayGreetingHeader({ employee }) {
   const isOnline = useOnlineStatus()
+  const pill = pillFor(isOnline, useSyncState())
   const now = new Date()
   const greeting = greetingForTime(now.getHours(), now.getMinutes())
   const firstName = employee?.name?.trim().split(/\s+/)[0] ?? ''
@@ -38,9 +52,9 @@ function TodayGreetingHeader({ employee }) {
         <div className="vip-today-date">{longDate}</div>
       </div>
       <div className="vip-today-head-actions">
-        <span className={isOnline ? 'vip-sync-pill' : 'vip-sync-pill vip-sync-pill-offline'}>
+        <span className={pill.className} role="status" aria-live="polite">
           <span className="vip-sync-dot" />
-          {isOnline ? 'Synced' : 'Offline'}
+          {pill.text}
         </span>
         <Link to="/profile" className="vip-avatar" aria-label="Profile">
           {getInitials(employee?.name)}

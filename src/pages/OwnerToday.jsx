@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
 import { buildAgeingPanel } from '../lib/attention'
 import { useAttentionBuckets } from '../hooks/useAttentionBuckets'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reminderSavedMessage, lockedFollowUpIds } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import DayReviewCard from '../components/DayReviewCard'
@@ -38,12 +39,6 @@ import { errorMessage } from '../lib/errorMessage'
 function OwnerToday() {
   const { employee } = useAuth()
 
-  const [employees, setEmployees] = useState([])
-  const [employeesLoaded, setEmployeesLoaded] = useState(false)
-  const [loadError, setLoadError] = useState(null)
-
-  const [dayData, setDayData] = useState(null)
-
   const [panel, setPanel] = useState(null)
   const [selectedExecId, setSelectedExecId] = useState(null)
 
@@ -52,46 +47,38 @@ function OwnerToday() {
   const [savedNote, setSavedNote] = useState(null)
   const [followUpError, setFollowUpError] = useState(null)
 
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchActiveSalesExecs().then(({ data, error }) => {
-      if (!active) return
-      if (error) setLoadError(errorMessage(error))
-      setEmployees(data ?? [])
-      setEmployeesLoaded(true)
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
-
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchDayReview(todayISO()).then((res) => {
-      if (!active) return
-      setDayData(res)
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
-
+  // Remembered on the device (instant open — src/lib/queryClient.js): a
+  // repeat open paints these at once and refreshes behind the "Updating…"
+  // pill. The day review and reminders are keyed by the day, so yesterday's
+  // never stand in for today's.
+  const enabled = Boolean(employee?.id)
+  const today = todayISO()
+  const execsQuery = useCachedQuery(['today', 'execs'], fetchActiveSalesExecs, { enabled })
+  const dayQuery = useCachedQuery(['today', 'day-review', today], () => fetchDayReview(today), { enabled })
   // The owner's own occasional reminders — a real but small use case
   // ("a few times which they want to remember themselves"), so this stays
   // its own personal fetch rather than folded into the org-wide data above.
+  const followUpsQuery = useCachedQuery(
+    ['today', 'due-follow-ups', employee?.id, today],
+    () => fetchDueFollowUpsForEmployee(employee.id),
+    { enabled }
+  )
+
+  const employees = execsQuery.result?.data ?? []
+  const employeesLoaded = execsQuery.result !== undefined
+  const loadError = useMemo(
+    () => (execsQuery.result?.error ? errorMessage(execsQuery.result.error) : null),
+    [execsQuery.result]
+  )
+  const dayData = dayQuery.result ?? null
+
+  // The list is also edited in place by the row actions below (done, cancel,
+  // reschedule), so it lives in state seeded from the query — and re-seeded
+  // whenever the query refreshes.
   useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchDueFollowUpsForEmployee(employee.id).then(({ data, error }) => {
-      if (!active) return
-      if (!error) setFollowUps(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
+    const res = followUpsQuery.result
+    if (res && !res.error) setFollowUps(res.data ?? [])
+  }, [followUpsQuery.result])
 
   const dayRows = dayData ? buildDayRows(employees, dayData, false) : []
   const dayTotals = buildDayTotals(dayRows)

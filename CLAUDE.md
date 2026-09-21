@@ -112,6 +112,8 @@ assumption `pipelineValue.js` leans on. It changes no figure today.
   (design tokens + `vip-*` classes), imported in `main.jsx` after the
   deliberately-empty `src/index.css`.
 - Oxlint (`npm run lint`), Vitest
+- TanStack Query (+ `react-query-persist-client`, `idb-keyval`) for "instant
+  open" — see Transport, caching and retries
 
 ## Structure
 
@@ -150,8 +152,10 @@ src/
   contexts/     AuthContext (session + employee lookup);
                 HeaderContext (dynamic {title, sub} override for AppNav)
   hooks/        useOnlineStatus.js, useIsMobile.js (the 1024px breakpoint as
-                a JS boolean), useBdmPeriodRows.js, useBdmRoster.js
+                a JS boolean), useBdmPeriodRows.js, useBdmRoster.js,
+                useCachedQuery.js (+ useSyncState), useAttentionBuckets.js
   lib/          supabaseClient.js, supabaseFetch.js, queryCache.js,
+                queryClient.js,
                 fetchAllRows.js, sanitizeForIlike.js, errorMessage.js,
                 format.js, dbTime.js, initials.js, theme.js, roles.js,
                 tabRoutes.js,
@@ -3352,7 +3356,49 @@ kills React StrictMode's dev double-fetch.
   shared office machines and the payloads are whole-company aggregates.
 * **If this outgrows the module, adopt TanStack Query rather than growing
   it** — the API deliberately mirrors its vocabulary so the swap is
-  mechanical.
+  mechanical. **That point arrived 2026-09-21** — see Instant open below.
+  `queryCache.js` stays, unchanged, for every imperative `fetchX().then()`.
+
+**Instant open (`src/lib/queryClient.js`, `src/hooks/useCachedQuery.js`,
+2026-09-21).** A screen that reads through `useCachedQuery(key, fetchFn)`
+paints the last result this device saw the moment it mounts, refreshes it in
+the background if older than 90s (and on returning to the app), and swaps in
+the fresh answer — structurally shared, so an identical answer re-renders
+nothing. The owner chose to mark the refresh with a label rather than swap
+silently: the Today header's sync pill reads **Updating…** (teal, breathing
+dot) while a remembered result is refreshing and **Not updated** (amber) if
+that refresh failed, from `useSyncState()`. Converted so far: every Today
+screen (Home, OwnerToday, CoordinatorToday, ManagerToday, BdmToday,
+TeamTodayPanel, AssignedLeadsCard, BdmPoolCard, BdmUpdatesLine,
+useAttentionBuckets). Measured: numbers on screen 89 ms after tapping Today,
+fresh by ~1.6 s. Rules:
+* **The key encodes every argument** (a day, an employee id, a period) —
+  queryCache.js's rule. The signed-in auth user id is prefixed automatically
+  (`scopedKey`), and the whole store is wiped on sign-out and on any session
+  ending (`clearQueryData`) — shared office devices, both guards deliberate.
+* **Stored in IndexedDB, only for queries that opted in** (`meta.persist`,
+  the hook's default; `persist: false` for a large fallback), only successful
+  ones, for at most a day, and **discarded by any new build** (`buster` =
+  `__APP_BUILD_ID__` from vite.config.js) so old-shaped data never meets new
+  code. Cost: one normal-speed open after each deploy.
+* **What's stored must survive JSON** — no Map/Set/Date in a query result.
+  BdmPoolCard and BdmToday keep entries/raw rows and rebuild Maps in
+  `useMemo`.
+* **A list the screen edits in place** (follow-ups, notifications, the pool)
+  is state seeded from the query in an effect and re-seeded on refresh.
+* **A successful write re-fetches whatever is on screen** —
+  `invalidateAllQueries()` also calls `queryClient.invalidateQueries()`.
+* **Retries:** one extra try after 4s (`retry: 1`), on top of supabaseFetch's
+  immediate transport retries — a first load that hit a momentary 500 fills
+  itself in (seen live on a manager's Today).
+* **The account is remembered too** (AuthContext, `vip-employee` in
+  localStorage, keyed to the auth user): the app draws at once and
+  re-confirms the employee row in the background; any different answer
+  (including "no such employee") replaces it, and sign-out clears it.
+* The phone greeting's min-width drops to 160px (section 38) so the longer
+  pill labels fit at 375px — measured, not guessed.
+* **Not yet converted:** Dashboard (19 effects), All Leads, Lead Detail and
+  the rest still load the old way.
 
 **📄 `PERFORMANCE.md` (repo root) is the standing reference** — read it before
 adding a screen, card or query. The measured diagnosis was that "everything is

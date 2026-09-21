@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import TeamTodayPanel from '../components/TeamTodayPanel'
 import TodayGreetingHeader from '../components/TodayGreetingHeader'
@@ -21,23 +22,16 @@ import { errorMessage } from '../lib/errorMessage'
 function CoordinatorToday() {
   const { employee } = useAuth()
 
-  const [employees, setEmployees] = useState([])
-  const [employeesLoaded, setEmployeesLoaded] = useState(false)
-  const [loadError, setLoadError] = useState(null)
-
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchMyTeamExecs(employee.id).then(({ data, error }) => {
-      if (!active) return
-      if (error) setLoadError(errorMessage(error))
-      setEmployees(data ?? [])
-      setEmployeesLoaded(true)
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
+  // Remembered on the device (instant open — src/lib/queryClient.js).
+  const rosterQuery = useCachedQuery(['today', 'my-team-execs', employee?.id], () => fetchMyTeamExecs(employee.id), {
+    enabled: Boolean(employee?.id),
+  })
+  const employees = rosterQuery.result?.data ?? []
+  const employeesLoaded = rosterQuery.result !== undefined
+  const loadError = useMemo(
+    () => (rosterQuery.result?.error ? errorMessage(rosterQuery.result.error) : null),
+    [rosterQuery.result]
+  )
 
   return (
     <div className="vip-wide vip-pad-fab-overhang">
