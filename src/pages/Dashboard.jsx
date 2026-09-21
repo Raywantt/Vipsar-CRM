@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import DateRangeSelector from '../components/DateRangeSelector'
 import ActivityCountsCard from '../components/ActivityCountsCard'
 import LeadsBySourceCard, { SALES_EXEC_SOURCES } from '../components/LeadsBySourceCard'
@@ -92,6 +93,10 @@ import {
 } from '../lib/roles'
 import { errorMessage } from '../lib/errorMessage'
 
+// One shared empty array for "not loaded yet", so the scoped useMemos below
+// don't see a fresh [] (and recompute) on every render. Never mutated.
+const EMPTY = []
+
 function siteStageCategory(lead) {
   if (!lead.site_id) return 'No site'
   return lead.sites?.site_stage || 'Not set'
@@ -177,47 +182,263 @@ function Dashboard() {
   const [customStart, setCustomStart] = usePersistedFilterState('vip-filters:dashboard', 'customStart', todayISO())
   const [customEnd, setCustomEnd] = usePersistedFilterState('vip-filters:dashboard', 'customEnd', todayISO())
 
+  // ---- Day Review (the `today` period) ----
+  // Its own date, independent of the report cards' date range: this pane
+  // accepts any past day, and changing it reloads every number including
+  // Tomorrow (= chosen date + 1).
+  const isDayReview = preset === 'today'
+  const [dayDate, setDayDate] = useState(todayISO())
+  const [selectedExecId, setSelectedExecId] = useState(null)
+
+  const range = rangeForPreset(preset, customStart, customEnd)
+  // targets are keyed by week/month/quarter — 15D/Custom have no period to
+  // look one up against, so Targets vs. actuals doesn't render at all for
+  // them (see the featured-row layout below and CLAUDE.md's Dashboard
+  // section). Reuses periodForPreset instead of re-deriving the same
+  // week/month/quarter check a second way.
+  //
+  // ONE source for "which period is on screen", read by all three things
+  // that need it: the fetch below, the render gate, and the merge of a
+  // newly-saved target. These used to be three separate periodForPreset()
+  // calls, which is the shape this repo has been bitten by before (a
+  // capability computed twice drifting into two answers) — here the merge
+  // had no notion of the displayed period at all, and silently showed next
+  // week's target under the current week.
+  const targetPeriod = useMemo(() => periodForPreset(preset), [preset])
+  const isTargetPeriod = targetPeriod != null
+
   // ---- Raw fetched rows, before the manager's My/Team scope is applied ----
   // Named all* so the scoped values below can keep the plain names every card
-  // and drill-down already reads. The setters are untouched, so every fetch
-  // effect further down is unchanged.
-  const [allActivities, setActivities] = useState([])
-  const [allLeads, setLeads] = useState([])
-  const [allForecast, setForecast] = useState([])
-  const [allEmployees, setEmployees] = useState([])
-  const [allTargets, setTargets] = useState([])
-  const [allWonStageHistory, setWonStageHistory] = useState([])
-  const [allBreakdownLeads, setBreakdownLeads] = useState([])
-  // Fast path for the 3 category-breakdown cards + Pipeline by stage — see
-  // Schema/migration_leads_category_breakdown_rpc.sql and
-  // fetchCategoryBreakdown()'s own header comment. null means "not
-  // available" (migration not yet run, or the fetch hasn't resolved yet) —
-  // every consumer below falls back to computing the same numbers from
-  // allBreakdownLeads/breakdownLeads exactly as before, so this is additive
-  // only and never blocks rendering.
-  const [categoryBreakdown, setCategoryBreakdown] = useState(null)
+  // and drill-down already reads.
+  //
+  // INSTANT OPEN (src/lib/queryClient.js, 2026-09-21): every read below is a
+  // remembered query, so a repeat visit paints the last numbers this device
+  // saw at once and refreshes them in the background. Each key encodes every
+  // argument that changes its answer; the signed-in user is added
+  // automatically. The fetch functions and their RLS scoping are unchanged —
+  // each used to run from its own useEffect.
+
+  // Activity counts + new leads for the selected range. The Day Review runs
+  // its own day-scoped queries and renders none of the report cards these
+  // two feed, so it skips them.
+  const rangeKey = range ? `${range.start.toISOString()}~${range.end.toISOString()}` : 'none'
+  const periodQuery = useCachedQuery(
+    ['dash', 'period', rangeKey],
+    () =>
+      Promise.all([fetchActivityCounts(range), fetchNewLeadsBySource(range)]).then(([activitiesRes, leadsRes]) => ({
+        data: { activities: activitiesRes.data ?? [], leads: leadsRes.data ?? [] },
+        error: activitiesRes.error ?? leadsRes.error ?? null,
+      })),
+    { enabled: wantsReports && Boolean(range) && preset !== 'today' }
+  )
+  const allActivities = periodQuery.result?.data?.activities ?? EMPTY
+  const allLeads = periodQuery.result?.data?.leads ?? EMPTY
+  // "Nothing for this range yet" — remembered data counts as something.
+  const loading = periodQuery.result === undefined
+  const error = useMemo(
+    () => (periodQuery.result?.error ? errorMessage(periodQuery.result.error) : null),
+    [periodQuery.result]
+  )
+
+  const forecastQuery = useCachedQuery(['dash', 'closure-forecast'], () => fetchClosureForecast(), { enabled: wantsReports })
+  const allForecast = forecastQuery.result?.data ?? EMPTY
+
+  // Scoped once, here, rather than at each of the ~8 places `employees` is
+  // consumed downstream (the Day Review table, per-exec breakdowns, every
+  // attainment drill-down, the All Leads owner filter). RLS on `employees` is
+  // deliberately open to any active employee, so this query returns every rep
+  // in the company no matter who asks — a coordinator seeing another team's
+  // reps listed as all-zero rows would be both wrong and confusing.
+  //
+  // Only the coordinator case is narrowed. An owner keeps the full roster, and
+  // a sales exec's own consumers are already gated off per-person breakdowns
+  // entirely, so neither changes behaviour here.
+  const rosterQuery = useCachedQuery(['dash', 'active-execs'], fetchActiveSalesExecs)
+  const allEmployees = useMemo(() => {
+    const res = rosterQuery.result
+    if (!res || res.error) return EMPTY
+    const all = res.data ?? []
+    // A manager's roster is their own reports PLUS themselves — they carry
+    // a quota and work deals, so their own row has to be available for the
+    // 'my' side of the switch. Which of the two the page actually shows is
+    // decided by the `employees` memo below, not here.
+    return employee?.role === 'sales_coordinator'
+      ? all.filter((e) => e.coordinator_id === employee.id)
+      : employee?.role === 'sales_manager'
+      ? all.filter((e) => e.manager_id === employee.id || e.id === employee.id)
+      : all
+  }, [rosterQuery.result, employee?.role, employee?.id])
+
   // Needs Attention's five buckets, filtered server-side — see
-  // Schema/migration_needs_attention_rpc.sql. null means "not available"
-  // (migration not run, fetch not resolved, or a manager — see
+  // Schema/migration_needs_attention_rpc.sql. Same key as the Today screens'
+  // useAttentionBuckets, so the two share one remembered answer. null means
+  // "not available" (not answered yet, failed, or a manager — see
   // fastAttentionRows below), in which case the original client-side
   // computeAttentionBuckets over breakdownLeads runs exactly as before.
-  const [attentionRows, setAttentionRows] = useState(null)
+  const attentionQuery = useCachedQuery(['attention', todayISO()], fetchLeadsNeedingAttention, { enabled: wantsReports })
+  const attentionRows = attentionQuery.result && !attentionQuery.result.error ? attentionQuery.result.data : null
   // Set only when the RPC actually failed (not merely "hasn't answered
   // yet"). It gates the fetchLastActivityPerLead() query, whose sole
   // consumer is the client-side fallback — so on the normal path that
   // activities scan is never issued at all.
-  const [attentionRpcFailed, setAttentionRpcFailed] = useState(false)
-  // The "Right now" strip's headline numbers (dashboard_snapshot_metrics()) —
-  // null while loading/unavailable, in which case RightNowStrip's own `??
-  // '—'` fallbacks render, same "fails soft" shape as attentionRows/
-  // categoryBreakdown above. Re-fetched whenever the manager's My/Team scope
-  // changes (see the effect below) — every other role fetches once.
-  const [snapshotMetrics, setSnapshotMetrics] = useState(null)
-  const [allFunnelStageHistory, setFunnelStageHistory] = useState([])
-  const [allLossReasons, setLossReasons] = useState([])
-  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
-  const [allDecidedStageHistory, setDecidedStageHistory] = useState([])
-  const [activitiesTrendWindow, setActivitiesTrendWindow] = useState([])
+  const attentionRpcFailed = Boolean(attentionQuery.result?.error)
+
+  // Fast path for the 3 category-breakdown cards + Pipeline by stage — see
+  // Schema/migration_leads_category_breakdown_rpc.sql and
+  // fetchCategoryBreakdown()'s own header comment. null means "not
+  // available" (not answered yet, or failed) — every consumer below falls
+  // back to computing the same numbers from breakdownLeads exactly as before,
+  // so this is additive only and never blocks rendering. Independent of the
+  // manager scope switch — the manager case doesn't use it (see
+  // fastCategoryBreakdown below).
+  const categoryQuery = useCachedQuery(['dash', 'category-breakdown'], () => fetchCategoryBreakdown(), { enabled: wantsReports })
+  const categoryBreakdown = useMemo(() => {
+    const res = categoryQuery.result
+    if (!res || res.error || !res.data) return null
+    const grouped = { area: [], site_stage: [], product: [], stage: [] }
+    res.data.forEach((row) => {
+      const bucket = grouped[row.category_group]
+      // lead_count/deal_value come back over PostgREST as strings (bigint/
+      // numeric, to avoid JS float precision loss) — coerce once, here,
+      // rather than at every consumer.
+      if (bucket) bucket.push({ category: row.category, count: Number(row.lead_count), value: Number(row.deal_value) })
+    })
+    return grouped
+  }, [categoryQuery.result])
+
+  const wonQuery = useCachedQuery(['dash', 'won-history'], fetchWonStageHistory, { enabled: wantsReports })
+  const allWonStageHistory = wonQuery.result?.data ?? EMPTY
+
+  // Targets live in state seeded from their query, because saving or
+  // cancelling a target edits this list in place (mergeTargetRow) before the
+  // refetch that follows the write re-seeds it.
+  const targetsQuery = useCachedQuery(
+    ['dash', 'targets', targetPeriod?.periodType ?? '-', targetPeriod?.periodValue ?? '-'],
+    () => fetchTargetsForPeriod(targetPeriod),
+    { enabled: wantsReports && Boolean(targetPeriod) }
+  )
+  const [allTargets, setTargets] = useState([])
+  useEffect(() => {
+    if (!targetPeriod) {
+      setTargets([])
+      return
+    }
+    const res = targetsQuery.result
+    if (res && !res.error) setTargets(res.data ?? [])
+  }, [targetPeriod, targetsQuery.result])
+
+  const breakdownQuery = useCachedQuery(['dash', 'breakdown-leads'], () => fetchLeadsForBreakdown(), { enabled: wantsBreakdown })
+  const allBreakdownLeads =
+    breakdownQuery.result && !breakdownQuery.result.error ? breakdownQuery.result.data ?? EMPTY : EMPTY
+  // fetchLeadsForBreakdown has no other "done" signal — an empty array reads the
+  // same whether it is loading, failed or genuinely empty.
+  const breakdownSettled = breakdownQuery.result !== undefined
+
+  // Powers Needs Attention (src/lib/attention.js) — "no activity in N days"
+  // needs each lead's most recent activity, reduced client-side from every
+  // activities row rather than a second per-lead round trip.
+  //
+  // ONLY FETCHED WHEN THE FALLBACK WILL ACTUALLY RUN. Its one consumer is
+  // computeAttentionBuckets(), which the RPC path replaces — so on the
+  // normal path this whole activities scan (measured 885-3,024ms) is never
+  // issued. A manager always needs it (the RPC can't honour their My/Team
+  // toggle), and so does anyone whose RPC call failed. Large and only a
+  // fallback, so kept in memory rather than on the device.
+  const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead, {
+    enabled: wantsReports && (isManager || attentionRpcFailed),
+    persist: false,
+  })
+  const lastActivityByLead = useMemo(() => {
+    const map = new Map()
+    const res = lastActivityQuery.result
+    if (!res || res.error) return map
+    ;(res.data ?? []).forEach((row) => {
+      const existing = map.get(row.lead_id)
+      if (!existing || new Date(row.created_at) > new Date(existing)) {
+        map.set(row.lead_id, row.created_at)
+      }
+    })
+    return map
+  }, [lastActivityQuery.result])
+
+  // Powers the win-rate KPI/drill-down and the `loss` kind's lost-leads list.
+  const decidedQuery = useCachedQuery(['dash', 'decided-history'], () => fetchDecidedStageHistory(), { enabled: wantsReports })
+  const allDecidedStageHistory = decidedQuery.result?.data ?? EMPTY
+
+  // One 8-week-back window, sliced into weekly buckets for the KPI row's
+  // sparklines (src/components/KpiSparkRow.jsx) — unbounded from the
+  // selected preset on purpose, see fetchActivitiesTrendWindow's own comment.
+  const trendQuery = useCachedQuery(['dash', 'activities-trend-8w', todayISO()], fetchActivitiesTrendWindow, {
+    enabled: wantsReports,
+  })
+  const activitiesTrendWindow = trendQuery.result?.data ?? EMPTY
+
+  const funnelQuery = useCachedQuery(['dash', 'funnel-history'], () => fetchStageHistoryForFunnel(), { enabled: wantsReports })
+  const allFunnelStageHistory = funnelQuery.result?.data ?? EMPTY
+
+  // The owner, and now a sales manager for their own team's lost deals
+  // (owner's ruling, 2026-09-03). loss_reasons SELECT is genuinely
+  // owner-only in RLS — the card is invisible to a coordinator, not merely
+  // hidden — so this widening required a real policy,
+  // manager_team_select on loss_reasons (migration_sales_manager.sql
+  // STEP 6). A sales exec still fetches nothing rather than firing a
+  // request the database would answer with an empty set.
+  const seesLossReasons = isOwner || isManager
+  const lossQuery = useCachedQuery(['dash', 'loss-reasons'], () => fetchLossReasons(), {
+    enabled: wantsReports && seesLossReasons,
+  })
+  // COUNT ONLY CURRENTLY-LOST LEADS (owner's ruling, 2026-08-13 — Q-P1-3).
+  //
+  // loss_reasons is append-only: there is no DELETE grant or policy for
+  // anyone, including the owner. So a lead marked lost and later reopened
+  // keeps its loss reason forever, and "Why we lose" used to keep counting
+  // it — which is why the card totalled higher than the `lost` count on
+  // Pipeline by stage (29 rows against 26 lost leads in the Phase 9 audit
+  // data). The two readings were "count every loss EVENT" and "count
+  // currently-lost LEADS"; the owner chose the latter, so a recovered deal
+  // stops being reported as a loss.
+  //
+  // Filtered HERE, once, rather than inside the card — the same array feeds
+  // LossReasonsCard and buildLossPanel, so filtering at the source is what
+  // guarantees the compact card and its drill-down can never disagree.
+  const allLossReasons = useMemo(() => {
+    const res = lossQuery.result
+    if (!seesLossReasons || !res || res.error) return EMPTY
+    return (res.data ?? []).filter((row) => row.leads?.current_stage === 'lost')
+  }, [lossQuery.result, seesLossReasons])
+
+  // ---- Day Review data ----
+  // Everything on the Day Review reloads when the date changes — each day is
+  // its own remembered answer (the same key the Today screens use for today).
+  const dayQuery = useCachedQuery(['today', 'day-review', dayDate], () => fetchDayReview(dayDate), {
+    enabled: wantsReports && isDayReview,
+  })
+  const dayData = dayQuery.result ?? null
+  const dayLoading = dayQuery.isLoading
+  const dayError = useMemo(
+    () => (dayQuery.result?.error ? errorMessage(dayQuery.result.error) : null),
+    [dayQuery.result]
+  )
+  const updatedAt = dayQuery.updatedAt ? formatClockTime(new Date(dayQuery.updatedAt).toISOString()) : null
+  // A different day (or leaving and re-entering the Day Review) starts with
+  // nobody's day sheet selected, as it always has.
+  useEffect(() => {
+    setSelectedExecId(null)
+  }, [isDayReview, dayDate])
+
+  // When the trail actually begins, for the day sheet's honest empty state on
+  // any date before the audit trail shipped. Fetched once, not per day.
+  const changeLogQuery = useCachedQuery(['dash', 'change-log-start'], () => fetchChangeLogStart(), {
+    enabled: wantsReports && isDayReview,
+  })
+  const changeLogStart = useMemo(() => {
+    const res = changeLogQuery.result
+    if (!res) return null
+    return res.data?.changed_at
+      ? new Date(res.data.changed_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+      : ''
+  }, [changeLogQuery.result])
+
   const [panel, setPanel] = useState(null)
   // The Orders booked popup is held as a REQUEST, not a built panel like the
   // others: it joins the won history to the leads fetch, the slowest read on the
@@ -227,11 +448,6 @@ function Dashboard() {
   // leads land. undefined = closed · null = everyone · an id = opened on one
   // exec (the heatmap cell).
   const [bookedFor, setBookedFor] = useState(undefined)
-  // fetchLeadsForBreakdown has no other "done" signal — an empty array reads the
-  // same whether it is loading, failed or genuinely empty.
-  const [breakdownSettled, setBreakdownSettled] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
 
   // ---- The sales manager's My / Team switch ----
   //
@@ -321,6 +537,21 @@ function Dashboard() {
       : []
     : [...managedIds]
 
+  // The "Right now" strip's snapshot — unlike fetchCategoryBreakdown above,
+  // THIS one is wired to the manager's own My/Team toggle (via
+  // snapshotOwnerIds), because dashboard_snapshot_metrics() was built with a
+  // real p_owner_ids parameter for exactly that purpose (see its migration's
+  // own header). Keyed by that scope, so My and Team are two remembered
+  // answers. null while loading/unavailable, in which case RightNowStrip's own
+  // `?? '—'` fallbacks render.
+  const snapshotQuery = useCachedQuery(
+    ['dash', 'snapshot', snapshotOwnerIds === null ? 'all' : snapshotOwnerIds.join(',') || 'none'],
+    () => fetchDashboardSnapshotMetrics(snapshotOwnerIds),
+    { enabled: wantsReports }
+  )
+  const snapshotMetrics =
+    snapshotQuery.result && !snapshotQuery.result.error ? snapshotQuery.result.data?.[0] ?? null : null
+
   const activities = useMemo(() => allActivities.filter((r) => inScope(r.employee_id)), [allActivities, inScope])
   const targets = useMemo(() => allTargets.filter((r) => inScope(r.employee_id)), [allTargets, inScope])
   const leads = useMemo(() => allLeads.filter((r) => inScope(r.owner_employee_id)), [allLeads, inScope])
@@ -405,35 +636,6 @@ function Dashboard() {
     ? 'Team leads'
     : 'My leads'
 
-  // ---- Day Review (the `today` period) ----
-  // Its own date, independent of the report cards' date range: this pane
-  // accepts any past day, and changing it reloads every number including
-  // Tomorrow (= chosen date + 1).
-  const isDayReview = preset === 'today'
-  const [dayDate, setDayDate] = useState(todayISO())
-  const [dayData, setDayData] = useState(null)
-  const [dayLoading, setDayLoading] = useState(false)
-  const [dayError, setDayError] = useState(null)
-  const [changeLogStart, setChangeLogStart] = useState(null)
-  const [selectedExecId, setSelectedExecId] = useState(null)
-  const [updatedAt, setUpdatedAt] = useState(null)
-
-  const range = rangeForPreset(preset, customStart, customEnd)
-  // targets are keyed by week/month/quarter — 15D/Custom have no period to
-  // look one up against, so Targets vs. actuals doesn't render at all for
-  // them (see the featured-row layout below and CLAUDE.md's Dashboard
-  // section). Reuses periodForPreset instead of re-deriving the same
-  // week/month/quarter check a second way.
-  //
-  // ONE source for "which period is on screen", read by all three things
-  // that need it: the fetch below, the render gate, and the merge of a
-  // newly-saved target. These used to be three separate periodForPreset()
-  // calls, which is the shape this repo has been bitten by before (a
-  // capability computed twice drifting into two answers) — here the merge
-  // had no notion of the displayed period at all, and silently showed next
-  // week's target under the current week.
-  const targetPeriod = useMemo(() => periodForPreset(preset), [preset])
-  const isTargetPeriod = targetPeriod != null
 
   // The Leads tab gets its own title ("My leads"/"All leads") + a live open
   // count/value sub, mirroring the mobile "Leads" screen's header — computed
@@ -458,331 +660,6 @@ function Dashboard() {
     return () => setOverride(null)
   }, [activeTab, leadsTitle, seesOthersData, preset, breakdownLeads, setOverride])
 
-  useEffect(() => {
-    const range = rangeForPreset(preset, customStart, customEnd)
-    // The Day Review runs its own day-scoped queries and renders none of the
-    // report cards these two feed — skip the round trip entirely.
-    if (!wantsReports || !range || preset === 'today') return
-    let active = true
-    setLoading(true)
-    setError(null)
-
-    Promise.all([fetchActivityCounts(range), fetchNewLeadsBySource(range)]).then(
-      ([activitiesRes, leadsRes]) => {
-        if (!active) return
-        if (activitiesRes.error || leadsRes.error) {
-          setError(errorMessage(activitiesRes.error ?? leadsRes.error))
-        } else {
-          setActivities(activitiesRes.data ?? [])
-          setLeads(leadsRes.data ?? [])
-        }
-        setLoading(false)
-      }
-    )
-
-    return () => {
-      active = false
-    }
-  }, [wantsReports, preset, customStart, customEnd])
-
-  useEffect(() => {
-    if (!wantsReports) return
-    let active = true
-    fetchClosureForecast().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setForecast(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports])
-
-  // Scoped once, here, rather than at each of the ~8 places `employees` is
-  // consumed downstream (the Day Review table, per-exec breakdowns, every
-  // attainment drill-down, the All Leads owner filter). RLS on `employees` is
-  // deliberately open to any active employee, so this query returns every rep
-  // in the company no matter who asks — a coordinator seeing another team's
-  // reps listed as all-zero rows would be both wrong and confusing.
-  //
-  // Only the coordinator case is narrowed. An owner keeps the full roster, and
-  // a sales exec's own consumers are already gated off per-person breakdowns
-  // entirely, so neither changes behaviour here.
-  useEffect(() => {
-    let active = true
-    fetchActiveSalesExecs().then(({ data, error }) => {
-      if (!active) return
-      if (error) return
-      const all = data ?? []
-      // A manager's roster is their own reports PLUS themselves — they carry
-      // a quota and work deals, so their own row has to be available for the
-      // 'my' side of the switch. Which of the two the page actually shows is
-      // decided by the `employees` memo above, not here.
-      setEmployees(
-        employee?.role === 'sales_coordinator'
-          ? all.filter((e) => e.coordinator_id === employee.id)
-          : employee?.role === 'sales_manager'
-          ? all.filter((e) => e.manager_id === employee.id || e.id === employee.id)
-          : all
-      )
-    })
-    return () => {
-      active = false
-    }
-  }, [employee])
-
-  // Fires once on mount, independent of the manager scope switch — the
-  // manager case simply doesn't use this data (see fastCategoryBreakdown
-  // above), so there's nothing to refetch when managerScope changes.
-  // Fails soft: an error (including "function does not exist" if the
-  // migration hasn't been run yet) just leaves categoryBreakdown null,
-  // which every consumer below already treats as "use the slow path".
-  useEffect(() => {
-    if (!wantsReports) return
-    let active = true
-    fetchLeadsNeedingAttention().then(({ data, error }) => {
-      if (!active) return
-      if (error || !data) {
-        // Distinct from "still loading": this is what releases the
-        // fetchLastActivityPerLead() query below, which the fallback needs
-        // and the fast path does not.
-        setAttentionRpcFailed(true)
-        return
-      }
-      setAttentionRows(data)
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports])
-
-  useEffect(() => {
-    if (!wantsReports) return
-    let active = true
-    fetchCategoryBreakdown().then(({ data, error }) => {
-      if (!active) return
-      if (error || !data) return
-      const grouped = { area: [], site_stage: [], product: [], stage: [] }
-      data.forEach((row) => {
-        const bucket = grouped[row.category_group]
-        // lead_count/deal_value come back over PostgREST as strings (bigint/
-        // numeric, to avoid JS float precision loss) — coerce once, here,
-        // rather than at every consumer.
-        if (bucket) bucket.push({ category: row.category, count: Number(row.lead_count), value: Number(row.deal_value) })
-      })
-      setCategoryBreakdown(grouped)
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports])
-
-  // The "Right now" strip's snapshot — unlike fetchCategoryBreakdown above,
-  // THIS one is wired to the manager's own My/Team toggle (via
-  // snapshotOwnerIds), because dashboard_snapshot_metrics() was built with a
-  // real p_owner_ids parameter for exactly that purpose (see its migration's
-  // own header) — there's no "not wired for a manager" caveat to carry
-  // forward here. Deps list the primitives snapshotOwnerIds is built from
-  // (mirroring inScope's own useCallback deps just above) rather than
-  // snapshotOwnerIds itself, since that's a fresh array literal every render
-  // and would refire this effect on every render if used directly.
-  useEffect(() => {
-    if (!wantsReports) return
-    let active = true
-    fetchDashboardSnapshotMetrics(snapshotOwnerIds).then(({ data, error }) => {
-      if (!active) return
-      if (error || !data?.[0]) return
-      setSnapshotMetrics(data[0])
-    })
-    return () => {
-      active = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantsReports, isManager, managerScope, employee?.id, managedIds])
-
-  useEffect(() => {
-    if (!wantsReports) return
-    let active = true
-    fetchWonStageHistory().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setWonStageHistory(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports])
-
-  useEffect(() => {
-    if (!targetPeriod) {
-      setTargets([])
-      return
-    }
-    if (!wantsReports) return
-    let active = true
-    fetchTargetsForPeriod(targetPeriod).then(({ data, error }) => {
-      if (!active) return
-      if (!error) setTargets(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports, targetPeriod])
-
-  useEffect(() => {
-    if (!wantsBreakdown) return
-    let active = true
-    fetchLeadsForBreakdown().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setBreakdownLeads(data ?? [])
-      setBreakdownSettled(true)
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsBreakdown])
-
-  // Powers Needs Attention (src/lib/attention.js) — "no activity in N days"
-  // needs each lead's most recent activity, reduced client-side from every
-  // activities row rather than a second per-lead round trip.
-  //
-  // ONLY FETCHED WHEN THE FALLBACK WILL ACTUALLY RUN. Its one consumer is
-  // computeAttentionBuckets(), which the RPC path replaces — so on the
-  // normal path this whole activities scan (measured 885-3,024ms) is never
-  // issued. A manager always needs it (the RPC can't honour their My/Team
-  // toggle), and so does anyone whose RPC call failed.
-  useEffect(() => {
-    if (!wantsReports || (!isManager && !attentionRpcFailed)) return
-    let active = true
-    fetchLastActivityPerLead().then(({ data, error }) => {
-      if (!active) return
-      if (!error) {
-        const map = new Map()
-        ;(data ?? []).forEach((row) => {
-          const existing = map.get(row.lead_id)
-          if (!existing || new Date(row.created_at) > new Date(existing)) {
-            map.set(row.lead_id, row.created_at)
-          }
-        })
-        setLastActivityByLead(map)
-      }
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports, isManager, attentionRpcFailed])
-
-  // Powers the win-rate KPI/drill-down and the `loss` kind's lost-leads list.
-  useEffect(() => {
-    if (!wantsReports) return
-    let active = true
-    fetchDecidedStageHistory().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setDecidedStageHistory(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports])
-
-  // One 8-week-back window, sliced into weekly buckets for the KPI row's
-  // sparklines (src/components/KpiSparkRow.jsx) — unbounded from the
-  // selected preset on purpose, see fetchActivitiesTrendWindow's own comment.
-  useEffect(() => {
-    if (!wantsReports) return
-    let active = true
-    fetchActivitiesTrendWindow().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setActivitiesTrendWindow(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports])
-
-  useEffect(() => {
-    if (!wantsReports) return
-    let active = true
-    fetchStageHistoryForFunnel().then(({ data, error }) => {
-      if (!active) return
-      if (!error) setFunnelStageHistory(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports])
-
-  useEffect(() => {
-    // The owner, and now a sales manager for their own team's lost deals
-    // (owner's ruling, 2026-09-03). loss_reasons SELECT is genuinely
-    // owner-only in RLS — the card is invisible to a coordinator, not merely
-    // hidden — so this widening required a real policy,
-    // manager_team_select on loss_reasons (migration_sales_manager.sql
-    // STEP 6). A sales exec still fetches nothing rather than firing a
-    // request the database would answer with an empty set.
-    if (!isOwner && !isManager) {
-      setLossReasons([])
-      return
-    }
-    if (!wantsReports) return
-    let active = true
-    fetchLossReasons().then(({ data, error }) => {
-      if (!active) return
-      // COUNT ONLY CURRENTLY-LOST LEADS (owner's ruling, 2026-08-13 — Q-P1-3).
-      //
-      // loss_reasons is append-only: there is no DELETE grant or policy for
-      // anyone, including the owner. So a lead marked lost and later reopened
-      // keeps its loss reason forever, and "Why we lose" used to keep counting
-      // it — which is why the card totalled higher than the `lost` count on
-      // Pipeline by stage (29 rows against 26 lost leads in the Phase 9 audit
-      // data). The two readings were "count every loss EVENT" and "count
-      // currently-lost LEADS"; the owner chose the latter, so a recovered deal
-      // stops being reported as a loss.
-      //
-      // Filtered HERE, once, rather than inside the card — the same array feeds
-      // LossReasonsCard and buildLossPanel, so filtering at the source is what
-      // guarantees the compact card and its drill-down can never disagree.
-      const stillLost = (data ?? []).filter((row) => row.leads?.current_stage === 'lost')
-      if (!error) setLossReasons(stillLost)
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports, isOwner, isManager])
-
-  // Everything on the Day Review reloads when the date changes — nothing here
-  // is cached across days, since every figure is bounded to the one day.
-  useEffect(() => {
-    if (!wantsReports || !isDayReview) return
-    let active = true
-    setDayLoading(true)
-    setDayError(null)
-    setSelectedExecId(null)
-    fetchDayReview(dayDate).then((res) => {
-      if (!active) return
-      setDayData(res)
-      setDayError(res.error ? errorMessage(res.error) : null)
-      setUpdatedAt(formatClockTime(new Date()))
-      setDayLoading(false)
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports, isDayReview, dayDate])
-
-  // When the trail actually begins, for the day sheet's honest empty state on
-  // any date before the audit trail shipped. Fetched once, not per day.
-  useEffect(() => {
-    if (!wantsReports || !isDayReview || changeLogStart !== null) return
-    let active = true
-    fetchChangeLogStart().then(({ data }) => {
-      if (!active) return
-      setChangeLogStart(
-        data?.changed_at ? new Date(data.changed_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
-      )
-    })
-    return () => {
-      active = false
-    }
-  }, [wantsReports, isDayReview, changeLogStart])
 
   // A sales exec sees only their own row. Their queries are already RLS-scoped
   // to their own data, so listing the whole team would render every colleague

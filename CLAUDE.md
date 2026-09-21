@@ -3370,8 +3370,13 @@ dot) while a remembered result is refreshing and **Not updated** (amber) if
 that refresh failed, from `useSyncState()`. Converted so far: every Today
 screen (Home, OwnerToday, CoordinatorToday, ManagerToday, BdmToday,
 TeamTodayPanel, AssignedLeadsCard, BdmPoolCard, BdmUpdatesLine,
-useAttentionBuckets). Measured: numbers on screen 89 ms after tapping Today,
-fresh by ~1.6 s. Rules:
+useAttentionBuckets) and the shared **Dashboard** (all 16 of its Reports
+reads, plus the Day Review — which shares the Today screens' `day-review`
+key, and the attention RPC, which shares Today's `attention` key). Measured:
+numbers on screen 89 ms after tapping Today, fresh by ~1.6 s. Dashboard's
+rendered text was compared line-for-line against the old code — owner Week /
+Month / Quarter / Day Review and a manager's My + Team: identical (Day
+Review's "updated" clock aside). Rules:
 * **The key encodes every argument** (a day, an employee id, a period) —
   queryCache.js's rule. The signed-in auth user id is prefixed automatically
   (`scopedKey`), and the whole store is wiped on sign-out and on any session
@@ -3397,8 +3402,17 @@ fresh by ~1.6 s. Rules:
   (including "no such employee") replaces it, and sign-out clears it.
 * The phone greeting's min-width drops to 160px (section 38) so the longer
   pill labels fit at 375px — measured, not guessed.
-* **Not yet converted:** Dashboard (19 effects), All Leads, Lead Detail and
-  the rest still load the old way.
+* **Dashboard's pattern:** each old `all*` state is now a query-derived
+  const under the same name, so no card changed. Two stay state: `allTargets`
+  (SetTargetForm/cancel edit it in place via `mergeTargetRow`, seeded from
+  its query) and `selectedExecId`. The "Right now" snapshot is keyed by the
+  manager's scope (`snapshotOwnerIds`), so My and Team are two remembered
+  answers. `loading` = "no result yet for this range", so remembered numbers
+  render the cards at once. `EMPTY` is one shared frozen-by-convention array
+  so the scoped `useMemo`s don't recompute on a fresh `[]` every render.
+* **Not yet converted:** BdmDashboard, All Leads (`LeadsListCard`), Lead
+  Detail, EmployeeProfile, My Team, Search and the rest still load the old
+  way.
 
 **📄 `PERFORMANCE.md` (repo root) is the standing reference** — read it before
 adding a screen, card or query. The measured diagnosis was that "everything is

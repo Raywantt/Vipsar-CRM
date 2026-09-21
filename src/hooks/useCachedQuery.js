@@ -22,7 +22,7 @@ class SupabaseResultError extends Error {
 //             (fetchDayReview, fetchLeadsNeedingAttention, …). Nothing in the
 //             query layer changes to use this.
 //
-// Returns `{ result, isLoading, isFetching }`:
+// Returns `{ result, isLoading, isFetching, updatedAt }`:
 //   result    — the `{ data, error }` object, or undefined before anything is
 //               known. While a remembered result is being refreshed, `result`
 //               stays the remembered one; if that refresh FAILS the last good
@@ -51,7 +51,14 @@ export function useCachedQuery(key, fetchFn, { enabled = true, staleTime, persis
   else if (query.error instanceof SupabaseResultError) result = query.error.result
   else if (query.error) result = { data: null, error: query.error }
 
-  return { result, isLoading: enabled && query.data === undefined && !query.error, isFetching: query.isFetching }
+  return {
+    result,
+    isLoading: enabled && query.data === undefined && !query.error,
+    isFetching: query.isFetching,
+    // When the result on screen was fetched (ms since epoch), remembered or
+    // fresh — Day Review's "Updated 3:42 pm".
+    updatedAt: query.dataUpdatedAt || null,
+  }
 }
 
 // ---------------------------------------------------------------------------
