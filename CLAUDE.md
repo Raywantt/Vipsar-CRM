@@ -1989,6 +1989,12 @@ days ago with no quote. Thresholds are named constants at the top of
   `buildLossPanel`, so filtering once at the source is what stops the two
   disagreeing. **The two figures should now always match**; if this card ever
   again totals more than the `lost` count, that filter has been lost.
+  **Named competitors are in the Details popup only** ("Lost to competitor",
+  `buildLossPanel`), not on the card — owner's choice, 2026-09-21. The
+  competitor field is free text and reps type whole sentences into it (up to
+  ~100 characters, 61 distinct entries), so the card's one-line chips ran off
+  the edge and let the whole page slide sideways on a phone. The popup's
+  cards wrap. Don't bring the chip list back to the card.
 
 #### Targets vs. actuals (`TargetsVsActualsCard.jsx`)
 
@@ -2039,6 +2045,10 @@ bar-list at every width, with every metric shown even at zero and
 1024px the owner gets one collapsed `ExecAttainmentRow` per exec (name ·
 blended attainment · one bar) expanding to the full breakdown — the flat
 employee × metric list measured 3,388px on this card alone.
+**Below 1024px the "whose targets" picker is a dropdown** (All + full names,
+every role that sees others' data), not a row of buttons — owner's choice,
+2026-09-21. With seven execs the button row ran ~90px past a 375px phone and
+let the whole page slide sideways; a list has no width to outgrow.
 
 **Drill-downs.** Activity cells fetch that exec's log entries **on demand**,
 never preloaded for everyone. Scanning Leads builds synchronously from state

@@ -303,26 +303,24 @@ function TargetsVsActualsCard({
       )}
 
       <div className={showHeatmap ? 'vip-only-mobile' : undefined}>
+        {/* A dropdown, not a row of buttons (owner's choice, 2026-09-21): the
+            row held All + one button per exec, and with seven execs it ran
+            ~90px past a 375px phone and let the whole page slide sideways.
+            A list has no width to outgrow, so it also carries full names. */}
         {showByEmployee && (
-          <div className="vip-seg vip-seg-outline">
-            <button
-              type="button"
-              className={employeeFilter === '' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-              onClick={() => setEmployeeFilter('')}
-            >
-              All
-            </button>
+          <select
+            className="vip-select"
+            aria-label="Whose targets to show"
+            value={employeeFilter}
+            onChange={(ev) => setEmployeeFilter(ev.target.value)}
+          >
+            <option value="">All</option>
             {employees.map((e) => (
-              <button
-                key={e.id}
-                type="button"
-                className={employeeFilter === String(e.id) ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
-                onClick={() => setEmployeeFilter(String(e.id))}
-              >
-                {e.name.split(' ')[0]}
-              </button>
+              <option key={e.id} value={String(e.id)}>
+                {e.name}
+              </option>
             ))}
-          </div>
+          </select>
         )}
         <TargetsTable
           activities={activities}
