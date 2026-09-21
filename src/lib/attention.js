@@ -211,15 +211,26 @@ export function buildLastStageChangeByLead(stageHistoryRows) {
 // Shared by the client-side and RPC-backed paths so both display the exact
 // same age and description for a stale row — see CLAUDE.md's Needs
 // Attention entry on why the two must never drift.
+//
+// THE DAY A LEAD ENTERED THE CRM COUNTS AS A TOUCH TOO (owner's ruling,
+// 2026-09-21). For an app-created lead that changes nothing — nothing about a
+// lead can predate its own creation. It matters for a sheet imported AFTER
+// HISTORY_STARTS_AT: Pawan's Ludhiana import landed on 18 Sep carrying stage
+// history back-dated to 2025, and without this its 46 untouched leads read as
+// "14+ days silent" three days after they first appeared — the client-side
+// path said 455 stale while leads_needing_attention() (which has always taken
+// GREATEST(activity, stage change, created_at)) said 409. Both now agree: a
+// lead nobody could have worked before it existed here isn't neglected yet.
 function staleSinceTouch(lastActivityAt, lastStageChangeAt, createdAt) {
-  return laterOf(lastActivityAt, lastStageChangeAt) ?? createdAt
+  return laterOf(laterOf(lastActivityAt, lastStageChangeAt), createdAt)
 }
 
-function staleDescription(lastActivityAt, lastStageChangeAt, touchAge) {
-  const stageIsLatest =
-    lastStageChangeAt && (!lastActivityAt || new Date(lastStageChangeAt) > new Date(lastActivityAt))
-  if (stageIsLatest) return `Stage changed ${touchAge}d ago`
-  if (lastActivityAt) return `Last activity ${touchAge}d ago`
+function staleDescription(lastActivityAt, lastStageChangeAt, touchAge, createdAt = null) {
+  const touch = staleSinceTouch(lastActivityAt, lastStageChangeAt, createdAt)
+  // An activity at the same moment as a stage change reads as the activity,
+  // as it always has — the stage change only wins when it is strictly later.
+  if (lastActivityAt && touch === lastActivityAt) return `Last activity ${touchAge}d ago`
+  if (lastStageChangeAt && touch === lastStageChangeAt) return `Stage changed ${touchAge}d ago`
   return `No activity since created, ${touchAge}d ago`
 }
 
@@ -310,7 +321,7 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead, last
       const touchAge = daysSince(sinceTouch)
       const touchGate = queueAge(sinceTouch, imported)
       if (touchGate != null && touchGate >= ATTENTION_DAYS) {
-        stale.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge)))
+        stale.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge, lead.created_at)))
       }
     }
 
@@ -403,7 +414,7 @@ export function computeStale7Bucket(breakdownLeads, lastActivityByLead, lastStag
     const touchAge = daysSince(sinceTouch)
     const touchGate = queueAge(sinceTouch, imported)
     if (touchGate != null && touchGate >= STALE_DAYS) {
-      rows.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge)))
+      rows.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge, lead.created_at)))
     }
   })
   return buildStale7BucketShape(sortByAgeDesc(rows))
@@ -439,7 +450,7 @@ export function computeStale7BucketFromRpc(rpcRows) {
     const lastStageChangeAt = r.last_stage_change_at ?? null
     const sinceTouch = staleSinceTouch(lastActivityAt, lastStageChangeAt, r.lead_created_at)
     const touchAge = daysSince(sinceTouch)
-    rows.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge)))
+    rows.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge, r.lead_created_at)))
   })
   return buildStale7BucketShape(sortByAgeDesc(rows))
 }
@@ -571,7 +582,7 @@ export function computeAttentionBucketsFromRpc(rpcRows) {
       const lastStageChangeAt = r.last_stage_change_at ?? null
       const sinceTouch = staleSinceTouch(lastActivityAt, lastStageChangeAt, r.lead_created_at)
       const touchAge = daysSince(sinceTouch)
-      stale.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge)))
+      stale.push(toRow(lead, touchAge, staleDescription(lastActivityAt, lastStageChangeAt, touchAge, r.lead_created_at)))
     }
     if (r.is_silent_quote) {
       const quoteAge = daysSince(r.quote_sent_at)

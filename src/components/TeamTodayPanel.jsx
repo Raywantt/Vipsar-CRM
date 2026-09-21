@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
-import { fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
-import { computeAttentionBuckets, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
+import { buildAgeingPanel } from '../lib/attention'
+import { useAttentionBuckets } from '../hooks/useAttentionBuckets'
 import { rescheduleFollowUp, reminderSavedMessage } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import DayReviewCard from './DayReviewCard'
@@ -56,9 +56,6 @@ function TeamTodayPanel({
   rowActions = false,
 }) {
   const [dayData, setDayData] = useState(null)
-  const [breakdownLeads, setBreakdownLeads] = useState(null)
-  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
-  const [lastStageChangeByLead, setLastStageChangeByLead] = useState(new Map())
 
   const [panel, setPanel] = useState(null)
   const [selectedExecId, setSelectedExecId] = useState(null)
@@ -83,38 +80,15 @@ function TeamTodayPanel({
     }
   }, [employee?.id])
 
-  // Same pipeline-snapshot pair Home.jsx fetches once for its own work
-  // queue. fetchLeadsForBreakdown() is already RLS-scoped to the team, so
-  // the red-flags queue needs no owner filter the way Home's personal one
-  // does.
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead(), fetchStageHistoryForFunnel()]).then(
-      ([leadsRes, activityRes, stageRes]) => {
-        if (!active) return
-        setBreakdownLeads(leadsRes.data ?? [])
-        const map = new Map()
-        ;(activityRes.data ?? []).forEach((row) => {
-          const existing = map.get(row.lead_id)
-          if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-        })
-        setLastActivityByLead(map)
-        setLastStageChangeByLead(buildLastStageChangeByLead(stageRes.data))
-      }
-    )
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
 
   const dayRows = dayData ? buildDayRows(execs, dayData, false) : []
   const dayTotals = buildDayTotals(dayRows)
   const dayKpis = dayData ? buildDayKpis(dayData, dayRows, false) : []
 
-  const attentionBuckets = breakdownLeads
-    ? computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead)
-    : null
+  // RLS already scopes this to the supervisor's team, so the red-flags
+  // queue needs no owner filter the way Home's personal one does — see
+  // useAttentionBuckets.
+  const attentionBuckets = useAttentionBuckets(employee?.id)
 
   // Mapped over attentionKeys rather than filtering the buckets, so the
   // caller's chosen ORDER is what renders. A key with no matching bucket is

@@ -3,14 +3,15 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
-import { fetchLeadsForBreakdown, fetchClosureForecast, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
+import { fetchClosureForecast } from '../lib/dashboardQueries'
 import { fetchWonStageHistory, fetchTargetsForPeriod } from '../lib/targetQueries'
 import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor, reminderSavedMessage, lockedFollowUpIds } from '../lib/followUpQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildSignificantEntries, buildDaySheetPanel } from '../lib/dayReview'
 import { todayISO } from '../lib/followupDates'
 import { computeOrderValueActuals, targetFor } from '../components/TargetsVsActualsCard'
-import { computeAttentionBuckets, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
+import { buildAgeingPanel } from '../lib/attention'
+import { useAttentionBuckets } from '../hooks/useAttentionBuckets'
 import { formatCurrencyCompact } from '../lib/format'
 import { leadDisplayName } from '../lib/leadName'
 import BdmChip from '../components/BdmChip'
@@ -95,15 +96,6 @@ function Home({ embedded = false }) {
   // queries the Dashboard's Day Review runs, scoped by RLS to this employee.
   const [dayData, setDayData] = useState(null)
 
-  // breakdownLeads/lastActivityByLead are period-agnostic pipeline snapshots
-  // (see pipelineValue.js) — fetched once here instead of once per consumer,
-  // since the target effect below and the attention-bucket derivation used to
-  // each call fetchLeadsForBreakdown() independently (a full, unbounded leads
-  // scan, twice on every load and again on every period toggle even though
-  // neither actually depends on period).
-  const [breakdownLeads, setBreakdownLeads] = useState(null)
-  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
-  const [lastStageChangeByLead, setLastStageChangeByLead] = useState(new Map())
 
   useEffect(() => {
     if (!employee?.id) return
@@ -129,41 +121,12 @@ function Home({ embedded = false }) {
     }
   }, [employee?.id])
 
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead(), fetchStageHistoryForFunnel()]).then(
-      ([leadsRes, activityRes, stageRes]) => {
-        if (!active) return
-        setBreakdownLeads(leadsRes.data ?? [])
-        const map = new Map()
-        ;(activityRes.data ?? []).forEach((row) => {
-          const existing = map.get(row.lead_id)
-          if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-        })
-        setLastActivityByLead(map)
-        setLastStageChangeByLead(buildLastStageChangeByLead(stageRes.data))
-      }
-    )
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
-
-  // The 3 stale/silent-quotes/slipped attention buckets, scoped to this
-  // employee's own leads (breakdownLeads/lastActivityByLead return
-  // company-wide rows for an owner under RLS, so the owner_employee_id
-  // filter below is the "make it personal" step, same as EmployeeProfile's
-  // myLeads/myAttention) — independent of the period switch below (the work
-  // queue is always "right now", not scoped to a date range), so this is a
-  // plain derived value rather than its own fetch.
-  const attentionBuckets = breakdownLeads
-    ? computeAttentionBuckets(
-        breakdownLeads.filter((l) => l.owner_employee_id === employee?.id),
-        lastActivityByLead,
-        lastStageChangeByLead,
-      )
-    : null
+  // The attention buckets, scoped to this employee's own leads — a manager's
+  // RLS also returns their team's leads, so `onlyOwnerId` is the "make it
+  // personal" step, same as EmployeeProfile's myLeads/myAttention.
+  // Independent of the period switch below (the work queue is always "right
+  // now"). One server request — see useAttentionBuckets.
+  const attentionBuckets = useAttentionBuckets(employee?.id, { onlyOwnerId: employee?.id ?? null })
 
   async function handleMarkDone(id) {
     const { data, error } = await markFollowUpDone(id)

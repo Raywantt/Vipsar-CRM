@@ -656,10 +656,16 @@ Every screen shows only what RLS returns; the rosters come from
 `fetchActiveSalesExecs()`/`fetchMyTeamExecs()`, not a client-side role check,
 so nothing needs gating beyond which component renders.
 
-**Fetch `fetchLeadsForBreakdown()` once.** This page used to call it from two
-separate effects and again on every W/M/Q/Y toggle, even though neither
-figure is period-scoped. It is fetched once into `breakdownLeads`/
-`lastActivityByLead` state and `attentionBuckets` is a plain derived value.
+**Today screens get their attention buckets from ONE server call**
+(`useAttentionBuckets`, 2026-09-21). Home, OwnerToday and TeamTodayPanel used
+to download every visible lead, activity and stage change (~4,700 rows in 6
+paged requests for the owner) just to compute these buckets — the core of
+the 10am burst behind the 25P02 outage. The hook calls
+`leads_needing_attention()` (RLS-scoped per role, so no role branching;
+Home passes `onlyOwnerId` for its personal queue) and falls back to the old
+downloads only if the function errors. Verified identical, row for row, for
+owner / coordinator / manager (both tabs) / exec. **Don't reintroduce a
+whole-table download on a Today screen.**
 
 **Deliberately not here on the coordinator screen** (matching Phase 4 scope):
 a date picker (Dashboard already owns past-day review, already team-scoped)
@@ -1871,8 +1877,15 @@ days ago with no quote. Thresholds are named constants at the top of
 * **An `on_hold` lead is excluded from the stale bucket outright**, however
   long the pause has run — On Hold deliberately takes a lead off the clock.
   When it resumes, the clock restarts from that day: the "since touch"
-  reference is `GREATEST(last activity, last stage change)`, so the very
-  stage change that ends the pause counts as a touch.
+  reference is `GREATEST(last activity, last stage change, created_at)`, so
+  the very stage change that ends the pause counts as a touch.
+* **The day a lead entered the CRM counts as a touch** (owner's ruling,
+  2026-09-21). It only matters for a sheet imported AFTER `HISTORY_STARTS_AT`
+  with back-dated history — Pawan's Ludhiana import (18 Sep, stage history
+  from 2025): the client path called 46 of its untouched leads 14+ days
+  silent three days after they arrived, while `leads_needing_attention()`
+  (always `GREATEST(…, created_at)`) did not — Today said 455, Dashboard 409.
+  `staleSinceTouch` now includes `created_at`; both paths match row-for-row.
 * **`HISTORY_STARTS_AT` (`'2026-09-02'`) — the legacy-import reset.** The
   imports brought in 431 leads with real dates back to 2023 but **no activity
   history at all** for 306 of them, so the `created_at` fallback stopped

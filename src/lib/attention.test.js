@@ -210,6 +210,27 @@ describe('computeAttentionBuckets', () => {
     expect(stale.rows[0].last).toContain('Stage changed')
   })
 
+  // Owner's ruling 2026-09-21: the day a lead entered the CRM is a touch. The
+  // live case was Pawan's Ludhiana sheet — imported 18 Sep with stage history
+  // back-dated to 2025 — whose untouched leads read as 14+ days silent three
+  // days after they appeared, while leads_needing_attention() (which takes
+  // GREATEST(activity, stage change, created_at)) correctly did not.
+  it('does not flag a freshly imported lead whose only history is back-dated', () => {
+    const lead = baseLead({ id: 'late-import', external_reference_id: 'legacy-pldh-42', current_stage: 'calling', created_at: daysAgo(3) })
+    const lastStageChange = new Map([['late-import', daysAgo(400)]])
+    const [stale] = computeAttentionBuckets([lead], new Map(), lastStageChange)
+    expect(stale.count).toBe(0)
+  })
+
+  it('flags that imported lead once ATTENTION_DAYS pass from the day it arrived, and says so', () => {
+    const lead = baseLead({ id: 'late-import-old', external_reference_id: 'legacy-pldh-43', current_stage: 'calling', created_at: daysAgo(ATTENTION_DAYS + 2) })
+    const lastStageChange = new Map([['late-import-old', daysAgo(400)]])
+    const [stale] = computeAttentionBuckets([lead], new Map(), lastStageChange)
+    expect(stale.count).toBe(1)
+    expect(stale.rows[0].age).toBe(ATTENTION_DAYS + 2)
+    expect(stale.rows[0].last).toContain('No activity since created')
+  })
+
   it('prefers a real logged activity over the stage change when the activity is more recent', () => {
     const lead = baseLead({ id: 'active-after-resume', current_stage: 'calling', created_at: daysAgo(400) })
     const lastActivity = new Map([['active-after-resume', daysAgo(ATTENTION_DAYS - 1)]])
@@ -259,6 +280,13 @@ describe('computeAttentionBucketsFromRpc — stale display matches the client-si
     const [stale] = computeAttentionBucketsFromRpc([row])
     expect(stale.rows[0].age).toBe(ATTENTION_DAYS)
     expect(stale.rows[0].last).toContain('Stage changed')
+  })
+
+  it('reports the age from lead_created_at when the lead arrived after its back-dated history', () => {
+    const row = baseRpcRow({ last_stage_change_at: daysAgo(400), lead_created_at: daysAgo(ATTENTION_DAYS + 2) })
+    const [stale] = computeAttentionBucketsFromRpc([row])
+    expect(stale.rows[0].age).toBe(ATTENTION_DAYS + 2)
+    expect(stale.rows[0].last).toContain('No activity since created')
   })
 
   it('reports the age from last_activity_at when it is the more recent signal', () => {

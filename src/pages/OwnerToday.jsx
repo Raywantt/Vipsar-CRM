@@ -3,8 +3,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
-import { fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
-import { computeAttentionBuckets, buildAgeingPanel, buildLastStageChangeByLead } from '../lib/attention'
+import { buildAgeingPanel } from '../lib/attention'
+import { useAttentionBuckets } from '../hooks/useAttentionBuckets'
 import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reminderSavedMessage, lockedFollowUpIds } from '../lib/followUpQueries'
 import { todayISO } from '../lib/followupDates'
 import DayReviewCard from '../components/DayReviewCard'
@@ -43,9 +43,6 @@ function OwnerToday() {
   const [loadError, setLoadError] = useState(null)
 
   const [dayData, setDayData] = useState(null)
-  const [breakdownLeads, setBreakdownLeads] = useState(null)
-  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
-  const [lastStageChangeByLead, setLastStageChangeByLead] = useState(new Map())
 
   const [panel, setPanel] = useState(null)
   const [selectedExecId, setSelectedExecId] = useState(null)
@@ -81,27 +78,6 @@ function OwnerToday() {
     }
   }, [employee?.id])
 
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead(), fetchStageHistoryForFunnel()]).then(
-      ([leadsRes, activityRes, stageRes]) => {
-        if (!active) return
-        setBreakdownLeads(leadsRes.data ?? [])
-        const map = new Map()
-        ;(activityRes.data ?? []).forEach((row) => {
-          const existing = map.get(row.lead_id)
-          if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-        })
-        setLastActivityByLead(map)
-        setLastStageChangeByLead(buildLastStageChangeByLead(stageRes.data))
-      }
-    )
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
-
   // The owner's own occasional reminders — a real but small use case
   // ("a few times which they want to remember themselves"), so this stays
   // its own personal fetch rather than folded into the org-wide data above.
@@ -121,9 +97,8 @@ function OwnerToday() {
   const dayTotals = buildDayTotals(dayRows)
   const dayKpis = dayData ? buildDayKpis(dayData, dayRows, false) : []
 
-  const attentionBuckets = breakdownLeads
-    ? computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead)
-    : null
+  // Org-wide under the owner's RLS — see useAttentionBuckets.
+  const attentionBuckets = useAttentionBuckets(employee?.id)
 
   // Just the 2 most urgent categories, matching CoordinatorToday's own
   // scope — confirmed with the owner rather than defaulting to all 5, to
