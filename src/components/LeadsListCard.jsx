@@ -17,6 +17,10 @@ import BdmChip from './BdmChip'
 import { isPoolLead } from '../lib/poolLeads'
 import { errorMessage } from '../lib/errorMessage'
 import { leadDisplayName, leadSiteLabel } from '../lib/leadName'
+import { MIN_QUERY_LENGTH } from '../lib/searchQueries'
+import { canExportLeads } from '../lib/roles'
+import { useAuth } from '../contexts/AuthContext'
+import LeadExportPanel from './LeadExportPanel'
 
 // "touched today" / "Nd ago", turning "Nd silent" + red past STALE_DAYS —
 // same threshold attention.js already uses elsewhere, not a second
@@ -224,6 +228,42 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // a subset of everything that matches, and saying so beats letting a
   // partial list look like the complete answer.
   const searchCapped = listResult?.data?.searchCapped ?? false
+
+  // "Download Excel" — owner only, desktop only (roles.js's canExportLeads).
+  // It exports with `listParams` itself, the object this page was fetched
+  // with, so the file holds exactly the leads the count line promises.
+  const { employee } = useAuth()
+  const canExport = canExportLeads(employee?.role)
+  const [exportOpen, setExportOpen] = useState(false)
+  // "Downloaded N leads", shown until the filters change.
+  const [exportDone, setExportDone] = useState(null)
+
+  // The filters as the file describes them — the APPLIED values (debounced
+  // quote range and search), in the words the screen uses. `active` ones name
+  // the file.
+  const exportFilterSummary = useMemo(() => {
+    const summary = []
+    const status = { active: 'Active (not won or lost)', inactive: 'Closed (won or lost)' }[statusFilter]
+    summary.push({ label: 'Status', value: status ?? 'All', active: !!status, fileLabel: statusFilter === 'active' ? 'Active' : 'Closed' })
+    if (showOwnerFilter) {
+      const emp = employeeFilter ? employees.find((e) => String(e.id) === employeeFilter) : null
+      summary.push({ label: 'Owner', value: emp?.name ?? 'All owners', active: !!emp })
+    }
+    summary.push({ label: 'Lead stage', value: stageFilter ? stageLabel(stageFilter) : 'All stages', active: !!stageFilter })
+    const siteStage = siteStageFilter === SITE_STAGE_UNSET ? 'Not set' : siteStageFilter
+    summary.push({ label: 'Site stage', value: siteStage || 'All site stages', active: !!siteStage, fileLabel: `Site stage ${siteStage}` })
+    summary.push({
+      label: 'Source',
+      value: sourceFilter ? SOURCE_TYPE_LABELS[sourceFilter] ?? sourceFilter : 'All sources',
+      active: !!sourceFilter,
+    })
+    const value = formatValueChip(minValue, maxValue)
+    summary.push({ label: 'Quote value', value: value ?? 'Any', active: !!value, fileLabel: `Quote ${value}` })
+    const term = debouncedSearch.trim()
+    const searching = term.length >= MIN_QUERY_LENGTH
+    summary.push({ label: 'Search', value: searching ? `“${term}”` : '—', active: searching, fileLabel: `Search ${term}` })
+    return summary
+  }, [statusFilter, showOwnerFilter, employeeFilter, employees, stageFilter, siteStageFilter, sourceFilter, minValue, maxValue, debouncedSearch])
 
   // Powers the "last touch" / recency line — independent of the filters
   // above (last-activity data doesn't change per filter), so fetched once
@@ -483,16 +523,51 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const rangeEnd = page * LEADS_PAGE_SIZE + leads.length
   const totalPages = Math.max(1, Math.ceil(totalCount / LEADS_PAGE_SIZE))
 
+  const showExport = canExport && !loading && !error && totalCount > 0
+  const exportNote = exportDone?.filtersKey === filtersKey ? exportDone : null
+
   const listStatus = (
     <>
       {!loading && !error && (
-        <p className="vip-card-note">
-          {totalCount === 0
-            ? 'No leads'
-            : `${rangeStart}–${rangeEnd} of ${totalCount} lead${totalCount === 1 ? '' : 's'}`}
-        </p>
+        <div className="vip-leads-countline">
+          <p className="vip-card-note">
+            {totalCount === 0
+              ? 'No leads'
+              : `${rangeStart}–${rangeEnd} of ${totalCount} lead${totalCount === 1 ? '' : 's'}`}
+          </p>
+          {/* Desktop only, deliberately (the owner's ruling) — never rendered
+              into the mobile layout. */}
+          {showExport && (
+            <div className="vip-only-desktop vip-export-trigger">
+              {exportNote && (
+                <span className="vip-card-note" role="status">
+                  Downloaded {exportNote.count.toLocaleString('en-IN')} lead{exportNote.count === 1 ? '' : 's'}
+                </span>
+              )}
+              <button type="button" className="vip-export-btn" onClick={() => setExportOpen(true)}>
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                  <path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Download Excel ({totalCount.toLocaleString('en-IN')})
+              </button>
+            </div>
+          )}
+        </div>
       )}
       {error && <p className="vip-error" role="alert">{error}</p>}
+      {exportOpen && showExport && (
+        <LeadExportPanel
+          totalCount={totalCount}
+          listParams={listParams}
+          filterSummary={exportFilterSummary}
+          exportedBy={employee?.name}
+          onClose={() => setExportOpen(false)}
+          onDone={(count) => {
+            setExportOpen(false)
+            setExportDone({ count, filtersKey })
+          }}
+        />
+      )}
     </>
   )
 

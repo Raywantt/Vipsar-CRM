@@ -137,7 +137,7 @@ src/
                 FollowUpForm, FollowUpList, LeadFollowUpsCard, FabSheet,
                 AssignedLeadsCard, NumPadInput, TodayGreetingHeader, TeamTodayPanel,
                 FollowUpsCard, ShowMoreRows, ErrorBoundary, PeriodPicker,
-                PipelineByStageCard,
+                PipelineByStageCard, LeadExportPanel,
                 BDM: BdmPoolCard, BdmUpdatesLine, BdmLeadUpdateCards,
                 BdmRightNow, BdmTargetsCard, BdmTopArchitectsCard,
                 BdmNetworkCard, BdmTargetsForm, ArchitectDirectory,
@@ -168,14 +168,15 @@ src/
                 followupDates, dayReview, drilldownBuilders, selfAssignTest,
                 appUpdate, poolLeads, architectStats, bdmDashboard,
                 bdmLeadUpdates, architectNetwork, firmLabel,
-                bookedOrders, periodChange,
+                bookedOrders, periodChange, leadExport, leadExportFile,
                 queries: dashboardQueries, searchQueries, targetQueries,
                 partyQueries, employeeQueries, lookupQueries,
                 leadOwnerHistory, dayReviewQueries, followUpQueries,
                 notificationQueries, authQueries, pushSubscription,
                 bdmQueries, architectQueries, accompaniedQueries,
                 leadDetailQueries, screenQueries (every combined fetch a
-                remembered screen makes — see Instant open)
+                remembered screen makes — see Instant open),
+                leadExportQueries
   assets/       images, icons
   sw.js         the service worker source (push handlers only)
   vipsar-theme.css   the app's one design-system stylesheet
@@ -2213,6 +2214,66 @@ phone.
 * There is **no Delete-a-lead tool anywhere in the app**; cleaning up a stray
   lead needs direct Supabase access.
 
+#### Download Excel (All Leads, 2026-09-22)
+
+"Download Excel (N)" on the count line opens a column picker
+(`LeadExportPanel.jsx`, a `.vip-dd-panel` slide-over), then downloads an
+`.xlsx` of **every** lead matching the filters on screen, not just the 50 shown.
+Pure shaping is `leadExport.js`, fetching `leadExportQueries.js`, the file
+`leadExportFile.js`.
+
+* **Owner only, desktop only — both the owner's rulings, deliberate, not a
+  matrix gap.** One flag, `canExportLeads` (`roles.js`). The button sits inside
+  `.vip-only-desktop`. The file carries every client's and architect's phone
+  number, and once it's downloaded the CRM can't take it back. **Don't widen
+  either without asking.**
+* **One filter definition.** `applyLeadsListFilters` + `leadsListSitesEmbed`
+  (`dashboardQueries.js`) are read by both `fetchLeadsList` and the export,
+  and the export is handed the list's own `listParams`. So the file can't hold
+  different leads from the screen. A new facet goes into that function, and
+  both get it.
+* **The owner picks columns before every download.** There are 32, in 10
+  groups. The file keeps `EXPORT_COLUMNS` order whatever order they were
+  ticked in, and the last set used is remembered per device
+  (`vip-export-columns:leads`, localStorage). 13 are ticked by default: the
+  owner's own list (client, number, architect, address, site stage) plus
+  Lead #, **Lead name**, lead stage, owner and source.
+* **Client is strict**: only a party whose `party_type` is `client` (the
+  "`leads.party_id` is not the client" rule). Measured on Vishal Kumar's
+  Presentation leads: 6 of 15 main contacts were an architect, builder, PMC or
+  other. That is why **Lead name** (the Party column, word for word) is on by
+  default, and why a non-client, non-architect main contact is listed under
+  Other site contacts.
+* **Architect** = every architect on the lead, first-credited first:
+  `sourcingArchitect` (referrer, then other party), then `party_id`, then site
+  contacts with the Architect role. Several are joined "; ", and the mobile
+  and firm columns stay lined up with "—" for a gap. The firm is the linked
+  firm party, falling back to the legacy `firm_name`.
+* **Blank means blank** in every column: no ₹0 and no guessed date. Mobiles are
+  Text cells (a leading 0 survives). Money uses a lakh/crore number format.
+  Dates are real Excel dates. "Open in CRM" cells are real hyperlinks (a
+  feature on write-excel-file's extension point), not `=HYPERLINK()`, because
+  Protected View doesn't calculate formulas. The header has filter arrows and
+  is frozen. A second sheet, "About this export", records the filters,
+  exporter, time, count and any extra read that failed.
+* **Extras are fetched only for ticked columns, one request after another.**
+  These are firms, last touch, latest remark and last activity note. Ids go
+  400 per `.in()` (~2KB URLs), and each extra fails soft: a blank column plus
+  a note in the file. Measured: 15 leads, default columns ~0.6s; all 1,338
+  leads with all 32 columns ~6.8s over 12 requests, 157KB file. Nothing is
+  cached or remembered on the device.
+* **write-excel-file is imported dynamically** in `leadExportFile.js` only. It
+  builds as its own ~63KB chunk that nobody downloads until the owner presses
+  Download.
+* **Verified** by opening a full 32-column file in real Excel (no repair log;
+  filter arrows, 40 hyperlinks, frozen header, formats all read back) and by
+  exporting live as the owner (15-lead and 1,338-lead files matched the screen
+  row for row). The coordinator, exec and manager (Team view, leads on
+  screen) show no button. The BDM test account has no leads, so its check
+  rests on the `rolesWith(canExportLeads)` test. **Not observed:** a real
+  browser save dialog, since the download was intercepted in the preview pane
+  to keep client numbers off disk.
+
 ### Day Review (Dashboard's `Today` period)
 
 A **daily accountability read, not a report**: what each exec logged, what
@@ -2427,7 +2488,7 @@ Log link and FAB row, both routing to a page they couldn't reach. Adding the
 BDM found ~120 role checks that would have treated a fifth role as an exec by
 default. `roles.js` exports `canCreateLead`, `canLogActivity`,
 `canSeeTeamDirectory`, `canOpenEmployeeProfiles`, `canSeeMyArchitects`,
-`canSeeArchitectNetwork`, `canOpenArchitectProfiles`, `isBdm` and
+`canSeeArchitectNetwork`, `canOpenArchitectProfiles`, `canExportLeads`, `isBdm` and
 `rolesWith(capability)`; `BottomNav` and `App.jsx` both read them.
 **These are ONE flag per capability — do not re-split them.**
 
@@ -3559,6 +3620,8 @@ ones that mutate an existing lead** — a modified `next_followup_date`,
 ### Libraries
 
 **No GPS, geocoding or drag-and-drop libraries** — all deliberate.
+`write-excel-file` (All Leads' Download Excel) is the one file-format library,
+and it is only ever imported dynamically, never statically.
 
 ## Commands
 

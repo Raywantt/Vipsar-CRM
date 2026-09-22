@@ -193,30 +193,32 @@ export async function resolveLeadsSearchFilter(term) {
 // value that can ever be stored in the column itself.
 export const SITE_STAGE_UNSET = '__unset__'
 
-export function fetchLeadsList(filters = {}) {
-  const { employeeId, employeeIds, stage, siteStage, source, status, minValue, maxValue, searchOr, includePool = false, page = 0 } = filters
+// The `sites` embed for a query All Leads' filters run against.
+//
+// Filtering on an EMBEDDED column needs `!inner`, or PostgREST keeps the
+// parent lead row and merely nulls out the non-matching embed — i.e. the
+// filter silently does nothing to the result set (and to `count`). The
+// hint is applied only while the facet is active: making the embed inner
+// unconditionally would drop any lead with no `sites` row at all from the
+// unfiltered list, which is the opposite of what this screen is for.
+//
+// This is an equality filter on an embedded resource, which PostgREST
+// supports directly — deliberately NOT the multi-step "resolve ids first,
+// then .in()" shape resolveLeadsSearchFilter above uses. That shape exists
+// because searching parties/sites by ILIKE can match hundreds of ids and
+// blow up the request URL; one site stage would match a comparable number,
+// so pushing the join down to Postgres is both simpler and bounded here.
+export function leadsListSitesEmbed(siteStage, columns) {
+  return `sites${siteStage ? '!inner' : ''}(${columns})`
+}
 
-  // Filtering on an EMBEDDED column needs `!inner`, or PostgREST keeps the
-  // parent lead row and merely nulls out the non-matching embed — i.e. the
-  // filter silently does nothing to the result set (and to `count`). The
-  // hint is applied only while the facet is active: making the embed inner
-  // unconditionally would drop any lead with no `sites` row at all from the
-  // unfiltered list, which is the opposite of what this screen is for.
-  //
-  // This is an equality filter on an embedded resource, which PostgREST
-  // supports directly — deliberately NOT the multi-step "resolve ids first,
-  // then .in()" shape resolveLeadsSearchFilter above uses. That shape exists
-  // because searching parties/sites by ILIKE can match hundreds of ids and
-  // blow up the request URL; one site stage would match a comparable number,
-  // so pushing the join down to Postgres is both simpler and bounded here.
-  const sitesEmbed = siteStage ? 'sites!inner(nickname, locality, house_no, site_stage)' : 'sites(nickname, locality, house_no, site_stage)'
-
-  let query = supabase
-    .from('leads')
-    .select(
-      `id, external_reference_id, current_stage, source_type, order_value, quote_value, created_at, owner_employee_id, bdm_employee_id, parties!party_id(name), ${sitesEmbed}, employees!owner_employee_id(name)`,
-      { count: 'exact' }
-    )
+// All Leads' filters, applied to a leads query. ONE definition, read by both
+// the on-screen list (fetchLeadsList below) and the Excel export
+// (leadExportQueries.js), so the file can never hold a different set of leads
+// from the screen it was downloaded from. A query that filters on Site stage
+// must embed sites through leadsListSitesEmbed(), or that filter does nothing.
+export function applyLeadsListFilters(query, filters = {}) {
+  const { employeeId, employeeIds, stage, siteStage, source, status, minValue, maxValue, searchOr, includePool = false } = filters
 
   // employeeId (exact) wins over employeeIds (a scope, e.g. a sales
   // manager's team) whenever both are supplied — a specific pick inside a
@@ -238,7 +240,22 @@ export function fetchLeadsList(filters = {}) {
   if (minValue != null) query = query.gte('quote_value', minValue)
   if (maxValue != null) query = query.lte('quote_value', maxValue)
   if (searchOr) query = query.or(searchOr)
-  query = applyPoolExclusion(query, includePool)
+  return applyPoolExclusion(query, includePool)
+}
+
+export function fetchLeadsList(filters = {}) {
+  const { siteStage, page = 0 } = filters
+  const sitesEmbed = leadsListSitesEmbed(siteStage, 'nickname, locality, house_no, site_stage')
+
+  const query = applyLeadsListFilters(
+    supabase
+      .from('leads')
+      .select(
+        `id, external_reference_id, current_stage, source_type, order_value, quote_value, created_at, owner_employee_id, bdm_employee_id, parties!party_id(name), ${sitesEmbed}, employees!owner_employee_id(name)`,
+        { count: 'exact' }
+      ),
+    filters
+  )
 
   return query
     .order('created_at', { ascending: false })

@@ -126,6 +126,14 @@ export function canSeeArchitectNetwork(role) {
   return role === ROLES.OWNER
 }
 
+// All Leads' "Download Excel" — owner only (the owner's ruling, 2026-09-22).
+// The file carries every client's and architect's phone number, and once it
+// is downloaded the CRM can't take it back. Desktop only, too, by the same
+// ruling — LeadsListCard renders the button inside the desktop half only.
+export function canExportLeads(role) {
+  return role === ROLES.OWNER
+}
+
 // /architects/:id — every role (owner's ruling at Step 4: architects are
 // visible company-wide, so the page is too; each role sees only the leads and
 // meetings its own RLS returns). Listed explicitly, like every list here.

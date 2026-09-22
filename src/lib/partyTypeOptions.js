@@ -23,3 +23,16 @@ export const PARTY_TYPE_LABELS = {
 export function partyTypeLabel(value) {
   return PARTY_TYPE_LABELS[value] ?? value
 }
+
+// A party's role AT A SITE (site_contacts.role, kept in sync with its CHECK) —
+// a different question from its party_type. Lead Detail's Contacts picker
+// offers these, and the All Leads Excel export labels contacts with them.
+export const SITE_CONTACT_ROLE_OPTIONS = ['owner', 'architect', 'builder', 'project_manager', 'site_staff', 'other']
+export const SITE_CONTACT_ROLE_LABELS = {
+  owner: 'Owner',
+  architect: 'Architect',
+  builder: 'Builder',
+  project_manager: 'Project manager',
+  site_staff: 'Site staff',
+  other: 'Other',
+}

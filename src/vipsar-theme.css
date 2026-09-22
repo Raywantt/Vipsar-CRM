@@ -3645,3 +3645,53 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
 
 .vip-lock { border: 0; margin: 0; padding: 0; min-width: 0; }
 .vip-lock:empty { display: none; }
+
+/* ===========================================================================
+   41. All Leads — "Download Excel" (2026-09-22)
+   ===========================================================================
+   Owner only, desktop only (roles.js's canExportLeads). The trigger sits on
+   the list's count line; the column picker reuses the drill-down slide-over
+   (.vip-dd-panel), the same way Lead Detail puts a form in one. Every colour
+   is a token, so dark mode needs no block of its own. */
+
+/* No min-height: without the button (every role but the owner, and any
+   phone) this row must be exactly the count line it always was. */
+.vip-leads-countline {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+/* No `display` here: .vip-only-desktop owns it (the cascade trap in
+   CLAUDE.md). flex comes from the ≥1024px rule below. */
+.vip-export-trigger { align-items: center; gap: 12px; }
+@media (min-width: 1024px) {
+  .vip-export-trigger { display: flex; }
+}
+.vip-export-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 34px; padding: 0 14px;
+  border: 1px solid var(--vip-field-line); border-radius: var(--vip-r-field);
+  background: var(--vip-surface); color: var(--vip-teal);
+  font: 600 13px var(--vip-sans); white-space: nowrap; cursor: pointer;
+}
+.vip-export-btn:hover { background: var(--vip-canvas); }
+.vip-export-btn:focus-visible { outline: 2px solid var(--vip-teal); outline-offset: 1px; }
+
+/* The picker. The panel scrolls; the Cancel / Download row stays pinned to
+   its bottom edge so it's reachable however many groups sit above it. */
+.vip-export-panel { padding-bottom: 0; }
+.vip-export-tools {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border-bottom: 1px solid var(--vip-line-soft); padding-bottom: 6px;
+}
+.vip-export-tools-links { display: flex; gap: 2px; }
+.vip-export-tools-links .vip-btn-link { min-height: 30px; padding: 0 8px; }
+.vip-export-tools-links .vip-btn-link:disabled { opacity: .5; cursor: default; }
+.vip-export-groups { display: flex; flex-direction: column; gap: 14px; }
+.vip-export-group { display: flex; flex-direction: column; gap: 4px; }
+.vip-export-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; }
+.vip-export-grid .vip-check { cursor: pointer; }
+.vip-export-foot {
+  position: sticky; bottom: 0; margin-top: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--vip-surface); border-top: 1px solid var(--vip-line);
+  padding: 12px 0 18px;
+}

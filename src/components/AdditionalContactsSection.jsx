@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import PartySearchOrCreate from './PartySearchOrCreate'
 import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
+import { SITE_CONTACT_ROLE_OPTIONS as ROLE_OPTIONS, SITE_CONTACT_ROLE_LABELS as ROLE_LABELS } from '../lib/partyTypeOptions'
 
 // Only an individual architect belongs to a firm — a 'firm' party already is
 // one, and a client or builder doesn't have an architect practice behind them.
@@ -18,16 +19,8 @@ const takesFirm = (party) => party?.party_type === 'architect'
 // contact's party_type is now derived from the Role picked here instead (see
 // ROLE_TO_PARTY_TYPE), so it's asked exactly once. An existing party found via
 // search keeps whatever type it already has — this mapping only ever applies
-// to a party being created fresh from this form.
-const ROLE_OPTIONS = ['owner', 'architect', 'builder', 'project_manager', 'site_staff', 'other']
-const ROLE_LABELS = {
-  owner: 'Owner',
-  architect: 'Architect',
-  builder: 'Builder',
-  project_manager: 'Project manager',
-  site_staff: 'Site staff',
-  other: 'Other',
-}
+// to a party being created fresh from this form. The list and its labels live
+// in partyTypeOptions.js, shared with the All Leads Excel export.
 // 'project_manager' has no matching party_type of its own — 'pmc' (project
 // management company) is the closest existing classification, the same one
 // New Lead's "Other's name" field offers for the same kind of contact.
