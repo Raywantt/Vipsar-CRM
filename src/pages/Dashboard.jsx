@@ -336,11 +336,10 @@ function Dashboard() {
   // computeAttentionBuckets(), which the RPC path replaces — so on the
   // normal path this whole activities scan (measured 885-3,024ms) is never
   // issued. A manager always needs it (the RPC can't honour their My/Team
-  // toggle), and so does anyone whose RPC call failed. Large and only a
-  // fallback, so kept in memory rather than on the device.
+  // toggle), and so does anyone whose RPC call failed. Now one row per lead
+  // from last_activity_per_lead(), small enough to remember like the rest.
   const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead, {
     enabled: wantsReports && (isManager || attentionRpcFailed),
-    persist: false,
   })
   const lastActivityByLead = useMemo(() => {
     const map = new Map()

@@ -228,9 +228,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // Powers the "last touch" / recency line — independent of the filters
   // above (last-activity data doesn't change per filter), so fetched once
   // rather than refetched alongside leads.
-  const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead, {
-    persist: false,
-  })
+  const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead)
   const lastActivityByLead = useMemo(() => {
     const map = new Map()
     const res = lastActivityQuery.result

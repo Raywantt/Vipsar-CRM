@@ -315,17 +315,27 @@ export function fetchLeadsForBreakdown(includePool = false) {
   )
 }
 
-// Reduced client-side to one row per lead (its most recent activity) —
-// powers "stale" (no activity in N days) and "silent quote" (nothing logged
-// since quote_sent_at) in src/lib/attention.js. RLS on `activities` already
-// scopes this to "own data or owner role", same as every other activities
-// query on this page.
+// One row per lead, its most recent activity — powers "stale" (no activity in
+// N days) and "silent quote" (nothing logged since quote_sent_at) in
+// src/lib/attention.js, and All Leads' "last touch".
+//
+// Computed in the database by last_activity_per_lead()
+// (Schema/migration_rls_per_row_fixes.sql) instead of downloading every
+// activity to reduce here. It is SECURITY INVOKER, so RLS on `activities`
+// scopes it exactly as the download was scoped. Same row shape as before
+// ({ lead_id, created_at }), so every consumer's own "keep the latest"
+// reduction still works unchanged. Falls back to the download if the
+// function isn't there (the app can ship ahead of the migration).
 export function fetchLastActivityPerLead() {
-  return cachedQuery('activities:last-per-lead', () =>
-    fetchAllRows(() =>
+  return cachedQuery('activities:last-per-lead', async () => {
+    const viaDatabase = await fetchAllRows(() => supabase.rpc('last_activity_per_lead', {}, { count: 'exact' }), {
+      orderBy: 'lead_id',
+    })
+    if (!viaDatabase.error) return viaDatabase
+    return fetchAllRows(() =>
       supabase.from('activities').select('lead_id, created_at', { count: 'exact' }).not('lead_id', 'is', null)
     )
-  )
+  })
 }
 
 // One exec + one activity type's real logged entries, most recent first —

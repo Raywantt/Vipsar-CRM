@@ -359,7 +359,6 @@ function EmployeeProfile() {
   )
   const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead, {
     enabled: on,
-    persist: false,
   })
   const logQuery = useCachedQuery(
     ['emp', 'activity-log', execId, ACTIVITY_LOG_LIMIT],

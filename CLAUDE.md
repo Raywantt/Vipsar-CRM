@@ -2904,6 +2904,13 @@ with no error. The layered order is:
 7. `migration_manager_reassign_any_employee.sql`,
    `migration_architects_universal_visibility.sql`
 8. `migration_bdm_role.sql` → `migration_bdm_handoff.sql`
+9. `migration_rls_per_row_fixes.sql` (2026-09-22) — **must stay the last
+   file that defines its 49 policies** (parties, sites, employees, products,
+   areas, site_contacts, loss_reasons, targets, lead_change_log,
+   lead_owner_history, follow_up_change_log, employee_preferences, plans,
+   push_subscriptions). Re-running any earlier file that touches those
+   tables puts the slow per-row versions back — re-run this one after it.
+   `rollback_rls_per_row_fixes.sql` restores exactly what was live before.
 
 **The BDM migrations re-install functions other files also define.**
 Re-running `migration_coordinator_can_manage_manager.sql`,
@@ -2965,6 +2972,30 @@ it leaves orphaned Auth logins to clean up by hand; scripting that risks
 removing your own login.
 
 ### Outstanding migrations
+
+* **`migration_rls_per_row_fixes.sql`** — **run and verified live
+  2026-09-22.** Speed only: 49 policies rewritten from the LIVE definitions
+  (`Schema/dump_live_rls_and_functions.sql` → the owner's CSV) so helper
+  checks run once per request instead of once per row — bare
+  `current_employee_role()`/`current_employee_id()` wrapped in `(SELECT …)`,
+  per-row `is_my_team_member`/`is_my_managed_member` swapped for the id
+  arrays, and parties' three per-row EXISTS searches replaced by one array
+  from three new SECURITY INVOKER helpers (`my_linked_party_ids`,
+  `my_managed_party_ids`, `my_bdm_party_ids` — INVOKER so the leads /
+  activities / site_contacts inside are read with the viewer's own RLS,
+  exactly as inside the old EXISTS). Also adds `last_activity_per_lead()`
+  (SECURITY INVOKER), which `fetchLastActivityPerLead` now calls, falling
+  back to the old download if it's missing. **Verified as all five roles**
+  (owner, sc, exec, sm, Test BDM): the sorted ids visible in 18 tables and
+  both attention/category RPC answers were byte-identical before and after,
+  and `last_activity_per_lead()` matched the reduced download exactly for
+  each. Timings (3-run medians, ~0.35 s network floor included): owner
+  leads breakdown 1.39 → 1.12 s, parties count 0.66 → 0.51 s; test manager
+  parties count 0.87 → 0.44 s, sites count 0.59 → 0.36 s; other roles'
+  reads were already near the floor. The old manager parties policy called
+  `is_my_managed_member()` per (contact × lead) pair, so the real managers,
+  with far bigger teams than `sm`, should gain more than measured here —
+  not measured, no login for them.
 
 * **`migration_stuck_api_connection_watchdog.sql`** — **run 2026-09-21**
   (cron job 2, every 30s). Closes `authenticator` connections sitting in an

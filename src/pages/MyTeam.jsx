@@ -52,9 +52,7 @@ function MyTeam() {
   // Dashboard's own (same keys), so either screen warms the other.
   const teamQuery = useCachedQuery(['team', 'members'], fetchTeamMembers)
   const leadsQuery = useCachedQuery(['dash', 'breakdown-leads'], () => fetchLeadsForBreakdown())
-  const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead, {
-    persist: false,
-  })
+  const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead)
   const funnelQuery = useCachedQuery(['dash', 'funnel-history'], () => fetchStageHistoryForFunnel())
   const loading = [teamQuery, leadsQuery, lastActivityQuery, funnelQuery].some((q) => q.result === undefined)
   const error = teamQuery.result?.error ? errorMessage(teamQuery.result.error) : null
