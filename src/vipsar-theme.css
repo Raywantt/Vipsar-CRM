@@ -609,8 +609,12 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
   background: var(--vip-surface); border: 1px solid var(--vip-field-line); color: var(--vip-ink);
 }
 .vip-btn-secondary:hover { background: var(--vip-canvas); }
-.vip-btn-dark { background: var(--vip-ink); }
-.vip-btn-dark:hover { background: #000; }
+/* --vip-shell-2/--vip-on-shell, not --vip-ink/#fff — see the matching note
+   on .vip-action-opt.vip-active. Every Save/Change-stage/Set-follow-up
+   button using this class inherited .vip-btn's white text with no way to
+   see it once --vip-ink turned near-white in dark mode. */
+.vip-btn-dark { background: var(--vip-shell-2); color: var(--vip-on-shell); }
+.vip-btn-dark:hover { background: var(--vip-shell); }
 .vip-btn-danger { background: var(--vip-lost); }
 .vip-btn-sm { min-height: 48px; border-radius: var(--vip-r-field); font-size: 14px; }
 .vip-btn-row { display: flex; gap: 8px; }
@@ -1439,7 +1443,14 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   font: 500 11px var(--vip-sans); cursor: pointer; background: var(--vip-surface); color: var(--vip-body);
 }
 .vip-action-opt:hover { border-color: var(--vip-teal); }
-.vip-action-opt.vip-active { background: var(--vip-ink); color: #fff; border-color: var(--vip-ink); }
+/* --vip-shell-2/--vip-on-shell, not --vip-ink/#fff: this pill has to stay a
+   dark chip with light text in BOTH themes, and --vip-ink flips to near-
+   white in dark mode (it's a text-color token there), which paired with a
+   hardcoded #fff made the "active" state unreadable — white text on a
+   near-white pill. The shell family is the deliberate dark-mode-untouched
+   exception for exactly this "always dark chrome" case (see section 22's
+   own note); .vip-dd-age-action-date already uses the same pair correctly. */
+.vip-action-opt.vip-active { background: var(--vip-shell-2); color: var(--vip-on-shell); border-color: var(--vip-shell-2); }
 .vip-action-close { min-height: 30px; padding: 0 12px; border: 0; border-radius: 8px; font: 500 11px var(--vip-sans); cursor: pointer; background: var(--vip-line-soft); color: var(--vip-muted); }
 
 /* Quotes & orders / any other fixed-column line-item grid */
@@ -2300,11 +2311,14 @@ a.vip-todo-party:hover { text-decoration: underline; }
 
 /* Compact inline action — .vip-btn is a full-width 52px block, wrong for a
    button sitting at the end of a follow-up row. */
+/* --vip-shell-2/--vip-on-shell, not --vip-ink/#fff — see the matching note
+   on .vip-action-opt.vip-active. This was the invisible white-on-white
+   "Reschedule" pill in the day sheet's dark-mode Still-open list. */
 .vip-day-resched {
-  border: 0; border-radius: var(--vip-r-control); background: var(--vip-ink); color: #fff;
+  border: 0; border-radius: var(--vip-r-control); background: var(--vip-shell-2); color: var(--vip-on-shell);
   font: 600 12px var(--vip-sans); min-height: 34px; padding: 0 14px; cursor: pointer;
 }
-.vip-day-resched:hover { background: #000; }
+.vip-day-resched:hover { background: var(--vip-shell); }
 
 .vip-day-split { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--vip-line-soft); }
 .vip-day-split > span { display: block; height: 100%; }
