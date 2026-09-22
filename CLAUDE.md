@@ -173,7 +173,9 @@ src/
                 partyQueries, employeeQueries, lookupQueries,
                 leadOwnerHistory, dayReviewQueries, followUpQueries,
                 notificationQueries, authQueries, pushSubscription,
-                bdmQueries, architectQueries, accompaniedQueries
+                bdmQueries, architectQueries, accompaniedQueries,
+                leadDetailQueries, screenQueries (every combined fetch a
+                remembered screen makes — see Instant open)
   assets/       images, icons
   sw.js         the service worker source (push handlers only)
   vipsar-theme.css   the app's one design-system stylesheet
@@ -3377,25 +3379,51 @@ the fresh answer — structurally shared, so an identical answer re-renders
 nothing. The owner chose to mark the refresh with a label rather than swap
 silently: the Today header's sync pill reads **Updating…** (teal, breathing
 dot) while a remembered result is refreshing and **Not updated** (amber) if
-that refresh failed, from `useSyncState()`. Converted so far: every Today
-screen (Home, OwnerToday, CoordinatorToday, ManagerToday, BdmToday,
-TeamTodayPanel, AssignedLeadsCard, BdmPoolCard, BdmUpdatesLine,
-useAttentionBuckets) and the shared **Dashboard** (all 16 of its Reports
-reads, plus the Day Review — which shares the Today screens' `day-review`
-key, and the attention RPC, which shares Today's `attention` key). Measured:
-numbers on screen 89 ms after tapping Today, fresh by ~1.6 s. Dashboard's
-rendered text was compared line-for-line against the old code — owner Week /
-Month / Quarter / Day Review and a manager's My + Team: identical (Day
-Review's "updated" clock aside). Rules:
+that refresh failed, from `useSyncState()`; **every other screen shows the
+same label in AppNav's top bar** (`.vip-header-sync`, theme section 39 —
+owner's choice, 2026-09-21), and nothing at all once it's up to date.
+
+**Converted: every screen that loads data.** Every Today screen (Home,
+OwnerToday, CoordinatorToday, ManagerToday, BdmToday, TeamTodayPanel,
+AssignedLeadsCard, BdmPoolCard, BdmUpdatesLine, useAttentionBuckets), the
+shared **Dashboard** (all 16 Reports reads + Day Review), **All Leads**
+(`LeadsListCard`, one page per filter combination), the **Follow-ups tab**,
+**Lead Detail**, the **Sales Exec Profile**, **My Team**, **Search**'s
+contacts directory, the **BDM Dashboard** (+ `useBdmPeriodRows`), **My
+Architects**, **Architect profile** and **Architect Network**. Screens share
+keys where they read the same thing (`dash/breakdown-leads`,
+`dash/period/<range>`, `dash/targets/…`, `today/day-review/<day>`,
+`today/bdm-architects/<id>` …), so opening one warms the others. Each
+conversion's rendered text was compared line-for-line against the old code
+(owner, plus the rep/manager/coordinator/BDM where the screen serves them):
+identical. **Measured on a production build (owner, office PC):** remembered
+Today 9–11 ms, Dashboard 26–37 ms, 0 requests; nothing remembered, Today
+~1.6 s, Dashboard 0.8 s first numbers / 2.6 s complete. Rules:
 * **The key encodes every argument** (a day, an employee id, a period) —
   queryCache.js's rule. The signed-in auth user id is prefixed automatically
   (`scopedKey`), and the whole store is wiped on sign-out and on any session
   ending (`clearQueryData`) — shared office devices, both guards deliberate.
 * **Stored in IndexedDB, only for queries that opted in** (`meta.persist`,
-  the hook's default; `persist: false` for a large fallback), only successful
-  ones, for at most a day, and **discarded by any new build** (`buster` =
-  `__APP_BUILD_ID__` from vite.config.js) so old-shaped data never meets new
-  code. Cost: one normal-speed open after each deploy.
+  the hook's default; `persist: false` for a large fallback or a typed
+  search), only successful ones, for at most a day.
+* **Saved data survives deploys unless its SHAPE changed** (2026-09-21 —
+  until then every deploy wiped everyone's saved numbers, making their next
+  open the slow one). The `buster` is `CACHE_SHAPE_VERSION:DATA_SHAPE_ID`;
+  `DATA_SHAPE_ID` is a hash of the files that decide what a remembered query
+  returns — every `src/lib/*Queries.js` plus the helpers listed in
+  `scripts/dataShape.mjs` — stamped by vite.config.js at build time. A deploy
+  that only touches screens, styles or wording keeps saved data; one that
+  touches a query file discards it. Proven on real builds: a component-only
+  change kept the stamp and Today painted before any data response; a
+  one-comment change to a query file changed the stamp.
+  **Two rules keep this safe:** (1) a `useCachedQuery` fetch must be a plain
+  call to a function from a stamped file — never inline `.then`/`Promise.all`
+  reshaping; combined fetches live in `src/lib/screenQueries.js`.
+  `src/lib/cachedQueryShape.test.js` fails the build otherwise (a throwaway
+  file with both kinds of violation made it fail, as it should). (2) If a
+  screen starts READING a field its query file doesn't show changing (e.g. a
+  migration adds an RPC output column), bump `CACHE_SHAPE_VERSION` in
+  queryClient.js by hand.
 * **What's stored must survive JSON** — no Map/Set/Date in a query result.
   BdmPoolCard and BdmToday keep entries/raw rows and rebuild Maps in
   `useMemo`.
@@ -3420,9 +3448,30 @@ Review's "updated" clock aside). Rules:
   answers. `loading` = "no result yet for this range", so remembered numbers
   render the cards at once. `EMPTY` is one shared frozen-by-convention array
   so the scoped `useMemo`s don't recompute on a fresh `[]` every render.
-* **Not yet converted:** BdmDashboard, All Leads (`LeadsListCard`), Lead
-  Detail, EmployeeProfile, My Team, Search and the rest still load the old
-  way.
+* **Lead Detail opens from its saved copy but EDITS WAIT** (owner's choice,
+  2026-09-21: "instant, edits wait"). While a remembered copy is refreshing,
+  or its refresh failed, every control that writes is disabled —
+  `<fieldset className="vip-lock" disabled={editsLocked}>` around the
+  quick actions, the four edit sections (desktop inline + mobile summary
+  rows), the follow-ups card and remarks, plus the mobile ⇄ button. A save
+  from a stale copy could quietly undo a colleague's change. When the fresh
+  copy lands, the page re-seeds ONCE and the edit forms remount (`key` from
+  `seed.version`, each one DISTINCT — a shared key duplicated two cards on
+  screen), so their useState seeds start fresh. Later refreshes are not
+  re-applied (that would wipe a half-typed form); the page's own saves keep
+  merging into local state as they always did. The seed runs in a layout
+  effect, so the saved copy is in the first paint. The lookups (execs, areas,
+  products) are their own shared queries. The "heal unlinked site contacts"
+  write runs only from a fresh copy. A refresh that answers PGRST116 (the
+  lead is gone for this viewer) shows "Lead not found", never the saved copy.
+  Measured: saved copy at 0.05 s, locked, unlocked when the fresh copy
+  arrived (~1–5 s depending on load).
+* **A list edited in place is seeded in a LAYOUT effect** (Follow-ups tab,
+  Sales Exec Profile's follow-ups, Architect profile) so it's in the first
+  paint, not one empty frame after "Loading…" clears.
+* **Not converted, deliberately:** typed search RESULTS (Search's
+  leads/sites, All Leads with a search term — every term would be its own
+  saved copy), forms (New Lead, Log Activity) and Profile.
 
 **📄 `PERFORMANCE.md` (repo root) is the standing reference** — read it before
 adding a screen, card or query. The measured diagnosis was that "everything is

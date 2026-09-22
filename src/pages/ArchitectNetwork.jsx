@@ -11,20 +11,9 @@ import { RANGE_LABELS, rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
-import {
-  fetchActiveBdms,
-  fetchAllBdmLeads,
-  fetchBdmsArchitectMeetings,
-  fetchClosedRows,
-  fetchHandedOverRows,
-} from '../lib/bdmQueries'
-import {
-  fetchAllArchitectLeads,
-  fetchAllArchitectMeetings,
-  fetchAllArchitects,
-  fetchAllPortfolioArchitects,
-  fetchArchitectMeetings,
-} from '../lib/architectQueries'
+import { fetchActiveBdms, fetchAllBdmLeads } from '../lib/bdmQueries'
+import { useCachedQuery } from '../hooks/useCachedQuery'
+import { fetchNetworkPortfolio, fetchNetworkPeriod, fetchArchitectDirectoryData } from '../lib/screenQueries'
 import { fetchTargetsForPeriod } from '../lib/targetQueries'
 import { buildDirectoryRows, buildFirmRows, summariseBdm } from '../lib/architectNetwork'
 import { topArchitects } from '../lib/bdmDashboard'
@@ -75,115 +64,65 @@ function ArchitectNetwork() {
   const [panel, setPanel] = useState(null)
 
   // ---- Both tabs: who the BDMs are (cards, and the directory's filter) ----
-  const [bdms, setBdms] = useState(null)
-  const [bdmsError, setBdmsError] = useState(null)
-  useEffect(() => {
-    let active = true
-    fetchActiveBdms().then(({ data, error }) => {
-      if (!active) return
-      setBdmsError(error ? errorMessage(error) : null)
-      setBdms(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [])
+  // INSTANT OPEN — every read here is remembered on the device. Targets
+  // share the shared Dashboard's key; saving new BDM targets is a write, and
+  // every write refreshes what's on screen (supabaseFetch.js).
+  const bdmsQuery = useCachedQuery(['bdm', 'active-bdms'], fetchActiveBdms)
+  const bdms = useMemo(() => (bdmsQuery.result ? bdmsQuery.result.data ?? [] : null), [bdmsQuery.result])
+  const bdmsError = bdmsQuery.result?.error ? errorMessage(bdmsQuery.result.error) : null
   const bdmIds = useMemo(() => (bdms ?? []).map((b) => b.id), [bdms])
   const bdmIdsKey = bdmIds.join(',')
 
-  // ---- BDMs tab: snapshot data ----
-  const [leads, setLeads] = useState(null)
-  const [architects, setArchitects] = useState(null)
-  const [portfolioMeetings, setPortfolioMeetings] = useState(null)
-  const [snapshotError, setSnapshotError] = useState(null)
-  useEffect(() => {
-    if (!onBdmsTab) return
-    let active = true
-    fetchAllBdmLeads().then(({ data, error }) => {
-      if (!active) return
-      if (error) setSnapshotError(errorMessage(error))
-      setLeads(data ?? [])
-    })
-    fetchAllPortfolioArchitects().then(async ({ data, error }) => {
-      if (!active) return
-      if (error) setSnapshotError(errorMessage(error))
-      const meetings = await fetchArchitectMeetings((data ?? []).map((a) => a.id))
-      if (!active) return
-      if (meetings.error) setSnapshotError(errorMessage(meetings.error))
-      setPortfolioMeetings(meetings.data ?? [])
-      setArchitects(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [onBdmsTab])
+  const leadsQuery = useCachedQuery(['network', 'bdm-leads'], fetchAllBdmLeads, { enabled: onBdmsTab })
+  const leads = leadsQuery.result ? leadsQuery.result.data ?? [] : null
+  const portfolioQuery = useCachedQuery(['network', 'portfolio'], fetchNetworkPortfolio, { enabled: onBdmsTab })
+  const architects = portfolioQuery.result ? portfolioQuery.result.data.architects : null
+  const portfolioMeetings = portfolioQuery.result ? portfolioQuery.result.data.meetings : null
+  const snapshotFailure = leadsQuery.result?.error ?? portfolioQuery.result?.data?.partialError ?? null
+  const snapshotError = snapshotFailure ? errorMessage(snapshotFailure) : null
 
-  // ---- BDMs tab: period data ----
-  const [period, setPeriod] = useState({ meetings: null, closed: null, handedOver: null, error: null })
-  useEffect(() => {
-    if (!onBdmsTab || !rangeKey || bdms == null) return
-    let active = true
-    setPeriod({ meetings: null, closed: null, handedOver: null, error: null })
-    Promise.all([
-      fetchBdmsArchitectMeetings(bdmIds, range),
-      fetchClosedRows(range, { taggedOnly: true }),
-      fetchHandedOverRows(range),
-    ]).then(([meetingsRes, closedRes, handedRes]) => {
-      if (!active) return
-      const firstError = meetingsRes.error ?? closedRes.error ?? handedRes.error
-      setPeriod({
-        meetings: meetingsRes.data ?? [],
-        closed: closedRes.data ?? { stageRows: [], lossRows: [] },
-        handedOver: handedRes.data ?? [],
-        error: firstError ? errorMessage(firstError) : null,
-      })
-    })
-    return () => {
-      active = false
+  const periodQuery = useCachedQuery(
+    ['network', 'period', rangeKey, bdmIdsKey],
+    () => fetchNetworkPeriod(bdmIds, range),
+    { enabled: onBdmsTab && Boolean(rangeKey) && bdms != null }
+  )
+  const period = useMemo(() => {
+    const d = periodQuery.result?.data
+    if (!d) return { meetings: null, closed: null, handedOver: null, error: null }
+    return {
+      meetings: d.meetings,
+      closed: d.closed,
+      handedOver: d.handedOver,
+      error: d.partialError ? errorMessage(d.partialError) : null,
     }
-    // range is represented by rangeKey, the roster by bdmIdsKey.
-  }, [onBdmsTab, rangeKey, bdmIdsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [periodQuery.result])
 
-  const [targets, setTargets] = useState(null)
-  const [targetsKey, setTargetsKey] = useState(0)
-  useEffect(() => {
-    if (!onBdmsTab || !targetPeriod) return
-    let active = true
-    setTargets(null)
-    fetchTargetsForPeriod(targetPeriod).then(({ data, error }) => {
-      if (active) setTargets(error ? [] : data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [onBdmsTab, targetPeriod, targetsKey])
+  const targetsQuery = useCachedQuery(
+    ['dash', 'targets', targetPeriod?.periodType ?? '-', targetPeriod?.periodValue ?? '-'],
+    () => fetchTargetsForPeriod(targetPeriod),
+    { enabled: onBdmsTab && Boolean(targetPeriod) }
+  )
+  const targets = targetsQuery.result ? (targetsQuery.result.error ? [] : targetsQuery.result.data ?? []) : null
 
-  // ---- Architects & Firms tabs: fetched the first time either is opened,
-  // then kept. One fetch of architects/meetings/leads feeds both rollups —
-  // buildDirectoryRows (per architect) and buildFirmRows (per firm) — so
-  // opening Firms after Architects (or vice versa) costs no extra request.
-  const [directory, setDirectory] = useState({ rows: null, error: null })
-  const [firms, setFirms] = useState({ rows: null, error: null })
+  // Architects and Firms load the first time one of those tabs is shown, then
+  // stay. One read of architects/meetings/leads feeds both rollups.
   const [directoryRequested, setDirectoryRequested] = useState(false)
   useEffect(() => {
     if (!onBdmsTab) setDirectoryRequested(true)
   }, [onBdmsTab])
-  useEffect(() => {
-    if (!directoryRequested) return
-    let active = true
-    Promise.all([fetchAllArchitects(), fetchAllArchitectMeetings(), fetchAllArchitectLeads()]).then(
-      ([architectsRes, meetingsRes, leadsRes]) => {
-        if (!active) return
-        const firstError = architectsRes.error ?? meetingsRes.error ?? leadsRes.error
-        const rollupInput = { architects: architectsRes.data, meetings: meetingsRes.data, leads: leadsRes.data }
-        setDirectory({ rows: buildDirectoryRows(rollupInput), error: firstError ? errorMessage(firstError) : null })
-        setFirms({ rows: buildFirmRows(rollupInput), error: firstError ? errorMessage(firstError) : null })
-      }
-    )
-    return () => {
-      active = false
-    }
-  }, [directoryRequested])
+  const directoryQuery = useCachedQuery(['network', 'directory'], fetchArchitectDirectoryData, {
+    enabled: directoryRequested,
+  })
+  const directory = useMemo(() => {
+    const d = directoryQuery.result?.data
+    if (!d) return { rows: null, error: null }
+    return { rows: buildDirectoryRows(d), error: d.partialError ? errorMessage(d.partialError) : null }
+  }, [directoryQuery.result])
+  const firms = useMemo(() => {
+    const d = directoryQuery.result?.data
+    if (!d) return { rows: null, error: null }
+    return { rows: buildFirmRows(d), error: d.partialError ? errorMessage(d.partialError) : null }
+  }, [directoryQuery.result])
 
   const top =
     range && leads && period.meetings ? topArchitects({ leads, meetings: period.meetings, range, bdmIds }) : null
@@ -278,7 +217,9 @@ function ArchitectNetwork() {
                     targetPeriod={targetPeriod}
                     rangeLabel={rangeLabel}
                     onOpenArchitects={() => setPanel(buildArchitectsToMeetPanel(summary.toMeet ?? [], b.name))}
-                    onTargetsSaved={() => setTargetsKey((k) => k + 1)}
+                    // A save is a write, and every write refreshes what's on
+                    // screen (supabaseFetch.js) — targets included.
+                    onTargetsSaved={() => {}}
                   />
                 )
               })}

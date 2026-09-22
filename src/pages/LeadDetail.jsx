@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
@@ -12,8 +12,8 @@ import LeadActivityTimeline from '../components/LeadActivityTimeline'
 import LeadRemarks from '../components/LeadRemarks'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchAreas, fetchProducts } from '../lib/lookupQueries'
-import { fetchAllRows } from '../lib/fetchAllRows'
-import { fetchLeadOwnerHistory } from '../lib/leadOwnerHistory'
+import { useCachedQuery } from '../hooks/useCachedQuery'
+import { fetchLeadDetail } from '../lib/leadDetailQueries'
 import LeadFollowUpsCard from '../components/LeadFollowUpsCard'
 import BdmChip from '../components/BdmChip'
 import { fetchFollowUpsForLead, FOLLOW_UP_OPEN, compareFollowUps } from '../lib/followUpQueries'
@@ -27,7 +27,7 @@ import { STALE_DAYS, ATTENTION_DAYS, staleGateDays } from '../lib/attention'
 import { formatCurrency, formatCurrencyCompact } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
 import { SOURCE_TYPE_LABELS as SOURCE_LABELS } from '../lib/sourceTypeOptions'
-import { attachFirms, linkPartiesAsSiteContacts } from '../lib/partyQueries'
+import { linkPartiesAsSiteContacts } from '../lib/partyQueries'
 import { summariseRfqHistory } from '../lib/rfqKind'
 import { withSelfAssignTestOption } from '../lib/selfAssignTest'
 import { isPoolLead, sourcingArchitect } from '../lib/poolLeads'
@@ -58,7 +58,9 @@ import { lossReasonLabel } from '../lib/lossReasonOptions'
 // whatever position the lead actually paused at, not a fixed slot.
 const FUNNEL_STAGES = LEAD_STAGE_OPTIONS.filter((s) => s !== 'on_hold' && s !== 'won' && s !== 'lost')
 
-const EMPTY = { data: null, error: null }
+// Stable "nothing yet" for the lookup lists, so props don't change identity
+// every render before they load. Never mutated.
+const NO_ROWS = []
 
 function shortDate(value) {
   if (!value) return null
@@ -97,12 +99,7 @@ function LeadDetail() {
   const [activities, setActivities] = useState([])
   const [ownerHistory, setOwnerHistory] = useState([])
   const [leadFollowUps, setLeadFollowUps] = useState([])
-  const [activeSalesExecs, setActiveSalesExecs] = useState([])
-  const [areas, setAreas] = useState([])
-  const [products, setProducts] = useState([])
   const [lastActivityAt, setLastActivityAt] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState(null)
   // Mobile-only: which collapsed section (if any) is pushed open as a
   // full-screen editor, and whether the sticky action bar's ⇄ button has
   // opened LeadQuickActions as a sheet. Both unused at ≥1024px, where the
@@ -117,169 +114,112 @@ function LeadDetail() {
   // query simply returns nothing and nothing renders.
   const [lossReason, setLossReason] = useState(null)
 
+  // INSTANT OPEN (owner's choice, 2026-09-21: "instant, edits wait"). The
+  // page paints the copy of this lead the device remembered, and every control
+  // that writes stays disabled (`editsLocked`, below) until the fresh copy
+  // arrives — usually 1–2 s. A save made from the remembered copy could quietly
+  // undo something a colleague changed in the meantime. When the fresh copy
+  // lands, the page re-seeds from it ONCE and the edit forms remount (their
+  // inputs are useState seeds), so they start from fresh values too.
+  //
+  // After that the page behaves exactly as it always has: its own saves merge
+  // into local state, and later background refreshes (coming back to the app,
+  // the refetch every save triggers) are deliberately NOT re-applied —
+  // re-seeding would wipe a half-typed form. They still update the remembered
+  // copy, so the next open starts from the latest.
+  //
+  // The lookups are their own remembered queries (shared with other screens),
+  // so opening fifty leads doesn't store fifty copies of the areas list.
+  // When THIS lead was opened: a copy fetched after it is fresh, one fetched
+  // before it is remembered. Reset when the route moves to another lead
+  // without remounting (React's "adjust state while rendering" pattern).
+  const [opened, setOpened] = useState(() => ({ id, at: Date.now() }))
+  if (opened.id !== id) setOpened({ id, at: Date.now() })
+  const openedAt = opened.id === id ? opened.at : Date.now()
+  const detailQuery = useCachedQuery(['lead', id], () => fetchLeadDetail(id))
+  const execsQuery = useCachedQuery(['dash', 'active-execs'], fetchActiveSalesExecs)
+  const areasQuery = useCachedQuery(['lookup', 'areas'], fetchAreas)
+  const productsQuery = useCachedQuery(['lookup', 'products'], fetchProducts)
+  const activeSalesExecs = execsQuery.result?.data ?? NO_ROWS
+  const areas = areasQuery.result?.data ?? NO_ROWS
+  const products = productsQuery.result?.data ?? NO_ROWS
+
+  // Which copy the page's own state was seeded from. `version` keys the edit
+  // forms, so each seed remounts them.
+  const [seed, setSeed] = useState({ id: null, fresh: false, version: 0 })
+  // The lead on screen right now, for async work that finishes after the
+  // viewer has moved on to another lead.
+  const currentIdRef = useRef(id)
   useEffect(() => {
-    let active = true
+    currentIdRef.current = id
+  }, [id])
 
-    async function load() {
-      setLoading(true)
-      setLoadError(null)
+  const detailResult = detailQuery.result
+  const detailUpdatedAt = detailQuery.updatedAt
+  // A layout effect, so a remembered copy is on screen in the very first
+  // paint — a plain effect showed "Loading…" for one frame first.
+  useLayoutEffect(() => {
+    if (!detailResult || detailResult.error) return
+    const fresh = detailUpdatedAt != null && detailUpdatedAt >= openedAt
+    // Seed from the first copy this lead gets, then once more from the first
+    // FRESH one — never again (see above).
+    if (seed.id === id && (seed.fresh || !fresh)) return
 
-      const { data: leadRow, error: leadError } = await supabase
-        .from('leads')
-        // created_by is aliased separately from the owner embed above — a
-        // lead created by a sales_coordinator on an exec's behalf has
-        // created_by_employee_id != owner_employee_id (see
-        // migration_lead_change_log.sql's stamp_lead_creator trigger, which
-        // always stamps the real actor). Used by the Deal owner card's
-        // "Added by coordinator" note below.
-        // bdm: which business development manager brought this lead in, if
-        // any — the Deal owner card's "Sourced by" line.
-        .select('*, employees!owner_employee_id(name, office_location), created_by:employees!created_by_employee_id(name, role), bdm:employees!bdm_employee_id(name)')
-        .eq('id', id)
-        .single()
+    const d = detailResult.data
+    setLead(d.lead)
+    setParty(d.party)
+    setSourcingArchitectParty(sourcingArchitect(d.referrerParty, d.otherParty))
+    setSite(d.site)
+    setSiteContacts(d.siteContacts)
+    setStageHistory(d.stageHistory)
+    setActivities(d.activities)
+    setOwnerHistory(d.ownerHistory)
+    setLeadFollowUps(d.followUps)
+    const mostRecent = [...d.stageHistory.map((h) => h.changed_at), ...d.activities.map((a) => a.created_at)].sort().pop()
+    setLastActivityAt(mostRecent ?? d.lead.created_at)
+    setSeed({ id, fresh, version: seed.version + 1 })
 
-      if (!active) return
+    // Leads captured before intake started linking these itself (see
+    // LeadQuickCapture) still have an "other" party or referrer that never
+    // reached site_contacts. Heal them on sight rather than asking the rep to
+    // re-classify someone they already described at intake.
+    // linkPartiesAsSiteContacts skips anyone already linked, so this is a
+    // no-op on every later visit. Only from a FRESH copy (never write from a
+    // remembered one), and only for a viewer who may edit the lead — a rep
+    // viewing a colleague's lead is a reader. A failure is left silent on
+    // purpose: nothing the reader did caused it.
+    if (!fresh || !d.lead.site_id) return
+    const viewerCanEdit =
+      employee?.role === 'owner' || employee?.role === 'sales_coordinator' || d.lead.owner_employee_id === employee?.id
+    const unlinked = [d.otherParty, d.referrerParty].filter(
+      (p) => p && !d.siteContacts.some((c) => c.party_id === p.id)
+    )
+    if (!viewerCanEdit || unlinked.length === 0) return
+    linkPartiesAsSiteContacts({
+      siteId: d.lead.site_id,
+      parties: unlinked,
+      alreadyLinkedPartyIds: new Set(d.siteContacts.map((c) => c.party_id)),
+    }).then(({ data: healed }) => {
+      if (currentIdRef.current !== id || !healed?.length) return
+      setSiteContacts((prev) => [...prev, ...healed.filter((h) => !prev.some((c) => c.id === h.id))])
+    })
+    // `seed` is read to decide whether to re-seed and is itself set here; the
+    // early return above is what stops that from looping.
+  }, [detailResult, detailUpdatedAt, id, openedAt, seed, employee?.id, employee?.role])
 
-      if (leadError) {
-        setLoadError(errorMessage(leadError))
-        setLoading(false)
-        return
-      }
-
-      const [
-        partyResult,
-        otherPartyResult,
-        referrerPartyResult,
-        siteResult,
-        contactsResult,
-        stageHistoryResult,
-        activitiesResult,
-        ownerHistoryResult,
-        activeExecsResult,
-        areasResult,
-        productsResult,
-        followUpsResult,
-      ] = await Promise.all([
-        leadRow.party_id
-          ? supabase.from('parties').select('*').eq('id', leadRow.party_id).single()
-          : Promise.resolve(EMPTY),
-        leadRow.other_party_id
-          ? supabase.from('parties').select('*').eq('id', leadRow.other_party_id).single()
-          : Promise.resolve(EMPTY),
-        // The referrer (New Lead's "Referral from", general or architect) is
-        // just as much a party captured at intake as other_party_id — it was
-        // invisible to Contacts entirely before this, since only otherParty
-        // fed the "mentioned during intake" suggestion below.
-        leadRow.referred_by_party_id
-          ? supabase.from('parties').select('*').eq('id', leadRow.referred_by_party_id).single()
-          : Promise.resolve(EMPTY),
-        leadRow.site_id
-          ? supabase.from('sites').select('*').eq('id', leadRow.site_id).single()
-          : Promise.resolve(EMPTY),
-        leadRow.site_id
-          ? fetchAllRows(() =>
-              supabase
-                .from('site_contacts')
-                .select('id, role, party_id, parties(name, party_type)', { count: 'exact' })
-                .eq('site_id', leadRow.site_id)
-            )
-          : Promise.resolve({ data: [], error: null }),
-        fetchAllRows(() =>
-          supabase
-            .from('stage_history')
-            .select('id, stage, changed_at, changed_by, employees(name)', { count: 'exact' })
-            .eq('lead_id', leadRow.id)
-            .order('changed_at', { ascending: true })
-        ),
-        fetchAllRows(() =>
-          supabase
-            .from('activities')
-            .select(
-              'id, activity_type, rfq_kind, notes, created_at, employee_id, employees!employee_id(name), accompanied_by_employee:employees!accompanied_by(name), logged_by_employee_id, logged_by:employees!logged_by_employee_id(name, role)',
-              { count: 'exact' }
-            )
-            .eq('lead_id', leadRow.id)
-            .order('created_at', { ascending: false })
-        ),
-        fetchLeadOwnerHistory(leadRow.id),
-        fetchActiveSalesExecs(),
-        fetchAreas(),
-        fetchProducts(),
-        // Every follow-up on this lead, any status — not just the on-hold one,
-        // and no longer filtered to not-done. A lead may carry several open
-        // reminders now (FOLLOWUPS.md Rule 3.1), and the old not-done filter
-        // is why completing the on-hold reminder used to erase the lead's
-        // hold reason from this screen.
-        fetchFollowUpsForLead(leadRow.id),
-      ])
-
-      if (!active) return
-
-      setLead(leadRow)
-      setParty(partyResult.data ?? null)
-      // .firm is resolved separately, not embedded — see attachFirms. The
-      // Contacts card reads it to pre-fill an architect's existing firm.
-      const resolvedOtherParty = otherPartyResult.data ? (await attachFirms([otherPartyResult.data]))[0] : null
-      const resolvedReferrerParty = referrerPartyResult.data
-        ? (await attachFirms([referrerPartyResult.data]))[0]
-        : null
-      setSourcingArchitectParty(sourcingArchitect(resolvedReferrerParty, resolvedOtherParty))
-      setSite(siteResult.data ?? null)
-
-      // Leads captured before intake started linking these itself (see
-      // LeadQuickCapture) still have an "other" party or referrer that never
-      // reached site_contacts. Heal them on sight rather than asking the rep
-      // to re-classify someone they already described at intake — that prompt
-      // is exactly what this change removes. linkPartiesAsSiteContacts skips
-      // anyone already linked, so this is a no-op on every subsequent visit
-      // and on leads captured after the change.
-      //
-      // Gated on being able to edit the lead: a rep viewing a colleague's lead
-      // is a reader, and site_contacts INSERT would otherwise let a read-only
-      // page write. A failure here is left silent on purpose — nothing the
-      // reader did caused it, and the contacts simply stay unlinked until
-      // someone who can edit opens the lead.
-      const existingContacts = contactsResult.data ?? []
-      const viewerCanEdit =
-        employee?.role === 'owner' ||
-        employee?.role === 'sales_coordinator' ||
-        leadRow.owner_employee_id === employee?.id
-      const unlinked = [resolvedOtherParty, resolvedReferrerParty].filter(
-        (p) => p && !existingContacts.some((c) => c.party_id === p.id)
-      )
-
-      if (leadRow.site_id && viewerCanEdit && unlinked.length > 0) {
-        const { data: healed } = await linkPartiesAsSiteContacts({
-          siteId: leadRow.site_id,
-          parties: unlinked,
-          alreadyLinkedPartyIds: new Set(existingContacts.map((c) => c.party_id)),
-        })
-        if (!active) return
-        setSiteContacts([...existingContacts, ...(healed ?? [])])
-      } else {
-        setSiteContacts(existingContacts)
-      }
-      setStageHistory(stageHistoryResult.data ?? [])
-      setActivities(activitiesResult.data ?? [])
-      setOwnerHistory(ownerHistoryResult.data ?? [])
-      setActiveSalesExecs(activeExecsResult.data ?? [])
-      setAreas(areasResult.data ?? [])
-      setProducts(productsResult.data ?? [])
-      setLeadFollowUps(followUpsResult.data ?? [])
-      const mostRecent = [...(stageHistoryResult.data ?? []).map((h) => h.changed_at), ...(activitiesResult.data ?? []).map((a) => a.created_at)].sort().pop()
-      setLastActivityAt(mostRecent ?? leadRow.created_at)
-      setLoading(false)
-    }
-
-    load()
-
-    return () => {
-      active = false
-    }
-    // employee.id/role are read by the contact-healing branch above, to decide
-    // whether this viewer may write. Both are stable for a session, so listing
-    // them doesn't cause a refetch in practice.
-  }, [id, employee?.id, employee?.role])
+  // Edits wait while the page shows a remembered copy that is being refreshed,
+  // or whose refresh failed (the header then reads "Not updated" and the next
+  // return to the app tries again) — and until the lookup lists have
+  // something, so a dropdown never renders without its options.
+  const seededFromFresh = seed.id === id && seed.fresh
+  const editsLocked =
+    (!seededFromFresh && (detailQuery.isFetching || Boolean(detailQuery.lastError))) ||
+    !execsQuery.result ||
+    !areasQuery.result ||
+    !productsQuery.result
+  // The database now says this lead doesn't exist for this viewer (deleted,
+  // or reassigned out of their reach) — never keep showing a remembered copy.
+  const goneNow = detailQuery.lastError?.code === 'PGRST116'
 
   // One naming rule for the whole app (src/lib/leadName.js): the lead's party,
   // then the site's address, then its nickname. This page holds party/site as
@@ -321,8 +261,11 @@ function LeadDetail() {
     }
   }, [leadIdForLoss, leadIsLost])
 
-  if (loading) return <p className="vip-state-msg">Loading…</p>
-  if (loadError) return <p className="vip-state-msg-error">{loadError}</p>
+  if (goneNow) return <p className="vip-state-msg">Lead not found.</p>
+  if (seed.id !== id) {
+    if (detailResult?.error) return <p className="vip-state-msg-error">{errorMessage(detailResult.error)}</p>
+    return <p className="vip-state-msg">Loading…</p>
+  }
   if (!lead) return <p className="vip-state-msg">Lead not found.</p>
 
   // Exactly three people may change a lead (owner's ruling, 2026-08-13): its
@@ -901,9 +844,9 @@ function LeadDetail() {
         </div>
 
         {canQuickAct && (
-          <LeadQuickActions
-            {...quickActionsProps}
-          />
+          <fieldset className="vip-lock" disabled={editsLocked}>
+            <LeadQuickActions key={seed.version} {...quickActionsProps} />
+          </fieldset>
         )}
       </div>
 
@@ -1034,14 +977,18 @@ function LeadDetail() {
         )}
       </div>
 
-      <LeadFollowUpsCard
-        followUps={leadFollowUps}
-        viewer={employee}
-        canLogHere={canLogActivityHere}
-        onChanged={handleFollowUpSaved}
-      />
+      <fieldset className="vip-lock" disabled={editsLocked}>
+        <LeadFollowUpsCard
+          followUps={leadFollowUps}
+          viewer={employee}
+          canLogHere={canLogActivityHere}
+          onChanged={handleFollowUpSaved}
+        />
+      </fieldset>
 
-      <LeadRemarks leadId={id} employeeId={employee?.id} canAdd={canEdit} />
+      <fieldset className="vip-lock" disabled={editsLocked}>
+        <LeadRemarks leadId={id} employeeId={employee?.id} canAdd={canEdit} />
+      </fieldset>
 
       <LeadActivityTimeline leadId={id} activities={activities} stageHistory={stageHistory} ownerHistory={ownerHistory} />
     </div>
@@ -1075,6 +1022,7 @@ function LeadDetail() {
               className="vip-lead-actionbar-toggle"
               onClick={() => setQuickActionsSheetOpen(true)}
               aria-label="Quick actions"
+              disabled={editsLocked}
             >
               ⇄
             </button>
@@ -1142,6 +1090,7 @@ function LeadDetail() {
 
   const salesProgressEditor = (
     <SalesProgressSection
+      key={`sales-${seed.version}`}
       lead={lead}
       products={products}
       rfq={rfqSummary}
@@ -1269,7 +1218,7 @@ function LeadDetail() {
   }
 
   const siteDetailsEditor = site ? (
-    <SiteDetailsSection site={site} areas={areas} onSaved={setSite} />
+    <SiteDetailsSection key={`site-${seed.version}`} site={site} areas={areas} onSaved={setSite} />
   ) : (
     <div className="vip-card">
       <h2 className="vip-card-title">Site details</h2>
@@ -1296,7 +1245,7 @@ function LeadDetail() {
   // re-seeds the card's own name/mobile/city inputs, which are useState seeds.
   const clientDetailsEditor = (
     <ClientDetailsSection
-      key={party?.id ?? 'none'}
+      key={`client-${seed.version}-${party?.id ?? 'none'}`}
       party={party}
       canEdit={canEdit}
       onSaved={setParty}
@@ -1305,6 +1254,7 @@ function LeadDetail() {
   )
   const contactsEditor = site && (
     <AdditionalContactsSection
+      key={`contacts-${seed.version}`}
       site={site}
       siteContacts={siteContacts}
       onContactAdded={(contact) => setSiteContacts((prev) => [...prev, contact])}
@@ -1324,19 +1274,23 @@ function LeadDetail() {
               before. Mobile: one card of tap-to-expand summary rows instead
               (see the full-screen editor overlay below). */}
           <div className="vip-only-desktop">
-            {salesProgressEditor}
-            {siteDetailsEditor}
-            {clientDetailsEditor}
-            {contactsEditor}
+            <fieldset className="vip-lock" disabled={editsLocked}>
+              {salesProgressEditor}
+              {siteDetailsEditor}
+              {clientDetailsEditor}
+              {contactsEditor}
+            </fieldset>
           </div>
 
           <div className="vip-card vip-only-mobile">
-            {detailSections.map((s) => (
-              <button key={s.key} type="button" className="vip-detail-row" onClick={() => setOpenSection(s.key)}>
-                <span className="vip-detail-row-title">{s.title}</span>
-                <span className="vip-detail-row-summary">{s.summary} ›</span>
-              </button>
-            ))}
+            <fieldset className="vip-lock" disabled={editsLocked}>
+              {detailSections.map((s) => (
+                <button key={s.key} type="button" className="vip-detail-row" onClick={() => setOpenSection(s.key)}>
+                  <span className="vip-detail-row-title">{s.title}</span>
+                  <span className="vip-detail-row-summary">{s.summary} ›</span>
+                </button>
+              ))}
+            </fieldset>
           </div>
         </div>
       </div>
@@ -1368,7 +1322,7 @@ function LeadDetail() {
           <div className="vip-sheet-backdrop" onClick={() => setQuickActionsSheetOpen(false)} />
           <div className="vip-sheet" role="dialog" aria-modal="true" aria-label="Quick actions">
             <div className="vip-sheet-handle" />
-            <LeadQuickActions {...quickActionsProps} />
+            <LeadQuickActions key={seed.version} {...quickActionsProps} />
           </div>
         </>
       )}

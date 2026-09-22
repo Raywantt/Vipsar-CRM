@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { queryClient, scopedKey, setQueryUser, persistOptions, clearQueryData, PERSIST_MAX_AGE_MS } from './queryClient'
+import { queryClient, scopedKey, setQueryUser, persistOptions, clearQueryData, PERSIST_MAX_AGE_MS, CACHE_SHAPE_VERSION, DATA_SHAPE_ID } from './queryClient'
 
 const shouldPersist = persistOptions.dehydrateOptions.shouldDehydrateQuery
 
@@ -43,8 +43,11 @@ describe('queryClient — instant open', () => {
     expect(shouldPersist(fakeQuery({ persist: undefined, status: 'success' }))).toBe(false)
   })
 
-  it('discards remembered data saved by a different build', () => {
-    expect(persistOptions.buster).toBeTruthy()
+  // Keyed to the data's shape (scripts/dataShape.mjs), not the build, so an
+  // update that doesn't touch a query file keeps everyone's saved numbers.
+  it('discards remembered data only when its shape stamp changes', () => {
+    expect(persistOptions.buster).toBe(`${CACHE_SHAPE_VERSION}:${DATA_SHAPE_ID}`)
+    expect(persistOptions.buster).not.toMatch(/\d{4}-\d{2}-\d{2}T/) // never a build timestamp again
   })
 
   it('keeps remembered data no longer than a day, and in memory at least that long', () => {

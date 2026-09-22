@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useCachedQuery } from '../hooks/useCachedQuery'
 import { isBdm } from '../lib/roles'
-import { countUnseenBdmUpdates, markBdmUpdatesSeen } from '../lib/notificationQueries'
+import { markBdmUpdatesSeen } from '../lib/notificationQueries'
+import { fetchUnseenBdmUpdatesCount } from '../lib/screenQueries'
 
 // "3 updates on your leads ›" — a business development manager's only in-app
 // signal on Today that one of their leads was assigned, won or lost (owner's
@@ -21,12 +22,11 @@ function BdmUpdatesLine() {
   // Tapping the line hides it at once; the refetch after the "seen" write
   // brings the real count back.
   const [dismissed, setDismissed] = useState(false)
-  const query = useCachedQuery(['today', 'bdm-updates-count', employee?.id], () =>
-    // Silent on failure, like AssignedLeadsCard: an additive line is better
-    // absent than replaced by an error above the greeting.
-    countUnseenBdmUpdates().then(({ count: n, error }) => ({ data: n ?? 0, error })),
-    { enabled: viewerIsBdm }
-  )
+  // Silent on failure, like AssignedLeadsCard: an additive line is better
+  // absent than replaced by an error above the greeting.
+  const query = useCachedQuery(['today', 'bdm-updates-count', employee?.id], fetchUnseenBdmUpdatesCount, {
+    enabled: viewerIsBdm,
+  })
   const count = dismissed || query.result?.error ? 0 : (query.result?.data ?? 0)
 
   if (!viewerIsBdm || count === 0) return null

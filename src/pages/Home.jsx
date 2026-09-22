@@ -3,8 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
-import { fetchClosureForecast } from '../lib/dashboardQueries'
-import { fetchWonStageHistory, fetchTargetsForPeriod } from '../lib/targetQueries'
+import { fetchTargetBarBundle } from '../lib/screenQueries'
 import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor, reminderSavedMessage, lockedFollowUpIds } from '../lib/followUpQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
 import { buildDayRows, buildSignificantEntries, buildDaySheetPanel } from '../lib/dayReview'
@@ -165,17 +164,7 @@ function Home({ embedded = false }) {
   // targets in one remembered query per period.
   const targetQuery = useCachedQuery(
     ['today', 'target', employee?.id, period],
-    () => {
-      const targetPeriod = periodForPreset(period)
-      return Promise.all([
-        fetchWonStageHistory(),
-        fetchClosureForecast(),
-        targetPeriod ? fetchTargetsForPeriod(targetPeriod) : Promise.resolve({ data: [], error: null }),
-      ]).then(([wonRes, forecastRes, targetsRes]) => ({
-        data: { won: wonRes.data ?? [], forecast: forecastRes.data ?? [], targets: targetsRes.data ?? [] },
-        error: null,
-      }))
-    },
+    () => fetchTargetBarBundle(period),
     { enabled }
   )
   const closing = useMemo(() => (targetQuery.result?.data?.forecast ?? []).slice(0, 4), [targetQuery.result])

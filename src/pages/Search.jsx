@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
+import { useCachedQuery } from '../hooks/useCachedQuery'
+import { fetchPartiesDirectory } from '../lib/screenQueries'
 import { searchAll, MIN_QUERY_LENGTH } from '../lib/searchQueries'
 import { stageChipClass } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
 import { leadDisplayName } from '../lib/leadName'
-import { fetchRecentParties, searchParties, fetchLeadsForParties, mostRecentLeadByParty } from '../lib/partyQueries'
+import { mostRecentLeadByParty } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { isBdm } from '../lib/roles'
 import { portfolioTag } from '../lib/architectStats'
@@ -54,6 +56,9 @@ function leadTitle(lead) {
 // a fresh nav-link visit — see usePersistedFilterState's own header comment.
 const FILTERS_STORAGE_KEY = 'vip-filters:search'
 
+// "Nothing yet", shared so memoised maps don't rebuild every render. Never mutated.
+const NO_ROWS = []
+
 function Search() {
   const { employee } = useAuth()
   const viewerIsBdm = isBdm(employee?.role)
@@ -67,11 +72,6 @@ function Search() {
   // it) — there's no more client-side filtering over a fully-downloaded
   // directory. `leadsDirectory` is scoped to just those parties' ids
   // (fetchLeadsForParties), not a full unbounded `leads` scan.
-  const [parties, setParties] = useState([])
-  const [partiesLoading, setPartiesLoading] = useState(true)
-  const [partiesError, setPartiesError] = useState(null)
-  const [partiesCapped, setPartiesCapped] = useState(false)
-  const [leadsDirectory, setLeadsDirectory] = useState([])
   const [typeFilter, setTypeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'typeFilter', '')
   const [filtersOpen, setFiltersOpen] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'filtersOpen', false)
   // Mobile-only — desktop always stacks all three sections (see
@@ -92,48 +92,22 @@ function Search() {
   const hasPartySearch = debouncedTerm.trim().length >= MIN_QUERY_LENGTH
 
   // Parties: recent-or-search, then the leads scoped to whichever parties
-  // came back — one combined effect (not two separate ones) so the leads
-  // fetch is never a beat behind which parties are actually on screen.
-  useEffect(() => {
-    let active = true
-    setPartiesLoading(true)
-    setPartiesError(null)
-
-    async function run() {
-      const partiesResult = hasPartySearch
-        ? await searchParties(debouncedTerm, typeFilter || null)
-        : await fetchRecentParties(typeFilter || null).then(({ data, error }) => ({
-            data: data ?? [],
-            error,
-            capped: false,
-          }))
-      if (!active) return
-
-      if (partiesResult.error) {
-        setPartiesError(errorMessage(partiesResult.error))
-        setParties([])
-        setPartiesCapped(false)
-        setLeadsDirectory([])
-        setPartiesLoading(false)
-        return
-      }
-
-      setParties(partiesResult.data)
-      setPartiesCapped(partiesResult.capped)
-
-      const partyIds = partiesResult.data.map((p) => p.id)
-      const { data: leadsData, error: leadsError } = await fetchLeadsForParties(partyIds)
-      if (!active) return
-      setLeadsDirectory(leadsError ? [] : leadsData ?? [])
-      setPartiesLoading(false)
-    }
-
-    run()
-
-    return () => {
-      active = false
-    }
-  }, [debouncedTerm, typeFilter, hasPartySearch])
+  // came back, as one answer (fetchPartiesDirectory). Remembered on the device
+  // (instant open) for the recent list; a typed search isn't stored — every
+  // distinct term would become its own saved copy.
+  const partyTerm = hasPartySearch ? debouncedTerm : ''
+  const directoryParams = useMemo(() => ({ term: partyTerm, typeFilter }), [partyTerm, typeFilter])
+  const directoryQuery = useCachedQuery(
+    ['search', 'parties', partyTerm, typeFilter],
+    () => fetchPartiesDirectory(directoryParams),
+    { persist: !hasPartySearch }
+  )
+  const directory = directoryQuery.result
+  const partiesLoading = directory === undefined
+  const partiesError = directory?.error ? errorMessage(directory.error) : null
+  const parties = directory?.data?.parties ?? NO_ROWS
+  const partiesCapped = directory?.data?.capped ?? false
+  const leadsDirectory = directory?.data?.leads ?? NO_ROWS
 
   // Leads/Sites results — unchanged: still its own debounced DB round-trip
   // via searchAll, gated on the raw (not debounced) term with its own

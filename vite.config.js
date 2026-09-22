@@ -1,14 +1,17 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { dataShapeId } from './scripts/dataShape.mjs'
 
 // https://vite.dev/config/
 export default defineConfig({
-  // Stamps each build so remembered screen data saved by an older build is
-  // discarded instead of rendered by code expecting a different shape — see
-  // src/lib/queryClient.js (`buster`).
+  // Stamps the build with a hash of the files that shape remembered screen
+  // data (scripts/dataShape.mjs), so a deploy that changes one discards what
+  // phones saved under the old shape, and every other deploy keeps it — see
+  // src/lib/queryClient.js (`buster`). In `npm run dev` it's computed once at
+  // server start.
   define: {
-    __APP_BUILD_ID__: JSON.stringify(new Date().toISOString()),
+    __DATA_SHAPE_ID__: JSON.stringify(dataShapeId()),
   },
   plugins: [
     react(),

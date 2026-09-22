@@ -58,6 +58,11 @@ export function useCachedQuery(key, fetchFn, { enabled = true, staleTime, persis
     // When the result on screen was fetched (ms since epoch), remembered or
     // fresh — Day Review's "Updated 3:42 pm".
     updatedAt: query.dataUpdatedAt || null,
+    // The LAST fetch's error, even while `result` still shows the remembered
+    // answer — so a screen can tell "refresh failed, keep showing the old
+    // copy" from "the database now says this doesn't exist" (Lead Detail).
+    lastError:
+      query.error instanceof SupabaseResultError ? query.error.result.error : (query.error ?? null),
   }
 }
 

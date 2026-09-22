@@ -8,8 +8,7 @@ import FollowUpList from '../components/FollowUpList'
 import DrilldownPanel from '../components/DrilldownPanel'
 import { DayKpiStrip } from '../components/DayReviewHeader'
 import { fetchDueFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, logActivityPathFor, reminderSavedMessage, lockedFollowUpIds } from '../lib/followUpQueries'
-import { fetchPortfolioArchitects, fetchArchitectMeetings } from '../lib/architectQueries'
-import { countWaitingPoolLeads } from '../lib/bdmQueries'
+import { fetchWaitingPoolCount, fetchPortfolioWithMeetings } from '../lib/screenQueries'
 import { architectsToMeet, lastMeetingByArchitect, lastMetLabel, ARCHITECT_MEETING_DAYS } from '../lib/architectStats'
 import { firmLabel } from '../lib/firmLabel'
 import { formatCurrencyCompact } from '../lib/format'
@@ -55,7 +54,7 @@ function BdmToday() {
 
   const waitingQuery = useCachedQuery(
     ['today', 'bdm-waiting', employee?.id],
-    () => countWaitingPoolLeads(employee.id).then(({ count, error }) => ({ data: count ?? 0, error })),
+    () => fetchWaitingPoolCount(employee.id),
     { enabled }
   )
   const waitingCount = waitingQuery.result?.error ? 0 : (waitingQuery.result?.data ?? 0)
@@ -78,12 +77,7 @@ function BdmToday() {
   // raw rows (a Map can't be stored) and reduced to "last met" below.
   const architectsQuery = useCachedQuery(
     ['today', 'bdm-architects', employee?.id],
-    async () => {
-      const { data, error } = await fetchPortfolioArchitects(employee.id)
-      if (error) return { data: null, error }
-      const meetings = await fetchArchitectMeetings(data.map((a) => a.id))
-      return { data: { architects: data, meetings: meetings.data ?? [], meetingsError: meetings.error ?? null }, error: null }
-    },
+    () => fetchPortfolioWithMeetings(employee.id),
     { enabled }
   )
   const architectsResult = architectsQuery.result

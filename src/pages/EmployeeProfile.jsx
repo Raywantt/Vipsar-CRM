@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import { rangeForPreset } from '../lib/dateRanges'
 import { periodForPreset } from '../lib/targetPeriods'
-import { fetchActivityCounts, fetchDecidedStageHistory, fetchLastActivityPerLead, fetchLeadsForBreakdown, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
+import { fetchDecidedStageHistory, fetchLastActivityPerLead, fetchLeadsForBreakdown, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
+import { fetchDashboardPeriod } from '../lib/screenQueries'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
 import { fetchAccompaniedLogForEmployee, fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
 import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp, compareFollowUps, lockedFollowUpIds } from '../lib/followUpQueries'
@@ -202,17 +204,6 @@ function EmployeeProfile() {
   const range = rangeForPreset(preset)
   const period = periodForPreset(preset)
 
-  const [profileEmployee, setProfileEmployee] = useState(null)
-  const [profileError, setProfileError] = useState(null)
-  const [activeSalesExecs, setActiveSalesExecs] = useState([])
-  const [activities, setActivities] = useState([])
-  const [breakdownLeads, setBreakdownLeads] = useState([])
-  const [wonStageHistory, setWonStageHistory] = useState([])
-  const [decidedStageHistory, setDecidedStageHistory] = useState([])
-  const [targets, setTargets] = useState([])
-  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
-  const [lastStageChangeByLead, setLastStageChangeByLead] = useState(new Map())
-  const [activityLog, setActivityLog] = useState([])
   const [followUps, setFollowUps] = useState([])
   const [followUpError, setFollowUpError] = useState(null)
   const [addingFollowUp, setAddingFollowUp] = useState(false)
@@ -223,7 +214,6 @@ function EmployeeProfile() {
   // may have none last quarter, and a filter surviving into an empty strip
   // reads as "no activity" rather than "no activity OF THIS TYPE".
   const [selectedType, setSelectedType] = useState(null)
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setSelectedType(null)
@@ -255,79 +245,63 @@ function EmployeeProfile() {
   // guard below) wait for it instead of bouncing a legitimate supervisor
   // before their own team-membership check has run.
   const isSupervisor = isCoordinator || isManager
+  // Anyone whose access *could* end up true — gates the profile-row read, the
+  // one read a supervisor needs before `allowed` itself can be computed.
+  const mayAttempt = canOpenDirectly || isSupervisor
+  const profileQuery = useCachedQuery(['emp', 'profile', execId], () => fetchEmployeeProfile(execId), {
+    enabled: Boolean(viewer) && mayAttempt,
+  })
+  const profileEmployee = profileQuery.result && !profileQuery.result.error ? profileQuery.result.data : null
+  const profileError = profileQuery.result?.error ? errorMessage(profileQuery.result.error) : null
   const pendingSupervisorCheck = isSupervisor && !canOpenDirectly && profileEmployee == null && profileError == null
   const isMyTeamMember = isCoordinator && profileEmployee != null && profileEmployee.coordinator_id === viewer?.id
   const isMyManagedMember = isManager && profileEmployee != null && profileEmployee.manager_id === viewer?.id
   const allowed = canOpenDirectly || isMyTeamMember || isMyManagedMember
-  // Anyone whose access *could* end up true — used only to gate the initial
-  // profile-row fetch, since that's the one fetch a supervisor needs before
-  // `allowed` itself can be computed.
-  const mayAttempt = canOpenDirectly || isSupervisor
 
   useEffect(() => {
     if (!viewer || pendingSupervisorCheck) return
     if (!allowed) navigate('/dashboard', { replace: true })
   }, [viewer, pendingSupervisorCheck, allowed, navigate])
 
-  useEffect(() => {
-    if (!viewer || !mayAttempt) return
-    let active = true
-    fetchEmployeeProfile(execId).then(({ data, error }) => {
-      if (!active) return
-      if (error) setProfileError(errorMessage(error))
-      else setProfileEmployee(data)
-    })
-    return () => {
-      active = false
-    }
-  }, [execId, viewer, mayAttempt])
+  // INSTANT OPEN — every read on this page is remembered on the device, and
+  // the ones it shares with the Dashboard (period activities, the breakdown
+  // leads, the stage histories, targets) use the Dashboard's own keys, so
+  // having opened one warms the other. The access rules are unchanged: the
+  // profile row (profileQuery, above) is read only by someone who could be
+  // allowed, and nothing else until `allowed` is true.
 
-  useEffect(() => {
-    if (!viewer || !allowed) return
-    let active = true
-    fetchActiveSalesExecs().then(({ data, error }) => {
-      if (!active) return
-      if (error) return
-      const all = data ?? []
-      // The rank pill compares this exec against a real peer group. For the
-      // owner that's every active exec; for a coordinator it must be their
-      // own team only — activities/leads/targets below are already
-      // RLS-scoped to that same team (coordinator_team_select), so comparing
-      // against a company-wide list here would score every exec outside the
-      // team as if they had zero activity and no targets, not because they
-      // do, but because this session simply can't see their data.
-      // The rank pill needs a peer group this session can actually SEE.
-      // A supervisor's activities/leads/targets are RLS-scoped to their own
-      // team, so comparing against a company-wide roster would score every
-      // outsider as zero — not because they did nothing, but because their
-      // rows never arrive. A manager's own row is added back explicitly:
-      // unlike a coordinator they carry a quota, so on their own profile
-      // they must be part of the group they are being ranked within.
-      setActiveSalesExecs(
-        isCoordinator
-          ? all.filter((e) => e.coordinator_id === viewer.id)
-          : isManager
-          ? all.filter((e) => e.manager_id === viewer.id || e.id === viewer.id)
-          : all
-      )
-    })
-    return () => {
-      active = false
-    }
-  }, [viewer, allowed, isCoordinator, isManager])
+  const execsQuery = useCachedQuery(['dash', 'active-execs'], fetchActiveSalesExecs, { enabled: Boolean(viewer) && allowed })
+  // The rank pill compares this exec against a real peer group this session
+  // can actually SEE. A supervisor's activities/leads/targets are RLS-scoped
+  // to their own team, so a company-wide roster would score every outsider as
+  // zero — not because they did nothing, but because their rows never arrive.
+  // A manager's own row is added back: unlike a coordinator they carry a
+  // quota, so on their own profile they are part of the group they're ranked in.
+  const activeSalesExecs = useMemo(() => {
+    const res = execsQuery.result
+    if (!res || res.error) return []
+    const all = res.data ?? []
+    return isCoordinator
+      ? all.filter((e) => e.coordinator_id === viewer.id)
+      : isManager
+        ? all.filter((e) => e.manager_id === viewer.id || e.id === viewer.id)
+        : all
+  }, [execsQuery.result, isCoordinator, isManager, viewer])
 
+  // Edited in place by the row actions below, so the list is state seeded
+  // from its remembered query (in a layout effect, so it's there in the
+  // first paint) and re-seeded whenever the query refreshes.
+  const followUpsQuery = useCachedQuery(['emp', 'followups', execId], () => fetchFollowUpsForEmployee(execId), {
+    enabled: Boolean(viewer) && allowed,
+  })
   useEffect(() => {
-    if (!viewer || !allowed) return
-    let active = true
     setVisibleFollowUps(FOLLOWUP_ROW_CHUNK)
-    fetchFollowUpsForEmployee(execId).then(({ data, error }) => {
-      if (!active) return
-      if (!error) setFollowUps(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-  }, [execId, viewer, allowed])
+  }, [execId])
+  useLayoutEffect(() => {
+    const res = followUpsQuery.result
+    if (!res || res.error) return
+    setFollowUps(res.data ?? [])
+  }, [followUpsQuery.result])
 
   // This card reviews the full history (Rule 5.4), so a closed follow-up
   // stays visible with its new status rather than being removed — unlike
@@ -372,42 +346,57 @@ function EmployeeProfile() {
     setVisibleLeads(LEADS_ROW_CHUNK)
   }, [execId])
 
-  useEffect(() => {
-    if (!range || !viewer || !allowed) return
-    let active = true
-    setLoading(true)
-    Promise.all([
-      fetchActivityCounts(range),
-      fetchLeadsForBreakdown(),
-      fetchWonStageHistory(),
-      fetchDecidedStageHistory(),
-      period ? fetchTargetsForPeriod(period) : Promise.resolve({ data: [], error: null }),
-      fetchLastActivityPerLead(),
-      fetchActivityLogForEmployee(execId, ACTIVITY_LOG_LIMIT),
-      fetchStageHistoryForFunnel(),
-      fetchAccompaniedLogForEmployee(execId),
-    ]).then(([act, leads, won, decided, tgt, lastAct, log, stageHist, accompanied]) => {
-      if (!active) return
-      setActivities(act.data ?? [])
-      setBreakdownLeads(leads.data ?? [])
-      setWonStageHistory(won.data ?? [])
-      setDecidedStageHistory(decided.data ?? [])
-      setTargets(tgt.data ?? [])
-      const map = new Map()
-      ;(lastAct.data ?? []).forEach((row) => {
-        const existing = map.get(row.lead_id)
-        if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-      })
-      setLastActivityByLead(map)
-      setLastStageChangeByLead(buildLastStageChangeByLead(stageHist.data))
-      setActivityLog(mergeActivityLog(log.data ?? [], accompanied.data ?? []))
-      setLoading(false)
+  const on = Boolean(range) && Boolean(viewer) && allowed
+  const rangeKey = range ? `${range.start.toISOString()}~${range.end.toISOString()}` : 'none'
+  const periodQuery = useCachedQuery(['dash', 'period', rangeKey], () => fetchDashboardPeriod(range), { enabled: on })
+  const breakdownQuery = useCachedQuery(['dash', 'breakdown-leads'], () => fetchLeadsForBreakdown(), { enabled: on })
+  const wonQuery = useCachedQuery(['dash', 'won-history'], fetchWonStageHistory, { enabled: on })
+  const decidedQuery = useCachedQuery(['dash', 'decided-history'], () => fetchDecidedStageHistory(), { enabled: on })
+  const targetsQuery = useCachedQuery(
+    ['dash', 'targets', period?.periodType ?? '-', period?.periodValue ?? '-'],
+    () => fetchTargetsForPeriod(period),
+    { enabled: on && Boolean(period) }
+  )
+  const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead, {
+    enabled: on,
+    persist: false,
+  })
+  const logQuery = useCachedQuery(
+    ['emp', 'activity-log', execId, ACTIVITY_LOG_LIMIT],
+    () => fetchActivityLogForEmployee(execId, ACTIVITY_LOG_LIMIT),
+    { enabled: on }
+  )
+  const funnelQuery = useCachedQuery(['dash', 'funnel-history'], () => fetchStageHistoryForFunnel(), { enabled: on })
+  const accompaniedQuery = useCachedQuery(['emp', 'accompanied', execId], () => fetchAccompaniedLogForEmployee(execId), {
+    enabled: on,
+  })
+  // "Nothing for this period yet" — a remembered answer counts as something.
+  // A read that failed counts as settled and shows as empty, as before.
+  const loading = [periodQuery, breakdownQuery, wonQuery, decidedQuery, lastActivityQuery, logQuery, funnelQuery, accompaniedQuery]
+    .concat(period ? [targetsQuery] : [])
+    .some((q) => q.result === undefined)
+  const rowsOf = (q) => (q.result && !q.result.error ? q.result.data ?? [] : [])
+  const activities = useMemo(() => periodQuery.result?.data?.activities ?? [], [periodQuery.result])
+  const breakdownLeads = useMemo(() => rowsOf(breakdownQuery), [breakdownQuery.result]) // eslint-disable-line react-hooks/exhaustive-deps
+  const wonStageHistory = useMemo(() => rowsOf(wonQuery), [wonQuery.result]) // eslint-disable-line react-hooks/exhaustive-deps
+  const decidedStageHistory = useMemo(() => rowsOf(decidedQuery), [decidedQuery.result]) // eslint-disable-line react-hooks/exhaustive-deps
+  const targets = useMemo(() => (period ? rowsOf(targetsQuery) : []), [targetsQuery.result, period]) // eslint-disable-line react-hooks/exhaustive-deps
+  const lastActivityByLead = useMemo(() => {
+    const map = new Map()
+    rowsOf(lastActivityQuery).forEach((row) => {
+      const existing = map.get(row.lead_id)
+      if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
     })
-    return () => {
-      active = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [execId, preset, viewer, allowed])
+    return map
+  }, [lastActivityQuery.result]) // eslint-disable-line react-hooks/exhaustive-deps
+  const lastStageChangeByLead = useMemo(
+    () => buildLastStageChangeByLead(funnelQuery.result?.data),
+    [funnelQuery.result]
+  )
+  const activityLog = useMemo(
+    () => mergeActivityLog(rowsOf(logQuery), rowsOf(accompaniedQuery)),
+    [logQuery.result, accompaniedQuery.result] // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
   const execName = profileEmployee?.name ?? ''
   useEffect(() => {

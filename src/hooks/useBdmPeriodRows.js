@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
+import { useCachedQuery } from './useCachedQuery'
 import { fetchClosedRows } from '../lib/bdmQueries'
 import { buildClosedRows } from '../lib/bdmLeadUpdates'
 import { errorMessage } from '../lib/errorMessage'
@@ -7,31 +8,35 @@ import { errorMessage } from '../lib/errorMessage'
 // (BdmLeadUpdateCards.jsx). Returns { rows, error }; rows is null while
 // loading. Does nothing until both a range and a BDM id exist, which is also
 // how a caller keeps it idle (pass range = null).
-export function useBdmPeriodRows(fetcher, build, range, bdmId) {
-  const [state, setState] = useState({ rows: null, error: null })
+//
+// Remembered on the device (instant open). `name` identifies WHICH list —
+// part of the key, spelled out rather than read off `fetcher.name`, since a
+// minified build renames functions and a key must never let one list's saved
+// answer stand in for another's. What's stored is the fetcher's raw answer
+// (its shape lives in bdmQueries.js); `build` shapes it on the way out.
+export function useBdmPeriodRows(name, fetcher, build, range, bdmId) {
   const rangeKey = range ? `${range.start.toISOString()}|${range.end.toISOString()}` : null
-
-  useEffect(() => {
-    if (!rangeKey || !bdmId) return
-    let active = true
-    setState({ rows: null, error: null })
-    fetcher(range).then((res) => {
-      if (!active) return
-      if (res.error) setState({ rows: [], error: errorMessage(res.error) })
-      else setState({ rows: build(res.data, bdmId), error: null })
-    })
-    return () => {
-      active = false
-    }
-    // range is represented by rangeKey; the object identity changes every render.
-  }, [rangeKey, bdmId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  return state
+  const query = useCachedQuery(['bdm-period', name, rangeKey, bdmId], () => fetcher(range), {
+    enabled: Boolean(rangeKey && bdmId),
+  })
+  const result = query.result
+  return useMemo(() => {
+    if (!result) return { rows: null, error: null }
+    if (result.error) return { rows: [], error: errorMessage(result.error) }
+    return { rows: build(result.data, bdmId), error: null }
+    // `build` is a fresh arrow on every caller render; what it does never changes.
+  }, [result, bdmId]) // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 // The won/lost rows for the period — fetched once by BdmDashboard and handed to
 // both the Closed card and Pipeline closed, so the list and the figure can't
 // disagree about which leads closed.
 export function useClosedRows(range, bdmId) {
-  return useBdmPeriodRows(fetchClosedRows, (data, id) => buildClosedRows(data.stageRows, data.lossRows, id), range, bdmId)
+  return useBdmPeriodRows(
+    'closed',
+    fetchClosedRows,
+    (data, id) => buildClosedRows(data.stageRows, data.lossRows, id),
+    range,
+    bdmId
+  )
 }

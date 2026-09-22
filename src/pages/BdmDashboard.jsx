@@ -3,6 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
+import { useCachedQuery } from '../hooks/useCachedQuery'
+import { fetchPortfolioWithMeetings } from '../lib/screenQueries'
 import LeadsListCard from '../components/LeadsListCard'
 import FollowUpsCard from '../components/FollowUpsCard'
 import DateRangeSelector from '../components/DateRangeSelector'
@@ -21,7 +23,6 @@ import { periodForPreset } from '../lib/targetPeriods'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
 import { fetchBdmDashboardLeads, fetchBdmArchitectMeetings } from '../lib/bdmQueries'
-import { fetchPortfolioArchitects, fetchArchitectMeetings } from '../lib/architectQueries'
 import {
   fetchClosureForecast,
   fetchCompletenessDetail,
@@ -52,6 +53,9 @@ function numOrNull(v) {
 // not the shared drill-downs' generic "Unassigned". Display only: applied to
 // the rows a panel is built from, never to anything written back.
 const AWAITING = 'Awaiting assignment'
+
+// "Nothing yet", shared so props keep one identity across renders. Never mutated.
+const NO_ROWS = []
 function labelPoolOwnerRows(rows) {
   return (rows ?? []).map((r) => (r.owner_id == null ? { ...r, owner_name: AWAITING } : r))
 }
@@ -133,77 +137,59 @@ function BdmDashboard() {
   const [panelError, setPanelError] = useState(null)
 
   // ---- Snapshot data (not range-scoped) ----
-  const [leads, setLeads] = useState(null)
-  const [leadsError, setLeadsError] = useState(null)
-  const [forecast, setForecast] = useState([])
-  const [snapshot, setSnapshot] = useState(null)
-  const [architects, setArchitects] = useState(null)
-  const [lastMetById, setLastMetById] = useState(new Map())
-
-  useEffect(() => {
-    if (!isReports || !bdmId) return
-    let active = true
-
-    fetchBdmDashboardLeads(bdmId).then(({ data, error }) => {
-      if (!active) return
-      setLeadsError(error ? errorMessage(error) : null)
-      setLeads(data ?? [])
-    })
-    // RLS scopes both to this BDM's leads; the pool rule lets their own pool
-    // leads through (the SQL predicate is role-aware — migration_bdm_handoff.sql).
-    fetchClosureForecast(true).then(({ data, error }) => {
-      if (active && !error) setForecast(data ?? [])
-    })
-    fetchDashboardSnapshotMetrics(null).then(({ data, error }) => {
-      if (active && !error) setSnapshot(Array.isArray(data) ? data[0] ?? null : data)
-    })
-    // The same list Today's "Architects to meet" card shows.
-    fetchPortfolioArchitects(bdmId).then(async ({ data, error }) => {
-      if (!active || error) return
-      const meetings = await fetchArchitectMeetings(data.map((a) => a.id))
-      if (!active) return
-      setLastMetById(lastMeetingByArchitect(meetings.data))
-      setArchitects(data)
-    })
-
-    return () => {
-      active = false
-    }
-  }, [isReports, bdmId])
+  // INSTANT OPEN — every read here is remembered on the device. The portfolio
+  // shares BDM Today's key (same list as its "Architects to meet" card), and
+  // the snapshot and targets share the shared Dashboard's.
+  const leadsQuery = useCachedQuery(['bdm', 'dash-leads', bdmId], () => fetchBdmDashboardLeads(bdmId), {
+    enabled: isReports && Boolean(bdmId),
+  })
+  const leads = leadsQuery.result ? leadsQuery.result.data ?? [] : null
+  const leadsError = leadsQuery.result?.error ? errorMessage(leadsQuery.result.error) : null
+  // RLS scopes both to this BDM's leads; the pool rule lets their own pool
+  // leads through (the SQL predicate is role-aware — migration_bdm_handoff.sql).
+  const forecastQuery = useCachedQuery(['bdm', 'forecast'], () => fetchClosureForecast(true), {
+    enabled: isReports && Boolean(bdmId),
+  })
+  const forecast = forecastQuery.result && !forecastQuery.result.error ? forecastQuery.result.data ?? [] : NO_ROWS
+  const snapshotQuery = useCachedQuery(['dash', 'snapshot', 'all'], () => fetchDashboardSnapshotMetrics(null), {
+    enabled: isReports && Boolean(bdmId),
+  })
+  const snapshot = useMemo(() => {
+    const res = snapshotQuery.result
+    if (!res || res.error) return null
+    return Array.isArray(res.data) ? res.data[0] ?? null : res.data
+  }, [snapshotQuery.result])
+  // The same list Today's "Architects to meet" card shows.
+  const portfolioQuery = useCachedQuery(['today', 'bdm-architects', bdmId], () => fetchPortfolioWithMeetings(bdmId), {
+    enabled: isReports && Boolean(bdmId),
+  })
+  const architects = portfolioQuery.result && !portfolioQuery.result.error ? portfolioQuery.result.data.architects : null
+  const lastMetById = useMemo(
+    () => lastMeetingByArchitect(portfolioQuery.result?.data?.meetings ?? []),
+    [portfolioQuery.result]
+  )
 
   // ---- Period data ----
-  const [meetings, setMeetings] = useState(null)
-  const [meetingsError, setMeetingsError] = useState(null)
-  useEffect(() => {
-    if (!isReports || !bdmId || !rangeKey) return
-    let active = true
-    setMeetings(null)
-    fetchBdmArchitectMeetings(bdmId, range).then(({ data, error }) => {
-      if (!active) return
-      setMeetingsError(error ? errorMessage(error) : null)
-      setMeetings(data ?? [])
-    })
-    return () => {
-      active = false
-    }
-    // range is represented by rangeKey; the object identity changes every render.
-  }, [isReports, bdmId, rangeKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const meetingsQuery = useCachedQuery(
+    ['bdm', 'architect-meetings', bdmId, rangeKey],
+    () => fetchBdmArchitectMeetings(bdmId, range),
+    { enabled: isReports && Boolean(bdmId) && Boolean(rangeKey) }
+  )
+  const meetings = meetingsQuery.result ? meetingsQuery.result.data ?? [] : null
+  const meetingsError = meetingsQuery.result?.error ? errorMessage(meetingsQuery.result.error) : null
 
-  const [targets, setTargets] = useState(null)
-  useEffect(() => {
-    if (!isReports || !targetPeriod) return
-    let active = true
-    setTargets(null)
-    fetchTargetsForPeriod(targetPeriod).then(({ data, error }) => {
-      if (!active) return
-      // RLS returns only this BDM's own rows; the filter keeps it that way for
-      // anyone else who ever renders this.
-      setTargets(error ? [] : (data ?? []).filter((t) => t.employee_id === bdmId))
-    })
-    return () => {
-      active = false
-    }
-  }, [isReports, targetPeriod, bdmId])
+  const targetsQuery = useCachedQuery(
+    ['dash', 'targets', targetPeriod?.periodType ?? '-', targetPeriod?.periodValue ?? '-'],
+    () => fetchTargetsForPeriod(targetPeriod),
+    { enabled: isReports && Boolean(targetPeriod) }
+  )
+  // RLS returns only this BDM's own rows; the filter keeps it that way for
+  // anyone else who ever renders this.
+  const targets = useMemo(() => {
+    const res = targetsQuery.result
+    if (!res) return null
+    return res.error ? [] : (res.data ?? []).filter((t) => t.employee_id === bdmId)
+  }, [targetsQuery.result, bdmId])
 
   // One fetch for both Closed and Pipeline closed (see BdmLeadUpdateCards.jsx).
   const closed = useClosedRows(isReports ? range : null, bdmId)

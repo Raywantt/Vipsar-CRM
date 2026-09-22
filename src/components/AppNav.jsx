@@ -4,6 +4,8 @@ import { useHeaderOverride } from '../contexts/HeaderContext'
 import { getInitials } from '../lib/initials'
 import { TAB_ROUTES } from '../lib/tabRoutes'
 import { createActionLabel } from '../lib/roles'
+import { useSyncState } from '../hooks/useCachedQuery'
+import { useOnlineStatus } from '../hooks/useOnlineStatus'
 
 // Static per-route title/sub, matched by exact path first, then by prefix
 // for dynamic routes (/leads/:id). Two routes (Lead Detail, Dashboard) need
@@ -32,11 +34,23 @@ function routeHeader(pathname) {
   return { title: 'VIPSAR CRM' }
 }
 
+// The same refresh state Today's greeting pill shows (owner's choice,
+// 2026-09-21: every screen that opens with remembered numbers says so while
+// it refreshes them). Nothing at all once the screen is up to date, and
+// nothing while offline — OfflineIndicator's banner already says that.
+function syncLabelFor(isOnline, sync) {
+  if (!isOnline) return null
+  if (sync === 'updating') return { className: 'vip-header-sync', text: 'Updating…' }
+  if (sync === 'stale') return { className: 'vip-header-sync vip-header-sync-stale', text: 'Not updated' }
+  return null
+}
+
 function AppNav() {
   const { employee } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const { override } = useHeaderOverride()
+  const syncLabel = syncLabelFor(useOnlineStatus(), useSyncState())
 
   if (location.pathname === '/') return null
 
@@ -58,18 +72,30 @@ function AppNav() {
           {sub && <div className="vip-header-sub">{sub}</div>}
         </div>
       </div>
-      <div className="vip-header-actions">
-        <button type="button" className="vip-header-search" onClick={() => navigate('/search')}>
-          Search leads, parties, sites
-        </button>
-        <Link to="/leads/new" className="vip-header-add">
-          + {createActionLabel(employee?.role)}
-        </Link>
-        {employee && (
-          <Link to="/profile" className="vip-avatar" aria-label="Profile">
-            {getInitials(employee.name)}
+      <div className="vip-header-right">
+        {/* The live region is always present so a screen reader hears the
+            label arrive; only the pill inside it comes and goes. */}
+        <span role="status" aria-live="polite">
+          {syncLabel && (
+            <span className={syncLabel.className}>
+              <span className="vip-sync-dot" />
+              {syncLabel.text}
+            </span>
+          )}
+        </span>
+        <div className="vip-header-actions">
+          <button type="button" className="vip-header-search" onClick={() => navigate('/search')}>
+            Search leads, parties, sites
+          </button>
+          <Link to="/leads/new" className="vip-header-add">
+            + {createActionLabel(employee?.role)}
           </Link>
-        )}
+          {employee && (
+            <Link to="/profile" className="vip-avatar" aria-label="Profile">
+              {getInitials(employee.name)}
+            </Link>
+          )}
+        </div>
       </div>
     </header>
   )

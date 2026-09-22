@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import { useAuth } from '../contexts/AuthContext'
 import { fetchTeamMembers } from '../lib/employeeQueries'
 import { fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
@@ -44,44 +45,44 @@ function MyTeam() {
   // other employee.
   const { employee } = useAuth()
   const isManager = employee?.role === 'sales_manager'
-  const [employees, setEmployees] = useState([])
-  const [leads, setLeads] = useState([])
-  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
-  const [lastStageChangeByLead, setLastStageChangeByLead] = useState(new Map())
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
   const [roleFilter, setRoleFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'roleFilter', '')
   const [search, setSearch] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'search', '')
 
-  useEffect(() => {
-    let active = true
-    Promise.all([
-      fetchTeamMembers(),
-      fetchLeadsForBreakdown(),
-      fetchLastActivityPerLead(),
-      fetchStageHistoryForFunnel(),
-    ]).then(([teamRes, leadsRes, activityRes, stageRes]) => {
-      if (!active) return
-      setLoading(false)
-      if (teamRes.error) {
-        setError(errorMessage(teamRes.error))
-        return
-      }
-      const roster = (teamRes.data ?? []).filter((e) => e.id !== employee?.id)
-      setEmployees(isManager ? roster.filter((e) => e.manager_id === employee?.id) : roster)
-      setLeads(leadsRes.data ?? [])
-      const map = new Map()
-      ;(activityRes.data ?? []).forEach((row) => {
-        const existing = map.get(row.lead_id)
-        if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-      })
-      setLastActivityByLead(map)
-      setLastStageChangeByLead(buildLastStageChangeByLead(stageRes.data))
+  // INSTANT OPEN — remembered on the device. The three big reads are the
+  // Dashboard's own (same keys), so either screen warms the other.
+  const teamQuery = useCachedQuery(['team', 'members'], fetchTeamMembers)
+  const leadsQuery = useCachedQuery(['dash', 'breakdown-leads'], () => fetchLeadsForBreakdown())
+  const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead, {
+    persist: false,
+  })
+  const funnelQuery = useCachedQuery(['dash', 'funnel-history'], () => fetchStageHistoryForFunnel())
+  const loading = [teamQuery, leadsQuery, lastActivityQuery, funnelQuery].some((q) => q.result === undefined)
+  const error = teamQuery.result?.error ? errorMessage(teamQuery.result.error) : null
+
+  const employees = useMemo(() => {
+    const res = teamQuery.result
+    if (!res || res.error) return []
+    const roster = (res.data ?? []).filter((e) => e.id !== employee?.id)
+    return isManager ? roster.filter((e) => e.manager_id === employee?.id) : roster
+  }, [teamQuery.result, isManager, employee?.id])
+  const leads = useMemo(
+    () => (leadsQuery.result && !leadsQuery.result.error ? leadsQuery.result.data ?? [] : []),
+    [leadsQuery.result]
+  )
+  const lastActivityByLead = useMemo(() => {
+    const map = new Map()
+    const res = lastActivityQuery.result
+    if (!res || res.error) return map
+    ;(res.data ?? []).forEach((row) => {
+      const existing = map.get(row.lead_id)
+      if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
     })
-    return () => {
-      active = false
-    }
-  }, [isManager, employee?.id])
+    return map
+  }, [lastActivityQuery.result])
+  const lastStageChangeByLead = useMemo(
+    () => buildLastStageChangeByLead(funnelQuery.result?.data),
+    [funnelQuery.result]
+  )
 
   // Open-lead count + open pipeline value per employee, from the same
   // unbounded breakdown query Dashboard/EmployeeProfile already fetch —

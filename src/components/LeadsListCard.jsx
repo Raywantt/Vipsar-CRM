@@ -1,14 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
-import {
-  fetchLeadsList,
-  fetchLastActivityPerLead,
-  resolveLeadsSearchFilter,
-  LEADS_PAGE_SIZE,
-  SITE_STAGE_UNSET,
-} from '../lib/dashboardQueries'
-import { MIN_QUERY_LENGTH } from '../lib/searchQueries'
+import { useCachedQuery } from '../hooks/useCachedQuery'
+import { fetchLastActivityPerLead, LEADS_PAGE_SIZE, SITE_STAGE_UNSET } from '../lib/dashboardQueries'
+import { fetchLeadsListPage } from '../lib/screenQueries'
 import { stageChipClass } from '../lib/statusColors'
 import { STALE_DAYS, staleGateDays } from '../lib/attention'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
@@ -94,6 +89,9 @@ function formatLeadValue(lead) {
 // fresh nav-link visit — see usePersistedFilterState's own header comment.
 const FILTERS_STORAGE_KEY = 'vip-filters:leads-list'
 
+// "No leads yet", shared so it keeps one identity across renders. Never mutated.
+const NO_LEADS = []
+
 // includePoolLeads: only a BDM's My Leads passes true — a lead they sent to
 // the owner is still theirs to see, while for everyone else a lead waiting in
 // the pool is not on this list until it is assigned (src/lib/poolLeads.js).
@@ -117,16 +115,6 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // page again.
   const [debouncedSearch, setDebouncedSearch] = useState(search)
 
-  const [leads, setLeads] = useState([])
-  const [totalCount, setTotalCount] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [lastActivityByLead, setLastActivityByLead] = useState(new Map())
-  // True when the current search term matched more parties/sites/employees
-  // than resolveLeadsSearchFilter's per-table cap (50) — the results below
-  // are then only a subset of everything that actually matches, and saying
-  // so beats letting a partial list look like the complete answer.
-  const [searchCapped, setSearchCapped] = useState(false)
 
   // Only the value inputs are debounced — everything else here is a
   // click/select, not free typing, so it can refetch immediately.
@@ -176,65 +164,13 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const effectiveEmployeeId = singleOwnerScope ? ownerScopeIds[0] : employeeFilter || null
   const effectiveEmployeeIds = !singleOwnerScope && ownerScopeIds && !employeeFilter ? ownerScopeIds : null
 
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-
-    const filtersKey = JSON.stringify([
-      effectiveEmployeeId,
-      effectiveEmployeeIds,
-      stageFilter,
-      siteStageFilter,
-      sourceFilter,
-      statusFilter,
-      minValue,
-      maxValue,
-      debouncedSearch,
-    ])
-    const filtersChanged = lastFiltersKeyRef.current !== null && lastFiltersKeyRef.current !== filtersKey
-    lastFiltersKeyRef.current = filtersKey
-    const effectivePage = filtersChanged ? 0 : page
-    if (filtersChanged && page !== 0) setPage(0)
-
-    async function run() {
-      const searchResult =
-        debouncedSearch.trim().length >= MIN_QUERY_LENGTH ? await resolveLeadsSearchFilter(debouncedSearch) : null
-      if (!active) return
-      setSearchCapped(searchResult?.capped ?? false)
-
-      const { data, error, count } = await fetchLeadsList({
-        employeeId: effectiveEmployeeId,
-        employeeIds: effectiveEmployeeIds,
-        stage: stageFilter || null,
-        siteStage: siteStageFilter || null,
-        source: sourceFilter || null,
-        status: statusFilter || null,
-        minValue: minValue !== '' ? Number(minValue) : null,
-        maxValue: maxValue !== '' ? Number(maxValue) : null,
-        searchOr: searchResult?.or ?? null,
-        includePool: includePoolLeads,
-        page: effectivePage,
-      })
-      if (!active) return
-      setLoading(false)
-      if (error) {
-        setError(errorMessage(error))
-      } else {
-        setError(null)
-        setLeads(data ?? [])
-        setTotalCount(count ?? 0)
-      }
-    }
-
-    run()
-
-    return () => {
-      active = false
-    }
-    // setPage comes from usePersistedFilterState, which wraps useState —
-    // stable across renders same as any useState setter, listed for the
-    // linter only.
-  }, [
+  // The filter combination the page number belongs to. Computed while
+  // rendering, so the SAME render that sees a filter change also asks for page
+  // 0 — never the old page number against the new (smaller) result set, which
+  // requested a .range() past the end and got a PostgREST 416 (reproduced live
+  // when this was an effect). The ref starts null, not "the empty-string
+  // combination", so a page restored by a Back navigation survives mounting.
+  const filtersKey = JSON.stringify([
     effectiveEmployeeId,
     effectiveEmployeeIds,
     stageFilter,
@@ -244,30 +180,67 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     minValue,
     maxValue,
     debouncedSearch,
-    page,
-    setPage,
     includePoolLeads,
   ])
+  const filtersChanged = lastFiltersKeyRef.current !== null && lastFiltersKeyRef.current !== filtersKey
+  const effectivePage = filtersChanged ? 0 : page
+  useEffect(() => {
+    const changed = lastFiltersKeyRef.current !== null && lastFiltersKeyRef.current !== filtersKey
+    lastFiltersKeyRef.current = filtersKey
+    if (changed && page !== 0) setPage(0)
+    // setPage comes from usePersistedFilterState, which wraps useState —
+    // stable across renders, listed for the linter only.
+  }, [filtersKey, page, setPage])
+
+  const listParams = useMemo(
+    () => ({
+      employeeId: effectiveEmployeeId,
+      employeeIds: effectiveEmployeeIds,
+      stage: stageFilter || null,
+      siteStage: siteStageFilter || null,
+      source: sourceFilter || null,
+      status: statusFilter || null,
+      minValue: minValue !== '' ? Number(minValue) : null,
+      maxValue: maxValue !== '' ? Number(maxValue) : null,
+      search: debouncedSearch,
+      includePool: includePoolLeads,
+      page: effectivePage,
+    }),
+    [effectiveEmployeeId, effectiveEmployeeIds, stageFilter, siteStageFilter, sourceFilter, statusFilter, minValue, maxValue, debouncedSearch, includePoolLeads, effectivePage]
+  )
+  // Remembered on the device (instant open): reopening All Leads with the same
+  // filters paints the last page at once and refreshes it. A typed search is
+  // not stored — every distinct term would become its own saved copy.
+  const listQuery = useCachedQuery(['leads-list', filtersKey, effectivePage], () => fetchLeadsListPage(listParams), {
+    persist: debouncedSearch.trim() === '',
+  })
+  const listResult = listQuery.result
+  const loading = listResult === undefined
+  const error = listResult?.error ? errorMessage(listResult.error) : null
+  const leads = listResult?.data?.leads ?? NO_LEADS
+  const totalCount = listResult?.data?.count ?? 0
+  // True when the search term matched more parties/sites/employees than
+  // resolveLeadsSearchFilter's per-table cap (50) — the results are then only
+  // a subset of everything that matches, and saying so beats letting a
+  // partial list look like the complete answer.
+  const searchCapped = listResult?.data?.searchCapped ?? false
 
   // Powers the "last touch" / recency line — independent of the filters
   // above (last-activity data doesn't change per filter), so fetched once
   // rather than refetched alongside leads.
-  useEffect(() => {
-    let active = true
-    fetchLastActivityPerLead().then(({ data, error }) => {
-      if (!active) return
-      if (error) return
-      const map = new Map()
-      ;(data ?? []).forEach((row) => {
-        const existing = map.get(row.lead_id)
-        if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
-      })
-      setLastActivityByLead(map)
+  const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead, {
+    persist: false,
+  })
+  const lastActivityByLead = useMemo(() => {
+    const map = new Map()
+    const res = lastActivityQuery.result
+    if (!res || res.error) return map
+    ;(res.data ?? []).forEach((row) => {
+      const existing = map.get(row.lead_id)
+      if (!existing || new Date(row.created_at) > new Date(existing)) map.set(row.lead_id, row.created_at)
     })
-    return () => {
-      active = false
-    }
-  }, [])
+    return map
+  }, [lastActivityQuery.result])
 
   // `leads` is already server-filtered, server-searched (resolveLeadsSearchFilter)
   // and server-paginated by the fetch effect above — no client-side
@@ -553,6 +526,8 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
 
   const emptyOrLoading = loading ? (
     <p className="vip-empty">Loading…</p>
+  ) : error ? (
+    <></>
   ) : leads.length === 0 ? (
     <p className="vip-empty">No leads match these filters.</p>
   ) : null

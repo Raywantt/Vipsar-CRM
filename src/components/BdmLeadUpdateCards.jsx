@@ -35,6 +35,7 @@ function CardBody({ rows, error, empty, children }) {
 
 export function BdmHandedOverCard({ range, rangeLabel, bdmId }) {
   const { rows, error } = useBdmPeriodRows(
+    'handed-over',
     fetchHandedOverRows,
     (data, id) => buildHandedOverRows(data, id),
     range,

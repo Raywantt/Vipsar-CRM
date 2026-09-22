@@ -67,7 +67,6 @@ import {
   fetchActivityCounts,
   fetchActivityEntries,
   fetchLeadNamesByIds,
-  fetchNewLeadsBySource,
   fetchClosureForecast,
   fetchLeadsForBreakdown,
   fetchCategoryBreakdown,
@@ -84,6 +83,7 @@ import {
   fetchDecidedStageHistory,
   fetchActivitiesTrendWindow,
 } from '../lib/dashboardQueries'
+import { fetchDashboardPeriod } from '../lib/screenQueries'
 import { fetchTargetsForPeriod, fetchWonStageHistory, deleteTarget } from '../lib/targetQueries'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { todayISO } from '../lib/followupDates'
@@ -222,15 +222,9 @@ function Dashboard() {
   // its own day-scoped queries and renders none of the report cards these
   // two feed, so it skips them.
   const rangeKey = range ? `${range.start.toISOString()}~${range.end.toISOString()}` : 'none'
-  const periodQuery = useCachedQuery(
-    ['dash', 'period', rangeKey],
-    () =>
-      Promise.all([fetchActivityCounts(range), fetchNewLeadsBySource(range)]).then(([activitiesRes, leadsRes]) => ({
-        data: { activities: activitiesRes.data ?? [], leads: leadsRes.data ?? [] },
-        error: activitiesRes.error ?? leadsRes.error ?? null,
-      })),
-    { enabled: wantsReports && Boolean(range) && preset !== 'today' }
-  )
+  const periodQuery = useCachedQuery(['dash', 'period', rangeKey], () => fetchDashboardPeriod(range), {
+    enabled: wantsReports && Boolean(range) && preset !== 'today',
+  })
   const allActivities = periodQuery.result?.data?.activities ?? EMPTY
   const allLeads = periodQuery.result?.data?.leads ?? EMPTY
   // "Nothing for this range yet" — remembered data counts as something.

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useCachedQuery } from '../hooks/useCachedQuery'
-import { fetchPoolLeads, fetchPossibleDuplicates } from '../lib/bdmQueries'
+import { fetchPoolWithDuplicates } from '../lib/screenQueries'
 import { assignLeadOwner, ALREADY_ASSIGNED_CODE } from '../lib/leadOwnerHistory'
 import { sourcingArchitect, waitingLabel } from '../lib/poolLeads'
 import { leadDisplayName } from '../lib/leadName'
@@ -30,15 +30,6 @@ import { errorMessage } from '../lib/errorMessage'
 // Assign is two taps (pick, then confirm) rather than Lead Detail's one-tap
 // owner grid: here a list of several leads sits under the owner's thumb, and
 // a mis-tap would hand a lead to the wrong person with a push already sent.
-async function fetchPoolWithDuplicates() {
-  const pool = await fetchPoolLeads()
-  if (pool.error) return pool
-  const leads = pool.data ?? []
-  // A failed duplicate lookup only loses the hints, never the pool itself.
-  const dupRes = leads.length ? await fetchPossibleDuplicates(leads) : { data: new Map(), error: null }
-  return { data: { leads, duplicates: dupRes.error ? [] : [...dupRes.data.entries()] }, error: null }
-}
-
 function BdmPoolCard({ execs }) {
   const { employee } = useAuth()
   const [leads, setLeads] = useState(null)

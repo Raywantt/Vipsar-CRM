@@ -22,10 +22,14 @@
 //     can never answer another person's question on a shared device — and on
 //     top of that the whole store is wiped on sign-out (clearQueryData).
 //     These are shared office machines; both guards are deliberate.
-//   * Stamped with the build it was saved by (`buster`). A new deploy can
-//     change what a query returns, so data saved by an older build is thrown
-//     away rather than rendered by code that expects a different shape. The
-//     cost is one normal-speed open after each deploy.
+//   * Stamped with the SHAPE of the data (`buster`), not the build. A deploy
+//     that changes how a remembered query fetches or shapes its answer changes
+//     the stamp, and data saved under the old shape is thrown away rather than
+//     rendered by code that expects a different one. Every other deploy keeps
+//     it, so an update no longer makes everyone's next open the slow one
+//     (it did until 2026-09-21, when the stamp was the build time). The stamp
+//     is a hash of the query files (scripts/dataShape.mjs); screens may only
+//     fetch through them (src/lib/cachedQueryShape.test.js).
 //   * Kept for a day at most (PERSIST_MAX_AGE_MS). Yesterday's numbers are
 //     still worth painting while today's load; last week's are not.
 //
@@ -41,10 +45,18 @@ import { get, set, del } from 'idb-keyval'
 
 export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
-// Stamped at build time by vite.config.js. Falls back to a constant so tests
-// (and any tool that imports this without Vite's define) still load it.
-/* global __APP_BUILD_ID__ */
-export const BUILD_ID = typeof __APP_BUILD_ID__ !== 'undefined' ? __APP_BUILD_ID__ : 'dev'
+// Stamped at build time by vite.config.js from scripts/dataShape.mjs. Falls
+// back to a constant so tests (and any tool that imports this without Vite's
+// define) still load it.
+/* global __DATA_SHAPE_ID__ */
+export const DATA_SHAPE_ID = typeof __DATA_SHAPE_ID__ !== 'undefined' ? __DATA_SHAPE_ID__ : 'dev'
+
+// Bump by hand when a screen starts READING something its query files don't
+// show changing — the one case the hash can't see. Example: a migration adds
+// a column to an RPC's output and a card starts reading it, while the
+// `supabase.rpc(...)` call itself stays the same. (This file is part of the
+// hash, so changing this number discards saved data on its own.)
+export const CACHE_SHAPE_VERSION = 1
 
 const STORE_KEY = 'vipsar-query-cache'
 
@@ -101,7 +113,7 @@ export const queryPersister = createAsyncStoragePersister({
 export const persistOptions = {
   persister: queryPersister,
   maxAge: PERSIST_MAX_AGE_MS,
-  buster: BUILD_ID,
+  buster: `${CACHE_SHAPE_VERSION}:${DATA_SHAPE_ID}`,
   dehydrateOptions: {
     // Only hook queries that opted in, and only successful ones.
     shouldDehydrateQuery: (query) => query.meta?.persist === true && query.state.status === 'success',

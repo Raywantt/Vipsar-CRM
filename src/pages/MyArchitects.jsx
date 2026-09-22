@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { fetchPortfolioArchitects, fetchArchitectMeetings, fetchLeadsForArchitects } from '../lib/architectQueries'
+import { useCachedQuery } from '../hooks/useCachedQuery'
+import { fetchMyArchitectsBundle } from '../lib/screenQueries'
 import { daysSince, groupArchitectsByFirm, lastMeetingByArchitect, lastMetLabel, leadStatsByArchitect } from '../lib/architectStats'
 import { firmLabel } from '../lib/firmLabel'
 import { fetchOpenArchitectFollowUpsForEmployee } from '../lib/followUpQueries'
@@ -19,36 +20,21 @@ import { errorMessage } from '../lib/errorMessage'
 function MyArchitects() {
   const { employee } = useAuth()
 
-  const [architects, setArchitects] = useState(null)
-  const [lastMetById, setLastMetById] = useState(new Map())
-  const [statsById, setStatsById] = useState(new Map())
-  const [loadError, setLoadError] = useState(null)
+  // INSTANT OPEN — the portfolio, its meetings and its leads in one
+  // remembered answer (fetchMyArchitectsBundle).
   const [search, setSearch] = useState('')
-
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    fetchPortfolioArchitects(employee.id).then(async ({ data, error }) => {
-      if (!active) return
-      if (error) {
-        setLoadError(errorMessage(error))
-        setArchitects([])
-        return
-      }
-      const ids = data.map((a) => a.id)
-      // A BDM's own pool leads count here: they're this BDM's pipeline.
-      const [meetingsRes, leadsRes] = await Promise.all([fetchArchitectMeetings(ids), fetchLeadsForArchitects(ids, true)])
-      if (!active) return
-      const firstError = meetingsRes.error ?? leadsRes.error
-      if (firstError) setLoadError(errorMessage(firstError))
-      setLastMetById(lastMeetingByArchitect(meetingsRes.data))
-      setStatsById(leadStatsByArchitect(leadsRes.data))
-      setArchitects(data)
-    })
-    return () => {
-      active = false
-    }
-  }, [employee?.id])
+  const bundleQuery = useCachedQuery(['bdm', 'my-architects', employee?.id], () => fetchMyArchitectsBundle(employee.id), {
+    enabled: Boolean(employee?.id),
+  })
+  const bundle = bundleQuery.result
+  const architects = useMemo(() => (bundle ? (bundle.error ? [] : bundle.data.architects) : null), [bundle])
+  const loadError = bundle?.error
+    ? errorMessage(bundle.error)
+    : bundle?.data?.partialError
+      ? errorMessage(bundle.data.partialError)
+      : null
+  const lastMetById = useMemo(() => lastMeetingByArchitect(bundle?.data?.meetings ?? []), [bundle])
+  const statsById = useMemo(() => leadStatsByArchitect(bundle?.data?.leads ?? []), [bundle])
 
   const groups = useMemo(() => {
     const term = search.trim().toLowerCase()

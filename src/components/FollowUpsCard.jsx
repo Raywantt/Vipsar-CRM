@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import FollowUpList from './FollowUpList'
+import { useCachedQuery } from '../hooks/useCachedQuery'
 import ShowMoreRows from './ShowMoreRows'
 import {
   fetchFollowUpsInRange,
@@ -103,8 +104,6 @@ function sortExecRows(rows, sortKey, dir) {
 function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) {
   const navigate = useNavigate()
   const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [bucket, setBucket] = useState('overdue')
   const [execFilter, setExecFilter] = useState('all')
@@ -136,18 +135,21 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) 
   const startISO = range ? toISODate(range.start) : null
   const endISO = range ? toISODate(range.end) : null
 
-  useEffect(() => {
-    if (!startISO) return
-    let active = true
-    setLoading(true)
-    fetchFollowUpsInRange('2000-01-01', '2999-12-31').then(({ data, error: err }) => {
-      if (!active) return
-      if (err) setError(errorMessage(err))
-      else { setRows(data ?? []); setError(null) }
-      setLoading(false)
-    })
-    return () => { active = false }
-  }, [startISO])
+  // Remembered on the device (instant open). The list is edited in place by
+  // the row actions below, so it lives in state seeded from the query and is
+  // re-seeded whenever the query refreshes (every write triggers one).
+  const allQuery = useCachedQuery(['followups', 'all'], () => fetchFollowUpsInRange('2000-01-01', '2999-12-31'), {
+    enabled: Boolean(startISO),
+  })
+  const loading = allQuery.result === undefined
+  const error = allQuery.result?.error ? errorMessage(allQuery.result.error) : null
+  // A layout effect, so the seeded list is there in the first paint rather
+  // than one empty frame after "Loading…" clears.
+  useLayoutEffect(() => {
+    const res = allQuery.result
+    if (!res || res.error) return
+    setRows(res.data ?? [])
+  }, [allQuery.result])
 
   function applyUpdate(data) {
     setActionError(null)

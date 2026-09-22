@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
@@ -6,7 +6,9 @@ import { EmployeeNameLink } from '../components/EmployeeLink'
 import ShowMoreRows from '../components/ShowMoreRows'
 import ArchitectFollowUpsCard from '../components/ArchitectFollowUpsCard'
 import { fetchOpenFollowUpsForParty } from '../lib/followUpQueries'
-import { fetchArchitect, fetchArchitectMeetings, fetchLeadsForArchitects, updateArchitectPortfolio } from '../lib/architectQueries'
+import { updateArchitectPortfolio } from '../lib/architectQueries'
+import { useCachedQuery } from '../hooks/useCachedQuery'
+import { fetchArchitectProfileBundle } from '../lib/screenQueries'
 import { fetchActiveBdms } from '../lib/bdmQueries'
 import { ARCHITECT_MEETING_DAYS, architectIdForLead, summariseArchitectLeads } from '../lib/architectStats'
 import { isPoolLead } from '../lib/poolLeads'
@@ -40,6 +42,9 @@ function excerpt(text, max = 120) {
 // "Referred" = the leads this architect sourced, attributed the same way Lead
 // Detail's "via Architect" line is (architectIdForLead). The next meeting is
 // an ordinary follow-up (Step 7) — the card above Meetings.
+// "Nothing yet", shared so props keep one identity across renders. Never mutated.
+const NO_ROWS = []
+
 function ArchitectProfile() {
   const { id } = useParams()
   const architectId = Number(id)
@@ -48,51 +53,36 @@ function ArchitectProfile() {
   const viewerIsBdm = isBdm(employee?.role)
   const viewerIsOwner = employee?.role === 'owner'
 
+  // INSTANT OPEN — the architect, their meetings and the leads naming them
+  // in one remembered answer. The architect is edited in place (moving
+  // portfolio, setting a firm), so it's state seeded from the query — in a
+  // layout effect, so it's there in the first paint — and re-seeded on refresh.
   const [architect, setArchitect] = useState(null)
-  const [meetings, setMeetings] = useState([])
-  const [leads, setLeads] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState(null)
   const [meetingsShown, setMeetingsShown] = useState(MEETING_ROWS)
   const [leadsShown, setLeadsShown] = useState(LEAD_ROWS)
-
-  useEffect(() => {
-    if (!employee?.id) return
-    let active = true
-    setLoading(true)
-    setLoadError(null)
-    fetchArchitect(architectId).then(async ({ data, error }) => {
-      if (!active) return
-      if (error || !data) {
-        setLoadError(error ? errorMessage(error) : null)
-        setArchitect(null)
-        setLoading(false)
-        return
-      }
-      setArchitect(data)
-      if (data.party_type !== 'architect') {
-        setLoading(false)
-        return
-      }
-      const [meetingsRes, leadsRes] = await Promise.all([
-        fetchArchitectMeetings([architectId]),
-        // Pool leads are company-figure-excluded for everyone but a BDM
-        // (poolLeads.js) — this page's stats are figures too.
-        fetchLeadsForArchitects([architectId], viewerIsBdm),
-      ])
-      if (!active) return
-      const firstError = meetingsRes.error ?? leadsRes.error
-      if (firstError) setLoadError(errorMessage(firstError))
-      setMeetings(meetingsRes.data ?? [])
-      // The query matches either slot; keep only leads this architect is the
-      // one credited for (a lead naming two architects counts for the referrer).
-      setLeads((leadsRes.data ?? []).filter((l) => architectIdForLead(l) === architectId))
-      setLoading(false)
-    })
-    return () => {
-      active = false
-    }
-  }, [architectId, employee?.id, viewerIsBdm])
+  const bundleQuery = useCachedQuery(
+    ['architect', architectId, viewerIsBdm],
+    () => fetchArchitectProfileBundle(architectId, viewerIsBdm),
+    { enabled: Boolean(employee?.id) }
+  )
+  const bundle = bundleQuery.result
+  const loading = bundle === undefined
+  const loadError = bundle?.error
+    ? errorMessage(bundle.error)
+    : bundle?.data?.partialError
+      ? errorMessage(bundle.data.partialError)
+      : null
+  const meetings = bundle?.data?.meetings ?? NO_ROWS
+  // The query matches either slot; keep only leads this architect is the one
+  // credited for (a lead naming two architects counts for the referrer).
+  const leads = useMemo(
+    () => (bundle?.data?.leads ?? []).filter((l) => architectIdForLead(l) === architectId),
+    [bundle, architectId]
+  )
+  useLayoutEffect(() => {
+    if (!bundle) return
+    setArchitect(bundle.error ? null : bundle.data.architect)
+  }, [bundle])
 
   useEffect(() => {
     if (!architect) return
