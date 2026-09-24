@@ -202,10 +202,54 @@ export function buildSignificantEntries(employee, data, limit = 3) {
 
 const SUM_KEYS = ['total', 'calls', 'visits', 'touched', 'newLeads', 'changes', 'quotes', 'done', 'missed', 'pending', 'tomorrow']
 
-export function buildDayTotals(rows) {
-  const totals = Object.fromEntries(SUM_KEYS.map((k) => [k, 0]))
-  rows.forEach((r) => SUM_KEYS.forEach((k) => { totals[k] += r[k] }))
+export function buildDayTotals(rows, keys = SUM_KEYS) {
+  const totals = Object.fromEntries(keys.map((k) => [k, 0]))
+  rows.forEach((r) => keys.forEach((k) => { totals[k] += r[k] }))
   return totals
+}
+
+// ---------------------------------------------------------------------------
+// The BDMs' version of the team table (Architect Network, owner only). Same
+// day, same data, same attribution columns as buildDayRows — only the
+// columns differ, because a BDM's day is architects and joineries, not site
+// visits and quotes.
+// ---------------------------------------------------------------------------
+
+// Every kind of meeting in ONE column (the owner's ruling, 2026-09-24):
+// architect meetings plus both client-meeting buckets. `client_meeting` is the
+// legacy unbucketed value, counted so a stray old row isn't lost.
+export const BDM_DAY_MEETING_TYPES = ['architect_meeting', 'client_meeting_old', 'client_meeting_new', 'client_meeting']
+
+export const BDM_DAY_SUM_KEYS = ['total', 'calls', 'meetings', 'newLeads', 'joineries', 'done', 'missed', 'pending']
+
+function bdmDayCounts(own) {
+  return {
+    calls: own.activities.filter((a) => a.activity_type === 'call').length,
+    meetings: own.activities.filter((a) => BDM_DAY_MEETING_TYPES.includes(a.activity_type)).length,
+    // New leads = every lead they created that day; Joineries = the subset
+    // captured with "Joinery received: yes". Overlapping on purpose — the
+    // same pair of rules as the BDM targets (computeBdmTargetActuals).
+    newLeads: own.newLeads.length,
+    joineries: own.newLeads.filter((l) => l.joinery_received === true).length,
+  }
+}
+
+export function buildBdmDayRows(bdms, data, isPast) {
+  return bdms.map((emp) => {
+    const own = scopeToEmployee(data, emp.id)
+    const fu = splitFollowUps(own.followUps, isPast)
+    return {
+      employeeId: emp.id,
+      name: emp.name,
+      role: emp.role ?? null,
+      initials: getInitials(emp.name),
+      total: own.activities.length,
+      ...bdmDayCounts(own),
+      done: fu.done,
+      missed: fu.missed,
+      pending: fu.pending,
+    }
+  })
 }
 
 // The four KPI tiles. These REPLACE the standing Dashboard KPIs for this
@@ -356,7 +400,10 @@ function longDayLabel(y, m, d) {
   return `${weekday} ${day} ${month} ${y}`
 }
 
-export function buildDaySheetPanel({ employee, data, dateISO, isPast, changesUnavailable, changeLogStart, onReschedule }) {
+// `bdmStats` swaps the last two header tiles (Leads touched, Sites visited)
+// for the BDM's own figures — Meetings and New leads/joineries. Opt-in, so
+// the BDM's own Today day sheet is unchanged.
+export function buildDaySheetPanel({ employee, data, dateISO, isPast, changesUnavailable, changeLogStart, onReschedule, bdmStats = false }) {
   const own = scopeToEmployee(data, employee.id)
   const fu = splitFollowUps(own.followUps, isPast)
   const priorStageByLead = priorStageMap(data.priorStages ?? [])
@@ -393,7 +440,7 @@ export function buildDaySheetPanel({ employee, data, dateISO, isPast, changesUna
     // coordinator's, manager's or BDM's own day sheet (the same bug already
     // fixed in EmployeeProfile.jsx's identity band).
     note: [roleLabel(employee.role), employee.office_location, workedSpan].filter(Boolean).join(' · '),
-    stats: [
+    stats: bdmStats ? bdmSheetStats(own, fu, isPast) : [
       {
         label: 'Activities',
         value: String(own.activities.length),
@@ -480,6 +527,38 @@ export function buildDaySheetPanel({ employee, data, dateISO, isPast, changesUna
       siteVisits: tomorrowVisits,
     },
   }
+}
+
+function bdmSheetStats(own, fu, isPast) {
+  const c = bdmDayCounts(own)
+  const other = own.activities.length - c.calls - c.meetings
+  const architectsMet = new Set(
+    own.activities.filter((a) => a.activity_type === 'architect_meeting' && a.party_id).map((a) => a.party_id)
+  ).size
+  return [
+    {
+      label: 'Activities',
+      value: String(own.activities.length),
+      sub: `${c.calls} calls · ${c.meetings} meetings · ${other} other`,
+    },
+    {
+      label: 'Follow-ups',
+      value: `${fu.done} / ${fu.due}`,
+      sub: isPast ? `${fu.missed} missed` : `${fu.pending} still open`,
+      color: (isPast ? fu.missed : fu.pending) > 0 ? TONE_BAD : TONE_GOOD,
+    },
+    {
+      label: 'Meetings',
+      value: String(c.meetings),
+      sub: `${architectsMet} architect${architectsMet === 1 ? '' : 's'} met`,
+      color: TONE_NEUTRAL,
+    },
+    {
+      label: 'New leads',
+      value: String(c.newLeads),
+      sub: `${c.joineries} with joinery received`,
+    },
+  ]
 }
 
 function shapeFollowUp(f) {

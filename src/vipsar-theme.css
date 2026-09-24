@@ -2168,13 +2168,12 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
 .vip-daytable-groups,
 .vip-daytable-row {
   display: grid;
-  grid-template-columns: 190px repeat(9, minmax(0, 1fr));
+  /* Column count set inline by DayReviewCard (exec table 9, BDM table 6);
+     group spans likewise come from its `groups` prop. */
+  grid-template-columns: 190px repeat(var(--vip-daytable-cols, 9), minmax(0, 1fr));
   gap: 0 8px;
   align-items: center;
 }
-.vip-daytable-groups > :nth-child(2) { grid-column: span 3; }
-.vip-daytable-groups > :nth-child(3) { grid-column: span 4; }
-.vip-daytable-groups > :nth-child(4) { grid-column: span 2; }
 .vip-daytable-group {
   font-size: 9px; letter-spacing: .09em; text-transform: uppercase; color: var(--vip-muted);
   padding: 0 0 5px 8px; border-bottom: 1px solid var(--vip-line-soft);
@@ -3709,3 +3708,10 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
   background: var(--vip-surface); border-top: 1px solid var(--vip-line);
   padding: 12px 0 18px;
 }
+
+/* ===========================================================================
+   42. Architect Network — "What the BDMs did" day stepper (2026-09-24)
+   =========================================================================== */
+/* DayDateBar sits inside the BDM day table's card here rather than above a
+   page, so it needs the gap the card head would otherwise give it. */
+.vip-net-daybar { margin-bottom: 12px; }

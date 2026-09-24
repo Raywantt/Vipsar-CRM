@@ -104,12 +104,13 @@ export function fetchDayStageChanges({ startISO, endISO }) {
 // stamped by a trigger) is the attribution — NOT owner_employee_id, which
 // would re-credit every reassigned lead to whoever holds it now, retroactively
 // changing a day sheet for a date before the reassignment happened.
+// joinery_received feeds Architect Network's BDM table (Joineries column).
 export function fetchDayNewLeads({ startISO, endISO }) {
   return fetchAllRows(() =>
     supabase
       .from('leads')
       .select(
-        'id, created_by_employee_id, owner_employee_id, bdm_employee_id, source_type, quote_value, order_value, current_stage, created_at, parties!party_id(name), sites(nickname, locality, house_no)',
+        'id, created_by_employee_id, owner_employee_id, bdm_employee_id, joinery_received, source_type, quote_value, order_value, current_stage, created_at, parties!party_id(name), sites(nickname, locality, house_no)',
         { count: 'exact' }
       )
       .gte('created_at', startISO)

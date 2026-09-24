@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel, buildSignificantEntries, priorStageMap } from './dayReview'
+import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel, buildSignificantEntries, priorStageMap, buildBdmDayRows, BDM_DAY_SUM_KEYS } from './dayReview'
 import { shapeAccompaniedRow } from './accompaniedQueries'
 import { dayBounds, nextDayISO, prevDayISO } from './dayReviewQueries'
 import { parseTimestamp, formatClockTime } from './dbTime'
@@ -404,5 +404,56 @@ describe('accompanied activities', () => {
     delete noField.accompanied
     expect(buildDaySheetPanel({ ...base, data: noField, employee: PREETI }).activities).toHaveLength(0)
     expect(buildSignificantEntries(PREETI, noField)).toHaveLength(0)
+  })
+})
+
+describe('buildBdmDayRows (Architect Network)', () => {
+  const BDM = { id: 9, name: 'Neha Arora', role: 'business_development_manager' }
+  const act = (id, type, over = {}) => ({ id, employee_id: 9, activity_type: type, created_at: '2026-09-24T05:00:00', lead_id: null, ...over })
+  const data = emptyData({
+    activities: [
+      act(1, 'call'),
+      act(2, 'architect_meeting', { party_id: 50 }),
+      act(3, 'architect_meeting', { party_id: 50 }),
+      act(4, 'client_meeting_new'),
+      act(5, 'client_meeting_old'),
+      act(6, 'office_day'),
+      act(7, 'call', { employee_id: 1 }),
+    ],
+    newLeads: [
+      { id: 100, created_by_employee_id: 9, joinery_received: true },
+      { id: 101, created_by_employee_id: 9, joinery_received: false },
+      { id: 102, created_by_employee_id: 9, joinery_received: null },
+      { id: 103, created_by_employee_id: 1, joinery_received: true },
+    ],
+    followUps: [
+      { id: 1, assigned_to: 9, status: 'done' },
+      { id: 2, assigned_to: 9, status: 'open' },
+      { id: 3, assigned_to: 9, status: 'cancelled' },
+    ],
+  })
+
+  it('counts every meeting kind in one column and joineries as a subset of new leads', () => {
+    const [row] = buildBdmDayRows([BDM], data, false)
+    expect(row).toMatchObject({ total: 6, calls: 1, meetings: 4, newLeads: 3, joineries: 1, done: 1, pending: 1, missed: 0 })
+  })
+
+  it('turns an open follow-up into a miss only once the day is over', () => {
+    const [row] = buildBdmDayRows([BDM], data, true)
+    expect(row).toMatchObject({ done: 1, missed: 1, pending: 0 })
+  })
+
+  it('totals over its own keys', () => {
+    const totals = buildDayTotals(buildBdmDayRows([BDM], data, false), BDM_DAY_SUM_KEYS)
+    expect(totals).toEqual({ total: 6, calls: 1, meetings: 4, newLeads: 3, joineries: 1, done: 1, missed: 0, pending: 1 })
+  })
+
+  it('swaps the day sheet stats for BDM figures only when asked', () => {
+    const args = { employee: BDM, data, dateISO: '2026-09-24', isPast: false, changesUnavailable: false, changeLogStart: null, onReschedule: () => {} }
+    const bdm = buildDaySheetPanel({ ...args, bdmStats: true })
+    expect(bdm.stats.map((s) => s.label)).toEqual(['Activities', 'Follow-ups', 'Meetings', 'New leads'])
+    expect(bdm.stats[2].sub).toBe('1 architect met')
+    expect(bdm.stats[3].sub).toBe('1 with joinery received')
+    expect(buildDaySheetPanel(args).stats.map((s) => s.label)).toEqual(['Activities', 'Follow-ups', 'Leads touched', 'Sites visited'])
   })
 })

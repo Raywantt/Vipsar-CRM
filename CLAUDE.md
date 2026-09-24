@@ -2719,8 +2719,14 @@ locked decisions; **don't reverse one without asking.**
   so BDMs never reach the heatmap or `blendedAttainmentFor`. **Set only in
   Architect Network.** `targets.metric_name` has no DB CHECK.
 * **Architect Network (`/network`, owner only)** — sidebar link after My
-  Team, mobile tile on the owner Dashboard. Tabs in the URL: **BDMs** (date
-  range → one `BdmNetworkCard` per active BDM: targets vs actuals, pool waiting,
+  Team, mobile tile on the owner Dashboard. Tabs in the URL: **BDMs** ("What the BDMs did
+  today" — the owner's team table re-used via `DayReviewCard`'s `columns`/
+  `groups` props and `buildBdmDayRows`: Total · Calls · Meetings (architect +
+  both client buckets, one column, owner's ruling 2026-09-24) · New leads ·
+  Joineries (a subset of New leads, the BDM-target rule) · Done/miss; its own
+  ‹ › day stepper, independent of the range below; a row opens the ordinary
+  day sheet with `bdmStats` tiles; same `fetchDayReview` cache key as Today →
+  date range → one `BdmNetworkCard` per active BDM: targets vs actuals, pool waiting,
   handed over, won, win rate, architects to meet, "+ Set targets" setting all
   three at once via `PeriodPicker`, blank = leave alone) → Top 5 architects
   company-wide; **Architects** (`ArchitectDirectory`: search, With BDM / Not

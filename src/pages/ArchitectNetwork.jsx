@@ -18,6 +18,13 @@ import { fetchTargetsForPeriod } from '../lib/targetQueries'
 import { buildDirectoryRows, buildFirmRows, summariseBdm } from '../lib/architectNetwork'
 import { topArchitects } from '../lib/bdmDashboard'
 import { buildArchitectsToMeetPanel } from '../lib/drilldownBuilders'
+import DayReviewCard, { BDM_DAY_COLUMNS, BDM_DAY_GROUPS, bdmMobileStats, bdmMobileTotals } from '../components/DayReviewCard'
+import { DayDateBar } from '../components/DayReviewHeader'
+import { fetchDayReview } from '../lib/dayReviewQueries'
+import { buildBdmDayRows, buildDayTotals, buildDaySheetPanel, BDM_DAY_SUM_KEYS } from '../lib/dayReview'
+import { rescheduleFollowUp } from '../lib/followUpQueries'
+import { formatClockTime } from '../lib/dbTime'
+import { ROLES } from '../lib/roles'
 
 // Architect Network (/network) — the owner's view of every business
 // development manager and every architect (BDM.md Step 6). Owner only
@@ -27,7 +34,9 @@ import { buildArchitectsToMeetPanel } from '../lib/drilldownBuilders'
 // Owner's rulings: three tabs, chosen by ?tab= (synced in an effect, not a
 // useState initializer, like Dashboard — and in the URL at all so Back from an
 // architect's profile lands on the tab it was opened from):
-//   BDMs (default) — the Dashboard's date range → one card per BDM (targets vs
+//   BDMs (default) — "What the BDMs did" for one day (its own ‹ › day
+//                    stepper, today by default; owner's ruling 2026-09-24) →
+//                    the Dashboard's date range → one card per BDM (targets vs
 //                    actuals, "+ Set targets", pipeline figures) → Top 5
 //                    architects across every BDM for the period.
 //   ?tab=architects — every architect in the company, all-time, no date range.
@@ -62,6 +71,18 @@ function ArchitectNetwork() {
   const targetPeriod = useMemo(() => periodForPreset(preset), [preset])
 
   const [panel, setPanel] = useState(null)
+
+  // ---- BDMs tab: what each BDM did on one day ----
+  // The same fetchDayReview (and cache key) as every Today screen and the
+  // Dashboard's Today view, so an owner who has opened Today pays nothing
+  // extra here. Its own day, independent of the range selector below it.
+  const [dayDate, setDayDate] = useState(todayISO())
+  const [selectedBdmId, setSelectedBdmId] = useState(null)
+  const dayQuery = useCachedQuery(['today', 'day-review', dayDate], () => fetchDayReview(dayDate), { enabled: onBdmsTab })
+  const dayData = dayQuery.result ?? null
+  const dayError = dayData?.error ? errorMessage(dayData.error) : null
+  const dayIsPast = dayDate < todayISO()
+  const dayUpdatedAt = dayQuery.updatedAt ? formatClockTime(new Date(dayQuery.updatedAt).toISOString()) : null
 
   // ---- Both tabs: who the BDMs are (cards, and the directory's filter) ----
   // INSTANT OPEN — every read here is remembered on the device. Targets
@@ -124,12 +145,47 @@ function ArchitectNetwork() {
     return { rows: buildFirmRows(d), error: d.partialError ? errorMessage(d.partialError) : null }
   }, [directoryQuery.result])
 
+  // fetchActiveBdms carries no role column; every row is a BDM by its filter.
+  const bdmRoster = useMemo(() => (bdms ?? []).map((b) => ({ ...b, role: ROLES.BDM })), [bdms])
+  const bdmDayRows = dayData ? buildBdmDayRows(bdmRoster, dayData, dayIsPast) : []
+  const bdmDayTotals = buildDayTotals(bdmDayRows, BDM_DAY_SUM_KEYS)
+
+  function openBdmDaySheet(bdmId) {
+    const emp = bdmRoster.find((b) => b.id === bdmId)
+    if (!dayData || !emp) return
+    setSelectedBdmId(bdmId)
+    setPanel(
+      buildDaySheetPanel({
+        employee: emp,
+        data: dayData,
+        dateISO: dayDate,
+        isPast: dayIsPast,
+        changesUnavailable: dayData.changesUnavailable,
+        changeLogStart: null,
+        onReschedule: rescheduleFollowUp,
+        bdmStats: true,
+      })
+    )
+  }
+
+  const dayLabel = (() => {
+    if (!dayIsPast) return 'today'
+    const [y, m, d] = dayDate.split('-').map(Number)
+    return `on ${new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+  })()
+
   const top =
     range && leads && period.meetings ? topArchitects({ leads, meetings: period.meetings, range, bdmIds }) : null
 
   return (
     <div className="vip-wide vip-stack">
-      <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
+      <DrilldownPanel
+        panel={panel}
+        onClose={() => {
+          setPanel(null)
+          setSelectedBdmId(null)
+        }}
+      />
 
       <div className="vip-seg vip-net-tabs" role="tablist" aria-label="BDMs, architects or firms">
         <button
@@ -169,6 +225,32 @@ function ArchitectNetwork() {
 
       {tab === 'bdms' && (
         <>
+          {bdms != null && bdms.length > 0 && (
+            <DayReviewCard
+              rows={bdmDayRows}
+              totals={bdmDayTotals}
+              isPast={dayIsPast}
+              onOpenExec={openBdmDaySheet}
+              selectedExecId={selectedBdmId}
+              title={`What the BDMs did ${dayLabel}`}
+              personLabel="BDM"
+              emptyText={dayData ? 'No BDMs to show.' : 'Loading…'}
+              columns={BDM_DAY_COLUMNS}
+              groups={BDM_DAY_GROUPS}
+              mobileStats={bdmMobileStats}
+              mobileTotals={bdmMobileTotals}
+            >
+              <div className="vip-net-daybar">
+                <DayDateBar dateISO={dayDate} onDateChange={setDayDate} updatedAt={dayUpdatedAt} />
+              </div>
+              {dayError && (
+                <p className="vip-error" role="alert">
+                  {dayError}
+                </p>
+              )}
+            </DayReviewCard>
+          )}
+
           <DateRangeSelector
             preset={preset}
             onPresetChange={setPreset}

@@ -11,6 +11,9 @@ import { useState } from 'react'
 // Deliberately NOT a scored leaderboard: raw counts only, no weighting, no
 // composite index, no ranking badge. Sorting is the only ordering.
 
+// The exec table's columns and group headers. Architect Network passes its
+// own set for the BDMs (BDM_DAY_COLUMNS below) — one table component, so the
+// two can't drift in sorting, the done/missed rule or the mobile cards.
 const COLUMNS = [
   { key: 'total', label: 'Total', groupStart: true, strong: true },
   { key: 'calls', label: 'Calls' },
@@ -22,6 +25,73 @@ const COLUMNS = [
   { key: 'done', label: 'Done/miss', groupStart: true, pair: true },
   { key: 'tomorrow', label: 'Tomorrow' },
 ]
+const GROUPS = [
+  { label: 'Activity', span: 3 },
+  { label: 'Leads', span: 4 },
+  { label: 'Follow-ups', span: 2 },
+]
+
+function execMobileStats(row, isPast) {
+  return (
+    <>
+      <span>
+        {row.calls} calls · {row.visits} visits
+      </span>
+      <span>
+        {row.touched} touched · {row.changes} changes
+      </span>
+      <span>
+        <DoneMissCell row={row} isPast={isPast} /> follow-ups
+      </span>
+    </>
+  )
+}
+
+function execMobileTotals(totals, isPast) {
+  return (
+    <>
+      {totals.total} activities · {totals.touched} leads touched · <DoneMissCell row={totals} isPast={isPast} />
+    </>
+  )
+}
+
+export const BDM_DAY_COLUMNS = [
+  { key: 'total', label: 'Total', groupStart: true, strong: true },
+  { key: 'calls', label: 'Calls' },
+  { key: 'meetings', label: 'Meetings' },
+  { key: 'newLeads', label: 'New leads', groupStart: true },
+  { key: 'joineries', label: 'Joineries' },
+  { key: 'done', label: 'Done/miss', groupStart: true, pair: true },
+]
+export const BDM_DAY_GROUPS = [
+  { label: 'Activity', span: 3 },
+  { label: 'Leads', span: 2 },
+  { label: 'Follow-ups', span: 1 },
+]
+
+export function bdmMobileStats(row, isPast) {
+  return (
+    <>
+      <span>
+        {row.calls} calls · {row.meetings} meetings
+      </span>
+      <span>
+        {row.newLeads} new leads · {row.joineries} joineries
+      </span>
+      <span>
+        <DoneMissCell row={row} isPast={isPast} /> follow-ups
+      </span>
+    </>
+  )
+}
+
+export function bdmMobileTotals(totals, isPast) {
+  return (
+    <>
+      {totals.total} activities · {totals.joineries} joineries · <DoneMissCell row={totals} isPast={isPast} />
+    </>
+  )
+}
 
 // A zero reads as an em-dash rather than a 0 — nine columns of zeroes is
 // noise, and the eye needs the real numbers to stand out. The Total column
@@ -73,7 +143,21 @@ function sortRows(rows, sortKey, dir) {
   })
 }
 
-function DayReviewCard({ rows, totals, isPast, onOpenExec, selectedExecId }) {
+function DayReviewCard({
+  rows,
+  totals,
+  isPast,
+  onOpenExec,
+  selectedExecId,
+  title = 'What the team did today',
+  personLabel = 'Sales exec',
+  emptyText = 'No sales executives to show.',
+  columns = COLUMNS,
+  groups = GROUPS,
+  mobileStats = execMobileStats,
+  mobileTotals = execMobileTotals,
+  children,
+}) {
   const [sortKey, setSortKey] = useState('total')
   const [dir, setDir] = useState('desc')
 
@@ -87,32 +171,37 @@ function DayReviewCard({ rows, totals, isPast, onOpenExec, selectedExecId }) {
   }
 
   const sorted = sortRows(rows, sortKey, dir)
+  const gridStyle = { '--vip-daytable-cols': columns.length }
 
   return (
     <div className="vip-card">
       <div className="vip-card-head">
-        <h2 className="vip-card-title">What the team did today</h2>
-        <span className="vip-card-note vip-only-desktop">Sorted by {COLUMNS.find((c) => c.key === sortKey).label.toLowerCase()} · click a row for the full day</span>
+        <h2 className="vip-card-title">{title}</h2>
+        <span className="vip-card-note vip-only-desktop">Sorted by {columns.find((c) => c.key === sortKey).label.toLowerCase()} · click a row for the full day</span>
         <span className="vip-card-note vip-only-mobile">Tap for the full day</span>
       </div>
 
+      {children}
+
       {rows.length === 0 ? (
-        <p className="vip-empty">No sales executives to show.</p>
+        <p className="vip-empty">{emptyText}</p>
       ) : (
         <>
           {/* ---- desktop: the real table ---- */}
           <div className="vip-only-desktop">
-            <div className="vip-daytable">
+            <div className="vip-daytable" style={gridStyle}>
               <div className="vip-daytable-groups">
                 <span />
-                <span className="vip-daytable-group">Activity</span>
-                <span className="vip-daytable-group">Leads</span>
-                <span className="vip-daytable-group">Follow-ups</span>
+                {groups.map((g) => (
+                  <span key={g.label} className="vip-daytable-group" style={{ gridColumn: `span ${g.span}` }}>
+                    {g.label}
+                  </span>
+                ))}
               </div>
 
               <div className="vip-daytable-row vip-daytable-head">
-                <span className="vip-daytable-collabel">Sales exec</span>
-                {COLUMNS.map((c) => (
+                <span className="vip-daytable-collabel">{personLabel}</span>
+                {columns.map((c) => (
                   <button
                     key={c.key}
                     type="button"
@@ -142,7 +231,7 @@ function DayReviewCard({ rows, totals, isPast, onOpenExec, selectedExecId }) {
                     <span className={row.total === 0 ? 'vip-daytable-quiet' : undefined}>{row.name}</span>
                     <RoleTag role={row.role} />
                   </span>
-                  {COLUMNS.map((c) => (
+                  {columns.map((c) => (
                     <span
                       key={c.key}
                       className={[
@@ -162,7 +251,7 @@ function DayReviewCard({ rows, totals, isPast, onOpenExec, selectedExecId }) {
 
               <div className="vip-daytable-row vip-daytable-totals">
                 <span className="vip-daytable-collabel">Team total</span>
-                {COLUMNS.map((c) => (
+                {columns.map((c) => (
                   <span key={c.key} className={c.groupStart ? 'vip-daytable-cell vip-daytable-groupstart' : 'vip-daytable-cell'}>
                     {c.pair ? <DoneMissCell row={totals} isPast={isPast} /> : totals[c.key]}
                   </span>
@@ -184,24 +273,12 @@ function DayReviewCard({ rows, totals, isPast, onOpenExec, selectedExecId }) {
                   <span className={row.total === 0 ? 'vip-daycard-total vip-daytable-quiet' : 'vip-daycard-total'}>{row.total}</span>
                   <span className="vip-daycard-chevron" aria-hidden="true">›</span>
                 </span>
-                <span className="vip-daycard-stats">
-                  <span>
-                    {row.calls} calls · {row.visits} visits
-                  </span>
-                  <span>
-                    {row.touched} touched · {row.changes} changes
-                  </span>
-                  <span>
-                    <DoneMissCell row={row} isPast={isPast} /> follow-ups
-                  </span>
-                </span>
+                <span className="vip-daycard-stats">{mobileStats(row, isPast)}</span>
               </button>
             ))}
             <div className="vip-daycard-totals">
               <span>Team total</span>
-              <span>
-                {totals.total} activities · {totals.touched} leads touched · <DoneMissCell row={totals} isPast={isPast} />
-              </span>
+              <span>{mobileTotals(totals, isPast)}</span>
             </div>
           </div>
         </>
