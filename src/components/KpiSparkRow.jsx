@@ -106,7 +106,11 @@ function weekOverWeek(events, getDate, getValue = () => 1, { points = false } = 
   if (!prev) return null
   const pct = Math.round(((cur - prev) / prev) * 100)
   if (pct === 0) return { label: '±0%', up: null }
-  return { label: `${pct > 0 ? '+' : ''}${pct}%`, up: pct > 0 }
+  // Capped like periodChange.js's changeVs: against a near-empty previous week
+  // (two ₹1 placeholder orders once made it "+41499900%") the true figure is
+  // arithmetic, not information.
+  const shown = Math.abs(pct) > 999 ? '999%+' : `${Math.abs(pct)}%`
+  return { label: `${pct > 0 ? '+' : '-'}${shown}`, up: pct > 0 }
 }
 
 // Win rate isn't summable like a count/value — needs its own cur/prev rate
