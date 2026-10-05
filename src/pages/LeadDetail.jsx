@@ -10,6 +10,7 @@ import SalesProgressSection from '../components/SalesProgressSection'
 import LeadQuickActions from '../components/LeadQuickActions'
 import LeadActivityTimeline from '../components/LeadActivityTimeline'
 import LeadRemarks from '../components/LeadRemarks'
+import OrderValueEdit from '../components/OrderValueEdit'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchAreas, fetchProducts } from '../lib/lookupQueries'
 import { useCachedQuery } from '../hooks/useCachedQuery'
@@ -895,6 +896,9 @@ function LeadDetail() {
               <span className="vip-dd-stat-label">{d.label}</span>
               <span className="vip-dd-stat-value" style={{ color: d.color }}>{d.value}</span>
               <span className="vip-dd-stat-sub">{d.sub}</span>
+              {d.label === 'Deal value' && isOwner && isWon && (
+                <OrderValueEdit lead={lead} disabled={editsLocked} onSaved={(row) => handleStageChanged(row, null)} />
+              )}
             </div>
           ))}
         </div>
