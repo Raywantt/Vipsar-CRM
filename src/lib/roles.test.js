@@ -10,6 +10,7 @@ import {
   canOpenArchitectProfiles,
   canSeeMyArchitects,
   canSeeArchitectNetwork,
+  canSeeBdmFollowUps,
   carriesOwnLeads,
   createActionLabel,
   isBdm,
@@ -91,6 +92,11 @@ describe('architect screens', () => {
   it('gives Architect Network to the owner only', () => {
     expect(rolesWith(canSeeArchitectNetwork)).toEqual([ROLES.OWNER])
     expect(canSeeArchitectNetwork(undefined)).toBe(false)
+  })
+
+  it('shows BDMs in the Follow-ups table to the owner only — no other role can read their reminders', () => {
+    expect(rolesWith(canSeeBdmFollowUps)).toEqual([ROLES.OWNER])
+    expect(canSeeBdmFollowUps(undefined)).toBe(false)
   })
 
   it('lets every role open an architect profile, and no unknown role', () => {

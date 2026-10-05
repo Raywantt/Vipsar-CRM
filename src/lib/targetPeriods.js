@@ -1,3 +1,5 @@
+import { rangeForPreset } from './dateRanges'
+
 function pad2(n) {
   return String(n).padStart(2, '0')
 }
@@ -44,6 +46,17 @@ export function periodValueForDate(periodType, date = new Date()) {
 export function periodForPreset(preset, date = new Date()) {
   if (preset !== 'week' && preset !== 'month' && preset !== 'quarter') return null
   return { periodType: preset, periodValue: periodValueForDate(preset, date) }
+}
+
+// Same, for a period stepped back `offset` whole periods from now (the ‹ › under
+// the Dashboard's range buttons). 0 is exactly periodForPreset(preset), so the
+// current period keys the same target rows it always did. The target lookup
+// follows whatever the stepper is showing — last month's targets beside last
+// month's actuals, never this month's.
+export function targetPeriodFor(preset, offset = 0) {
+  if (!offset) return periodForPreset(preset)
+  const range = rangeForPreset(preset, null, null, offset)
+  return range ? periodForPreset(preset, range.start) : null
 }
 
 // ---- Readable ranges + stepping, for the Set-a-target UI ----

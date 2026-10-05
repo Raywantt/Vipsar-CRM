@@ -126,6 +126,15 @@ export function canSeeArchitectNetwork(role) {
   return role === ROLES.OWNER
 }
 
+// The Follow-ups page's per-person table also lists every active BDM — owner
+// only, for the same reason /network is: the owner's RLS is the only one that
+// can read a BDM's reminders (nobody reports to a BDM, so no coordinator or
+// manager reaches them). A coordinator's table with a BDM row would say "no
+// reminders" about work they simply cannot see.
+export function canSeeBdmFollowUps(role) {
+  return role === ROLES.OWNER
+}
+
 // All Leads' "Download Excel" — owner only (the owner's ruling, 2026-09-22).
 // The file carries every client's and architect's phone number, and once it
 // is downloaded the CRM can't take it back. Desktop only, too, by the same

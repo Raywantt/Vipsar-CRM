@@ -177,7 +177,15 @@ function Sparkline({ series }) {
 // comment. Open pipeline in particular would have been a second, redundant
 // rendering of the same figure RightNowStrip's Active/On-Hold Pipeline
 // chips already cover.
+//
+// `steppedBack` is set while the Dashboard is showing a past period. The
+// sparklines and week-over-week deltas are the recent weekly cadence AS OF NOW,
+// so beside last month's total they would describe a different time from the
+// number they sit under — they are dropped, and the three tiles read value-only
+// like Weighted forecast does. That tile is a snapshot of today's pipeline and
+// says so.
 function KpiSparkRow({
+  steppedBack = false,
   orderValueActual,
   activitiesCount,
   winRatePct,
@@ -201,25 +209,32 @@ function KpiSparkRow({
     {
       label: 'Order value booked',
       value: formatCurrencyCompact(orderValueActual),
-      series: orderSeries,
-      delta: weekOverWeek(wonEvents, (e) => e.changedAt, (e) => e.value),
+      series: steppedBack ? null : orderSeries,
+      delta: steppedBack ? null : weekOverWeek(wonEvents, (e) => e.changedAt, (e) => e.value),
       onOpen: onOpenOrderValue,
     },
     {
       label: 'Activities logged',
       value: String(activitiesCount),
-      series: activitySeries,
-      delta: weekOverWeek(activitiesTrendWindow, (a) => a.created_at),
+      series: steppedBack ? null : activitySeries,
+      delta: steppedBack ? null : weekOverWeek(activitiesTrendWindow, (a) => a.created_at),
       onOpen: onOpenActivities,
     },
     {
       label: 'Win rate',
       value: winRatePct != null ? `${winRatePct}%` : '—',
-      series: winRateSeries,
-      delta: weekOverWeekWinRate(decidedStageHistory),
+      series: steppedBack ? null : winRateSeries,
+      delta: steppedBack ? null : weekOverWeekWinRate(decidedStageHistory),
       onOpen: onOpenWinRate,
     },
-    { label: 'Weighted forecast', value: formatCurrencyCompact(weightedForecast), series: null, delta: null, onOpen: onOpenForecast },
+    {
+      label: 'Weighted forecast',
+      value: formatCurrencyCompact(weightedForecast),
+      sub: steppedBack ? 'as of today' : null,
+      series: null,
+      delta: null,
+      onOpen: onOpenForecast,
+    },
   ]
 
   return (

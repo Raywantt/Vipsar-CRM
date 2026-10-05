@@ -3,8 +3,10 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
+import { usePeriodOffset } from '../hooks/usePeriodOffset'
 import { useCachedQuery } from '../hooks/useCachedQuery'
 import DateRangeSelector from '../components/DateRangeSelector'
+import SnapshotTag from '../components/SnapshotTag'
 import ActivityCountsCard from '../components/ActivityCountsCard'
 import LeadsBySourceCard, { SALES_EXEC_SOURCES } from '../components/LeadsBySourceCard'
 import ClosureForecastCard from '../components/ClosureForecastCard'
@@ -25,8 +27,8 @@ import { fetchDayReview, fetchChangeLogStart } from '../lib/dayReviewQueries'
 import { rescheduleFollowUp } from '../lib/followUpQueries'
 import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
 import { formatClockTime } from '../lib/dbTime'
-import { RANGE_LABELS, rangeForPreset, previousRangeFor } from '../lib/dateRanges'
-import { periodForPreset } from '../lib/targetPeriods'
+import { RANGE_LABELS, rangeForPreset, rangeLabelFor, previousRangeFor } from '../lib/dateRanges'
+import { targetPeriodFor } from '../lib/targetPeriods'
 import { LEAD_STAGE_OPTIONS } from '../lib/leadStageOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS } from '../lib/sourceTypeOptions'
@@ -89,6 +91,7 @@ import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { todayISO } from '../lib/followupDates'
 import {
   canSeeArchitectNetwork as canSeeArchitectNetworkFor,
+  canSeeBdmFollowUps,
   canSeeTeamDirectory as canSeeTeamDirectoryFor,
 } from '../lib/roles'
 import { errorMessage } from '../lib/errorMessage'
@@ -190,7 +193,18 @@ function Dashboard() {
   const [dayDate, setDayDate] = useState(todayISO())
   const [selectedExecId, setSelectedExecId] = useState(null)
 
-  const range = rangeForPreset(preset, customStart, customEnd)
+  // The ‹ › stepper under the range buttons: how many whole periods back from
+  // the current Week / 15D / Month / Quarter the page is showing (0 = now).
+  const { offset, setOffset, onPresetChange } = usePeriodOffset(preset, setPreset)
+  const range = rangeForPreset(preset, customStart, customEnd, offset)
+  // How the period reads mid-sentence ("this week", "last month", "14 – 20 Sep").
+  // Declared here, beside `range`, because the header effect below lists it as a
+  // dependency — a const further down would be read before it exists.
+  const rangeLabel = rangeLabelFor(preset, offset, range)
+  // The Follow-ups tab has no stepper of its own, so it always reads the CURRENT
+  // period — a stepped-back range there would be a window nobody can see how to
+  // change. (Its header sub says RANGE_LABELS[preset] for the same reason.)
+  const currentRange = offset > 0 ? rangeForPreset(preset, customStart, customEnd) : range
   // targets are keyed by week/month/quarter — 15D/Custom have no period to
   // look one up against, so Targets vs. actuals doesn't render at all for
   // them (see the featured-row layout below and CLAUDE.md's Dashboard
@@ -203,9 +217,13 @@ function Dashboard() {
   // calls, which is the shape this repo has been bitten by before (a
   // capability computed twice drifting into two answers) — here the merge
   // had no notion of the displayed period at all, and silently showed next
-  // week's target under the current week.
-  const targetPeriod = useMemo(() => periodForPreset(preset), [preset])
+  // week's target under the current week. It follows the stepper too, so
+  // stepping back to last month shows last month's targets beside last
+  // month's actuals.
+  const targetPeriod = useMemo(() => targetPeriodFor(preset, offset), [preset, offset])
   const isTargetPeriod = targetPeriod != null
+  // Stepped back to a past period: the pipeline-as-it-is-now cards say so.
+  const isPastPeriod = offset > 0
 
   // ---- Raw fetched rows, before the manager's My/Team scope is applied ----
   // Named all* so the scoped values below can keep the plain names every card
@@ -648,10 +666,10 @@ function Dashboard() {
         sub: `${openLeads.length} open · ${formatCurrencyCompact(value)}`,
       })
     } else {
-      setOverride({ sub: `${seesOthersData ? 'Team performance' : 'Your performance'} · ${RANGE_LABELS[preset]}` })
+      setOverride({ sub: `${seesOthersData ? 'Team performance' : 'Your performance'} · ${rangeLabel}` })
     }
     return () => setOverride(null)
-  }, [activeTab, leadsTitle, seesOthersData, preset, breakdownLeads, setOverride])
+  }, [activeTab, leadsTitle, seesOthersData, preset, rangeLabel, breakdownLeads, setOverride])
 
 
   // A sales exec sees only their own row. Their queries are already RLS-scoped
@@ -707,8 +725,6 @@ function Dashboard() {
   // describing rather than tallying a broader set than the value it labels.
   const openLeadCount = countOpenPipelineLeads(breakdownLeads)
 
-  const rangeLabel = RANGE_LABELS[preset]
-
   // Rebuilt whenever the data it reads changes (see bookedFor). Keyed on the
   // range's timestamps, not the object — `range` is a fresh one every render.
   const rangeStartMs = range?.start.getTime()
@@ -724,7 +740,7 @@ function Dashboard() {
             breakdownLeads,
             range,
             rangeLabel,
-            previous: previousRangeFor(preset, range),
+            previous: previousRangeFor(preset, range, offset),
             scopeLabel,
             employeeId: bookedFor,
             canCancelTarget: bookedFor != null && isOwner,
@@ -732,7 +748,7 @@ function Dashboard() {
             leadsReady: breakdownSettled,
           }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `range` is rebuilt every render; its two timestamps stand for it
-    [bookedFor, employees, targets, wonStageHistory, breakdownLeads, breakdownSettled, rangeStartMs, rangeEndMs, rangeLabel, preset, scopeLabel, isOwner, seesOthersData]
+    [bookedFor, employees, targets, wonStageHistory, breakdownLeads, breakdownSettled, rangeStartMs, rangeEndMs, rangeLabel, preset, offset, scopeLabel, isOwner, seesOthersData]
   )
   function closePanel() {
     setPanel(null)
@@ -794,7 +810,7 @@ function Dashboard() {
   // reason; every other role is already scoped by RLS.
   function handleOpenActivities() {
     if (!range) return
-    const previousWindow = previousRangeFor(preset, range)
+    const previousWindow = previousRangeFor(preset, range, offset)
     setPanel(
       buildActivitiesPanel({
         activities,
@@ -1033,11 +1049,13 @@ function Dashboard() {
 
           <DateRangeSelector
             preset={preset}
-            onPresetChange={setPreset}
+            onPresetChange={onPresetChange}
             customStart={customStart}
             customEnd={customEnd}
             onCustomStartChange={setCustomStart}
             onCustomEndChange={setCustomEnd}
+            offset={offset}
+            onOffsetChange={setOffset}
           />
 
           {/* The Day Review replaces the report cards entirely for this
@@ -1076,6 +1094,7 @@ function Dashboard() {
           {!loading && range && (
             <>
               <KpiSparkRow
+                steppedBack={isPastPeriod}
                 orderValueActual={wonThisRange}
                 activitiesCount={activities.length}
                 winRatePct={winRatePct}
@@ -1119,13 +1138,13 @@ function Dashboard() {
                     onOpenBooked={setBookedFor}
                     canCancelTarget={isOwner}
                   />
-                  {!loading && <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} scopeLabel={scopeLabel} showListFilters={seesOthersData} />}
+                  {!loading && <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} scopeLabel={scopeLabel} showListFilters={seesOthersData} snapshot={isPastPeriod} />}
                 </div>
               </div>
             ) : (
               !loading && (
                 <div className="vip-span-2">
-                  <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} wide scopeLabel={scopeLabel} showListFilters={seesOthersData} />
+                  <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} wide scopeLabel={scopeLabel} showListFilters={seesOthersData} snapshot={isPastPeriod} />
                 </div>
               )
             )}
@@ -1151,7 +1170,9 @@ function Dashboard() {
               </>
             )}
 
-            <h2 className="vip-span-2 vip-report-section">Deal pipeline</h2>
+            <h2 className="vip-span-2 vip-report-section">
+              Deal pipeline{isPastPeriod && <SnapshotTag />}
+            </h2>
 
             <div className="vip-span-2">
               <ClosureForecastCard leads={forecast} onOpenPanel={() => setPanel(buildForecastPanel({ forecast, scopeLabel }))} />
@@ -1176,7 +1197,9 @@ function Dashboard() {
                 per stage) inline. */}
             <SalesFunnelCard stageHistory={funnelStageHistory} leads={breakdownLeads} />
 
-            <h2 className="vip-span-2 vip-report-section">Sites &amp; product</h2>
+            <h2 className="vip-span-2 vip-report-section">
+              Sites &amp; product{isPastPeriod && <SnapshotTag />}
+            </h2>
 
             <LeadsByCategoryCard
               title="Leads by area"
@@ -1249,7 +1272,9 @@ function Dashboard() {
                 leads either way. */}
             {(isOwner || (isManager && managerScope === 'team')) && (
               <>
-                <h2 className="vip-span-2 vip-report-section">Why we lose</h2>
+                <h2 className="vip-span-2 vip-report-section">
+                  Why we lose{isPastPeriod && <SnapshotTag />}
+                </h2>
                 <div className="vip-span-2">
                   <LossReasonsCard lossReasons={lossReasons} onOpenPanel={() => setPanel(buildLossPanel({ lossReasons }))} />
                 </div>
@@ -1285,11 +1310,12 @@ function Dashboard() {
           whether the per-exec counts table renders above the list. */}
       {activeTab === 'followups' && (
         <FollowUpsCard
-          range={range}
-          rangeLabel={rangeLabel}
+          range={currentRange}
+          rangeLabel={RANGE_LABELS[preset]}
           viewer={employee}
           showTeam={seesOthersData}
           employees={employees}
+          includeBdms={canSeeBdmFollowUps(employee?.role)}
         />
       )}
     </div>

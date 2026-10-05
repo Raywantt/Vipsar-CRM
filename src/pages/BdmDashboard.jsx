@@ -3,11 +3,13 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useHeaderOverride } from '../contexts/HeaderContext'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
+import { usePeriodOffset } from '../hooks/usePeriodOffset'
 import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchPortfolioWithMeetings } from '../lib/screenQueries'
 import LeadsListCard from '../components/LeadsListCard'
 import FollowUpsCard from '../components/FollowUpsCard'
 import DateRangeSelector from '../components/DateRangeSelector'
+import SnapshotTag from '../components/SnapshotTag'
 import DrilldownPanel from '../components/DrilldownPanel'
 import BdmRightNow from '../components/BdmRightNow'
 import BdmTargetsCard from '../components/BdmTargetsCard'
@@ -18,8 +20,8 @@ import { BdmHandedOverCard, BdmClosedCard, BdmPipelineClosedCard } from '../comp
 import { useClosedRows } from '../hooks/useBdmPeriodRows'
 import { markBdmUpdatesSeen } from '../lib/notificationQueries'
 import { canSeeMyArchitects } from '../lib/roles'
-import { RANGE_LABELS, rangeForPreset } from '../lib/dateRanges'
-import { periodForPreset } from '../lib/targetPeriods'
+import { RANGE_LABELS, rangeForPreset, rangeLabelFor } from '../lib/dateRanges'
+import { targetPeriodFor } from '../lib/targetPeriods'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
 import { fetchBdmDashboardLeads, fetchBdmArchitectMeetings } from '../lib/bdmQueries'
@@ -104,12 +106,17 @@ function BdmDashboard() {
   const [preset, setPreset] = usePersistedFilterState('vip-filters:dashboard', 'preset', 'week')
   const [customStart, setCustomStart] = usePersistedFilterState('vip-filters:dashboard', 'customStart', todayISO())
   const [customEnd, setCustomEnd] = usePersistedFilterState('vip-filters:dashboard', 'customEnd', todayISO())
-  const range = rangeForPreset(preset, customStart, customEnd)
-  const rangeLabel = RANGE_LABELS[preset]
+  // The ‹ › stepper under the range buttons — whole periods back from now.
+  const { offset, setOffset, onPresetChange } = usePeriodOffset(preset, setPreset)
+  const range = rangeForPreset(preset, customStart, customEnd, offset)
+  const rangeLabel = rangeLabelFor(preset, offset, range)
+  // The Follow-ups tab has no stepper, so it always reads the CURRENT period.
+  const currentRange = offset > 0 ? rangeForPreset(preset, customStart, customEnd) : range
   const rangeKey = range ? `${range.start.toISOString()}|${range.end.toISOString()}` : null
   // Targets are period-keyed: Week/Month/Quarter only, the shared Dashboard's
-  // own rule (periodForPreset is null for Today/15D/Custom).
-  const targetPeriod = useMemo(() => periodForPreset(preset), [preset])
+  // own rule (targetPeriodFor is null for Today/15D/Custom). It follows the
+  // stepper, so a past month shows that month's targets.
+  const targetPeriod = useMemo(() => targetPeriodFor(preset, offset), [preset, offset])
 
   // Opening the Dashboard is how a BDM "sees" their lead updates — the two
   // cards below list them — so Today's "N updates" line clears here.
@@ -124,14 +131,14 @@ function BdmDashboard() {
 
   useEffect(() => {
     if (activeTab === 'followups') {
-      setOverride({ title: 'My follow-ups', sub: `Reminders · ${rangeLabel}` })
+      setOverride({ title: 'My follow-ups', sub: `Reminders · ${RANGE_LABELS[preset]}` })
     } else if (activeTab === 'leads') {
       setOverride({ title: 'My leads', sub: 'Leads you brought in' })
     } else {
       setOverride({ sub: 'Your leads and architects' })
     }
     return () => setOverride(null)
-  }, [activeTab, rangeLabel, setOverride])
+  }, [activeTab, preset, setOverride])
 
   const [panel, setPanel] = useState(null)
   const [panelError, setPanelError] = useState(null)
@@ -283,11 +290,13 @@ function BdmDashboard() {
 
           <DateRangeSelector
             preset={preset}
-            onPresetChange={setPreset}
+            onPresetChange={onPresetChange}
             customStart={customStart}
             customEnd={customEnd}
             onCustomStartChange={setCustomStart}
             onCustomEndChange={setCustomEnd}
+            offset={offset}
+            onOffsetChange={setOffset}
           />
 
           <div className="vip-report-grid">
@@ -317,7 +326,9 @@ function BdmDashboard() {
 
             {/* Point-in-time again, like the tiles — the heading says so, the
                 same way the shared Dashboard labels its own pipeline block. */}
-            <h2 className="vip-span-2 vip-report-section">Deal pipeline</h2>
+            <h2 className="vip-span-2 vip-report-section">
+              Deal pipeline{offset > 0 && <SnapshotTag />}
+            </h2>
 
             <div className="vip-span-2">
               <ClosureForecastCard
@@ -346,7 +357,7 @@ function BdmDashboard() {
       )}
 
       {activeTab === 'followups' && (
-        <FollowUpsCard range={range} rangeLabel={rangeLabel} viewer={employee} showTeam={false} employees={[]} />
+        <FollowUpsCard range={currentRange} rangeLabel={RANGE_LABELS[preset]} viewer={employee} showTeam={false} employees={[]} />
       )}
     </div>
   )

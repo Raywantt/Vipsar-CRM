@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
+import { usePeriodOffset } from '../hooks/usePeriodOffset'
 import DateRangeSelector from '../components/DateRangeSelector'
 import DrilldownPanel from '../components/DrilldownPanel'
 import BdmNetworkCard from '../components/BdmNetworkCard'
 import BdmTopArchitectsCard from '../components/BdmTopArchitectsCard'
 import ArchitectDirectory from '../components/ArchitectDirectory'
 import FirmDirectory from '../components/FirmDirectory'
-import { RANGE_LABELS, rangeForPreset } from '../lib/dateRanges'
-import { periodForPreset } from '../lib/targetPeriods'
+import { rangeForPreset, rangeLabelFor } from '../lib/dateRanges'
+import { targetPeriodFor } from '../lib/targetPeriods'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
 import { fetchActiveBdms, fetchAllBdmLeads } from '../lib/bdmQueries'
@@ -65,10 +66,14 @@ function ArchitectNetwork() {
   const [preset, setPreset] = usePersistedFilterState('vip-filters:dashboard', 'preset', 'week')
   const [customStart, setCustomStart] = usePersistedFilterState('vip-filters:dashboard', 'customStart', todayISO())
   const [customEnd, setCustomEnd] = usePersistedFilterState('vip-filters:dashboard', 'customEnd', todayISO())
-  const range = rangeForPreset(preset, customStart, customEnd)
-  const rangeLabel = RANGE_LABELS[preset]
+  // The ‹ › stepper under the range buttons — whole periods back from now. The
+  // BDM cards, their targets and Top 5 architects all follow it; "What the BDMs
+  // did" above keeps its own day stepper.
+  const { offset, setOffset, onPresetChange } = usePeriodOffset(preset, setPreset)
+  const range = rangeForPreset(preset, customStart, customEnd, offset)
+  const rangeLabel = rangeLabelFor(preset, offset, range)
   const rangeKey = range ? `${range.start.toISOString()}|${range.end.toISOString()}` : null
-  const targetPeriod = useMemo(() => periodForPreset(preset), [preset])
+  const targetPeriod = useMemo(() => targetPeriodFor(preset, offset), [preset, offset])
 
   const [panel, setPanel] = useState(null)
 
@@ -253,11 +258,13 @@ function ArchitectNetwork() {
 
           <DateRangeSelector
             preset={preset}
-            onPresetChange={setPreset}
+            onPresetChange={onPresetChange}
             customStart={customStart}
             customEnd={customEnd}
             onCustomStartChange={setCustomStart}
             onCustomEndChange={setCustomEnd}
+            offset={offset}
+            onOffsetChange={setOffset}
           />
 
           {(snapshotError || period.error) && (

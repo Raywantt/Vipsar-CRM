@@ -137,6 +137,7 @@ src/
                 FollowUpForm, FollowUpList, LeadFollowUpsCard, FabSheet,
                 AssignedLeadsCard, NumPadInput, TodayGreetingHeader, TeamTodayPanel,
                 FollowUpsCard, ShowMoreRows, ErrorBoundary, PeriodPicker,
+                PeriodStepper, SnapshotTag,
                 PipelineByStageCard, LeadExportPanel,
                 BDM: BdmPoolCard, BdmUpdatesLine, BdmLeadUpdateCards,
                 BdmRightNow, BdmTargetsCard, BdmTopArchitectsCard,
@@ -153,6 +154,7 @@ src/
                 HeaderContext (dynamic {title, sub} override for AppNav)
   hooks/        useOnlineStatus.js, useIsMobile.js (the 1024px breakpoint as
                 a JS boolean), useBdmPeriodRows.js, useBdmRoster.js,
+                usePeriodOffset.js,
                 useCachedQuery.js (+ useSyncState), useAttentionBuckets.js
   lib/          supabaseClient.js, supabaseFetch.js, queryCache.js,
                 queryClient.js,
@@ -1855,9 +1857,53 @@ custom range returns `null` and the page prompts instead of querying.
 Week/Month/Quarter line up with a `targets.period_type`. **15D and Custom
 render Targets vs. actuals not at all**, rather than with a fallback message
 — 15D is a rolling window with no fixed `period_value` identity a target
-could be keyed by. The gate is `isTargetPeriod = periodForPreset(preset) !=
-null`, reusing `periodForPreset` rather than a second week/month/quarter
-check that could drift from it.
+could be keyed by. The gate is `isTargetPeriod = targetPeriodFor(preset,
+offset) != null`, reusing `periodForPreset` rather than a second
+week/month/quarter check that could drift from it.
+
+**The ‹ › period stepper (2026-10-05).** Week / 15D / Month / Quarter can be
+stepped back one whole period at a time, like Today's day stepper. It is
+`PeriodStepper.jsx`, drawn by `DateRangeSelector` itself from the same
+`preset`, so **Dashboard (all four roles), the BDM Dashboard and Architect
+Network's BDMs tab all get it from one place** — and a fourth screen mounting
+the selector would too. Today keeps `DayDateBar`; Custom has its own From/To,
+so neither steps. Load-bearing choices:
+- **State is `offset`, "periods back from now" (0 = current), in
+  `usePeriodOffset`** — persisted beside the preset (same
+  `vip-filters:dashboard` key, so a Back from an exec profile returns to the
+  week you were reading and a fresh nav-link visit starts at the current
+  period). `onPresetChange` resets it, so tapping a preset (even the active
+  one) is the way home; 3 weeks back never carries over as 3 months back.
+- **`rangeForPreset(preset, cs, ce, offset)` is the one place that turns an
+  offset into dates.** Offset 0 is the to-date range it always returned;
+  above 0 it is the COMPLETE past week / month / quarter (15D: a fixed block
+  of 15 days counted back from today, never overlapping). The stepper's
+  middle slot names the whole period ("28 Sep – 4 Oct", "September 2026",
+  "Q3 2026") over an invisible native date input — any day jumps to the
+  period holding it (`offsetForDate`); › is disabled on the current period.
+- **Labels:** `rangeLabelFor` — current keeps `RANGE_LABELS` ("this week"), one
+  back is "last week/month/quarter", anything older (and every 15D window) is
+  named by its dates. `previousRangeFor(preset, range, offset)` takes the
+  offset too: stepped back it names the dates (a "vs last week" beside last
+  week would name the period on screen) and sets a whole month against the
+  WHOLE month before it, not its first N days.
+- **Targets follow the stepper** (`targetPeriodFor(preset, offset)`): last
+  month's targets sit beside last month's actuals, and `SetTargetForm`/
+  `BdmTargetsForm` seed from the period on screen as they already did.
+- **Snapshot cards stay as they are and say so** (owner's ruling): Needs
+  attention, Deal pipeline, Sites & product and Why we lose carry a
+  `SnapshotTag` ("Snapshot · as of today") while stepped back — they read every
+  lead as it is now and the CRM keeps no history, so last month's pipeline
+  can't be redrawn. The KPI band drops its sparklines and week-over-week deltas
+  when stepped back (they are the recent cadence as of NOW, which would describe
+  a different time from the total above them) and Weighted forecast reads "as of
+  today". The Right-now strip sits above the selector and never changes.
+- **The Follow-ups tab ignores the offset** (it has no stepper, so a stepped-back
+  window there would be one nobody could see how to change), as do its header sub
+  and `FollowUpsCard`.
+- Architect Network's "What the BDMs did today" keeps its own day stepper; the
+  period stepper below it drives the BDM cards, their targets and Top 5
+  architects.
 
 #### Needs Attention (`NeedsAttentionCard.jsx` + `src/lib/attention.js`)
 
@@ -2488,7 +2534,8 @@ Log link and FAB row, both routing to a page they couldn't reach. Adding the
 BDM found ~120 role checks that would have treated a fifth role as an exec by
 default. `roles.js` exports `canCreateLead`, `canLogActivity`,
 `canSeeTeamDirectory`, `canOpenEmployeeProfiles`, `canSeeMyArchitects`,
-`canSeeArchitectNetwork`, `canOpenArchitectProfiles`, `canExportLeads`, `isBdm` and
+`canSeeArchitectNetwork`, `canSeeBdmFollowUps`, `canOpenArchitectProfiles`,
+`canExportLeads`, `isBdm` and
 `rolesWith(capability)`; `BottomNav` and `App.jsx` both read them.
 **These are ONE flag per capability — do not re-split them.**
 
@@ -2737,6 +2784,17 @@ locked decisions; **don't reverse one without asking.**
   just on BDM/owner screens — see `BdmChip` under Design system's Universal
   linking. Every role sees it; the owner's ruling was that a lead's rep,
   coordinator or manager should be able to tell at a glance too.
+* **The owner's Follow-ups page lists every active BDM (2026-10-05).**
+  `FollowUpsCard`'s per-person table is "Exec / BDM" with a BDM tag, the
+  BDMs seeded from `fetchActiveBdms` (same cache key as Architect Network) so
+  one with nothing in the period reads 0 rather than going missing — before,
+  a BDM appeared only once he had a reminder, unlabelled, via the roster
+  fallback. Their reminders were already in All reminders (the owner's RLS
+  returns the whole company) and a row tap filters to them as for an exec.
+  **Owner only** (`canSeeBdmFollowUps`): no other role's RLS can read a BDM's
+  reminders, so a coordinator's table with a BDM row would say "no reminders"
+  about work they cannot see. A coordinator/manager/exec/BDM's page is
+  unchanged (the BDM's own tab has no team table).
 * **`validate_employee_role_assignment()`**: a BDM carries no
   `coordinator_id`/`manager_id`, and **can't be deactivated or demoted while
   any architect is tagged to them** (hard block).

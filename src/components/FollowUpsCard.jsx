@@ -19,6 +19,8 @@ import {
 import { todayISO, toISODate } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
 import { getInitials } from '../lib/initials'
+import { ROLES, roleLabel } from '../lib/roles'
+import { fetchActiveBdms } from '../lib/bdmQueries'
 import { TONE_BAD, TONE_WARN, TONE_GOOD, TONE_NEUTRAL } from '../lib/statusColors'
 
 // Dashboard's "Followups" category (?tab=followups) — the app's first place to
@@ -65,16 +67,21 @@ function bucketOf(f) {
 // not in the roster (a reassigned/deactivated employee, or a self-reminder
 // for a viewer the roster doesn't include) still surfaces via the existing
 // fallback rather than being silently dropped.
+//
+// A roster entry may carry `isBdm`: the owner's table lists every active BDM
+// alongside the execs (same columns, same rules), and the flag is what puts the
+// BDM tag beside their name. A BDM missing from the roster (deactivated since)
+// still surfaces through the fallback below, untagged.
 export function buildExecCounts(rows, roster = []) {
   const byExec = new Map()
   roster.forEach((emp) => {
-    byExec.set(emp.id, { id: emp.id, name: emp.name, assigned: 0, done: 0, missed: 0 })
+    byExec.set(emp.id, { id: emp.id, name: emp.name, isBdm: Boolean(emp.isBdm), assigned: 0, done: 0, missed: 0 })
   })
   rows.forEach((f) => {
     if (f.status === FOLLOW_UP_CANCELLED) return
     const id = f.assigned_to
     if (!byExec.has(id)) {
-      byExec.set(id, { id, name: f.assigned_to_employee?.name ?? `#${id}`, assigned: 0, done: 0, missed: 0 })
+      byExec.set(id, { id, name: f.assigned_to_employee?.name ?? `#${id}`, isBdm: false, assigned: 0, done: 0, missed: 0 })
     }
     const e = byExec.get(id)
     e.assigned += 1
@@ -101,7 +108,12 @@ function sortExecRows(rows, sortKey, dir) {
   })
 }
 
-function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) {
+// `includeBdms` (Dashboard passes canSeeBdmFollowUps — the owner) also lists every
+// active BDM in the per-person table, tagged BDM, even with nothing in the
+// period: a BDM with no reminders reads "0", not "not shown". Their reminders
+// were already in All reminders (the owner's RLS returns the whole company);
+// this makes them first-class in the table too.
+function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [], includeBdms = false }) {
   const navigate = useNavigate()
   const [rows, setRows] = useState([])
   const [actionError, setActionError] = useState(null)
@@ -188,7 +200,20 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) 
     () => (endISO ? rows.filter((f) => f.due_date >= startISO && f.due_date <= endISO) : []),
     [rows, startISO, endISO]
   )
-  const execCounts = useMemo(() => buildExecCounts(inPeriod, employees), [inPeriod, employees])
+  // The BDM roster is the one Architect Network reads (same key), so opening
+  // either warms the other. A failed fetch just leaves BDMs out of the roster,
+  // which is how the table behaved before — they still surface via the fallback
+  // when they have reminders in the period.
+  const bdmsQuery = useCachedQuery(['bdm', 'active-bdms'], fetchActiveBdms, { enabled: includeBdms })
+  const bdms = useMemo(
+    () => (includeBdms && bdmsQuery.result && !bdmsQuery.result.error ? bdmsQuery.result.data ?? [] : []),
+    [includeBdms, bdmsQuery.result]
+  )
+  const roster = useMemo(
+    () => (bdms.length ? [...employees, ...bdms.map((b) => ({ id: b.id, name: b.name, isBdm: true }))] : employees),
+    [employees, bdms]
+  )
+  const execCounts = useMemo(() => buildExecCounts(inPeriod, roster), [inPeriod, roster])
   const sortedExecCounts = useMemo(
     () => sortExecRows(execCounts, execSortKey, execSortDir),
     [execCounts, execSortKey, execSortDir]
@@ -213,14 +238,14 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) 
       {showTeam && execCounts.length > 0 && (
         <div className="vip-card">
           <div className="vip-card-head">
-            <h2 className="vip-card-title">Follow-ups by exec · {rangeLabel}</h2>
+            <h2 className="vip-card-title">Follow-ups by {bdms.length ? 'exec & BDM' : 'exec'} · {rangeLabel}</h2>
             <div className="vip-dd-hint">
               {execsWithWork} of {execCounts.length} with open work · sorted by{' '}
               {EXEC_COLUMNS.find((c) => c.key === execSortKey).label.toLowerCase()}
             </div>
           </div>
           <div className="vip-fu-exec-head">
-            <span>Sales exec</span>
+            <span>{bdms.length ? 'Exec / BDM' : 'Sales exec'}</span>
             {EXEC_COLUMNS.map((c) => (
               <button
                 key={c.key}
@@ -251,7 +276,12 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [] }) 
                   <span className={quiet ? 'vip-dd-avatar vip-daytable-avatar-quiet' : 'vip-dd-avatar'}>
                     {getInitials(e.name)}
                   </span>
-                  <span className={quiet ? 'vip-daytable-quiet' : undefined}>{e.name}</span>
+                  <span className={quiet ? 'vip-fu-exec-name-text vip-daytable-quiet' : 'vip-fu-exec-name-text'}>{e.name}</span>
+                  {e.isBdm && (
+                    <span className="vip-role-tag" title={roleLabel(ROLES.BDM)}>
+                      BDM
+                    </span>
+                  )}
                 </span>
                 <span className={quiet ? 'vip-daytable-quiet' : undefined}>{e.assigned}</span>
                 <span style={{ color: e.done ? TONE_GOOD : TONE_NEUTRAL }}>{e.done}</span>

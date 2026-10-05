@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { buildAgeingPanel, countDistinctLeads } from '../lib/attention'
+import SnapshotTag from './SnapshotTag'
 
 function AttnRow({ bucket, onOpenPanel, scopeLabel, showListFilters }) {
   return (
@@ -30,7 +31,10 @@ function AttnRow({ bucket, onOpenPanel, scopeLabel, showListFilters }) {
 // `showListFilters` is Dashboard's own "sees other people's data" flag: it puts
 // the Owner dropdown + Stage chips on each row's popup (see buildAgeingPanel).
 // Every other mount leaves it off.
-function NeedsAttentionCard({ buckets, onOpenPanel, wide = false, scopeLabel = 'Company', showListFilters = false }) {
+// `snapshot` tags the card "Snapshot · as of today" — set while the Dashboard is
+// stepped back to a past period, since these five queues are always read off
+// the leads as they are now (see SnapshotTag).
+function NeedsAttentionCard({ buckets, onOpenPanel, wide = false, scopeLabel = 'Company', showListFilters = false, snapshot = false }) {
   const [expanded, setExpanded] = useState(false)
   const total = countDistinctLeads(buckets)
   const hiddenCount = Math.max(0, buckets.length - 3)
@@ -39,7 +43,9 @@ function NeedsAttentionCard({ buckets, onOpenPanel, wide = false, scopeLabel = '
   return (
     <div className="vip-card">
       <div className="vip-card-head">
-        <h2 className="vip-card-title">Needs attention</h2>
+        <h2 className="vip-card-title">
+          Needs attention{snapshot && <SnapshotTag />}
+        </h2>
         <div className="vip-dd-attn-total">{total}</div>
       </div>
 

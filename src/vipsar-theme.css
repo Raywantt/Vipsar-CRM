@@ -2565,7 +2565,10 @@ a.vip-day-log-party:hover { text-decoration: underline; }
 .vip-fu-exec-row:hover { background: var(--vip-surface-soft); }
 .vip-fu-exec-row.vip-active { background: var(--vip-surface-soft); box-shadow: inset 2px 0 0 var(--vip-teal); }
 .vip-fu-exec-name { display: flex; align-items: center; gap: 8px; min-width: 0; text-align: left; font-weight: 600; }
-.vip-fu-exec-name > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The name is its own class rather than "the last span": a BDM's row has a tag
+   after it, and `:last-child` would have handed the ellipsis to the tag. */
+.vip-fu-exec-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vip-fu-exec-name .vip-role-tag { margin-left: -2px; }
 
 .vip-fu-bucket-count {
   margin-left: 5px; font-size: 10px; font-weight: 700;
@@ -3715,3 +3718,29 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
 /* DayDateBar sits inside the BDM day table's card here rather than above a
    page, so it needs the gap the card head would otherwise give it. */
 .vip-net-daybar { margin-bottom: 12px; }
+
+/* ===========================================================================
+   43. Period stepper (PeriodStepper.jsx) + snapshot tag (SnapshotTag.jsx)
+       (2026-10-05)
+   =========================================================================== */
+/* The ‹ › bar under Week / 15D / Month / Quarter reuses Today's day-bar
+   (.vip-day-bar / .vip-day-nav / .vip-day-stamp) and the target picker's
+   label-over-an-invisible-date-input (.vip-period-picker). The picker was built
+   for a form, where it fills the row; here it is sized to its own words, and
+   boxed like Today's date field so the two steppers read as one control. Every
+   colour is a token, so section 22's dark mode repaints it. */
+.vip-period-stepper .vip-period-picker {
+  flex: 0 1 auto; min-width: 148px;
+  border: 1px solid var(--vip-field-line); border-radius: var(--vip-r-field);
+  background: var(--vip-surface);
+}
+.vip-period-stepper .vip-period-picker-label { padding: 13px 14px; white-space: nowrap; }
+
+/* Marks a card/section that shows today's pipeline while a past period is on
+   screen. Quiet on purpose: it explains a card, it doesn't compete with it. */
+.vip-snapshot-tag {
+  display: inline-block; margin-left: 8px; padding: 1px 8px;
+  font: 600 10px var(--vip-sans); letter-spacing: .02em;
+  color: var(--vip-muted); background: var(--vip-track);
+  border-radius: 999px; vertical-align: 1px; white-space: nowrap;
+}
