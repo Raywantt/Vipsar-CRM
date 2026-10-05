@@ -1,5 +1,6 @@
 import { formatCurrencyCompact } from '../lib/format'
 import { ARCHITECT_MEETING_DAYS } from '../lib/architectStats'
+import { TONE_BAD } from '../lib/statusColors'
 
 // The business development manager's "Right now" tiles (BDM.md Step 5) —
 // point-in-time figures, untouched by the date range below them. Owner's
@@ -50,6 +51,8 @@ function BdmRightNow({
       key: 'gap',
       label: 'Follow-up gap',
       value: gapCount != null ? String(gapCount) : '—',
+      // Red only while there is something to chase — a 0 or "—" stays neutral.
+      valueColor: gapCount > 0 ? TONE_BAD : undefined,
       sub: gapPct != null ? `${Math.round(gapPct)}% of open leads` : null,
       onOpen: onOpenGap,
     },
@@ -63,7 +66,9 @@ function BdmRightNow({
           <button key={t.key} type="button" className="vip-dd-kpi-tile" onClick={t.onOpen}>
             <div className="vip-dd-kpi-label">{t.label}</div>
             <div className="vip-dd-kpi-value-row">
-              <span className="vip-dd-kpi-value">{t.value}</span>
+              <span className="vip-dd-kpi-value" style={t.valueColor ? { color: t.valueColor } : undefined}>
+                {t.value}
+              </span>
             </div>
             {t.sub && <div className="vip-dd-kpi-sub">{t.sub}</div>}
           </button>

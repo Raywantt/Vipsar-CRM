@@ -1,4 +1,5 @@
 import { formatCurrencyCompact } from '../lib/format'
+import { TONE_BAD } from '../lib/statusColors'
 
 // The "Right now" strip — point-in-time pipeline metrics with no date range
 // to filter by, sitting above Dashboard's date range selector (below the
@@ -79,6 +80,8 @@ function RightNowStrip({
       key: 'stale',
       label: 'Stale Leads',
       value: staleCount != null ? String(staleCount) : '—',
+      // Red only while there is something to chase — a 0 or "—" stays neutral.
+      valueColor: staleCount > 0 ? TONE_BAD : undefined,
       sub: 'no activity 7+ days',
       onOpen: onOpenStale,
     },
@@ -93,6 +96,7 @@ function RightNowStrip({
       key: 'gap',
       label: 'Follow-up Gap',
       value: gapCount != null ? String(gapCount) : '—',
+      valueColor: gapCount > 0 ? TONE_BAD : undefined,
       sub: gapPct != null ? `${Math.round(gapPct)}% of open leads` : null,
       onOpen: onOpenGap,
     },
@@ -156,7 +160,9 @@ function RightNowStrip({
             <button key={t.key} type="button" className="vip-dd-kpi-tile" onClick={t.onOpen}>
               <div className="vip-dd-kpi-label">{t.label}</div>
               <div className="vip-dd-kpi-value-row">
-                <span className="vip-dd-kpi-value">{t.value}</span>
+                <span className="vip-dd-kpi-value" style={t.valueColor ? { color: t.valueColor } : undefined}>
+                  {t.value}
+                </span>
               </div>
               {t.sub && <div className="vip-dd-kpi-sub">{t.sub}</div>}
             </button>
