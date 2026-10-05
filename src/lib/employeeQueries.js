@@ -8,7 +8,7 @@ import { fetchAccompaniedActivities } from './accompaniedQueries'
 // mean remembering four separate .select() strings — coordinator_id was
 // exactly that kind of addition, and a row returned without it would silently
 // blank the "Reports to" dropdown after a save.
-const EMPLOYEE_ROW = 'id, name, mobile, role, coordinator_id, manager_id, is_active'
+const EMPLOYEE_ROW = 'id, name, mobile, role, coordinator_id, manager_id, is_active, can_export_leads'
 
 export function fetchAllEmployees() {
   return fetchAllRows(() => supabase.from('employees').select(EMPLOYEE_ROW, { count: 'exact' }).order('name'))
@@ -274,6 +274,26 @@ export function updateEmployeeManager(id, managerId) {
 
 export function updateEmployeeActive(id, isActive) {
   return supabase.from('employees').update({ is_active: isActive }).eq('id', id).select(EMPLOYEE_ROW).single()
+}
+
+// The per-person switch behind All Leads' "Download Excel" (roles.js's
+// canExportLeads). Only an owner can write it — employees UPDATE is owner-only
+// with no self-update exception, which is exactly why it lives here and not in
+// employee_preferences.
+export function updateEmployeeCanExportLeads(id, canExport) {
+  return supabase.from('employees').update({ can_export_leads: canExport }).eq('id', id).select(EMPLOYEE_ROW).single()
+}
+
+// Whether the signed-in employee has been granted Download Excel. Its own tiny
+// read rather than a column on AuthContext's account lookup: that lookup runs
+// for every user on every app open, and a column that doesn't exist yet fails
+// the WHOLE select — so it must never carry a flag only one screen reads. Here
+// a missing column or a failed read just resolves to "no button". Resolves a
+// plain boolean in `data`, so the remembered copy is as small as it can be.
+export async function fetchMyExportGrant(employeeId) {
+  const { data, error } = await supabase.from('employees').select('can_export_leads').eq('id', employeeId).maybeSingle()
+  if (error) return { data: null, error }
+  return { data: data?.can_export_leads === true, error: null }
 }
 
 export function updateEmployeeMobile(id, mobile) {

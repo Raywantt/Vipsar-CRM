@@ -9,12 +9,14 @@ import {
 import { MIN_QUERY_LENGTH } from './searchQueries'
 import { attachFirms, PARTY_COLUMNS } from './partyQueries'
 
-// All Leads' "Download Excel" (owner only, desktop only — roles.js's
-// canExportLeads). Reads EVERY lead matching the filters on screen, not the 50
-// the screen shows, plus whatever the chosen columns need. Runs only when the
-// owner presses Download, never on mount, and nothing here is cached or
-// remembered on the device: a spreadsheet of client phone numbers should be
-// fetched fresh and then forgotten.
+// All Leads' "Download Excel" (the owner, and anyone the owner has switched it
+// on for — roles.js's canExportLeads). Reads EVERY lead matching the filters on
+// screen, not the 50 the screen shows, plus whatever the chosen columns need —
+// all through the downloader's OWN row-level security, so a manager's file
+// holds what her All Leads lists and nothing more. Runs only when Download is
+// pressed, never on mount, and nothing here is cached or remembered on the
+// device: a spreadsheet of client phone numbers should be fetched fresh and
+// then forgotten.
 
 // Smaller than fetchAllRows' 1,000 because every row here carries three party
 // embeds, the site with its contacts, and three employee names — a lighter

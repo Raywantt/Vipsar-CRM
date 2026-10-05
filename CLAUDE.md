@@ -154,7 +154,7 @@ src/
                 HeaderContext (dynamic {title, sub} override for AppNav)
   hooks/        useOnlineStatus.js, useIsMobile.js (the 1024px breakpoint as
                 a JS boolean), useBdmPeriodRows.js, useBdmRoster.js,
-                usePeriodOffset.js,
+                usePeriodOffset.js, useCanExportLeads.js,
                 useCachedQuery.js (+ useSyncState), useAttentionBuckets.js
   lib/          supabaseClient.js, supabaseFetch.js, queryCache.js,
                 queryClient.js,
@@ -2268,11 +2268,41 @@ phone.
 Pure shaping is `leadExport.js`, fetching `leadExportQueries.js`, the file
 `leadExportFile.js`.
 
-* **Owner only, desktop only — both the owner's rulings, deliberate, not a
-  matrix gap.** One flag, `canExportLeads` (`roles.js`). The button sits inside
-  `.vip-only-desktop`. The file carries every client's and architect's phone
-  number, and once it's downloaded the CRM can't take it back. **Don't widen
-  either without asking.**
+* **The owner, plus anyone the owner switches it on for — one person at a
+  time, at both widths (owner's ruling, 2026-10-05; first granted to Aanchal
+  Tripathi, a sales manager, for her own leads and her team's).** It was
+  owner-only and desktop-only from 2026-09-22; both limits were lifted by the
+  same ruling. The file carries every client's and architect's phone number,
+  and once it's downloaded the CRM can't take it back — so **don't widen it to
+  a whole role, and don't add a self-service way to switch it on, without
+  asking.**
+  - **One rule, read by both renderings.** `canExportLeads(role, granted)`
+    (`roles.js`): the owner by role, anyone else only when `granted === true`,
+    so `rolesWith(canExportLeads)` is still just `['owner']`. `granted` comes
+    from `useCanExportLeads()` — the owner asks nothing; everyone else reads
+    `employees.can_export_leads` through `fetchMyExportGrant`, in memory only
+    (`persist: false` — a revoked permission must not linger on a device) and
+    failing soft to "no button". `LeadsListCard` renders ONE button, no
+    `.vip-only-desktop`; the picker is full-screen on a phone with a 2-column
+    grid.
+  - **The switch is `employees.can_export_leads`** (`migration_employee_can_export_leads.sql`),
+    set from Profile → Manage employees (a checkbox on every non-owner row,
+    saved the moment it's ticked). It is a column on `employees`, not
+    `employee_preferences`, **because `employees` UPDATE is owner-only with no
+    self-update exception** — the property that made it wrong for a theme is
+    exactly what a permission needs: nobody can switch it on for themselves.
+    **It is deliberately NOT in `AuthContext`'s employee lookup** — a column
+    that doesn't exist yet fails that whole select, which runs for every user
+    on every app open ("Account not linked" for everyone, 2026-09-21's
+    outage). `EMPLOYEE_ROW` does carry it, so **the migration must run before
+    the deploy** (only the owner's Manage employees list breaks if not).
+  - **It is a gate on the button, not on data.** The export reads through the
+    downloader's own RLS, so a manager's file holds what her All Leads lists.
+    For a manager that is the **Mine / Team** switch on screen: Mine = her own
+    leads, Team = her reports' leads (**not hers as well** — there is no
+    combined view; she downloads each in turn). The file's "About" sheet and
+    file name now say which (`Whose leads`: "Mine (name)" / "My team"), and
+    for a non-owner the Owner row reads "Whole team" rather than "All owners".
 * **One filter definition.** `applyLeadsListFilters` + `leadsListSitesEmbed`
   (`dashboardQueries.js`) are read by both `fetchLeadsList` and the export,
   and the export is handed the list's own `listParams`. So the file can't hold
@@ -2309,7 +2339,7 @@ Pure shaping is `leadExport.js`, fetching `leadExportQueries.js`, the file
   leads with all 32 columns ~6.8s over 12 requests, 157KB file. Nothing is
   cached or remembered on the device.
 * **write-excel-file is imported dynamically** in `leadExportFile.js` only. It
-  builds as its own ~63KB chunk that nobody downloads until the owner presses
+  builds as its own ~63KB chunk that nobody downloads until someone presses
   Download.
 * **Verified** by opening a full 32-column file in real Excel (no repair log;
   filter arrows, 40 hyperlinks, frozen header, formats all read back) and by
@@ -2319,6 +2349,12 @@ Pure shaping is `leadExport.js`, fetching `leadExportQueries.js`, the file
   rests on the `rolesWith(canExportLeads)` test. **Not observed:** a real
   browser save dialog, since the download was intercepted in the preview pane
   to keep client numbers off disk.
+* **Verified 2026-10-05 (the per-person grant):** owner at 449px, 375px (forced)
+  and 1280px — count line, one button, 2-column picker with the Cancel /
+  Download row pinned, no horizontal scroll. **Not yet observed with the grant
+  ON** (needs the migration run and a signed-in granted session) and **not on a
+  real phone** — in particular an installed iPhone PWA, where a blob download
+  may not save; if it doesn't, the fix is the Web Share API with the file.
 
 ### Day Review (Dashboard's `Today` period)
 
@@ -2409,8 +2445,9 @@ out of that block: reshuffling reporting lines is a phone-reasonable task.
   made by hand in the Supabase dashboard and its UUID pasted in, for the same
   reason a `service_role` key must never reach the browser.
 * **Manage employees** — search-only, nothing shown until a name matches. Per
-  row: editable mobile, role dropdown, Active/Inactive toggle, and a
-  "Reports to" dropdown shown only when the *saved* role is
+  row: editable mobile, role dropdown, Active/Inactive toggle, a **"Can
+  download leads as Excel"** checkbox (every non-owner row; see Download
+  Excel), and a "Reports to" dropdown shown only when the *saved* role is
   `sales_executive`. Role and Active are disabled for the owner's own row, so
   an owner can't demote or deactivate themselves via RLS's caller-is-owner
   (not row-stays-owner) policy.
@@ -3097,6 +3134,18 @@ it leaves orphaned Auth logins to clean up by hand; scripting that risks
 removing your own login.
 
 ### Outstanding migrations
+
+* **`migration_employee_can_export_leads.sql`** — **run 2026-10-05; column and
+  Aanchal's grant confirmed live as the owner** (Profile → Manage employees →
+  "Aanchal" shows the box ticked, list loads clean). Adds
+  `employees.can_export_leads BOOLEAN NOT NULL DEFAULT false` and switches it
+  on for Aanchal Tripathi (a DO block that refuses to guess if her name
+  matches zero or several employees). Touches no policy, trigger or function,
+  so it is independent of every other file. It had to run BEFORE the deploy:
+  Manage employees selects the column. **Still to verify:** as Aanchal (or a
+  test manager with the box ticked from the owner's session, Test accounts
+  switch ON), All Leads shows Download Excel on Mine and on Team, at both
+  widths.
 
 * **`migration_rls_per_row_fixes.sql`** — **run and verified live
   2026-09-22.** Speed only: 49 policies rewritten from the LIVE definitions

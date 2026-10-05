@@ -19,7 +19,8 @@ import { isPoolLead } from '../lib/poolLeads'
 import { errorMessage } from '../lib/errorMessage'
 import { leadDisplayName, leadSiteLabel } from '../lib/leadName'
 import { MIN_QUERY_LENGTH } from '../lib/searchQueries'
-import { canExportLeads } from '../lib/roles'
+import { ROLES } from '../lib/roles'
+import { useCanExportLeads } from '../hooks/useCanExportLeads'
 import { useAuth } from '../contexts/AuthContext'
 import LeadExportPanel from './LeadExportPanel'
 
@@ -230,11 +231,14 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // partial list look like the complete answer.
   const searchCapped = listResult?.data?.searchCapped ?? false
 
-  // "Download Excel" — owner only, desktop only (roles.js's canExportLeads).
-  // It exports with `listParams` itself, the object this page was fetched
-  // with, so the file holds exactly the leads the count line promises.
+  // "Download Excel" — the owner, plus anyone the owner has switched it on for
+  // (roles.js's canExportLeads, read through useCanExportLeads), at both
+  // widths. It exports with `listParams` itself, the object this page was
+  // fetched with, so the file holds exactly the leads the count line promises —
+  // for a manager that means "Mine" or "Team", whichever the switch is on.
   const { employee } = useAuth()
-  const canExport = canExportLeads(employee?.role)
+  const canExport = useCanExportLeads()
+  const isOwnerViewer = employee?.role === ROLES.OWNER
   const [exportOpen, setExportOpen] = useState(false)
   // "Downloaded N leads", shown until the filters change.
   const [exportDone, setExportDone] = useState(null)
@@ -244,11 +248,23 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // the file.
   const exportFilterSummary = useMemo(() => {
     const summary = []
+    // A manager's Mine / Team switch decides whose leads the file holds, and
+    // nothing else on the screen says so — name it, or a downloaded file can't
+    // tell you which of the two it is.
+    if (onManagerScopeChange) {
+      summary.push(
+        managerScope === 'team'
+          ? { label: 'Whose leads', value: 'My team', active: true, fileLabel: 'My team' }
+          : { label: 'Whose leads', value: `Mine (${employee?.name ?? 'own leads'})`, active: true, fileLabel: 'My leads' }
+      )
+    }
     const status = { active: 'Active (not won or lost)', inactive: 'Closed (won or lost)' }[statusFilter]
     summary.push({ label: 'Status', value: status ?? 'All', active: !!status, fileLabel: statusFilter === 'active' ? 'Active' : 'Closed' })
     if (showOwnerFilter) {
       const emp = employeeFilter ? employees.find((e) => String(e.id) === employeeFilter) : null
-      summary.push({ label: 'Owner', value: emp?.name ?? 'All owners', active: !!emp })
+      // "All owners" is only true for the owner; anyone else's list is already
+      // narrowed to their own team.
+      summary.push({ label: 'Owner', value: emp?.name ?? (isOwnerViewer ? 'All owners' : 'Whole team'), active: !!emp })
     }
     summary.push({ label: 'Lead stage', value: stageFilter ? stageLabel(stageFilter) : 'All stages', active: !!stageFilter })
     const siteStage = siteStageFilter === SITE_STAGE_UNSET ? 'Not set' : siteStageFilter
@@ -264,7 +280,22 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     const searching = term.length >= MIN_QUERY_LENGTH
     summary.push({ label: 'Search', value: searching ? `“${term}”` : '—', active: searching, fileLabel: `Search ${term}` })
     return summary
-  }, [statusFilter, showOwnerFilter, employeeFilter, employees, stageFilter, siteStageFilter, sourceFilter, minValue, maxValue, debouncedSearch])
+  }, [
+    onManagerScopeChange,
+    managerScope,
+    employee?.name,
+    isOwnerViewer,
+    statusFilter,
+    showOwnerFilter,
+    employeeFilter,
+    employees,
+    stageFilter,
+    siteStageFilter,
+    sourceFilter,
+    minValue,
+    maxValue,
+    debouncedSearch,
+  ])
 
   // Powers the "last touch" / recency line — independent of the filters
   // above (last-activity data doesn't change per filter), so fetched once
@@ -536,10 +567,10 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
               ? 'No leads'
               : `${rangeStart}–${rangeEnd} of ${totalCount} lead${totalCount === 1 ? '' : 's'}`}
           </p>
-          {/* Desktop only, deliberately (the owner's ruling) — never rendered
-              into the mobile layout. */}
+          {/* One button for both widths — one flag, read once (see the
+              canExport note above). */}
           {showExport && (
-            <div className="vip-only-desktop vip-export-trigger">
+            <div className="vip-export-trigger">
               {exportNote && (
                 <span className="vip-card-note" role="status">
                   Downloaded {exportNote.count.toLocaleString('en-IN')} lead{exportNote.count === 1 ? '' : 's'}

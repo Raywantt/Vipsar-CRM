@@ -6,9 +6,10 @@ import {
   updateEmployeeMobile,
   updateEmployeeCoordinator,
   updateEmployeeManager,
+  updateEmployeeCanExportLeads,
   fetchEmployeeDataCounts,
 } from '../lib/employeeQueries'
-import { ROLE_OPTIONS, canHaveCoordinator, canHaveManager, carriesOwnLeads, roleLabel } from '../lib/roles'
+import { ROLES, ROLE_OPTIONS, canHaveCoordinator, canHaveManager, carriesOwnLeads, roleLabel } from '../lib/roles'
 import { errorMessage } from '../lib/errorMessage'
 
 function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
@@ -122,6 +123,20 @@ function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
     onUpdated(data)
   }
 
+  // Written the moment it's ticked, like Activate / Deactivate above — a
+  // checkbox that needed a separate Save would be one more thing to forget.
+  async function handleToggleExport(next) {
+    setSaving(true)
+    setError(null)
+    const { data, error } = await updateEmployeeCanExportLeads(emp.id, next)
+    setSaving(false)
+    if (error) {
+      setError(errorMessage(error))
+      return
+    }
+    onUpdated(data)
+  }
+
   async function handleToggleActive() {
     setSaving(true)
     setError(null)
@@ -190,6 +205,26 @@ function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
           {emp.is_active ? 'Deactivate' : 'Activate'}
         </button>
       </div>
+
+      {/* An owner has it by role, so there is nothing to switch. Gated on the
+          SAVED role, like the reporting-line fields below. */}
+      {emp.role !== ROLES.OWNER && (
+        <div>
+          <label className="vip-check">
+            <input
+              type="checkbox"
+              checked={emp.can_export_leads === true}
+              disabled={saving}
+              onChange={(e) => handleToggleExport(e.target.checked)}
+              aria-label={`Can download leads as Excel, for ${emp.name}`}
+            />
+            Can download leads as Excel
+          </label>
+          <p className="vip-form-note">
+            Adds Download Excel to their All Leads: the leads they can see there, and a manager's team too.
+          </p>
+        </div>
+      )}
 
       {showCoordinator && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

@@ -328,7 +328,24 @@ describe('applyLeadsListFilters', () => {
 })
 
 describe('who can export', () => {
-  it('is the owner only', () => {
+  it('gives no role the button by role alone except the owner', () => {
     expect(rolesWith(canExportLeads)).toEqual(['owner'])
+  })
+
+  it('gives anyone else the button only when the owner has switched it on for them', () => {
+    expect(canExportLeads('sales_manager', true)).toBe(true)
+    expect(canExportLeads('sales_manager', false)).toBe(false)
+    expect(canExportLeads('sales_manager')).toBe(false)
+  })
+
+  it('treats anything but a real true as "not granted"', () => {
+    // A failed or still-loading read resolves to null/undefined; a stray
+    // truthy value must not open the door either.
+    for (const odd of [null, undefined, 'true', 1, {}]) expect(canExportLeads('sales_executive', odd)).toBe(false)
+  })
+
+  it('keeps the owner able to export whatever the switch says', () => {
+    expect(canExportLeads('owner', false)).toBe(true)
+    expect(canExportLeads('owner')).toBe(true)
   })
 })

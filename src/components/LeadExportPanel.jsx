@@ -12,10 +12,11 @@ import { fetchExportExtras, fetchLeadsForExport } from '../lib/leadExportQueries
 import { buildLeadExportBlob, saveBlob } from '../lib/leadExportFile'
 import { errorMessage } from '../lib/errorMessage'
 
-// All Leads' "Download Excel" column picker (owner only, desktop only — see
-// roles.js's canExportLeads). A slide-over reusing the drill-down panel's
-// chrome, the same way Lead Detail puts its edit forms in one. Every column is
-// a checkbox; the file holds the ticked ones in the order listed here.
+// All Leads' "Download Excel" column picker (the owner, and anyone the owner
+// has switched it on for, at both widths — see roles.js's canExportLeads). A
+// slide-over reusing the drill-down panel's chrome, the same way Lead Detail
+// puts its edit forms in one; full-screen on a phone. Every column is a
+// checkbox; the file holds the ticked ones in the order listed here.
 
 // The last set used is remembered on this computer — a per-viewer
 // convenience, so browser storage is right for it (and it fails soft: a

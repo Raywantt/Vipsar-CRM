@@ -135,12 +135,16 @@ export function canSeeBdmFollowUps(role) {
   return role === ROLES.OWNER
 }
 
-// All Leads' "Download Excel" — owner only (the owner's ruling, 2026-09-22).
-// The file carries every client's and architect's phone number, and once it
-// is downloaded the CRM can't take it back. Desktop only, too, by the same
-// ruling — LeadsListCard renders the button inside the desktop half only.
-export function canExportLeads(role) {
-  return role === ROLES.OWNER
+// All Leads' "Download Excel". The file carries every client's and architect's
+// phone number, and once it is downloaded the CRM can't take it back — so the
+// owner has it by role and anyone else only when the owner has switched it on
+// for that one person (employees.can_export_leads, set in Profile -> Manage
+// employees; first granted to Aanchal Tripathi, 2026-10-05). No ROLE gets it
+// by role alone: `granted` is that per-person switch, passed in by
+// useCanExportLeads(). The same flag drives the button at both widths — the
+// earlier desktop-only rule was lifted in the same ruling.
+export function canExportLeads(role, granted = false) {
+  return role === ROLES.OWNER || granted === true
 }
 
 // /architects/:id — every role (owner's ruling at Step 4: architects are
