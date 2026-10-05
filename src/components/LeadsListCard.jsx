@@ -14,6 +14,7 @@ import NumPadInput from './NumPadInput'
 import { dealValueOrNull } from '../lib/pipelineValue'
 import EmployeeLink from './EmployeeLink'
 import BdmChip from './BdmChip'
+import { isWonImportLead } from '../lib/wonImport'
 import { isPoolLead } from '../lib/poolLeads'
 import { errorMessage } from '../lib/errorMessage'
 import { leadDisplayName, leadSiteLabel } from '../lib/leadName'
@@ -696,6 +697,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
                       <div className="vip-lead-row-party">
                         {partyLabel(lead)}
                         <BdmChip bdmEmployeeId={lead.bdm_employee_id} />
+                        {isWonImportLead(lead) && <span className="vip-role-tag">Imported won lead</span>}
                       </div>
                       {/* Both stages ride as tags, matching the two stage
                           columns on desktop — the site stage was originally
@@ -756,6 +758,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
                   <span className="vip-leadrow-cell vip-leadrow-party">
                     {partyLabel(lead)}
                     <BdmChip bdmEmployeeId={lead.bdm_employee_id} />
+                    {isWonImportLead(lead) && <span className="vip-role-tag">Imported won lead</span>}
                   </span>
                   <span className="vip-leadrow-cell">{siteLabel(lead)}</span>
                   <span className="vip-leadrow-cell">

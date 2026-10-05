@@ -17,6 +17,7 @@ import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchLeadDetail } from '../lib/leadDetailQueries'
 import LeadFollowUpsCard from '../components/LeadFollowUpsCard'
 import BdmChip from '../components/BdmChip'
+import { isWonImportLead } from '../lib/wonImport'
 import { fetchFollowUpsForLead, FOLLOW_UP_OPEN, compareFollowUps } from '../lib/followUpQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { materializePartyDraft } from '../lib/partyQueries'
@@ -812,6 +813,9 @@ function LeadDetail() {
             <div className="vip-profile-name-row">
               <h2 className="vip-profile-name">{leadTitle}</h2>
               <BdmChip bdmEmployeeId={lead.bdm_employee_id} />
+              {isWonImportLead(lead) && (
+                <span className="vip-role-tag" title="Booked order keyed in from the owner's order sheet">Imported won lead</span>
+              )}
               <span className="vip-pill" style={{ background: statusStyle.bg, color: statusStyle.fg }}>{statusLabel}</span>
               {healthLabel && (
                 <span className="vip-pill" style={{ background: healthStyle.bg, color: healthStyle.fg }}>{healthLabel}</span>
