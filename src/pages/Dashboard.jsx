@@ -1307,7 +1307,11 @@ function Dashboard() {
       {/* FOLLOWUPS.md Rule 5 / Rule 8 — the app's first view of every reminder
           rather than only the handful due today. Scoping is RLS's job, so the
           same component serves all three roles; `showTeam` only decides
-          whether the per-exec counts table renders above the list. */}
+          whether the per-exec counts table renders above the list.
+          A manager is the exception RLS can't express (their reminders are
+          legitimately own-OR-team), so they get the same shared My / My team
+          switch and the same scope ids All Leads uses — assigned_to rather
+          than owner_employee_id, but the same set of people. */}
       {activeTab === 'followups' && (
         <FollowUpsCard
           range={currentRange}
@@ -1316,6 +1320,9 @@ function Dashboard() {
           showTeam={seesOthersData}
           employees={employees}
           includeBdms={canSeeBdmFollowUps(employee?.role)}
+          assigneeScopeIds={leadsOwnerScopeIds}
+          managerScope={isManager ? managerScope : null}
+          onManagerScopeChange={isManager ? setManagerScope : null}
         />
       )}
     </div>

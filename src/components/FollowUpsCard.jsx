@@ -113,9 +113,29 @@ function sortExecRows(rows, sortKey, dir) {
 // period: a BDM with no reminders reads "0", not "not shown". Their reminders
 // were already in All reminders (the owner's RLS returns the whole company);
 // this makes them first-class in the table too.
-function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [], includeBdms = false }) {
+//
+// `assigneeScopeIds` / `managerScope` / `onManagerScopeChange` are only ever
+// passed for a sales manager (2026-10-05). RLS alone can't split their view:
+// a manager's follow_ups SELECT is legitimately own-OR-team (assigned to
+// themselves or to one of their execs, nothing else), so the two halves are
+// told apart here, by `assigned_to` — the same split All Leads and Reports
+// make by owner. A reminder a manager set FOR an exec is the exec's, so it
+// sits on the team side. `assigneeScopeIds` is that scope as a list of ids;
+// null (every other role) means "don't narrow", an empty list means "match
+// nobody" (a manager with no reports, on My team) — never coalesce the two.
+function FollowUpsCard({
+  range,
+  rangeLabel,
+  viewer,
+  showTeam,
+  employees = [],
+  includeBdms = false,
+  assigneeScopeIds = null,
+  managerScope = null,
+  onManagerScopeChange = null,
+}) {
   const navigate = useNavigate()
-  const [rows, setRows] = useState([])
+  const [allRows, setRows] = useState([])
   const [actionError, setActionError] = useState(null)
   const [bucket, setBucket] = useState('overdue')
   const [execFilter, setExecFilter] = useState('all')
@@ -137,6 +157,13 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [], in
   useEffect(() => {
     setVisibleCount(ROW_CHUNK)
   }, [bucket, execFilter])
+
+  // Flipping My / My team changes whose reminders these are. An exec picked
+  // from the team table would filter My to nothing, so the pick doesn't
+  // survive the flip.
+  useEffect(() => {
+    setExecFilter('all')
+  }, [managerScope])
 
   // Upcoming reminders sit beyond the selected range's end by definition, so
   // the fetch deliberately runs to a far horizon rather than range.end — a
@@ -162,6 +189,15 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [], in
     if (!res || res.error) return
     setRows(res.data ?? [])
   }, [allQuery.result])
+
+  // Everything below reads `rows` — the reminders in the scope on screen. The
+  // row actions edit `allRows` in place, so a reminder acted on keeps its
+  // place whichever half it is viewed from.
+  const rows = useMemo(() => {
+    if (!assigneeScopeIds) return allRows
+    const ids = new Set(assigneeScopeIds)
+    return allRows.filter((f) => ids.has(f.assigned_to))
+  }, [allRows, assigneeScopeIds])
 
   function applyUpdate(data) {
     setActionError(null)
@@ -233,8 +269,37 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [], in
   if (loading) return <p className="vip-empty">Loading…</p>
   if (error) return <p className="vip-error" role="alert">{error}</p>
 
+  const remindersTitle =
+    managerScope === 'my' ? 'My reminders' : managerScope === 'team' ? 'Team reminders' : 'All reminders'
+
   return (
     <>
+      {/* The manager's My / My team switch — the same control, labels and
+          shared state as Reports and All Leads (Dashboard owns it), so the
+          three tabs can't show different halves of the same manager. */}
+      {onManagerScopeChange && (
+        <div className="vip-seg vip-seg-outline" role="tablist" aria-label="Whose follow-ups to show">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={managerScope === 'my'}
+            className={managerScope === 'my' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+            onClick={() => onManagerScopeChange('my')}
+          >
+            My follow-ups
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={managerScope === 'team'}
+            className={managerScope === 'team' ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+            onClick={() => onManagerScopeChange('team')}
+          >
+            My team
+          </button>
+        </div>
+      )}
+
       {showTeam && execCounts.length > 0 && (
         <div className="vip-card">
           <div className="vip-card-head">
@@ -299,7 +364,7 @@ function FollowUpsCard({ range, rangeLabel, viewer, showTeam, employees = [], in
 
       <div className="vip-card">
         <div className="vip-card-head">
-          <h2 className="vip-card-title">All reminders</h2>
+          <h2 className="vip-card-title">{remindersTitle}</h2>
           {/* "reminders, not leads" — Needs Attention's own overdue count is
               LEADS with an overdue reminder; a lead can carry more than one,
               so the two numbers disagree on purpose. Both are honest, but
