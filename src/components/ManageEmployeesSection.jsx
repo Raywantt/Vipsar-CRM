@@ -9,7 +9,7 @@ import {
   updateEmployeeCanExportLeads,
   fetchEmployeeDataCounts,
 } from '../lib/employeeQueries'
-import { ROLES, ROLE_OPTIONS, canHaveCoordinator, canHaveManager, carriesOwnLeads, roleLabel } from '../lib/roles'
+import { ROLES, ROLE_OPTIONS, canHaveCoordinator, canHaveManager, canSeeSalesDashboard, carriesOwnLeads, roleLabel } from '../lib/roles'
 import { errorMessage } from '../lib/errorMessage'
 
 function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
@@ -207,8 +207,10 @@ function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
       </div>
 
       {/* An owner has it by role, so there is nothing to switch. Gated on the
-          SAVED role, like the reporting-line fields below. */}
-      {emp.role !== ROLES.OWNER && (
+          SAVED role, like the reporting-line fields below. Only a role that
+          reaches All Leads (canSeeSalesDashboard) — the RFQ-desk roles have
+          no list to put the button on. */}
+      {emp.role !== ROLES.OWNER && canSeeSalesDashboard(emp.role) && (
         <div>
           <label className="vip-check">
             <input

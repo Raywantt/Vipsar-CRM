@@ -32,8 +32,10 @@ behaves**.
 
 **If a request doesn't say which role it's for, ask.** Don't infer it from
 whichever role happens to be logged in on the preview tab. This app has five
-(`owner` / `sales_executive` / `sales_coordinator` / `sales_manager` /
-`business_development_manager`) and they diverge constantly.
+sales roles (`owner` / `sales_executive` / `sales_coordinator` /
+`sales_manager` / `business_development_manager`) and they diverge
+constantly — plus the two RFQ-desk roles (`production_executive` /
+`estimation_executive`, see Roles), which so far see only a placeholder.
 
 ## IMPORTANT — every change is a role × breakpoint matrix
 
@@ -56,7 +58,8 @@ follow:
 - **Walk the matrix before declaring done.** Five dev servers
   (`role-owner`/`role-coordinator`/`role-exec`/`role-manager`/`role-bdm`,
   ports 5181/5182/5183/5184/5185) let several roles be logged in at once — separate origins mean separate
-  localStorage. **The session on a port may not match the port's name**; key
+  localStorage. The two RFQ-desk roles have no port or test login yet
+  (RFQ-DESK.md Step 2 adds them). **The session on a port may not match the port's name**; key
   off the rendered role in `.vip-sidebar-foot-role`, not the launch-config
   label.
 
@@ -82,6 +85,12 @@ Phases 0–11 built — the fifth role, **Business Development Manager**, shippe
 documented in its own section below. `BDM.md` (repo root) is now a historical
 build log for that role: its §3 decisions and §10 session log explain *why*;
 this file describes *what is*.
+
+**Phase 12, the RFQ desk, is being planned** in `RFQ-DESK.md` (repo root):
+two back-office roles after a sales exec's RFQ — Production Executive
+(technical check) and Estimation Executive (Lixil quote). Only the two role
+values exist so far (2026-10-05), so the owner can add the people; everything
+else in that file is a plan, not built.
 
 **Deliberately not built — don't add as a side effect of unrelated work:**
 
@@ -192,7 +201,9 @@ changes the invoke URL and would silently break the configured cron.
 
 ### Routing (`App.jsx`)
 
-`/`, `/profile`, `/search`, `/dashboard`, `/leads/:id` (every role),
+`/`, `/profile` (every role), `/search`, `/dashboard`, `/leads/:id` (every
+**sales** role — `canSearch`/`canSeeSalesDashboard`/`canOpenLeads`; the
+RFQ-desk roles get only `/` and `/profile` until their screens exist),
 `/leads/new`, `/employees/:id` (**not the BDM**), `/activity` (**not owner**),
 `/team` (**owner + sales_manager**), `/architects/:id` (every role),
 `/architects` (**BDM only**) and `/network` (**owner only**). There is no
@@ -2286,7 +2297,8 @@ Pure shaping is `leadExport.js`, fetching `leadExportQueries.js`, the file
     `.vip-only-desktop`; the picker is full-screen on a phone with a 2-column
     grid.
   - **The switch is `employees.can_export_leads`** (`migration_employee_can_export_leads.sql`),
-    set from Profile → Manage employees (a checkbox on every non-owner row,
+    set from Profile → Manage employees (a checkbox on every non-owner sales
+    row — not the RFQ-desk roles, who have no All Leads,
     saved the moment it's ticked). It is a column on `employees`, not
     `employee_preferences`, **because `employees` UPDATE is owner-only with no
     self-update exception** — the property that made it wrong for a theme is
@@ -2446,7 +2458,7 @@ out of that block: reshuffling reporting lines is a phone-reasonable task.
   reason a `service_role` key must never reach the browser.
 * **Manage employees** — search-only, nothing shown until a name matches. Per
   row: editable mobile, role dropdown, Active/Inactive toggle, a **"Can
-  download leads as Excel"** checkbox (every non-owner row; see Download
+  download leads as Excel"** checkbox (every non-owner sales-role row; see Download
   Excel), and a "Reports to" dropdown shown only when the *saved* role is
   `sales_executive`. Role and Active are disabled for the owner's own row, so
   an owner can't demote or deactivate themselves via RLS's caller-is-owner
@@ -2484,7 +2496,9 @@ value shown was already produced by an existing query function.
   omitted for an owner). The FAB sits in a **reserved 76px `.vip-fab-slot`
   gap between tabs, not an absolutely-centred circle over 4 equal tabs** —
   that clipped through the Dashboard label. **The slot div renders even when
-  the button inside it doesn't**: it's the gap the tabs lay out around.
+  the button inside it doesn't**: it's the gap the tabs lay out around. It is
+  dropped only when the tabs either side of it are (the RFQ-desk roles, whose
+  bar is Today alone — an empty slot pushed Today off-centre).
   The new tab links sit right after Home in the DOM so the desktop sidebar's
   link order is undisturbed.
 * **`.vip-drilled`** (added by `ProtectedRoute` for every route outside
@@ -2560,7 +2574,8 @@ original `<input>`, untouched.
 
 ### Roles
 
-Five roles. **`src/lib/roles.js` is canonical** (`ROLE_OPTIONS`/`ROLE_LABELS`/
+Seven roles — five sales roles plus the two RFQ-desk roles below.
+**`src/lib/roles.js` is canonical** (`ROLE_OPTIONS`/`ROLE_LABELS`/
 `roleLabel()`/`canHaveCoordinator()`, plus one function per capability) —
 adding the third role found the same label table hand-rolled in four files,
 two of them listing only two roles. Use it; don't write another copy.
@@ -2572,7 +2587,8 @@ BDM found ~120 role checks that would have treated a fifth role as an exec by
 default. `roles.js` exports `canCreateLead`, `canLogActivity`,
 `canSeeTeamDirectory`, `canOpenEmployeeProfiles`, `canSeeMyArchitects`,
 `canSeeArchitectNetwork`, `canSeeBdmFollowUps`, `canOpenArchitectProfiles`,
-`canExportLeads`, `isBdm` and
+`canExportLeads`, `canSeeSalesDashboard`, `canSearch`, `canOpenLeads`,
+`isBdm`, `isRfqDeskRole` and
 `rolesWith(capability)`; `BottomNav` and `App.jsx` both read them.
 **These are ONE flag per capability — do not re-split them.**
 
@@ -2840,6 +2856,25 @@ locked decisions; **don't reverse one without asking.**
   `FollowUpForm`'s lead picker lists only leads the BDM owns. The real BDM's
   portfolio is empty until the owner's architect import runs.
 
+#### Production Executive / Estimation Executive (the RFQ desk — planned)
+
+`production_executive` ("Production Executive", Harjot — checks an RFQ
+against Lixil's technical limits) and `estimation_executive` ("Estimation
+Executive", Harpreet — raises it with Lixil, records the quote). The owner
+named them; "Production" is the owner's word, not a mistake for "Technical".
+**`RFQ-DESK.md` (repo root) is the plan and its §3 the locked decisions.**
+
+**What exists (2026-10-05): the role values only**, so the owner can add the
+people from Profile. `migration_rfq_desk_roles.sql` widens
+`employees_role_check`; `roles.js` lists both in `ROLE_OPTIONS`. Until the
+desk is built, both get a **"Your RFQ desk is being set up"** Today
+(`RfqDeskSetupToday` in `Today.jsx`) and Profile — no Dashboard, Search,
+Lead Detail, FAB or create/log links, and their phone tab bar is Today
+alone. Every capability in `roles.js` is false for them, which
+`roles.test.js` pins. They hold no new data access: they own nothing, and
+every policy keys on own-data-or-owner-role. Not in `CARRIES_OWN_LEADS`.
+**Not yet seen in a real session** — no test login exists.
+
 ### Data isolation — audited, don't re-litigate
 
 A full audit traced "a sales exec only sees their own data and only changes
@@ -3065,7 +3100,12 @@ with no error. The layered order is:
    run after `migration_rls_performance_parties_sites_activities.sql`)
 7. `migration_manager_reassign_any_employee.sql`,
    `migration_architects_universal_visibility.sql`
-8. `migration_bdm_role.sql` → `migration_bdm_handoff.sql`
+8. `migration_bdm_role.sql` → `migration_bdm_handoff.sql` →
+   `migration_rfq_desk_roles.sql` (widens the same `employees_role_check`
+   the BDM file re-creates with five roles — **re-running
+   `migration_bdm_role.sql` once a production/estimation employee exists
+   fails on that CHECK; re-run `migration_rfq_desk_roles.sql` right after
+   it**)
 9. `migration_rls_per_row_fixes.sql` (2026-09-22) — **must stay the last
    file that defines its 49 policies** (parties, sites, employees, products,
    areas, site_contacts, loss_reasons, targets, lead_change_log,
@@ -3134,6 +3174,13 @@ it leaves orphaned Auth logins to clean up by hand; scripting that risks
 removing your own login.
 
 ### Outstanding migrations
+
+* **`migration_rfq_desk_roles.sql`** (new 2026-10-05, **not yet run**) —
+  widens `employees_role_check` to add `production_executive` /
+  `estimation_executive`. Touches no policy, table or function. Until it
+  runs, saving either role in Add employee / Manage employees fails with a
+  check-constraint error; nothing else breaks, so the code may deploy first.
+  Run it before adding Harjot or Harpreet.
 
 * **`migration_employee_can_export_leads.sql`** — **run 2026-10-05; column and
   Aanchal's grant confirmed live as the owner** (Profile → Manage employees →

@@ -29,15 +29,28 @@ import {
   canOpenArchitectProfiles,
   canOpenEmployeeProfiles,
   canSeeArchitectNetwork,
+  canOpenLeads,
+  canSearch,
   canSeeMyArchitects,
+  canSeeSalesDashboard,
   canSeeTeamDirectory,
   rolesWith,
 } from './lib/roles'
 import './App.css'
 
-// Every route that any signed-in employee may open. Listed explicitly rather
-// than "all roles", so a future role is admitted route by route on purpose.
-const EVERY_ROLE = ['owner', 'sales_executive', 'sales_coordinator', 'sales_manager', 'business_development_manager']
+// Every route that any signed-in employee may open — now only Today and
+// Profile. Listed explicitly rather than "all roles", so a future role is
+// admitted route by route on purpose. The RFQ-desk roles (RFQ-DESK.md) are in
+// it for those two only; Dashboard, Lead Detail and Search read capabilities.
+const EVERY_ROLE = [
+  'owner',
+  'sales_executive',
+  'sales_coordinator',
+  'sales_manager',
+  'business_development_manager',
+  'production_executive',
+  'estimation_executive',
+]
 
 function App() {
   return (
@@ -56,8 +69,9 @@ function App() {
             path="/dashboard"
             element={
               // DashboardRoute picks the business development manager's own
-              // dashboard or the shared one — see that file.
-              <ProtectedRoute allowedRoles={EVERY_ROLE}>
+              // dashboard or the shared one — see that file. Sales roles only
+              // (canSeeSalesDashboard): the RFQ-desk roles get none of it.
+              <ProtectedRoute allowedRoles={rolesWith(canSeeSalesDashboard)}>
                 <DashboardRoute />
               </ProtectedRoute>
             }
@@ -80,7 +94,7 @@ function App() {
           <Route
             path="/leads/:id"
             element={
-              <ProtectedRoute allowedRoles={EVERY_ROLE}>
+              <ProtectedRoute allowedRoles={rolesWith(canOpenLeads)}>
                 <LeadDetail />
               </ProtectedRoute>
             }
@@ -138,7 +152,7 @@ function App() {
           <Route
             path="/search"
             element={
-              <ProtectedRoute allowedRoles={EVERY_ROLE}>
+              <ProtectedRoute allowedRoles={rolesWith(canSearch)}>
                 <Search />
               </ProtectedRoute>
             }

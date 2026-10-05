@@ -11,11 +11,17 @@ import {
   canSeeMyArchitects,
   canSeeArchitectNetwork,
   canSeeBdmFollowUps,
+  canSeeSalesDashboard,
+  canSearch,
+  canOpenLeads,
+  canExportLeads,
   carriesOwnLeads,
   createActionLabel,
   isBdm,
+  isRfqDeskRole,
   roleLabel,
   rolesWith,
+  ROLE_OPTIONS,
 } from './roles'
 
 describe('canHaveCoordinator', () => {
@@ -99,7 +105,7 @@ describe('architect screens', () => {
     expect(canSeeBdmFollowUps(undefined)).toBe(false)
   })
 
-  it('lets every role open an architect profile, and no unknown role', () => {
+  it('lets every sales role open an architect profile, and no unknown role', () => {
     expect(rolesWith(canOpenArchitectProfiles)).toHaveLength(5)
     expect(canOpenArchitectProfiles('someone_new')).toBe(false)
   })
@@ -141,5 +147,55 @@ describe('roleLabel', () => {
   it('falls back to an em-dash for a missing role', () => {
     expect(roleLabel(null)).toBe('—')
     expect(roleLabel(undefined)).toBe('—')
+  })
+})
+
+// RFQ-DESK.md: the two back-office roles exist so the owner can add the people,
+// but their screens aren't built — so they must get NOTHING but Today and
+// Profile. Every capability is listed explicitly, so a sales-shaped one
+// quietly admitting them is what these tests are for.
+describe('RFQ-desk roles (not built yet)', () => {
+  const DESK = [ROLES.PRODUCTION_EXECUTIVE, ROLES.ESTIMATION_EXECUTIVE]
+  const SALES = [ROLES.OWNER, ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER, ROLES.BDM]
+
+  it('are offered in the role dropdowns, with their names', () => {
+    const values = ROLE_OPTIONS.map((o) => o.value)
+    expect(values).toContain('production_executive')
+    expect(values).toContain('estimation_executive')
+    expect(roleLabel(ROLES.PRODUCTION_EXECUTIVE)).toBe('Production Executive')
+    expect(roleLabel(ROLES.ESTIMATION_EXECUTIVE)).toBe('Estimation Executive')
+    expect(isRfqDeskRole(ROLES.PRODUCTION_EXECUTIVE)).toBe(true)
+    expect(isRfqDeskRole(ROLES.ESTIMATION_EXECUTIVE)).toBe(true)
+    expect(isRfqDeskRole(ROLES.SALES_EXECUTIVE)).toBe(false)
+  })
+
+  it('get no sales capability at all', () => {
+    for (const role of DESK) {
+      for (const can of [
+        canCreateLead,
+        canLogActivity,
+        canSeeTeamDirectory,
+        canOpenEmployeeProfiles,
+        canSeeMyArchitects,
+        canSeeArchitectNetwork,
+        canSeeBdmFollowUps,
+        canOpenArchitectProfiles,
+        canSeeSalesDashboard,
+        canSearch,
+        canOpenLeads,
+        carriesOwnLeads,
+        canHaveCoordinator,
+        canHaveManager,
+      ]) {
+        expect(can(role)).toBe(false)
+      }
+      expect(canExportLeads(role)).toBe(false)
+    }
+  })
+
+  it('leave the Dashboard, Search and Lead Detail exactly where they were for the five sales roles', () => {
+    for (const can of [canSeeSalesDashboard, canSearch, canOpenLeads]) {
+      expect(rolesWith(can).sort()).toEqual([...SALES].sort())
+    }
   })
 })

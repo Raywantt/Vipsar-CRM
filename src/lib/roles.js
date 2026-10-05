@@ -19,6 +19,14 @@ export const ROLES = {
   // from architects and pushes them to the owner's pool; works few leads
   // personally, so deliberately NOT in CARRIES_OWN_LEADS below.
   BDM: 'business_development_manager',
+  // The two back-office roles that sit after a sales exec's RFQ — see
+  // RFQ-DESK.md (repo root). The Production Executive checks an RFQ against
+  // Lixil's technical limits; the Estimation Executive raises it with Lixil
+  // and records the quote. Neither owns leads, so neither is in
+  // CARRIES_OWN_LEADS. Their screens aren't built yet: until they are, both
+  // get a "being set up" Today and Profile, nothing else (isRfqDeskRole).
+  PRODUCTION_EXECUTIVE: 'production_executive',
+  ESTIMATION_EXECUTIVE: 'estimation_executive',
 }
 
 // Order is deliberate: it's the order these appear in every dropdown, running
@@ -30,6 +38,8 @@ export const ROLE_OPTIONS = [
   { value: ROLES.SALES_MANAGER, label: 'Sales Manager' },
   { value: ROLES.SALES_COORDINATOR, label: 'Sales Coordinator' },
   { value: ROLES.BDM, label: 'Business Development Manager' },
+  { value: ROLES.PRODUCTION_EXECUTIVE, label: 'Production Executive' },
+  { value: ROLES.ESTIMATION_EXECUTIVE, label: 'Estimation Executive' },
   { value: ROLES.OWNER, label: 'Owner' },
 ]
 
@@ -72,6 +82,35 @@ export function roleLabel(role) {
 
 export function isBdm(role) {
   return role === ROLES.BDM
+}
+
+// Either of the two RFQ-desk roles (RFQ-DESK.md).
+export function isRfqDeskRole(role) {
+  return role === ROLES.PRODUCTION_EXECUTIVE || role === ROLES.ESTIMATION_EXECUTIVE
+}
+
+// The sales screens. They used to be open to EVERY role, which was only true
+// while every role was a sales role. The RFQ-desk roles are left out: the
+// Dashboard would list every exec at zero to them, Search and Lead Detail
+// would come back near-empty (their RLS reaches no leads yet). RFQ-DESK.md
+// Step 2 opens Search and Lead Detail to them — flip these two functions then,
+// not the routes. The Dashboard stays sales-only by design.
+//   canSeeSalesDashboard — /dashboard: Reports, All Leads, Follow-ups (one
+//                          route), and every nav link into it
+//   canSearch            — /search and its nav tab
+//   canOpenLeads         — /leads/:id
+const SALES_ROLES = [ROLES.OWNER, ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER, ROLES.BDM]
+
+export function canSeeSalesDashboard(role) {
+  return SALES_ROLES.includes(role)
+}
+
+export function canSearch(role) {
+  return SALES_ROLES.includes(role)
+}
+
+export function canOpenLeads(role) {
+  return SALES_ROLES.includes(role)
 }
 
 export function canCreateLead(role) {

@@ -8,6 +8,8 @@ import {
   canSeeTeamDirectory as canSeeTeamDirectoryFor,
   canSeeMyArchitects as canSeeMyArchitectsFor,
   canSeeArchitectNetwork as canSeeArchitectNetworkFor,
+  canSeeSalesDashboard as canSeeSalesDashboardFor,
+  canSearch as canSearchFor,
   createActionLabel,
   isBdm,
   roleLabel,
@@ -84,6 +86,12 @@ function BottomNav() {
   // Architect Network (owner only). Its mobile path is a tile on the owner's
   // Dashboard, which reads the same function.
   const canSeeArchitectNetwork = canSeeArchitectNetworkFor(employee?.role)
+  // The sales Dashboard (Reports / All Leads / Follow-ups) and Search. Every
+  // sales role has both; the RFQ-desk roles (RFQ-DESK.md) have neither yet,
+  // so their bar is Today alone until their own screens exist. One flag each,
+  // read by the mobile tabs AND the desktop sidebar links below.
+  const canSeeSalesDashboard = canSeeSalesDashboardFor(employee?.role)
+  const canSearch = canSearchFor(employee?.role)
   // A BDM's list is only ever the leads they brought in, so the desktop link
   // says so. The mobile tab stays "Leads" for everyone (a four-tab bar has no
   // room for a longer label).
@@ -122,24 +130,32 @@ function BottomNav() {
             .vip-nav-extra hidden below it), neither disturbs the other's flex
             layout, so the desktop sidebar's existing link order (unchanged
             below) needed no reshuffling to make room for these. */}
-        <Link to="/dashboard?tab=leads" className={leadsMobileClass} title="Leads">
-          <IconList />
-          <span className="vip-nav-label">Leads</span>
-        </Link>
+        {canSeeSalesDashboard && (
+          <Link to="/dashboard?tab=leads" className={leadsMobileClass} title="Leads">
+            <IconList />
+            <span className="vip-nav-label">Leads</span>
+          </Link>
+        )}
         {/* The slot itself stays even when the button doesn't — it's the
             reserved 76px gap the four tabs are laid out around, so removing it
-            would reflow the whole bar for a coordinator. */}
-        <div className="vip-fab-slot">
-          {showFab && (
-            <button type="button" className="vip-fab" onClick={() => setSheetOpen(true)} aria-label="Add">
-              <IconPlus className="vip-fab-icon" />
-            </button>
-          )}
-        </div>
-        <Link to="/dashboard" className={dashboardMobileClass} title="Dashboard">
-          <IconGrid />
-          <span className="vip-nav-label">Dashboard</span>
-        </Link>
+            would reflow the whole bar for a coordinator. It goes only when the
+            tabs either side of it do (the RFQ-desk roles, whose bar is Today
+            alone): an empty slot there just pushes Today off-centre. */}
+        {canSeeSalesDashboard && (
+          <div className="vip-fab-slot">
+            {showFab && (
+              <button type="button" className="vip-fab" onClick={() => setSheetOpen(true)} aria-label="Add">
+                <IconPlus className="vip-fab-icon" />
+              </button>
+            )}
+          </div>
+        )}
+        {canSeeSalesDashboard && (
+          <Link to="/dashboard" className={dashboardMobileClass} title="Dashboard">
+            <IconGrid />
+            <span className="vip-nav-label">Dashboard</span>
+          </Link>
+        )}
 
         {canCreateLead && (
           <NavLink to="/leads/new" className={extraTabClass} title={createLabel}>
@@ -153,10 +169,12 @@ function BottomNav() {
             <span className="vip-nav-label">Activity Log</span>
           </NavLink>
         )}
-        <Link to="/dashboard" className={dashboardClass} title="Dashboard">
-          <IconGrid />
-          <span className="vip-nav-label">Dashboard</span>
-        </Link>
+        {canSeeSalesDashboard && (
+          <Link to="/dashboard" className={dashboardClass} title="Dashboard">
+            <IconGrid />
+            <span className="vip-nav-label">Dashboard</span>
+          </Link>
+        )}
         {/* Reports/All leads used to be an in-page tab row on the Dashboard
             itself — moved here so it's reachable without it (see
             Dashboard.jsx's activeTab, now driven purely by ?tab= instead of
@@ -164,18 +182,22 @@ function BottomNav() {
             into Search instead, see Search.jsx. Both use a manually computed
             active class (above), not NavLink's own matching, since NavLink
             ignores the query string and would light up both links at once. */}
-        <Link to="/dashboard?tab=leads" className={leadsClass} title={leadsNavLabel}>
-          <IconList />
-          <span className="vip-nav-label">{leadsNavLabel}</span>
-        </Link>
+        {canSeeSalesDashboard && (
+          <Link to="/dashboard?tab=leads" className={leadsClass} title={leadsNavLabel}>
+            <IconList />
+            <span className="vip-nav-label">{leadsNavLabel}</span>
+          </Link>
+        )}
         {/* Follow-ups is a Dashboard category (?tab=followups), same shape as
             All Leads. Its mobile path is the tile at the top of Dashboard —
             only four tabs fit the FAB layout, so a fifth tab isn't available.
-            Every role gets it: RLS decides whose reminders come back. */}
-        <Link to="/dashboard?tab=followups" className={followupsClass} title="Follow-ups">
-          <IconBell />
-          <span className="vip-nav-label">Follow-ups</span>
-        </Link>
+            Every sales role gets it: RLS decides whose reminders come back. */}
+        {canSeeSalesDashboard && (
+          <Link to="/dashboard?tab=followups" className={followupsClass} title="Follow-ups">
+            <IconBell />
+            <span className="vip-nav-label">Follow-ups</span>
+          </Link>
+        )}
         {/* One capability flag read by this link, matching the route's own
             allowedRoles — not `role === 'owner'` plus a second opinion
             somewhere else. A manager sees the same directory narrowed to
@@ -199,10 +221,12 @@ function BottomNav() {
             <span className="vip-nav-label">Architect Network</span>
           </NavLink>
         )}
-        <NavLink to="/search" className={tabClass} title="Search">
-          <IconSearch />
-          <span className="vip-nav-label">Search</span>
-        </NavLink>
+        {canSearch && (
+          <NavLink to="/search" className={tabClass} title="Search">
+            <IconSearch />
+            <span className="vip-nav-label">Search</span>
+          </NavLink>
+        )}
 
         <Link to="/profile" className="vip-sidebar-foot" aria-label="Profile">
           <div className="vip-avatar">{getInitials(employee?.name)}</div>

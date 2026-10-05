@@ -5,6 +5,7 @@ import CoordinatorToday from './CoordinatorToday'
 import OwnerToday from './OwnerToday'
 import ManagerToday from './ManagerToday'
 import BdmToday from './BdmToday'
+import TodayGreetingHeader from '../components/TodayGreetingHeader'
 
 // `/` is one route serving a different screen per role.
 //
@@ -31,6 +32,9 @@ import BdmToday from './BdmToday'
 //   business_development_manager — BdmToday (BDM.md). Architect-shaped, not
 //                       rep-shaped.
 //   sales_executive   — Home itself, unchanged.
+//   production_executive / estimation_executive — the RFQ desk (RFQ-DESK.md).
+//                       Not built yet, so a "being set up" screen: they can
+//                       sign in and reach Profile, nothing else.
 //
 // EVERY ROLE IS NAMED. This used to end in a bare `return <Home />`, which
 // silently handed any role nobody had thought about an exec's screen and an
@@ -48,6 +52,9 @@ function Today() {
       return <ManagerToday />
     case ROLES.BDM:
       return <BdmToday />
+    case ROLES.PRODUCTION_EXECUTIVE:
+    case ROLES.ESTIMATION_EXECUTIVE:
+      return <RfqDeskSetupToday employee={employee} />
     default:
       return (
         <div className="vip-narrow">
@@ -60,6 +67,27 @@ function Today() {
         </div>
       )
   }
+}
+
+// Until the RFQ desk is built (RFQ-DESK.md). The greeting header is kept
+// because on a phone its avatar is the only way to Profile from here.
+function RfqDeskSetupToday({ employee }) {
+  const waiting =
+    employee?.role === ROLES.PRODUCTION_EXECUTIVE
+      ? 'RFQs waiting for your technical check'
+      : 'RFQs waiting for estimation and Lixil quotes'
+  return (
+    <div className="vip-narrow">
+      <TodayGreetingHeader employee={employee} />
+      <div className="vip-card">
+        <h2 className="vip-card-title">Your RFQ desk is being set up</h2>
+        <p className="vip-form-note" style={{ marginTop: 0 }}>
+          {waiting} will appear here. You'll be told when to start using it — until then, carry on with your Excel sheet.
+        </p>
+        <p className="vip-form-note">You can already change your password and appearance in Profile.</p>
+      </div>
+    </div>
+  )
 }
 
 export default Today
