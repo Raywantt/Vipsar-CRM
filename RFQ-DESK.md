@@ -1,9 +1,8 @@
-# RFQ-DESK.md — back-office RFQ roles (Phase 12, PLANNING)
+# RFQ-DESK.md — back-office RFQ roles (Phase 12, LAUNCHED 2026-10-06)
 
-> **🔨 BEING BUILT — one step at a time.** Planned 2026-10-05 after four
-> rounds of questions with the owner (*discuss and plan first, then
-> implement*). Steps 1–2 are done; §1 says where it stands. Don't start the
-> next step until the owner says go.
+> **🚀 LAUNCHED 2026-10-06** — Steps 1–6 are live on master (`CLAUDE.md`
+> describes what is). Only Step 7, the owner's RFQ Desk screen, remains; §1
+> says where it stands. Don't start a step until the owner says go.
 
 Adds the two people who sit **after** a sales exec's RFQ: **Harjot**
 (technical check) and **Harpreet** (estimation + Lixil quote). Today their work
@@ -34,7 +33,7 @@ session of the role, never from the SQL Editor; verify as the role with the
 | 5 | Estimation Executive: estimation queue, Lixil step, quote, send back, price revision | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 4, 6 on launch day); live-checked on test data as the test exec, both desk logins, at phone and desktop width |
 | 6 | Reporting changes: RFQ target on approval, Needs Attention rework | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3–5 on launch day); `migration_rfq_desk_reporting.sql` live, `verify_rfq_desk.sql` 55 PASS, 0 FAIL (T00a–T50); live-checked on test data |
 | 7 | Owner's **RFQ Desk** screen | — |
-| 8 | Launch day + docs (`CLAUDE.md`) | — |
+| 8 | Launch day + docs (`CLAUDE.md`) | ✅ 2026-10-06 — `rfq-desk` merged to master (`413a7a1`), `send-followup-reminders` redeployed, `CLAUDE.md` updated. No backlog to clear, so `live_from` stays 09:26 IST |
 
 **Done ahead of the steps (2026-10-05, at the owner's request so the people
 can be added now):** `Schema/migration_rfq_desk_roles.sql` (role CHECK only);
@@ -842,3 +841,15 @@ approve a technical check.
   has none, and the owner's view needs the Test accounts switch — same
   `computeActivityActuals` the profile tile read); a lead actually landing in
   "RFQs back with the exec" (needs 2 days — verify T43–T47 cover it).
+- **2026-10-06 — Launch day (owner: "today is the launch day").** Checked as
+  the owner first: zero real desk RFQs and zero RFQ Raised activities since
+  the switch went on at 09:26 IST, so the §8 backlog SQL had nothing to do and
+  `live_from` was **not** re-stamped (re-stamping after merge could have
+  counted an RFQ twice — once by its logging day, once by its approval).
+  Merged `rfq-desk` into master (`413a7a1`; tests 704, lint, build all green),
+  pushed (Vercel deploys), then `npx supabase functions deploy
+  send-followup-reminders` — after the merge, as §8 orders. `CLAUDE.md` now
+  describes Steps 1–6 as live. **Not observed:** the production web build
+  serving the new code (the `vipsar-crm.vercel.app` address in the repo
+  returns 404 — the live domain wasn't to hand), and a real push reaching
+  Harjot's or Harpreet's phone.
