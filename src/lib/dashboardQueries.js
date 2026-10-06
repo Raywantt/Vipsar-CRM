@@ -209,7 +209,37 @@ export const SITE_STAGE_UNSET = '__unset__'
 // blow up the request URL; one site stage would match a comparable number,
 // so pushing the join down to Postgres is both simpler and bounded here.
 export function leadsListSitesEmbed(siteStage, columns) {
-  return `sites${siteStage ? '!inner' : ''}(${columns})`
+  return `sites${facetList(siteStage).length ? '!inner' : ''}(${columns})`
+}
+
+// A facet arrives as one value (older callers, tests), an array (the screen's
+// multi-select) or nothing. Everything below reads it as a list, so an empty
+// array — "nothing ticked" — is the same as no filter, never a truthy one.
+function facetList(value) {
+  if (Array.isArray(value)) return value.filter((v) => v !== '' && v != null)
+  return value === '' || value == null ? [] : [value]
+}
+
+// eq for one value, in for several, nothing for none.
+function applyFacet(query, column, value) {
+  const list = facetList(value)
+  if (list.length === 1) return query.eq(column, list[0])
+  if (list.length > 1) return query.in(column, list)
+  return query
+}
+
+// Site stage is the one facet that can mix real values with "Not set" (a NULL),
+// which no single eq/in can say, so that mix is an OR on the embedded table.
+// The values are a closed list with spaces in them ("FF Slab"), so each is
+// quoted for the filter string.
+function applySiteStageFacet(query, value) {
+  const list = facetList(value)
+  const wantsUnset = list.includes(SITE_STAGE_UNSET)
+  const stages = list.filter((s) => s !== SITE_STAGE_UNSET)
+  if (!wantsUnset) return applyFacet(query, 'sites.site_stage', stages)
+  if (stages.length === 0) return query.is('sites.site_stage', null)
+  const quoted = stages.map((s) => `"${String(s).replace(/(["\\])/g, '\\$1')}"`).join(',')
+  return query.or(`site_stage.is.null,site_stage.in.(${quoted})`, { referencedTable: 'sites' })
 }
 
 // All Leads' filters, applied to a leads query. ONE definition, read by both
@@ -226,12 +256,13 @@ export function applyLeadsListFilters(query, filters = {}) {
   // employeeIds (a manager with zero reports) must still narrow to nothing
   // rather than falling through to "no filter at all", the same trick
   // resolveLeadsSearchFilter uses for a term that matches nothing.
-  if (employeeId) query = query.eq('owner_employee_id', employeeId)
+  // Stage, site stage, source and owner each take one value or a list (the
+  // screen's multi-select): any of the ticked values matches.
+  if (facetList(employeeId).length) query = applyFacet(query, 'owner_employee_id', employeeId)
   else if (employeeIds) query = employeeIds.length ? query.in('owner_employee_id', employeeIds) : query.eq('id', -1)
-  if (stage) query = query.eq('current_stage', stage)
-  if (siteStage === SITE_STAGE_UNSET) query = query.is('sites.site_stage', null)
-  else if (siteStage) query = query.eq('sites.site_stage', siteStage)
-  if (source) query = query.eq('source_type', source)
+  query = applyFacet(query, 'current_stage', stage)
+  query = applySiteStageFacet(query, siteStage)
+  query = applyFacet(query, 'source_type', source)
   // "Active" mirrors fetchClosureForecast's own not-won-not-lost filter;
   // "Inactive" is literally the complement (won or lost) — a lead has no
   // third state.

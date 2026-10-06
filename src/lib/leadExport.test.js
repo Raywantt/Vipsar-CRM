@@ -15,7 +15,7 @@ import {
   toCell,
 } from './leadExport'
 import { buildLeadExportBlob, columnLetters } from './leadExportFile'
-import { applyLeadsListFilters, SITE_STAGE_UNSET } from './dashboardQueries'
+import { applyLeadsListFilters, leadsListSitesEmbed, SITE_STAGE_UNSET } from './dashboardQueries'
 import { canExportLeads, rolesWith } from './roles'
 
 const client = { id: 1, name: 'Sukhjinder Singh', mobile: '9876543210', party_type: 'client' }
@@ -318,6 +318,52 @@ describe('applyLeadsListFilters', () => {
       ['or', 'party_id.in.(1)'],
       ['or', 'owner_employee_id.not.is.null,bdm_employee_id.is.null'],
     ])
+  })
+
+  it('matches any of several picks: eq for one, in for many, nothing for an empty list', () => {
+    const { q, calls } = recorder()
+    applyLeadsListFilters(q, {
+      employeeId: ['7', '9'],
+      stage: ['calling', 'rfq', 'negotiation'],
+      siteStage: ['DPC', 'Plaster'],
+      source: ['scanning'],
+      includePool: true,
+    })
+    expect(calls).toEqual([
+      ['in', 'owner_employee_id', ['7', '9']],
+      ['in', 'current_stage', ['calling', 'rfq', 'negotiation']],
+      ['in', 'sites.site_stage', ['DPC', 'Plaster']],
+      ['eq', 'source_type', 'scanning'],
+    ])
+
+    const none = recorder()
+    applyLeadsListFilters(none.q, { employeeId: [], stage: [], siteStage: [], source: [], includePool: true })
+    expect(none.calls).toEqual([])
+  })
+
+  it('lets a manager\'s team scope apply only while no owner is picked', () => {
+    const picked = recorder()
+    applyLeadsListFilters(picked.q, { employeeId: ['7'], employeeIds: [1, 2, 3], includePool: true })
+    expect(picked.calls).toEqual([['eq', 'owner_employee_id', '7']])
+
+    const scoped = recorder()
+    applyLeadsListFilters(scoped.q, { employeeId: [], employeeIds: [1, 2, 3], includePool: true })
+    expect(scoped.calls).toEqual([['in', 'owner_employee_id', [1, 2, 3]]])
+  })
+
+  it('mixes "Not set" with real site stages as an OR on the sites embed', () => {
+    const { q, calls } = recorder()
+    applyLeadsListFilters(q, { siteStage: [SITE_STAGE_UNSET, 'FF Slab', 'DPC'], includePool: true })
+    expect(calls).toEqual([
+      ['or', 'site_stage.is.null,site_stage.in.("FF Slab","DPC")', { referencedTable: 'sites' }],
+    ])
+  })
+
+  it('only makes the sites embed inner while a site-stage pick is actually set', () => {
+    expect(leadsListSitesEmbed([], 'id')).toBe('sites(id)')
+    expect(leadsListSitesEmbed('', 'id')).toBe('sites(id)')
+    expect(leadsListSitesEmbed(['DPC'], 'id')).toBe('sites!inner(id)')
+    expect(leadsListSitesEmbed(SITE_STAGE_UNSET, 'id')).toBe('sites!inner(id)')
   })
 
   it('treats "Not set" site stage as a null filter and keeps pool leads only when asked', () => {

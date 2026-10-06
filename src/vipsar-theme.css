@@ -3748,3 +3748,36 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
   color: var(--vip-muted); background: var(--vip-track);
   border-radius: 999px; vertical-align: 1px; white-space: nowrap;
 }
+
+/* ---------- Multi-select filter (MultiSelectFilter.jsx, All Leads) --------
+   A button shaped like .vip-select that opens a checklist. Everything is
+   tokens, so dark mode repaints it with no override. Below 1024px the list
+   opens IN FLOW (the filter panel is a column and a phone has nowhere to float
+   it); at >=1024px it floats under the button. */
+.vip-multi { position: relative; min-width: 0; }
+.vip-multi-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 48px; width: 100%; padding: 12px 13px;
+  font: 400 16px var(--vip-sans); text-align: left; cursor: pointer;
+  border: 1px solid var(--vip-field-line); border-radius: var(--vip-r-field);
+  background: var(--vip-surface); color: var(--vip-ink);
+}
+.vip-multi-btn:focus-visible { outline: 2px solid var(--vip-teal); outline-offset: -1px; }
+.vip-multi-on { border-color: var(--vip-teal); }
+.vip-multi-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.vip-multi-caret { flex: 0 0 auto; color: var(--vip-muted); }
+.vip-multi-btn[aria-expanded="true"] .vip-multi-caret { transform: rotate(180deg); }
+.vip-multi-panel {
+  display: flex; flex-direction: column; gap: 2px; margin-top: 6px; padding: 8px 10px;
+  max-height: 280px; overflow-y: auto;
+  border: 1px solid var(--vip-field-line); border-radius: var(--vip-r-field);
+  background: var(--vip-surface);
+}
+.vip-multi-opt { min-height: 36px; color: var(--vip-ink); cursor: pointer; }
+.vip-multi-clear { align-self: flex-start; margin-top: 4px; }
+@media (min-width: 1024px) {
+  .vip-multi-panel {
+    position: absolute; z-index: 30; top: 100%; left: 0; min-width: 100%; width: max-content; max-width: 280px;
+    margin-top: 4px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  }
+}

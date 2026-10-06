@@ -23,6 +23,7 @@ import { ROLES } from '../lib/roles'
 import { useCanExportLeads } from '../hooks/useCanExportLeads'
 import { useAuth } from '../contexts/AuthContext'
 import LeadExportPanel from './LeadExportPanel'
+import MultiSelectFilter from './MultiSelectFilter'
 
 // "touched today" / "Nd ago", turning "Nd silent" + red past STALE_DAYS —
 // same threshold attention.js already uses elsewhere, not a second
@@ -95,6 +96,26 @@ function formatLeadValue(lead) {
 // fresh nav-link visit — see usePersistedFilterState's own header comment.
 const FILTERS_STORAGE_KEY = 'vip-filters:leads-list'
 
+// The four multi-select facets are lists. A list saved in sessionStorage before
+// they were (a bare string, or '') still reads correctly.
+function asList(value) {
+  if (Array.isArray(value)) return value
+  return value ? [value] : []
+}
+
+// "Calling, RFQ Raised" for up to two picks, "3 selected" past that — the
+// words every summary of a multi-select uses (chips, the export's About sheet).
+function listWords(labels) {
+  return labels.length <= 2 ? labels.join(', ') : `${labels.length} selected`
+}
+
+const STAGE_FILTER_OPTIONS = LEAD_STAGE_OPTIONS.map((stage) => ({ value: stage, label: stageLabel(stage) }))
+const SITE_STAGE_FILTER_OPTIONS = [
+  ...SITE_STAGE_OPTIONS.map((s) => ({ value: s, label: s })),
+  { value: SITE_STAGE_UNSET, label: 'Not set' },
+]
+const SOURCE_FILTER_OPTIONS = SOURCE_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))
+
 // "No leads yet", shared so it keeps one identity across renders. Never mutated.
 const NO_LEADS = []
 
@@ -102,10 +123,10 @@ const NO_LEADS = []
 // the owner is still theirs to see, while for everyone else a lead waiting in
 // the pool is not on this list until it is assigned (src/lib/poolLeads.js).
 function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, managerScope, onManagerScopeChange, includePoolLeads = false }) {
-  const [employeeFilter, setEmployeeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'employeeFilter', '')
-  const [stageFilter, setStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'stageFilter', '')
-  const [siteStageFilter, setSiteStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'siteStageFilter', '')
-  const [sourceFilter, setSourceFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'sourceFilter', '')
+  const [employeeFilterRaw, setEmployeeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'employeeFilter', [])
+  const [stageFilterRaw, setStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'stageFilter', [])
+  const [siteStageFilterRaw, setSiteStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'siteStageFilter', [])
+  const [sourceFilterRaw, setSourceFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'sourceFilter', [])
   const [statusFilter, setStatusFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'statusFilter', '')
   const [minValueInput, setMinValueInput] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'minValueInput', '')
   const [maxValueInput, setMaxValueInput] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'maxValueInput', '')
@@ -114,6 +135,10 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const [filtersOpen, setFiltersOpen] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'filtersOpen', false)
   const [search, setSearch] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'search', '')
   const [page, setPage] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'page', 0)
+  const employeeFilter = useMemo(() => asList(employeeFilterRaw), [employeeFilterRaw])
+  const stageFilter = useMemo(() => asList(stageFilterRaw), [stageFilterRaw])
+  const siteStageFilter = useMemo(() => asList(siteStageFilterRaw), [siteStageFilterRaw])
+  const sourceFilter = useMemo(() => asList(sourceFilterRaw), [sourceFilterRaw])
 
   // Not persisted — derived from `search` (which is) via the debounce effect
   // below. Seeded from search's own restored value so a POP-navigation
@@ -167,8 +192,12 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // specific team member is picked; picking one narrows further, the same
   // way an owner's or coordinator's employeeFilter always has.
   const singleOwnerScope = ownerScopeIds && ownerScopeIds.length === 1
-  const effectiveEmployeeId = singleOwnerScope ? ownerScopeIds[0] : employeeFilter || null
-  const effectiveEmployeeIds = !singleOwnerScope && ownerScopeIds && !employeeFilter ? ownerScopeIds : null
+  const scopedOwnerId = singleOwnerScope ? String(ownerScopeIds[0]) : null
+  const effectiveEmployeeId = useMemo(
+    () => (scopedOwnerId ? [scopedOwnerId] : employeeFilter.length ? employeeFilter : null),
+    [scopedOwnerId, employeeFilter]
+  )
+  const effectiveEmployeeIds = !singleOwnerScope && ownerScopeIds && !employeeFilter.length ? ownerScopeIds : null
 
   // The filter combination the page number belongs to. Computed while
   // rendering, so the SAME render that sees a filter change also asks for page
@@ -202,9 +231,9 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     () => ({
       employeeId: effectiveEmployeeId,
       employeeIds: effectiveEmployeeIds,
-      stage: stageFilter || null,
-      siteStage: siteStageFilter || null,
-      source: sourceFilter || null,
+      stage: stageFilter,
+      siteStage: siteStageFilter,
+      source: sourceFilter,
       status: statusFilter || null,
       minValue: minValue !== '' ? Number(minValue) : null,
       maxValue: maxValue !== '' ? Number(maxValue) : null,
@@ -261,18 +290,31 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     const status = { active: 'Active (not won or lost)', inactive: 'Closed (won or lost)' }[statusFilter]
     summary.push({ label: 'Status', value: status ?? 'All', active: !!status, fileLabel: statusFilter === 'active' ? 'Active' : 'Closed' })
     if (showOwnerFilter) {
-      const emp = employeeFilter ? employees.find((e) => String(e.id) === employeeFilter) : null
+      const names = employeeFilter.map((id) => employees.find((e) => String(e.id) === id)?.name).filter(Boolean)
       // "All owners" is only true for the owner; anyone else's list is already
       // narrowed to their own team.
-      summary.push({ label: 'Owner', value: emp?.name ?? (isOwnerViewer ? 'All owners' : 'Whole team'), active: !!emp })
+      summary.push({
+        label: 'Owner',
+        value: names.length ? names.join(', ') : isOwnerViewer ? 'All owners' : 'Whole team',
+        active: names.length > 0,
+        fileLabel: listWords(names),
+      })
     }
-    summary.push({ label: 'Lead stage', value: stageFilter ? stageLabel(stageFilter) : 'All stages', active: !!stageFilter })
-    const siteStage = siteStageFilter === SITE_STAGE_UNSET ? 'Not set' : siteStageFilter
-    summary.push({ label: 'Site stage', value: siteStage || 'All site stages', active: !!siteStage, fileLabel: `Site stage ${siteStage}` })
+    const stages = stageFilter.map(stageLabel)
+    summary.push({ label: 'Lead stage', value: stages.length ? stages.join(', ') : 'All stages', active: stages.length > 0, fileLabel: listWords(stages) })
+    const siteStages = siteStageFilter.map((s) => (s === SITE_STAGE_UNSET ? 'Not set' : s))
+    summary.push({
+      label: 'Site stage',
+      value: siteStages.length ? siteStages.join(', ') : 'All site stages',
+      active: siteStages.length > 0,
+      fileLabel: `Site stage ${listWords(siteStages)}`,
+    })
+    const sources = sourceFilter.map((s) => SOURCE_TYPE_LABELS[s] ?? s)
     summary.push({
       label: 'Source',
-      value: sourceFilter ? SOURCE_TYPE_LABELS[sourceFilter] ?? sourceFilter : 'All sources',
-      active: !!sourceFilter,
+      value: sources.length ? sources.join(', ') : 'All sources',
+      active: sources.length > 0,
+      fileLabel: listWords(sources),
     })
     const value = formatValueChip(minValue, maxValue)
     summary.push({ label: 'Quote value', value: value ?? 'Any', active: !!value, fileLabel: `Quote ${value}` })
@@ -321,10 +363,10 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // stage is a chip on the row itself instead.
 
   function clearAllFilters() {
-    setEmployeeFilter('')
-    setStageFilter('')
-    setSiteStageFilter('')
-    setSourceFilter('')
+    setEmployeeFilter([])
+    setStageFilter([])
+    setSiteStageFilter([])
+    setSourceFilter([])
     setMinValueInput('')
     setMaxValueInput('')
   }
@@ -335,23 +377,29 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // are hidden behind the mobile disclosure.
   const activeChips = useMemo(() => {
     const chips = []
-    if (showOwnerFilter && employeeFilter) {
-      const emp = employees.find((e) => String(e.id) === employeeFilter)
-      if (emp) chips.push({ key: 'owner', label: `Owner: ${emp.name.split(' ')[0]}`, onRemove: () => setEmployeeFilter('') })
+    // One chip per facet, however many values it holds; tapping it clears the
+    // whole facet.
+    if (showOwnerFilter && employeeFilter.length) {
+      const names = employeeFilter
+        .map((id) => employees.find((e) => String(e.id) === id)?.name.split(' ')[0])
+        .filter(Boolean)
+      if (names.length) chips.push({ key: 'owner', label: `Owner: ${listWords(names)}`, onRemove: () => setEmployeeFilter([]) })
     }
-    if (stageFilter) chips.push({ key: 'stage', label: `Stage: ${stageLabel(stageFilter)}`, onRemove: () => setStageFilter('') })
-    if (siteStageFilter) {
+    if (stageFilter.length) {
+      chips.push({ key: 'stage', label: `Stage: ${listWords(stageFilter.map(stageLabel))}`, onRemove: () => setStageFilter([]) })
+    }
+    if (siteStageFilter.length) {
       chips.push({
         key: 'siteStage',
-        label: `Site: ${siteStageFilter === SITE_STAGE_UNSET ? 'Not set' : siteStageFilter}`,
-        onRemove: () => setSiteStageFilter(''),
+        label: `Site: ${listWords(siteStageFilter.map((s) => (s === SITE_STAGE_UNSET ? 'Not set' : s)))}`,
+        onRemove: () => setSiteStageFilter([]),
       })
     }
-    if (sourceFilter) {
+    if (sourceFilter.length) {
       chips.push({
         key: 'source',
-        label: `Source: ${SOURCE_TYPE_LABELS[sourceFilter] ?? sourceFilter}`,
-        onRemove: () => setSourceFilter(''),
+        label: `Source: ${listWords(sourceFilter.map((s) => SOURCE_TYPE_LABELS[s] ?? s))}`,
+        onRemove: () => setSourceFilter([]),
       })
     }
     const valueLabel = formatValueChip(minValueInput, maxValueInput)
@@ -399,6 +447,10 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // ownerScopeIds above).
   const isTeamScope = managerScope === 'team'
 
+  // Ids as strings: they're compared with, and persisted as, the strings the
+  // checkboxes report.
+  const ownerOptions = useMemo(() => employees.map((e) => ({ value: String(e.id), label: e.name })), [employees])
+
   const scopeField = onManagerScopeChange && (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Whose leads</span>
@@ -428,14 +480,13 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const ownerField = showOwnerFilter && employees.length > 0 && (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Owner</span>
-      <select className="vip-select" aria-label="Owner" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
-        <option value="">All owners</option>
-        {employees.map((e) => (
-          <option key={e.id} value={e.id}>
-            {e.name}
-          </option>
-        ))}
-      </select>
+      <MultiSelectFilter
+        label="Owner"
+        allLabel="All owners"
+        options={ownerOptions}
+        selected={employeeFilter}
+        onChange={setEmployeeFilter}
+      />
     </div>
   )
 
@@ -445,43 +496,39 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const stageField = (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Lead stage</span>
-      <select className="vip-select" aria-label="Lead stage" value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
-        <option value="">All stages</option>
-        {LEAD_STAGE_OPTIONS.map((stage) => (
-          <option key={stage} value={stage}>
-            {stageLabel(stage)}
-          </option>
-        ))}
-      </select>
+      <MultiSelectFilter
+        label="Lead stage"
+        allLabel="All stages"
+        options={STAGE_FILTER_OPTIONS}
+        selected={stageFilter}
+        onChange={setStageFilter}
+      />
     </div>
   )
 
   const siteStageField = (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Site stage</span>
-      <select className="vip-select" aria-label="Site stage" value={siteStageFilter} onChange={(e) => setSiteStageFilter(e.target.value)}>
-        <option value="">All site stages</option>
-        {SITE_STAGE_OPTIONS.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-        <option value={SITE_STAGE_UNSET}>Not set</option>
-      </select>
+      <MultiSelectFilter
+        label="Site stage"
+        allLabel="All site stages"
+        options={SITE_STAGE_FILTER_OPTIONS}
+        selected={siteStageFilter}
+        onChange={setSiteStageFilter}
+      />
     </div>
   )
 
   const sourceField = (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Source</span>
-      <select className="vip-select" aria-label="Source" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
-        <option value="">All sources</option>
-        {SOURCE_TYPE_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      <MultiSelectFilter
+        label="Source"
+        allLabel="All sources"
+        options={SOURCE_FILTER_OPTIONS}
+        selected={sourceFilter}
+        onChange={setSourceFilter}
+      />
     </div>
   )
 
