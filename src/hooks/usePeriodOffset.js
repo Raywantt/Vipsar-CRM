@@ -16,8 +16,12 @@ import { isSteppablePreset } from '../lib/dateRanges'
 // AND returns to the current period. Choosing a different preset must never
 // carry a stale offset across (3 weeks back is not 3 months back), and tapping
 // the preset that is already active is the quick way home.
-export function usePeriodOffset(preset, setPreset) {
-  const [stored, setStored] = usePersistedFilterState('vip-filters:dashboard', 'offset', 0)
+//
+// `storageKey` must be the key the caller keeps its preset under. The default
+// is the three screens above; the RFQ Desk keeps its own (it defaults to
+// Month), so stepping back there doesn't move the Dashboard, or the reverse.
+export function usePeriodOffset(preset, setPreset, storageKey = 'vip-filters:dashboard') {
+  const [stored, setStored] = usePersistedFilterState(storageKey, 'offset', 0)
 
   // Only Week / 15D / Month / Quarter step. Anything else reads 0 whatever is
   // stored, and a stored value that isn't a whole non-negative number is ignored

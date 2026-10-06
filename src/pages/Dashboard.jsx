@@ -93,6 +93,7 @@ import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { todayISO } from '../lib/followupDates'
 import {
   canSeeArchitectNetwork as canSeeArchitectNetworkFor,
+  canSeeRfqDesk as canSeeRfqDeskFor,
   canSeeBdmFollowUps,
   canSeeTeamDirectory as canSeeTeamDirectoryFor,
 } from '../lib/roles'
@@ -152,6 +153,7 @@ function Dashboard() {
   // Architect Network's only mobile path — BottomNav's sidebar link reads the
   // same function (BDM.md Step 6).
   const canSeeArchitectNetwork = canSeeArchitectNetworkFor(employee?.role)
+  const canSeeRfqDesk = canSeeRfqDeskFor(employee?.role)
   const [searchParams] = useSearchParams()
 
   // No more in-page tab buttons — Reports/All leads is chosen purely by
@@ -996,6 +998,17 @@ function Dashboard() {
               <div>
                 <div className="vip-tile-label">Architect Network</div>
                 <div className="vip-tile-desc">BDM targets and every architect</div>
+              </div>
+              <div className="vip-tile-chevron" aria-hidden="true">›</div>
+            </Link>
+          )}
+          {/* The RFQ Desk's phone path (its desktop path is the sidebar link —
+              both read canSeeRfqDesk). */}
+          {canSeeRfqDesk && (
+            <Link to="/rfq-desk" className="vip-tile vip-only-mobile" style={{ textDecoration: 'none' }}>
+              <div>
+                <div className="vip-tile-label">RFQ Desk</div>
+                <div className="vip-tile-desc">Technical check, estimation and Lixil</div>
               </div>
               <div className="vip-tile-chevron" aria-hidden="true">›</div>
             </Link>

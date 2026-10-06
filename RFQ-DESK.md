@@ -1,8 +1,8 @@
 # RFQ-DESK.md — back-office RFQ roles (Phase 12, LAUNCHED 2026-10-06)
 
-> **🚀 LAUNCHED 2026-10-06** — Steps 1–6 are live on master (`CLAUDE.md`
-> describes what is). Only Step 7, the owner's RFQ Desk screen, remains; §1
-> says where it stands. Don't start a step until the owner says go.
+> **🚀 LAUNCHED 2026-10-06** — Steps 1–7 are built (`CLAUDE.md` describes
+> what is). What's left is §10 "For later" and phase 2 (§11); revisit the RFQ
+> Desk's chart forms once there are real weeks of data.
 
 Adds the two people who sit **after** a sales exec's RFQ: **Harjot**
 (technical check) and **Harpreet** (estimation + Lixil quote). Today their work
@@ -32,7 +32,7 @@ session of the role, never from the SQL Editor; verify as the role with the
 | 4 | Production Executive: review queue (approve / send back) | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 5, 6 on launch day); live-checked on test data as the test exec, both desk logins and the owner, at phone and desktop width |
 | 5 | Estimation Executive: estimation queue, Lixil step, quote, send back, price revision | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 4, 6 on launch day); live-checked on test data as the test exec, both desk logins, at phone and desktop width |
 | 6 | Reporting changes: RFQ target on approval, Needs Attention rework | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3–5 on launch day); `migration_rfq_desk_reporting.sql` live, `verify_rfq_desk.sql` 55 PASS, 0 FAIL (T00a–T50); live-checked on test data |
-| 7 | Owner's **RFQ Desk** screen | — |
+| 7 | Owner's **RFQ Desk** screen | ✅ built 2026-10-06 (`/rfq-desk`), live-checked on test data as the owner at desktop and phone width |
 | 8 | Launch day + docs (`CLAUDE.md`) | ✅ 2026-10-06 — `rfq-desk` merged to master (`413a7a1`), `send-followup-reminders` redeployed, `CLAUDE.md` updated. No backlog to clear, so `live_from` stays 09:26 IST |
 
 **Done ahead of the steps (2026-10-05, at the owner's request so the people
@@ -342,6 +342,31 @@ Exec logs "RFQ Raised" (+ windows, segment)
   `leads.rfq_raised_at` is stamped at approval once the desk is live; the
   About sheet says a pre-desk RFQ holds its logging day. The 13 defaults are
   unchanged.
+
+### Step 7 rulings (2026-10-06)
+- **Built now, figures included** (offered: the lanes now and the figures in
+  2–3 weeks). Because there was no real data, every figure is a count, a
+  median or a short table — no chart forms were guessed.
+- **One page** (offered: two tabs, Live / Figures): "Right now" — the three
+  lanes (Technical check | Estimation | With Lixil) side by side from 1024px,
+  stacked on a phone, then "Sent back, waiting on the exec: N ›", which opens
+  in place — then "Over the period" under the date range.
+- **View only** (offered: the desk's own Approve / Send back / Lixil / Quote
+  controls). Rows open the lead; the owner acts from Lead Detail's RFQs card.
+- **Period: the Dashboard's selector** with the ‹ › stepper, its own memory,
+  Month by default.
+- **Turnaround: the median and the slowest 1 in 10, in working days with
+  Sundays out** (offered: averages in calendar days) — per step and end to end;
+  under a day reads in hours.
+- **Send-backs by exec: every exec who raised an RFQ in the period, with a
+  share** (offered: only execs with send-backs, no rate). Highest share first,
+  none-sent-back at the bottom.
+- Decided in the build, not asked (say if any is wrong): turnaround counts an
+  RFQ in the period its step ended; send-backs are a cohort of RFQs raised in
+  the period ("one still with the desk may yet be sent back"); "waiting on the
+  exec" is a sent-back RFQ still the lead's newest non-withdrawn one (Needs
+  Attention's rule); lanes show 5 rows then "+N more"; price revisions stay
+  out of "RFQs raised", the technical step and end to end.
 
 ### What it changes for sales
 - **The RFQ Raised form asks for two new things:** number of windows
@@ -853,3 +878,24 @@ approve a technical check.
   serving the new code (the `vipsar-crm.vercel.app` address in the repo
   returns 404 — the live domain wasn't to hand), and a real push reaching
   Harjot's or Harpreet's phone.
+- **2026-10-06 — Step 7 built.** Owner's rulings in §3 "Step 7 rulings". New:
+  `src/pages/RfqDesk.jsx` (`/rfq-desk`), `src/lib/rfqDeskReport.js` (+ 18
+  tests), `fetchRfqDeskLive` / `fetchRfqDeskPeriod` in `rfqQueries.js`,
+  `IconRfqDesk`, theme section 47; sidebar link + owner Dashboard tile;
+  `usePeriodOffset` takes a storage key. **Live trial** (owner's Test accounts
+  switched ON with permission, test exec 26, production-exec 48,
+  estimation-exec 49; leads #1646–1651, RFQs #55–61): one RFQ in each lane, E
+  sent back by the technical check and F by estimation ("Sent back, waiting on
+  the exec: 2", opened in place with both notes); strip 6 raised / 1 quote /
+  2 sent back (33%) / then 1 price revision once started on D, which joined
+  the Estimation lane and stayed out of "raised"; Turnaround counted technical
+  5, estimation 3, Lixil 1, end to end 1; Send-backs by exec 6 · 1 · 1 · 33%;
+  Sent back after approval "1 of 4 approved". Desktop: three 379px lanes and a
+  2×2 card grid with matching heights; 375px: stacked, tables exactly 310px
+  wide, no horizontal scroll. Exec and Production Executive bounced from
+  `/rfq-desk` with no link. **Cleaned up** with `delete_lead_totally`
+  (1646–1651) — leads, sites, activities, RFQs, alerts re-read as gone from the
+  owner and exec sessions — and the owner's Test accounts switch set back OFF
+  (read back false). Lint clean, 722 tests. **Not seen:** a real turnaround
+  past an hour (the trial ran in minutes; `workingMs` and the labels are unit
+  tested), and amber/red ages in the lanes (same `RfqQueueRow` as Steps 4–5).

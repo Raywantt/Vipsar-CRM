@@ -245,3 +245,54 @@ export async function fetchUnseenRfqUpdates(employeeId) {
     .order('created_at', { ascending: false })
     .limit(RFQ_UPDATES_LIMIT)
 }
+
+// ---- The owner's RFQ Desk (RFQ-DESK.md Step 7) ----
+
+// The live half: every RFQ waiting at a desk step, plus every sent-back one
+// (rfqDeskReport.js's waitingOnExec picks those still unanswered). A sent-back
+// RFQ is answered once its lead has a newer, non-withdrawn RFQ, which may by
+// now be quoted and so not in this read — `later` fetches the other RFQs on
+// those leads (id, lead, status, raised_at only), in 300-id chunks. Owner
+// only; RLS hands them every RFQ on a lead they can see.
+export async function fetchRfqDeskLive() {
+  const main = await fetchAllRows(() =>
+    supabase
+      .from('rfqs')
+      .select(QUEUE_SELECT, { count: 'exact' })
+      .in('status', ['with_technical', 'with_estimation', 'with_lixil', 'sent_back'])
+      .order('raised_at', { ascending: true })
+  )
+  if (main.error) return { data: null, error: main.error }
+  const rows = main.data ?? []
+  const leadIds = [...new Set(rows.filter((r) => r.status === 'sent_back').map((r) => r.lead_id))]
+  const later = []
+  for (let i = 0; i < leadIds.length; i += 300) {
+    const ids = leadIds.slice(i, i + 300)
+    const res = await fetchAllRows(() =>
+      supabase
+        .from('rfqs')
+        .select('id, lead_id, status, raised_at', { count: 'exact' })
+        .in('lead_id', ids)
+        .neq('status', 'withdrawn')
+    )
+    if (res.error) return { data: null, error: res.error }
+    later.push(...(res.data ?? []))
+  }
+  return { data: { rows, later }, error: null }
+}
+
+// The figures half: every RFQ with a step that happened inside `range` —
+// raised, approved, sent back, raised with Lixil or quoted — which is every row
+// any figure on the page counts (rfqDeskReport.js). Timestamps quoted, as in
+// fetchMyTechnicalDecisions.
+export function fetchRfqDeskPeriod(range) {
+  const from = `"${range.start.toISOString()}"`
+  const to = `"${range.end.toISOString()}"`
+  const clause = (col) => `and(${col}.gte.${from},${col}.lte.${to})`
+  return fetchAllRows(() =>
+    supabase
+      .from('rfqs')
+      .select(QUEUE_SELECT, { count: 'exact' })
+      .or(['raised_at', 'approved_at', 'sent_back_at', 'lixil_raised_at', 'quote_received_at'].map(clause).join(','))
+  )
+}

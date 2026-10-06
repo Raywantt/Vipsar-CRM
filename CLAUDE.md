@@ -93,8 +93,8 @@ two back-office roles after a sales exec's RFQ — Production Executive
 the database (switch ON since 2026-10-06 09:26 IST), role plumbing, the exec
 side, both desk queues and the reporting changes (an RFQ counts toward the
 target on approval; Needs Attention's "RFQs back with the exec"). See Roles →
-Production Executive / Estimation Executive. Still a plan: the owner's **RFQ
-Desk** screen (Step 7).
+Production Executive / Estimation Executive. The owner's **RFQ Desk** screen
+(Step 7) is built (2026-10-06).
 
 **Deliberately not built — don't add as a side effect of unrelated work:**
 
@@ -162,7 +162,7 @@ src/
                 Search, DashboardRoute (→ Dashboard | BdmDashboard), NewRoute
                 (→ LeadQuickCapture | BdmNew), LeadDetail, EmployeeProfile,
                 MyTeam, ActivityLog, MyArchitects, ArchitectProfile,
-                ArchitectNetwork, NotFound
+                ArchitectNetwork, RfqDesk, NotFound
   contexts/     AuthContext (session + employee lookup);
                 HeaderContext (dynamic {title, sub} override for AppNav)
   hooks/        useOnlineStatus.js, useIsMobile.js (the 1024px breakpoint as
@@ -184,6 +184,7 @@ src/
                 appUpdate, poolLeads, architectStats, bdmDashboard,
                 bdmLeadUpdates, architectNetwork, firmLabel,
                 bookedOrders, periodChange, leadExport, leadExportFile,
+                rfqDesk, rfqDeskReport,
                 queries: dashboardQueries, searchQueries, targetQueries,
                 partyQueries, employeeQueries, lookupQueries,
                 leadOwnerHistory, dayReviewQueries, followUpQueries,
@@ -210,7 +211,7 @@ the two RFQ-desk roles — `canSearch`/`canOpenLeads`), `/dashboard` (every
 **sales** role only — `canSeeSalesDashboard`),
 `/leads/new`, `/employees/:id` (**not the BDM**), `/activity` (**not owner**),
 `/team` (**owner + sales_manager**), `/architects/:id` (every role),
-`/architects` (**BDM only**) and `/network` (**owner only**). There is no
+`/architects` (**BDM only**), `/network` and `/rfq-desk` (**owner only**). There is no
 `/settings` or `/account` route; both merged into `/profile`.
 
 **Every `allowedRoles` is derived from a `roles.js` capability** —
@@ -2985,6 +2986,30 @@ The exec who raised an RFQ keeps reading it after the lead moves
 (`rfqs_raised_by_select`). The Excel export gained optional "RFQ desk status"
 and "Lixil quote ref" columns, and "RFQ raised on" reads **"RFQ approved on"**
 (same id).
+
+**Step 7 — the owner's RFQ Desk** (`/rfq-desk`, `RfqDesk.jsx`; RFQ-DESK.md §3
+"Step 7 rulings"). Owner only (`canSeeRfqDesk`): a sidebar link after Architect
+Network and a phone tile on the owner's Dashboard, both reading that one flag.
+**One page, view only** (owner's rulings): "Right now" — three lanes
+(Technical check | Estimation | With Lixil; side by side from 1024px, stacked
+below) of the same `RfqQueueRow` the desk sees with no actions, 5 per lane then
+"+N more", and "Sent back, waiting on the exec" (a sent-back RFQ that is still
+its lead's newest non-withdrawn one — Needs Attention's pick), opening in
+place; then "Over the period" — the Dashboard's `DateRangeSelector` with its
+**own** memory (`vip-filters:rfq-desk`, Month by default; `usePeriodOffset`
+takes the key), a 4-tile strip (raised, quotes received, sent back, price
+revisions) and four cards: Turnaround, Send-backs by exec, Sent back after
+approval (the technical check's misses, "N of M approved"), Price revisions.
+Every figure is `rfqDeskReport.js`'s, pure and tested. **Turnaround** counts
+each RFQ in the period its step ENDED, as working time with Sundays removed
+(`workingMs`), shown as the median and the slowest 1 in 10 (nearest rank);
+under a day in hours. **Send-backs by exec** is a cohort — the RFQs each exec
+raised in the period and how many of those were sent back — not send-backs
+dated in the period. Price revisions are left out of "raised", the technical
+step and end to end. Reads: `fetchRfqDeskLive` (open + sent-back RFQs, plus the
+other RFQs on sent-back leads) and `fetchRfqDeskPeriod` (any RFQ with a step
+in the range). **Built on launch day with no real data** — tables and counts,
+no charts; choose chart forms once real weeks exist (UI-DESIGN.md).
 
 ### Data isolation — audited, don't re-litigate
 

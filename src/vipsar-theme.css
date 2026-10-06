@@ -3881,3 +3881,56 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
   margin: -2px 0 0; font-family: var(--vip-mono); font-size: 13px; font-weight: 600; color: var(--vip-ink);
 }
 .vip-rfq-revise { align-self: flex-start; min-height: 32px; padding: 0; color: var(--vip-teal-dark); }
+
+/* ===========================================================================
+   47. RFQ desk — the owner's RFQ Desk (RfqDesk.jsx, RFQ-DESK.md Step 7,
+       2026-10-06)
+   =========================================================================== */
+/* The lanes reuse section 45's queue rows. Three lanes side by side from
+   1024px (owner's ruling), stacked below — the display is set only inside the
+   query that owns it. Tokens only, so section 22 repaints it for dark. */
+.vip-rfqdesk-lanes { display: flex; flex-direction: column; gap: 14px; }
+@media (min-width: 1024px) {
+  .vip-rfqdesk-lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+}
+.vip-rfqdesk-hint { margin: 2px 0 6px; font-size: 12px; color: var(--vip-muted); }
+
+/* "Sent back, waiting on the exec: N ›" — one tappable line that opens in
+   place. */
+.vip-rfqdesk-sentback { padding-top: 10px; padding-bottom: 10px; }
+.vip-rfqdesk-sentback-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; min-height: 40px; padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-weight: 600; color: var(--vip-ink); text-align: left;
+}
+.vip-rfqdesk-sentback-btn:disabled { cursor: default; }
+.vip-rfqdesk-sentback-count { font-family: var(--vip-display); font-weight: 700; white-space: nowrap; }
+.vip-rfq-count.vip-rfqdesk-count-warn { color: var(--vip-status-warn-ink); background: var(--vip-status-warn-soft); }
+
+/* The two figure tables. Numbers right-aligned in tabular figures; the
+   wrapper scrolls rather than the page if a name runs long on a phone. */
+.vip-rfqdesk-table-wrap { overflow-x: auto; }
+.vip-rfqdesk-table { width: 100%; border-collapse: collapse; font-size: 13px; color: var(--vip-ink); }
+.vip-rfqdesk-table th, .vip-rfqdesk-table td { padding: 8px 6px; border-top: 1px solid var(--vip-line-soft); vertical-align: top; }
+.vip-rfqdesk-table thead th {
+  border-top: 0; font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--vip-muted); white-space: nowrap;
+}
+.vip-rfqdesk-table th:first-child { text-align: left; padding-left: 0; }
+.vip-rfqdesk-table td, .vip-rfqdesk-table thead th:not(:first-child) {
+  text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.vip-rfqdesk-table td:last-child, .vip-rfqdesk-table th:last-child { padding-right: 0; }
+.vip-rfqdesk-table tbody th { font-weight: 600; }
+.vip-rfqdesk-table tbody th a { color: inherit; }
+.vip-rfqdesk-sub { display: block; font-size: 11px; font-weight: 400; color: var(--vip-muted); }
+.vip-rfqdesk-total th, .vip-rfqdesk-total td { border-top-color: var(--vip-line); font-weight: 700; }
+.vip-rfqdesk-muted th, .vip-rfqdesk-muted td { color: var(--vip-muted); }
+
+.vip-rfqdesk-kv { display: flex; flex-direction: column; }
+.vip-rfqdesk-kv-row {
+  display: flex; justify-content: space-between; gap: 10px; padding: 8px 0;
+  border-top: 1px solid var(--vip-line-soft); font-size: 13px; color: var(--vip-ink);
+}
+.vip-rfqdesk-kv-row:first-child { border-top: 0; }
+.vip-rfqdesk-kv-row b { font-family: var(--vip-display); font-variant-numeric: tabular-nums; }

@@ -8,13 +8,14 @@ import {
   canSeeTeamDirectory as canSeeTeamDirectoryFor,
   canSeeMyArchitects as canSeeMyArchitectsFor,
   canSeeArchitectNetwork as canSeeArchitectNetworkFor,
+  canSeeRfqDesk as canSeeRfqDeskFor,
   canSeeSalesDashboard as canSeeSalesDashboardFor,
   canSearch as canSearchFor,
   createActionLabel,
   isBdm,
   roleLabel,
 } from '../lib/roles'
-import { IconActivity, IconArchitect, IconBell, IconGrid, IconHome, IconList, IconPlus, IconSearch, IconTeam } from './NavIcons'
+import { IconActivity, IconArchitect, IconBell, IconGrid, IconHome, IconList, IconPlus, IconRfqDesk, IconSearch, IconTeam } from './NavIcons'
 import FabSheet from './FabSheet'
 
 function tabClass({ isActive }) {
@@ -86,6 +87,9 @@ function BottomNav() {
   // Architect Network (owner only). Its mobile path is a tile on the owner's
   // Dashboard, which reads the same function.
   const canSeeArchitectNetwork = canSeeArchitectNetworkFor(employee?.role)
+  // The RFQ Desk (owner only, RFQ-DESK.md Step 7). Its mobile path is a tile
+  // on the owner's Dashboard, which reads the same function.
+  const canSeeRfqDesk = canSeeRfqDeskFor(employee?.role)
   // The sales Dashboard (Reports / All Leads / Follow-ups) and Search. Every
   // sales role has both; the RFQ-desk roles (RFQ-DESK.md) have Search only
   // (Step 2), so their bar is Today + Search. One flag each, read by the
@@ -219,6 +223,12 @@ function BottomNav() {
           <NavLink to="/network" className={extraTabClass} title="Architect Network">
             <IconArchitect />
             <span className="vip-nav-label">Architect Network</span>
+          </NavLink>
+        )}
+        {canSeeRfqDesk && (
+          <NavLink to="/rfq-desk" className={extraTabClass} title="RFQ Desk">
+            <IconRfqDesk />
+            <span className="vip-nav-label">RFQ Desk</span>
           </NavLink>
         )}
         {canSearch && (

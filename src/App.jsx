@@ -23,12 +23,14 @@ import NotFound from './pages/NotFound'
 import MyArchitects from './pages/MyArchitects'
 import ArchitectProfile from './pages/ArchitectProfile'
 import ArchitectNetwork from './pages/ArchitectNetwork'
+import RfqDesk from './pages/RfqDesk'
 import {
   canCreateLead,
   canLogActivity,
   canOpenArchitectProfiles,
   canOpenEmployeeProfiles,
   canSeeArchitectNetwork,
+  canSeeRfqDesk,
   canOpenLeads,
   canSearch,
   canSeeMyArchitects,
@@ -182,6 +184,15 @@ function App() {
               // Architect Network — owner only (canSeeArchitectNetwork, BDM.md Step 6).
               <ProtectedRoute allowedRoles={rolesWith(canSeeArchitectNetwork)}>
                 <ArchitectNetwork />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rfq-desk"
+            element={
+              // The owner's RFQ Desk — owner only (canSeeRfqDesk, RFQ-DESK.md Step 7).
+              <ProtectedRoute allowedRoles={rolesWith(canSeeRfqDesk)}>
+                <RfqDesk />
               </ProtectedRoute>
             }
           />

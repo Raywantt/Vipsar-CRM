@@ -101,6 +101,17 @@ export function IconBell({ className = 'vip-nav-icon', ...rest }) {
   )
 }
 
+// RFQ Desk (owner only) — a clipboard with a tick: an RFQ being checked.
+export function IconRfqDesk({ className = 'vip-nav-icon', ...rest }) {
+  return (
+    <svg {...baseProps(className)} {...rest}>
+      <rect x="4.5" y="3.5" width="11" height="14" rx="1.6" />
+      <path d="M7.5 3.5V2.6h5v.9" />
+      <path d="m7.4 10.6 1.9 1.9 3.4-3.6" />
+    </svg>
+  )
+}
+
 // My Architects (BDM only) — a drafting compass: an architect's tool, and
 // nothing else in the sidebar reads like it.
 export function IconArchitect({ className = 'vip-nav-icon', ...rest }) {

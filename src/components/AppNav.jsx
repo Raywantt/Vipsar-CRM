@@ -24,6 +24,7 @@ const ROUTE_HEADERS = {
   '/team': { title: 'My Team', sub: 'Your sales team' },
   '/architects': { title: 'My Architects', sub: 'Your architect portfolio' },
   '/network': { title: 'Architect Network', sub: 'BDMs and every architect' },
+  '/rfq-desk': { title: 'RFQ Desk', sub: 'Technical check, estimation and Lixil' },
 }
 
 function routeHeader(pathname) {
