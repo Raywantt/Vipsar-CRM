@@ -9,6 +9,7 @@ import ShowMoreRows from '../components/ShowMoreRows'
 import { DayKpiStrip } from '../components/DayReviewHeader'
 import DrilldownPanel from '../components/DrilldownPanel'
 import { buildRfqPanel } from '../lib/rfqDeskPanels'
+import { useProductMap } from '../hooks/useProductMap'
 import { fetchRfqDeskLive, fetchRfqDeskPeriod } from '../lib/rfqQueries'
 import {
   RFQ_LANES,
@@ -335,6 +336,7 @@ function PriceRevisionsCard({ summary, rangeLabel, onOpen }) {
 
 function RfqDesk() {
   const [panel, setPanel] = useState(null)
+  const productMap = useProductMap()
 
   // ---- Right now ----
   const liveQuery = useCachedQuery(['rfq-desk', 'live'], fetchRfqDeskLive)
@@ -384,7 +386,7 @@ function RfqDesk() {
       buildRfqPanel({
         focus,
         rows: period.data,
-        ctx: { range, rangeLabel, approvedCount: figures.bounced.approved },
+        ctx: { range, rangeLabel, approvedCount: figures.bounced.approved, productMap },
         initial,
         eyebrow: `RFQ Desk · ${rangeLabel}`,
       })

@@ -86,6 +86,8 @@ import {
   fetchActivitiesTrendWindow,
 } from '../lib/dashboardQueries'
 import { fetchDashboardPeriod } from '../lib/screenQueries'
+import { fetchProducts } from '../lib/lookupQueries'
+import { productCategoryEntries, productsById } from '../lib/productShares'
 import { fetchDeskRfqsForAttention } from '../lib/rfqQueries'
 import { latestDeskRfqByLead } from '../lib/rfqDesk'
 import { fetchTargetsForPeriod, fetchWonStageHistory, deleteTarget } from '../lib/targetQueries'
@@ -113,9 +115,6 @@ function areaCategory(lead) {
   return lead.sites?.areas?.area_name ?? 'No area set'
 }
 
-function productCategory(lead) {
-  return lead.products?.name ?? 'Not specified'
-}
 
 // dashboard_snapshot_metrics()'s numeric/bigint columns come back over
 // PostgREST as strings (avoiding JS float precision loss, same reasoning
@@ -321,6 +320,15 @@ function Dashboard() {
     })
     return grouped
   }, [categoryQuery.result])
+
+  // The products lookup (same key as Lead Detail): names for the lead's
+  // product ids, in Leads by product and Orders booked.
+  const productsQuery = useCachedQuery(['lookup', 'products'], fetchProducts, { enabled: wantsReports })
+  const productList = productsQuery.result && !productsQuery.result.error ? productsQuery.result.data ?? EMPTY : EMPTY
+  const productCategory = useMemo(() => {
+    const byId = productsById(productList)
+    return (lead) => productCategoryEntries(lead, byId)
+  }, [productList])
 
   const wonQuery = useCachedQuery(['dash', 'won-history'], fetchWonStageHistory, { enabled: wantsReports })
   const allWonStageHistory = wonQuery.result?.data ?? EMPTY
@@ -772,9 +780,10 @@ function Dashboard() {
             canCancelTarget: bookedFor != null && isOwner,
             compareExecs: seesOthersData,
             leadsReady: breakdownSettled,
+            products: productList,
           }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `range` is rebuilt every render; its two timestamps stand for it
-    [bookedFor, employees, targets, wonStageHistory, breakdownLeads, breakdownSettled, rangeStartMs, rangeEndMs, rangeLabel, preset, offset, scopeLabel, isOwner, seesOthersData]
+    [bookedFor, employees, targets, wonStageHistory, breakdownLeads, breakdownSettled, rangeStartMs, rangeEndMs, rangeLabel, preset, offset, scopeLabel, isOwner, seesOthersData, productList]
   )
   function closePanel() {
     setPanel(null)
@@ -1288,6 +1297,17 @@ function Dashboard() {
                 leads={breakdownLeads}
                 getCategory={productCategory}
                 aggregated={fastCategoryBreakdown?.product}
+                // The product rows count a lead under each of its products;
+                // the stage rows count every lead exactly once.
+                totals={
+                  fastCategoryBreakdown?.stage
+                    ? {
+                        count: fastCategoryBreakdown.stage.reduce((s, r) => s + r.count, 0),
+                        value: fastCategoryBreakdown.stage.reduce((s, r) => s + r.value, 0),
+                      }
+                    : null
+                }
+                footnote="A lead with several products counts under each, with its share of the value."
                 maxRows={6}
                 onOpenPanel={() =>
                   setPanel(

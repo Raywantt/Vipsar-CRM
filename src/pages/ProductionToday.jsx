@@ -6,6 +6,7 @@ import TechnicalQueueCard from '../components/TechnicalQueueCard'
 import { DayKpiStrip } from '../components/DayReviewHeader'
 import DrilldownPanel from '../components/DrilldownPanel'
 import { buildRfqPanel } from '../lib/rfqDeskPanels'
+import { useProductMap } from '../hooks/useProductMap'
 import { fetchMyTechnicalDecisions } from '../lib/rfqQueries'
 import { monthStart, technicalMonthStats } from '../lib/rfqDesk'
 import { TONE_WARN } from '../lib/statusColors'
@@ -40,6 +41,7 @@ function ProductionToday() {
 // out, so the two can't disagree.
 function TechnicalMonthStrip({ employee }) {
   const [panel, setPanel] = useState(null)
+  const productMap = useProductMap()
   const now = new Date()
   const sinceISO = monthStart(now).toISOString()
   // The key carries the month, so the strip starts a new month on its own.
@@ -60,7 +62,7 @@ function TechnicalMonthStrip({ employee }) {
   if (!stats) return null
 
   const month = now.toLocaleDateString('en-IN', { month: 'long' })
-  const ctx = { range: { start: new Date(sinceISO), end: now }, rangeLabel: `in ${month}`, employeeId: employee?.id }
+  const ctx = { range: { start: new Date(sinceISO), end: now }, rangeLabel: `in ${month}`, employeeId: employee?.id, productMap }
   const open = (focus) => () => setPanel(buildRfqPanel({ focus, rows, ctx, eyebrow: `${month} · your checks` }))
   const check = buildRfqPanel({ focus: 'myCheck', rows, ctx, eyebrow: '' })
   const tiles = [

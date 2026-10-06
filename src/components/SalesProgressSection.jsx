@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { errorMessage } from '../lib/errorMessage'
 import NumPadInput from './NumPadInput'
-import { formatCurrency, formatDateShort } from '../lib/format'
+import ProductPicker from './ProductPicker'
+import { formatCurrency, formatCurrencyCompact, formatDateShort } from '../lib/format'
+import { leadProductIds, productsById } from '../lib/productShares'
 
 // `rfq` is summariseRfqHistory()'s output (src/lib/rfqKind.js) — read-only.
 // The RFQ raised checkbox and its date input were removed 2026-09-09: an RFQ
@@ -15,15 +17,17 @@ import { formatCurrency, formatDateShort } from '../lib/format'
 // payload below.
 //
 // `deskQuote` is the latest quote the RFQ desk recorded on this lead (null if
-// none). Once one exists the quote value is the desk's: the desk's own write
-// sets it, so the field here turns read-only and says where the figure came
-// from (owner's ruling, 2026-10-06 — RFQ-DESK.md Q4: an exec may still type it
-// until the first desk quote lands, e.g. on a lead quoted through Excel).
+// none). QUOTE VALUE IS NEVER TYPED HERE (owner's ruling, 2026-10-06): it comes
+// only from the RFQ desk, quoted per product, so this card shows it read-only
+// with the split. An older value (the legacy imports, or one typed before the
+// ruling) still shows, read-only.
+//
+// Products are the lead's list (leads.product_ids), edited with THE product
+// picker the RFQ Raised form also uses (ProductPicker) — one column.
 function SalesProgressSection({ lead, products, rfq, deskQuote = null, onSaved }) {
-  const [productId, setProductId] = useState(lead.product_id ?? '')
+  const [productIds, setProductIds] = useState(() => leadProductIds(lead))
   const [quoteSent, setQuoteSent] = useState(lead.quote_sent ?? false)
   const [quoteSentAt, setQuoteSentAt] = useState(lead.quote_sent_at ?? '')
-  const [quoteValue, setQuoteValue] = useState(lead.quote_value ?? '')
   const [closureProbability, setClosureProbability] = useState(lead.closure_probability ?? '')
   const [estimatedCloseDate, setEstimatedCloseDate] = useState(lead.estimated_close_date ?? '')
   const [saving, setSaving] = useState(false)
@@ -35,20 +39,18 @@ function SalesProgressSection({ lead, products, rfq, deskQuote = null, onSaved }
     setError(null)
     setSavedAt(null)
 
-    // quote_value is sent only when the rep actually changed it, and never
-    // once the desk owns it. Re-sending the value this form was opened with
-    // would quietly overwrite a desk quote that landed while the page was
-    // open — the form can't know about it until it reloads.
-    const nextQuoteValue = quoteValue !== '' ? Number(quoteValue) : null
-    const quoteValueChanged = nextQuoteValue !== (lead.quote_value != null ? Number(lead.quote_value) : null)
+    // Products are sent only when they changed here: re-sending the list this
+    // form opened with would undo products an RFQ Raised set while the page
+    // was open. (The database keeps product_id as a mirror of the first.)
+    const opened = leadProductIds(lead).map(Number)
+    const productsChanged = opened.length !== productIds.length || opened.some((id, i) => id !== Number(productIds[i]))
 
     const { data, error } = await supabase
       .from('leads')
       .update({
-        product_id: productId || null,
+        ...(productsChanged ? { product_ids: productIds } : {}),
         quote_sent: quoteSent,
         quote_sent_at: quoteSent ? quoteSentAt || null : null,
-        ...(!deskQuote && quoteValueChanged ? { quote_value: nextQuoteValue } : {}),
         closure_probability: closureProbability !== '' ? Number(closureProbability) : null,
         estimated_close_date: estimatedCloseDate || null,
       })
@@ -72,6 +74,17 @@ function SalesProgressSection({ lead, products, rfq, deskQuote = null, onSaved }
   // never logged as an activity). A revised line shows only the LATEST
   // revision, not every one — the point is "where does this RFQ stand
   // today", and the full history is right below in the activity timeline.
+  // The latest desk quote's split, "Tostem ₹6L · IN16 ₹4L" — only when there
+  // is one to show (a single-product quote needs no split line).
+  const byId = productsById(products)
+  const lines = Array.isArray(lead.quote_lines) ? lead.quote_lines : []
+  const quoteSplit =
+    lines.length > 1
+      ? lines
+          .map((l) => `${byId.get(Number(l.product_id))?.name ?? 'Product'} ${formatCurrencyCompact(Number(l.value))}`)
+          .join(' · ')
+      : null
+
   const freshLabel = formatDateShort(rfq?.freshAt)
   const revisedLabel = formatDateShort(rfq?.revisedAt)
 
@@ -110,42 +123,28 @@ function SalesProgressSection({ lead, products, rfq, deskQuote = null, onSaved }
           .vip-section-split's hairline rule rather than headings — four
           labels would cost more height than they buy on a phone, where this
           card opens as a full-screen panel. */}
-      <label className="vip-field">
-        Product
-        <select className="vip-select" value={productId} onChange={(e) => setProductId(e.target.value)}>
-          <option value="">— Not specified —</option>
-          {products.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-              {p.category ? ` (${p.category})` : ''}
-            </option>
-          ))}
-        </select>
-      </label>
+      <ProductPicker
+        value={productIds}
+        onChange={setProductIds}
+        products={products}
+        hint="Pick every product this lead is for. The RFQ Raised form edits the same list."
+      />
 
       <div className="vip-section-split vip-stack-s">{rfqSummary}</div>
 
       <div className="vip-section-split vip-stack-s">
-        {deskQuote ? (
-          <div className="vip-kv-row">
-            <span>Quote value</span>
-            <b>
-              {formatCurrency(lead.quote_value ?? deskQuote.quote_value)}
-              <span className="vip-field-hint"> · from Lixil quote {deskQuote.quote_ref}</span>
-            </b>
-          </div>
-        ) : (
-          <label className="vip-field">
-            Quote value
-            <NumPadInput
-              variant="decimal"
-              label="Quote value"
-              type="number"
-              step="0.01"
-              value={quoteValue}
-              onChange={(e) => setQuoteValue(e.target.value)}
-            />
-          </label>
+        <div className="vip-kv-row">
+          <span>Quote value</span>
+          <b>
+            {lead.quote_value != null || deskQuote ? formatCurrency(lead.quote_value ?? deskQuote.quote_value) : '—'}
+            {deskQuote && <span className="vip-field-hint"> · from Lixil quote {deskQuote.quote_ref}</span>}
+          </b>
+        </div>
+        {quoteSplit && (
+          <div className="vip-field-hint">{quoteSplit}</div>
+        )}
+        {!deskQuote && lead.quote_value == null && (
+          <span className="vip-field-hint">Comes from the RFQ desk once Lixil's quote is in.</span>
         )}
 
         <label className="vip-check">

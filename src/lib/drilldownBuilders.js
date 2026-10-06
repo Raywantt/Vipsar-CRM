@@ -210,9 +210,11 @@ export function buildBookedPanel({
   // their names, sources and offices are not, and a popup drawn without them
   // would print "Lead #1205" and "Unassigned" as though that were the answer.
   leadsReady = true,
+  // The products lookup — names for a lead's product ids (By product, Product).
+  products = [],
 }) {
   const head = buildOrderValueAttainPanel({ employees, targets, wonStageHistory, range, employeeId, rangeLabel, scopeLabel, canCancelTarget })
-  const all = closedDeals({ wonStageHistory, breakdownLeads, employees })
+  const all = closedDeals({ wonStageHistory, breakdownLeads, employees, products })
   const deals = dealsIn(all, range)
   const previousDeals = previous ? dealsIn(all, previous.range) : null
   const roster = compareExecs ? employees : []
@@ -1763,13 +1765,20 @@ const CATEGORY_PALETTE = ['#0f6b6b', '#2f5878', '#5a4287', '#7a6413', '#9aa5a6',
 // compact card itself groups — same numbers, just the rows the card capped.
 export function buildCategoryMixPanel({ breakdownLeads, getCategory, eyebrow, title, unit }) {
   const counts = new Map()
+  // getCategory may return several { category } entries for one lead (a
+  // lead's products) — it then counts under each, like the card.
+  let multi = false
   breakdownLeads.forEach((lead) => {
-    const cat = getCategory(lead)
-    if (!counts.has(cat)) counts.set(cat, { count: 0, won: 0, value: 0 })
-    const entry = counts.get(cat)
-    entry.count += 1
-    entry.value += Number(lead.order_value ?? 0)
-    if ((lead.current_stage ?? 'calling') === 'won') entry.won += 1
+    const got = getCategory(lead)
+    const cats = Array.isArray(got) ? got.map((e) => e.category) : [got]
+    if (cats.length > 1) multi = true
+    cats.forEach((cat) => {
+      if (!counts.has(cat)) counts.set(cat, { count: 0, won: 0, value: 0 })
+      const entry = counts.get(cat)
+      entry.count += 1
+      entry.value += Number(lead.order_value ?? 0)
+      if ((lead.current_stage ?? 'calling') === 'won') entry.won += 1
+    })
   })
   const total = breakdownLeads.length
   const sorted = [...counts.entries()].sort((a, b) => b[1].count - a[1].count)
@@ -1791,7 +1800,9 @@ export function buildCategoryMixPanel({ breakdownLeads, getCategory, eyebrow, ti
     eyebrow,
     title,
     value: String(total),
-    note: `${total} leads in the current pipeline, grouped by ${unit}. Conversion is won ÷ total for that bucket.`,
+    note: `${total} leads in the current pipeline, grouped by ${unit}. Conversion is won ÷ total for that bucket.${
+      multi ? ` A lead with several ${unit}s counts under each, so the shares add up to more than 100%.` : ''
+    }`,
     mixTotal: String(total),
     mixUnit: unit.toUpperCase(),
     mixRows,

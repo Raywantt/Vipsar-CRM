@@ -5,7 +5,7 @@ import RfqEstimationActions from './RfqEstimationActions'
 import RfqWithdrawControl from './RfqWithdrawControl'
 import { errorMessage } from '../lib/errorMessage'
 import { canEstimateRfqs, canReviewRfqs, isRfqDeskRole } from '../lib/roles'
-import { formatDateShort } from '../lib/format'
+import { formatCurrencyCompact, formatDateShort } from '../lib/format'
 import { TONE_GOOD, TONE_GOOD_SOFT, TONE_MID, TONE_NEUTRAL, TONE_NEUTRAL_SOFT, TONE_WARN_INK, TONE_WARN_SOFT } from '../lib/statusColors'
 import {
   RFQ_STATUS,
@@ -18,9 +18,10 @@ import {
   rfqStatusLabel,
   rfqStepSince,
   daysAgoLabel,
-  segmentsLabel,
+  rfqProductsLabel,
   sortRfqsNewestFirst,
 } from '../lib/rfqDesk'
+import { useProductMap } from '../hooks/useProductMap'
 import { markQuoteSentToClient, startPriceRevision } from '../lib/rfqQueries'
 
 // Lead Detail's RFQ card (RFQ-DESK.md Step 3, owner's placement 2026-10-06:
@@ -182,6 +183,9 @@ function RfqRow({
   const [confirmingRevision, setConfirmingRevision] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const productMap = useProductMap()
+  // Lixil's quote by product (rfq_record_quote_lines), when it has more than one.
+  const quoteLines = Array.isArray(rfq.quote_lines) && rfq.quote_lines.length > 1 ? rfq.quote_lines : null
 
   const tone = STATUS_TONE[rfq.status] ?? OPEN_TONE
   const age = daysAgoLabel(rfqStepSince(rfq))
@@ -194,7 +198,7 @@ function RfqRow({
       ? `Started ${shortDay(rfq.raised_at) ?? ''}${rfq.logged_by?.name ? ` by ${rfq.logged_by.name}` : ''}`
       : `Raised ${shortDay(rfq.raised_at) ?? ''}${raisedBy ? ` by ${raisedBy}` : ''}${loggedBySomeoneElse ? ` (logged by ${loggedBySomeoneElse})` : ''}`,
     rfq.window_count ? `${rfq.window_count} ${rfq.window_count === 1 ? 'window' : 'windows'}` : null,
-    segmentsLabel(rfq.segments),
+    rfqProductsLabel(rfq, productMap),
   ].filter(Boolean)
 
   // Estimation's actions on this row (Step 5) — the Estimation Executive, or
@@ -274,6 +278,13 @@ function RfqRow({
         <div className="vip-rfq-quote">
           <span className="vip-rfq-quote-value">{quoteSummary(rfq)}</span>
           <span className="vip-rfq-facts">without GST</span>
+          {quoteLines && (
+            <span className="vip-rfq-facts">
+              {quoteLines
+                .map((l) => `${productMap.get(Number(l.product_id))?.name ?? 'Product'} ${formatCurrencyCompact(Number(l.value))}`)
+                .join(' · ')}
+            </span>
+          )}
           {/* Sent = marked sent on or after the day THIS quote came in. A
               revision or price revision is a new figure: an earlier quote's
               "sent" date doesn't cover it, and Needs Attention keeps it under

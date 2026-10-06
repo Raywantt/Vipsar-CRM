@@ -22,7 +22,7 @@ import { parseTimestamp } from './dbTime'
 import { formatCurrencyCompact } from './format'
 import { territoryLabel } from './territoryOptions'
 import { getInitials } from './initials'
-import { RFQ_STATUS, quoteSummary, revisionLabel, rfqLeadName, rfqStatusLabel, segmentsLabel } from './rfqDesk'
+import { RFQ_STATUS, quoteSummary, revisionLabel, rfqLeadName, rfqProductsLabel, rfqStatusLabel } from './rfqDesk'
 import { inRange, median, shareLabel, slowestTenth, stepSpan, turnaroundLabel, workingMs } from './rfqDeskReport'
 
 const isPriceRevision = (r) => r?.kind === 'price_revision'
@@ -399,7 +399,8 @@ const SORT_LABELS = { latest: 'Latest', oldest: 'Oldest', slowest: 'Slowest' }
 
 // `focus` — a key of FOCI. `rows` — every RFQ the page holds for the period
 // (fetchRfqDeskPeriod, or the desk's own decisions read). `ctx` — { range,
-// rangeLabel, employeeId, approvedCount }. `initial` — filters to open on
+// rangeLabel, employeeId, approvedCount, productMap — useProductMap's, which
+// names the RFQ's products }. `initial` — filters to open on
 // ({ exec, office, kind, step }, string keys). `eyebrow` — what the page calls
 // the period ("October 2026", "This month").
 export function buildRfqPanel({ focus, rows, ctx, initial = {}, eyebrow }) {
@@ -450,7 +451,7 @@ export function buildRfqPanel({ focus, rows, ctx, initial = {}, eyebrow }) {
         status: statusWords(r),
         meta: f.meta
           ? f.meta(r)
-          : [r.window_count ? `${r.window_count} windows` : null, segmentsLabel(r.segments)].filter(Boolean).join(' · '),
+          : [r.window_count ? `${r.window_count} windows` : null, rfqProductsLabel(r, ctx.productMap)].filter(Boolean).join(' · '),
         approver: focus === 'bounced' ? firstName(r.approver) : null,
         note: r.status === RFQ_STATUS.SENT_BACK ? r.send_back_note?.trim() || null : null,
       })),

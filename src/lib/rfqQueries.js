@@ -14,7 +14,7 @@ import { todayISO } from './followupDates'
 // every RFQ of its own test kind, everyone else the RFQs on leads they can
 // already see.
 export const RFQ_SELECT =
-  'id, lead_id, activity_id, kind, revision, status, is_test, window_count, segments, raised_at, ' +
+  'id, lead_id, activity_id, kind, revision, status, is_test, window_count, segments, product_ids, quote_lines, raised_at, ' +
   'raised_by_employee_id, logged_by_employee_id, approved_at, approved_by, sent_back_at, sent_back_from, ' +
   'send_back_note, lixil_raised_at, quote_received_at, quote_date, quote_ref, quote_value, withdrawn_at, ' +
   'raised_by:employees!raised_by_employee_id(name), logged_by:employees!logged_by_employee_id(name), ' +
@@ -126,6 +126,20 @@ export function recordRfqQuote(rfqId, { ref, value, date }) {
     p_rfq_id: rfqId,
     p_quote_ref: ref.trim(),
     p_quote_value: Number(value),
+    p_quote_date: date || null,
+  })
+}
+
+// rfq_record_quote_lines(): the quote PER PRODUCT (owner's ruling, 2026-10-06 —
+// Schema/migration_lead_products.sql). `lines` is [{ product_id, value }], one
+// per product on the RFQ (product_id null for an RFQ with none); the RFQ's
+// quote value is their sum and the split goes onto the RFQ and the lead
+// (quote_lines). Every other rule is rfq_record_quote's, which it calls.
+export function recordRfqQuoteLines(rfqId, { ref, lines, date }) {
+  return supabase.rpc('rfq_record_quote_lines', {
+    p_rfq_id: rfqId,
+    p_quote_ref: ref.trim(),
+    p_lines: lines.map((l) => ({ product_id: l.product_id, value: Number(l.value) })),
     p_quote_date: date || null,
   })
 }

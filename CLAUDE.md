@@ -2985,12 +2985,33 @@ the send-back form there, not in a copy. Both strips are the Day Review's
 
 **Product segments = the product portfolio (owner's ruling, 2026-10-06).** The
 RFQ Raised form's "Product segment" chips are VIPSAR's ten products —
-`RFQ_SEGMENT_OPTIONS`, alphabetical with Others last, the same order as every
-product picker (`productOrder.js`'s `compareProducts`, which `fetchProducts`
-sorts by; `productOrder.test.js` pins the two lists name for name). Windows
+`RFQ_SEGMENT_OPTIONS`, in the owner's order (Tostem, IN16, GIESTA, Noki, Sky
+Light, Wrapping Bars, StoneLam, VOX, PremiAL, Others), the same order as every
+product picker: `products.sort_order` (`migration_products_order.sql`), which
+`fetchProducts` orders by (`productOrder.js`'s `compareProducts` breaks ties;
+`productOrder.test.js` pins the two lists name for name). Windows
 and Facade are gone (`migration_products_portfolio*.sql`). The products
 themselves are rows in `products`, never a list in code — every screen that
 names a product reads that table.
+
+**Several products per lead, quoted per product (owner's rulings,
+2026-10-06 — `migration_lead_products.sql`).** A lead has a LIST of products,
+`leads.product_ids`, edited by ONE component, `ProductPicker`, on both Lead
+Detail's Sales progress and the RFQ Raised form ("one column"): the form opens
+on the lead's list and saving sets it; the RFQ keeps a frozen copy
+(`rfqs.product_ids`, shown by `rfqProductsLabel`). The Estimation Executive's
+Quote received takes **one value per product** (all required,
+`rfq_record_quote_lines`); their sum is the quote value, the split is
+`quote_lines` on the RFQ and the lead. **Nobody types a quote value any more**
+— Sales progress shows it read-only with the split. Every by-product figure
+reads `productShares.js` (`leads_category_breakdown()` is the same rule): one
+product → the whole value; several → each its quote line scaled to the deal
+value (a won deal's order split in the quote's proportions); what can't be
+placed is "Not split yet", never guessed. A lead counts under EACH of its
+products (Leads by product, its drill-down, Orders booked's Product filter and
+By product), so those rows can total more leads than exist — the card's Total
+counts each lead once and a footnote says so. `useProductMap()` is the one way
+to name a product id. `productShares.test.js` pins the rule.
 
 **Step 6 — reporting** (live 2026-10-06; RFQ-DESK.md §3 "Step 6 rulings").
 **An RFQ counts toward the exec's RFQ Raised target once per lead, on the day
@@ -3385,6 +3406,26 @@ it leaves orphaned Auth logins to clean up by hand; scripting that risks
 removing your own login.
 
 ### Outstanding migrations
+
+* **`migration_lead_products.sql`** (2026-10-06, **run and verified live** —
+  `verify_lead_products.sql` 9 PASS, 0 FAIL; live trial on test data. Was: run BEFORE
+  the deploy, after `migration_products_order.sql`**) — several products per
+  lead. Adds `leads.product_ids` (THE column; `product_id` becomes a
+  trigger-kept mirror of the first, `sync_lead_products`, so the old build and
+  older SQL readers stay right), `leads.quote_lines` / `rfqs.quote_lines` (the
+  latest desk quote's split per product), `rfqs.product_ids` (each RFQ's frozen
+  copy, from `activities.rfq_product_ids`), `rfq_record_quote_lines()` (one
+  value per product, sum = quote value), and re-creates
+  `leads_category_breakdown()` (a lead under EACH product, value by the split,
+  'Not split yet' for the rest) and `log_lead_changes()`. Check with
+  `Schema/verify_lead_products.sql`. **Re-running `migration_bdm_handoff.sql`,
+  `migration_lead_change_log.sql` or `migration_rfq_desk.sql` puts the
+  single-product versions back — re-run this file after.**
+
+* **`migration_products_order.sql`** (2026-10-06, **run live**; was: run BEFORE
+  the deploy**) — adds `products.sort_order` with the owner's order and renames
+  Giesta → GIESTA, Wrapping bars → Wrapping Bars. The app orders by the column,
+  so a build without it shows empty product pickers.
 
 * **`migration_products_portfolio.sql`** (PART A, 2026-10-06, **not yet run —
   run BEFORE the deploy**) — VIPSAR's product portfolio becomes exactly the

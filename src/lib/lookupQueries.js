@@ -21,11 +21,12 @@ export function fetchAreas() {
 // in this app now is: it costs nothing extra under the cap, and it means "is
 // this query safe" is never again a judgment call made table-by-table.
 // VIPSAR's product portfolio (the owner's ten, 2026-10-06 —
-// Schema/migration_products_portfolio.sql), in the picker's order
-// (productOrder.js: alphabetical, Others last).
+// Schema/migration_products_portfolio.sql), in the owner's order
+// (products.sort_order — Schema/migration_products_order.sql, which must run
+// before a build that selects it; productOrder.js breaks ties).
 export async function fetchProducts() {
   const res = await fetchAllRows(() =>
-    supabase.from('products').select('id, name, category', { count: 'exact' }).order('name')
+    supabase.from('products').select('id, name, category, sort_order', { count: 'exact' }).order('sort_order').order('name')
   )
   return res.data ? { ...res, data: [...res.data].sort(compareProducts) } : res
 }

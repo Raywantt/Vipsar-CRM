@@ -60,7 +60,7 @@ describe('product segments are one closed list on both sides', () => {
   })
 
   it('labels a combination in list order, joined the way the sheets write it', () => {
-    expect(segmentsLabel(['tostem', 'in16'])).toBe('IN16 + Tostem')
+    expect(segmentsLabel(['in16', 'tostem'])).toBe('Tostem + IN16')
     expect(segmentsLabel(['others', 'skylight'])).toBe('Sky Light + Others')
     expect(segmentsLabel([])).toBeNull()
   })

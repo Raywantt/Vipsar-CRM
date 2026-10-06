@@ -8,6 +8,8 @@ import {
 } from './dashboardQueries'
 import { MIN_QUERY_LENGTH } from './searchQueries'
 import { attachFirms, PARTY_COLUMNS } from './partyQueries'
+import { fetchProducts } from './lookupQueries'
+import { productsById } from './productShares'
 
 // All Leads' "Download Excel" (the owner, and anyone the owner has switched it
 // on for — roles.js's canExportLeads). Reads EVERY lead matching the filters on
@@ -44,7 +46,7 @@ function exportSelect(siteStage) {
     'referrer_employee:employees!referred_by_employee_id(name)',
     'bdm:employees!bdm_employee_id(name)',
     'employees!owner_employee_id(name)',
-    'products!product_id(name)',
+    'product_ids, quote_lines',
     leadsListSitesEmbed(siteStage, EXPORT_SITE_COLUMNS),
   ].join(', ')
 }
@@ -181,7 +183,7 @@ async function fetchFirms(leads) {
 // so the panel can say what it's actually waiting on.
 export async function fetchExportExtras(leads, needs, onStep = () => {}) {
   const ids = leads.map((l) => l.id)
-  const extras = { lastTouch: new Map(), remarks: new Map(), notes: new Map(), firms: new Map(), rfqs: new Map() }
+  const extras = { lastTouch: new Map(), remarks: new Map(), notes: new Map(), firms: new Map(), rfqs: new Map(), products: new Map() }
   const failed = []
 
   const steps = [
@@ -190,6 +192,10 @@ export async function fetchExportExtras(leads, needs, onStep = () => {}) {
     ['remarks', 'latest remarks', () => fetchLatestRemarks(ids)],
     ['notes', 'activity notes', () => fetchLatestActivityNotes(ids)],
     ['rfqs', 'RFQ desk status', () => fetchDeskRfqs(ids)],
+    ['products', 'product names', async () => {
+      const { data, error } = await fetchProducts()
+      return error ? { data: null, error } : { data: productsById(data), error: null }
+    }],
   ]
   for (const [key, label, run] of steps) {
     if (!needs[key] || ids.length === 0) continue

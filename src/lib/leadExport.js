@@ -20,6 +20,7 @@ import { formatDateShort } from './format'
 import { isPoolLead, sourcingArchitect } from './poolLeads'
 import { partyTypeLabel, SITE_CONTACT_ROLE_LABELS } from './partyTypeOptions'
 import { latestDeskQuote, latestDeskRfqByLead, quoteSentToClient, revisionLabel, rfqStatusLabel, RFQ_STATUS } from './rfqDesk'
+import { leadProductIds, productNames, productsOf } from './productShares'
 
 // ---- Who's who on a lead ----------------------------------------------------
 
@@ -84,6 +85,16 @@ export function deskRfqStatus(lead, rfqs) {
 // lead's quote value now comes from (latestDeskQuote, as Sales progress shows).
 export function deskQuoteRef(rfqs) {
   return latestDeskQuote(rfqs)?.quote_ref?.trim() || null
+}
+
+function quoteByProduct(lead, byId) {
+  const lines = Array.isArray(lead.quote_lines) ? lead.quote_lines : []
+  if (lines.length < 2) return null
+  const order = productsOf(lines.map((l) => l.product_id), byId).map((p) => p.id)
+  return [...lines]
+    .sort((a, b) => order.indexOf(Number(a.product_id)) - order.indexOf(Number(b.product_id)))
+    .map((l) => `${byId?.get(Number(l.product_id))?.name ?? 'Product'} ₹${Number(l.value).toLocaleString('en-IN')}`)
+    .join('; ')
 }
 
 function trimmed(value) {
@@ -199,9 +210,17 @@ export const EXPORT_COLUMNS = [
   { id: 'source', group: 'status', label: 'Source', kind: 'text', width: 18, isDefault: true, get: (l) => (l.source_type ? SOURCE_TYPE_LABELS[l.source_type] ?? l.source_type : null) },
   { id: 'office', group: 'status', label: 'Office', kind: 'text', width: 12, get: (l) => (l.office_territory ? territoryLabel(l.office_territory) : null) },
   { id: 'bdm', group: 'status', label: 'Brought in by (BDM)', kind: 'text', width: 20, get: (l) => trimmed(l.bdm?.name) },
-  { id: 'product', group: 'status', label: 'Product', kind: 'text', width: 14, get: (l) => trimmed(l.products?.name) },
+  // A lead's products (several allowed — owner's ruling 2026-10-06), "; "
+  // between them, in the owner's order.
+  { id: 'product', group: 'status', label: 'Product', kind: 'text', width: 22, needs: 'products', get: (l, x) => productNames(leadProductIds(l), x.products, '; ') },
 
   { id: 'quote_value', group: 'deal', label: 'Quote value', kind: 'money', width: 14, get: (l) => l.quote_value },
+  // The latest desk quote's split, "Tostem ₹6,00,000; IN16 ₹4,00,000" — blank
+  // when the quote isn't split by product.
+  {
+    id: 'quote_by_product', group: 'deal', label: 'Quote by product', kind: 'text', width: 34, needs: 'products',
+    get: (l, x) => quoteByProduct(l, x.products),
+  },
   { id: 'order_value', group: 'deal', label: 'Order value', kind: 'money', width: 14, get: (l) => l.order_value },
   { id: 'probability', group: 'deal', label: 'Probability', kind: 'percent', width: 11, get: (l) => l.closure_probability },
   { id: 'expected_close', group: 'deal', label: 'Expected close', kind: 'date', width: 14, get: (l) => calendarDay(l.estimated_close_date) },
@@ -254,7 +273,7 @@ export function normaliseColumnIds(ids) {
 
 // Which extra reads the chosen columns need (fetchExportExtras' `needs`).
 export function extrasNeededFor(columnIds) {
-  const needs = { firms: false, lastTouch: false, remarks: false, notes: false, rfqs: false }
+  const needs = { firms: false, lastTouch: false, remarks: false, notes: false, rfqs: false, products: false }
   for (const id of columnIds) {
     const need = COLUMNS_BY_ID.get(id)?.needs
     if (need) needs[need] = true

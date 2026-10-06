@@ -27,7 +27,13 @@ import { dealValueFor } from '../lib/pipelineValue'
 // behaviour whenever `aggregated` is undefined (migration not run yet, or
 // a role fastCategoryBreakdown deliberately withholds it from — see that
 // variable's own comment in Dashboard.jsx).
-function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorStages, maxRows, onOpenPanel, aggregated }) {
+//
+// getCategory may return ONE category (a string) or SEVERAL — an array of
+// { category, value } — for a lead that belongs to more than one bucket (a
+// lead's products, owner's ruling 2026-10-06). The Total row then counts each
+// lead once: from `leads`, or from `totals` ({ count, value }) when the rows
+// are `aggregated` and would over-count. `footnote` says so under the total.
+function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorStages, maxRows, onOpenPanel, aggregated, totals = null, footnote = null }) {
   const map = new Map()
   if (categoryOrder) {
     categoryOrder.forEach((c) => map.set(c, { count: 0, dealValue: 0 }))
@@ -42,19 +48,24 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
     })
   } else {
     leads.forEach((lead) => {
-      const cat = getCategory(lead)
-      if (!map.has(cat)) map.set(cat, { count: 0, dealValue: 0 })
-      const entry = map.get(cat)
-      entry.count += 1
-      entry.dealValue += dealValueFor(lead)
+      const got = getCategory(lead)
+      const entries = Array.isArray(got) ? got : [{ category: got, value: dealValueFor(lead) }]
+      entries.forEach(({ category: cat, value }) => {
+        if (!map.has(cat)) map.set(cat, { count: 0, dealValue: 0 })
+        const entry = map.get(cat)
+        entry.count += 1
+        entry.dealValue += value
+      })
     })
   }
 
   const rows = categoryOrder ? [...map.entries()] : [...map.entries()].sort((a, b) => b[1].count - a[1].count)
   const visibleRows = maxRows ? rows.slice(0, maxRows) : rows
   const remaining = rows.length - visibleRows.length
-  const totalCount = aggregated ? aggregated.reduce((s, r) => s + r.count, 0) : leads.length
-  const totalDealValue = aggregated ? aggregated.reduce((s, r) => s + r.value, 0) : leads.reduce((s, l) => s + dealValueFor(l), 0)
+  const totalCount = aggregated ? totals?.count ?? aggregated.reduce((s, r) => s + r.count, 0) : leads.length
+  const totalDealValue = aggregated
+    ? totals?.value ?? aggregated.reduce((s, r) => s + r.value, 0)
+    : leads.reduce((s, l) => s + dealValueFor(l), 0)
   const isEmpty = aggregated ? totalCount === 0 : leads.length === 0
 
   return (
@@ -97,6 +108,7 @@ function LeadsByCategoryCard({ title, leads, getCategory, categoryOrder, colorSt
               <div style={{ width: 48, textAlign: 'right' }}>{formatCurrencyCompact(totalDealValue)}</div>
             </div>
           </div>
+          {footnote && <p className="vip-field-hint">{footnote}</p>}
         </>
       )}
     </div>

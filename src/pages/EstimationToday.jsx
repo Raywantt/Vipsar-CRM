@@ -6,6 +6,7 @@ import EstimationQueues from '../components/EstimationQueues'
 import { DayKpiStrip } from '../components/DayReviewHeader'
 import DrilldownPanel from '../components/DrilldownPanel'
 import { buildRfqPanel } from '../lib/rfqDeskPanels'
+import { useProductMap } from '../hooks/useProductMap'
 import { fetchMyEstimationDecisions } from '../lib/rfqQueries'
 import { estimationMonthStats, monthStart } from '../lib/rfqDesk'
 
@@ -35,6 +36,7 @@ function EstimationToday() {
 // Lixil time" reads the popup's own figure (working time, Sundays out).
 function EstimationMonthStrip({ employee }) {
   const [panel, setPanel] = useState(null)
+  const productMap = useProductMap()
   const now = new Date()
   const sinceISO = monthStart(now).toISOString()
   // The key carries the month, so the strip starts a new month on its own.
@@ -55,7 +57,7 @@ function EstimationMonthStrip({ employee }) {
   if (!stats) return null
 
   const month = now.toLocaleDateString('en-IN', { month: 'long' })
-  const ctx = { range: { start: new Date(sinceISO), end: now }, rangeLabel: `in ${month}`, employeeId: employee?.id }
+  const ctx = { range: { start: new Date(sinceISO), end: now }, rangeLabel: `in ${month}`, employeeId: employee?.id, productMap }
   const open = (focus) => () => setPanel(buildRfqPanel({ focus, rows, ctx, eyebrow: `${month} · your estimation` }))
   const lixil = buildRfqPanel({ focus: 'myLixilTime', rows, ctx, eyebrow: '' })
   return (

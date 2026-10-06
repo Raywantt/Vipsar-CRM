@@ -16,6 +16,12 @@
 // booked figure here uses. It is not "whoever pressed Won": an owner or a
 // manager can mark a rep's lead won, and crediting them would put this popup
 // out of step with the target it is meant to explain.
+//
+// PRODUCTS (owner's rulings, 2026-10-06): a lead can have several products. A
+// deal then belongs to each of them, and its ORDER value is split in the
+// latest quote's proportions (productShares.js) — "By product" sums those
+// shares, the Product filter keeps a deal holding the chosen product (whole).
+// `products` is the products lookup, for the names.
 import { leadDisplayName } from './leadName'
 import { parseTimestamp } from './dbTime'
 import { getInitials } from './initials'
@@ -24,6 +30,7 @@ import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from './sourceTypeOptions'
 import { TERRITORY_OPTIONS, territoryLabel } from './territoryOptions'
 import { formatCurrencyCompact } from './format'
 import { changeVs } from './periodChange'
+import { NOT_SPLIT, productShares, productsById } from './productShares'
 
 const LAKH = 100000
 
@@ -72,8 +79,9 @@ function formatDealDate(raw) {
 // newest-first, so the first row seen per lead is that one; a row whose embedded
 // `leads` is null is one RLS hid, and is skipped. Not filtered by period: the
 // caller narrows with dealsIn, which is also how the previous period is had.
-export function closedDeals({ wonStageHistory, breakdownLeads, employees = [] }) {
+export function closedDeals({ wonStageHistory, breakdownLeads, employees = [], products = [] }) {
   const leadById = new Map(breakdownLeads.map((l) => [l.id, l]))
+  const productById = productsById(products)
   const employeeById = new Map(employees.map((e) => [e.id, e]))
   const latest = new Map()
   wonStageHistory.forEach((row) => {
@@ -103,11 +111,25 @@ export function closedDeals({ wonStageHistory, breakdownLeads, employees = [] })
       name: lead ? leadDisplayName(lead) : `Lead #${row.lead_id}`,
       source: lead?.source_type ?? null,
       territory: lead?.office_territory ?? null,
-      product: lead?.products?.name ?? null,
+      // [{ key: name, value: share of the order value }] — empty when the lead
+      // has no product; 'Not split yet' carries what the split can't place.
+      products: lead ? productParts(lead, value, productById) : [],
       bdmId: lead?.bdm_employee_id ?? row.leads.bdm_employee_id ?? null,
       importDate: imported && IMPORT_STAMP.test(String(row.changed_at)),
     }
   })
+}
+
+function productParts(lead, value, byId) {
+  const { shares, unsplit } = productShares(lead, value)
+  const parts = shares.map((x) => ({ key: byId.get(Number(x.productId))?.name ?? `Product #${x.productId}`, value: x.value }))
+  if (unsplit > 0) parts.push({ key: NOT_SPLIT, value: unsplit })
+  return parts
+}
+
+// A deal's product keys (NONE when it has none) — what the filter matches.
+function productKeysOf(d) {
+  return d.products?.length ? d.products.map((p) => p.key) : [NONE]
 }
 
 export function dealsIn(deals, range) {
@@ -124,7 +146,8 @@ const DIMENSIONS = {
   owner: (d) => String(d.ownerId),
   source: (d) => d.source ?? NONE,
   size: (d) => d.band ?? NONE,
-  product: (d) => d.product ?? NONE,
+  // Several per deal: a deal matches the Product filter if it holds that product.
+  product: (d) => productKeysOf(d),
 }
 
 // `skip` lets a breakdown ignore its OWN dimension, so picking Scanning doesn't
@@ -132,7 +155,11 @@ const DIMENSIONS = {
 // exec" to a single row — the section that was meant to compare would stop
 // comparing.
 function matches(deal, filters, skip) {
-  return Object.keys(DIMENSIONS).every((k) => k === skip || !filters[k] || DIMENSIONS[k](deal) === filters[k])
+  return Object.keys(DIMENSIONS).every((k) => {
+    if (k === skip || !filters[k]) return true
+    const got = DIMENSIONS[k](deal)
+    return Array.isArray(got) ? got.includes(filters[k]) : got === filters[k]
+  })
 }
 
 // What the popup offers to filter by. Options come from the UNFILTERED deals of
@@ -155,7 +182,7 @@ export function bookedFacets(deals, roster = []) {
   const sizes = DEAL_SIZE_BANDS.filter((b) => deals.some((d) => d.band === b.key)).map((b) => ({ key: b.key, label: b.label }))
 
   const productCounts = new Map()
-  deals.forEach((d) => productCounts.set(d.product ?? NONE, (productCounts.get(d.product ?? NONE) ?? 0) + 1))
+  deals.forEach((d) => productKeysOf(d).forEach((k) => productCounts.set(k, (productCounts.get(k) ?? 0) + 1)))
   const products = [...productCounts.entries()]
     .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
     .map(([key]) => ({ key, label: key === NONE ? 'Not specified' : key }))
@@ -290,13 +317,17 @@ export function computeBookedView({ deals, previousDeals, roster = [], filters, 
     activeKey: null,
   })
 
-  const productUniverse = [...new Set(deals.map((d) => d.product ?? NONE))]
+  // One part per (deal, product), valued at the deal's share for that product —
+  // so the rows add up to the deals' total.
+  const explode = (list) =>
+    list.flatMap((d) => (d.products?.length ? d.products.map((p) => ({ ...d, productKey: p.key, value: p.value })) : [{ ...d, productKey: NONE }]))
+  const productUniverse = [...new Set(explode(deals).map((d) => d.productKey))]
   const byProduct =
     productUniverse.length > 1
       ? breakdown({
-          scope: deals.filter((d) => matches(d, filters, 'product')),
+          scope: explode(deals.filter((d) => matches(d, filters, 'product'))),
           universe: productUniverse,
-          keyOf: (d) => d.product ?? NONE,
+          keyOf: (d) => d.productKey,
           labelOf: (k) => (k === NONE ? 'Not specified' : k),
           activeKey: filters.product,
         })

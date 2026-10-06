@@ -6,7 +6,9 @@ import { errorMessage } from '../lib/errorMessage'
 import { formatCurrency } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
 import { RFQ_STATUS, isRfqMovedOnError, quoteProblem, rfqRaisedDay } from '../lib/rfqDesk'
-import { raiseRfqWithLixil, recordRfqQuote, sendBackRfq } from '../lib/rfqQueries'
+import { raiseRfqWithLixil, recordRfqQuoteLines, sendBackRfq } from '../lib/rfqQueries'
+import { useProductMap } from '../hooks/useProductMap'
+import { productsOf } from '../lib/productShares'
 
 // Estimation's decisions on one RFQ (RFQ-DESK.md Step 5) — ONE implementation,
 // rendered by the Estimation Executive's lists (EstimationQueues) and by Lead
@@ -18,9 +20,12 @@ import { raiseRfqWithLixil, recordRfqQuote, sendBackRfq } from '../lib/rfqQuerie
 //                     Send back with an optional note; a PRICE REVISION can't
 //                     be sent back (rfq_send_back refuses it), so it offers
 //                     Withdraw instead, to whoever started it or the owner.
-//   with Lixil      → "Quote received": Lixil's reference, the value without
-//                     GST and the quote date (today by default). It becomes
-//                     the lead's quote value and the exec is told.
+//   with Lixil      → "Quote received": Lixil's reference, ONE VALUE PER
+//                     PRODUCT on the RFQ, without GST (owner's ruling,
+//                     2026-10-06 — all required), and the quote date (today
+//                     by default). Their sum becomes the lead's quote value,
+//                     the split its quote_lines, and the exec is told
+//                     (rfq_record_quote_lines).
 //
 // onDone(action, row) — 'raised_with_lixil' | 'sent_back' | 'withdrawn' |
 // 'quoted' — with name embeds patched in; onMovedOn(message) when the RFQ had
@@ -29,9 +34,23 @@ function RfqEstimationActions({ rfq, viewer, onDone, onMovedOn }) {
   const [mode, setMode] = useState('idle') // idle | sendingBack | quoting
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  const [quote, setQuote] = useState(() => ({ ref: '', value: '', date: todayISO() }))
+  const [quote, setQuote] = useState(() => ({ ref: '', values: {}, date: todayISO() }))
+  const productMap = useProductMap()
 
   const isPriceRevision = rfq.kind === 'price_revision'
+
+  // One amount box per product on THIS RFQ (its own frozen list), in the
+  // owner's order. An RFQ with no product takes one total ('total').
+  const lineKeys = (() => {
+    const ids = (rfq.product_ids ?? []).map(Number)
+    if (!ids.length) return ['total']
+    const ordered = productsOf(ids, productMap).map((p) => p.id)
+    return [...ordered, ...ids.filter((id) => !ordered.includes(id))]
+  })()
+  const lineLabel = (key) =>
+    key === 'total' ? 'Value without GST' : `${productMap.get(Number(key))?.name ?? `Product #${key}`} — without GST`
+  const lineValue = (key) => quote.values[key] ?? ''
+  const total = lineKeys.reduce((s, k) => s + (Number(lineValue(k)) || 0), 0)
 
   function reset() {
     setMode('idle')
@@ -64,12 +83,19 @@ function RfqEstimationActions({ rfq, viewer, onDone, onMovedOn }) {
   }
 
   function saveQuote() {
-    const problem = quoteProblem(quote, rfq, todayISO())
+    // Every product needs its own value (owner's ruling) — say which one.
+    const missing = lineKeys.find((k) => !(Number(lineValue(k)) > 0))
+    if (missing != null) {
+      setError(missing === 'total' ? 'Enter the quote value (without GST).' : `Enter the value for ${productMap.get(Number(missing))?.name ?? 'each product'}.`)
+      return
+    }
+    const problem = quoteProblem({ ref: quote.ref, value: total, date: quote.date }, rfq, todayISO())
     if (problem) {
       setError(problem)
       return
     }
-    run('quoted', () => recordRfqQuote(rfq.id, quote))
+    const lines = lineKeys.map((k) => ({ product_id: k === 'total' ? null : Number(k), value: Number(lineValue(k)) }))
+    run('quoted', () => recordRfqQuoteLines(rfq.id, { ref: quote.ref, lines, date: quote.date }))
   }
 
   if (rfq.status === RFQ_STATUS.WITH_ESTIMATION) {
@@ -125,7 +151,7 @@ function RfqEstimationActions({ rfq, viewer, onDone, onMovedOn }) {
 
   if (rfq.status !== RFQ_STATUS.WITH_LIXIL) return null
 
-  const preview = quote.value !== '' && Number(quote.value) > 0 ? formatCurrency(Number(quote.value)) : null
+  const preview = total > 0 ? formatCurrency(total) : null
 
   return (
     <div className="vip-rfq-review">
@@ -151,22 +177,30 @@ function RfqEstimationActions({ rfq, viewer, onDone, onMovedOn }) {
               disabled={busy}
             />
           </label>
-          <label className="vip-field">
-            Value without GST *
-            <NumPadInput
-              variant="decimal"
-              label="Value without GST"
-              type="number"
-              step="0.01"
-              min="0"
-              value={quote.value}
-              onChange={(e) => editQuote({ value: e.target.value })}
-              disabled={busy}
-            />
-          </label>
+          {lineKeys.map((k) => (
+            <label key={k} className="vip-field">
+              {lineLabel(k)} *
+              <NumPadInput
+                variant="decimal"
+                label={lineLabel(k)}
+                type="number"
+                step="0.01"
+                min="0"
+                value={lineValue(k)}
+                onChange={(e) => editQuote({ values: { ...quote.values, [k]: e.target.value } })}
+                disabled={busy}
+              />
+            </label>
+          ))}
           {/* Read back in rupees, so a missed or extra zero shows before it
-              becomes the lead's quote value. */}
-          {preview && <p className="vip-rfq-facts vip-rfq-quote-preview">{preview} without GST</p>}
+              becomes the lead's quote value — the TOTAL, which is what the
+              lead's quote value becomes. */}
+          {preview && (
+            <p className="vip-rfq-facts vip-rfq-quote-preview">
+              {lineKeys.length > 1 ? 'Total ' : ''}
+              {preview} without GST
+            </p>
+          )}
           <label className="vip-field">
             Quote date
             <input
@@ -180,7 +214,7 @@ function RfqEstimationActions({ rfq, viewer, onDone, onMovedOn }) {
             />
           </label>
           <p className="vip-rfq-facts">
-            Becomes the lead's quote value; {rfq.raised_by?.name ?? 'the exec'} is told the quote is in.
+            {lineKeys.length > 1 ? 'The total becomes' : 'Becomes'} the lead's quote value; {rfq.raised_by?.name ?? 'the exec'} is told the quote is in.
           </p>
           <div className="vip-btn-row vip-rfq-review-row">
             <button type="button" className="vip-btn vip-btn-sm vip-rfq-action" disabled={busy} onClick={saveQuote}>

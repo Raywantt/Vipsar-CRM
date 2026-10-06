@@ -8,6 +8,7 @@
 // Schema/migration_rfq_desk.sql, which refuses anything these let through.
 
 import { parseTimestamp } from './dbTime'
+import { productNames } from './productShares'
 import { formatCurrency } from './format'
 import { toISODate } from './followupDates'
 import { canEstimateRfqs } from './roles'
@@ -22,19 +23,19 @@ import { leadDisplayName } from './leadName'
 // owner's (RFQ-DESK.md §3 Step 1 rulings).
 //
 // Since 2026-10-06 it is VIPSAR's product portfolio (owner's ruling) — the same
-// ten as the products table, alphabetical with Others last (owner's pick).
-// The old Windows / Facade values were moved off by
-// Schema/migration_products_portfolio_part_b.sql.
+// ten as the products table, in the owner's order (products.sort_order;
+// productOrder.test.js pins the two lists name for name). The old Windows /
+// Facade values were moved off by Schema/migration_products_portfolio_part_b.sql.
 export const RFQ_SEGMENT_OPTIONS = [
-  { value: 'giesta', label: 'Giesta' },
-  { value: 'in16', label: 'IN16' },
-  { value: 'noki', label: 'Noki' },
-  { value: 'premial', label: 'PremiAL' },
-  { value: 'skylight', label: 'Sky Light' },
-  { value: 'stonelam', label: 'StoneLam' },
   { value: 'tostem', label: 'Tostem' },
+  { value: 'in16', label: 'IN16' },
+  { value: 'giesta', label: 'GIESTA' },
+  { value: 'noki', label: 'Noki' },
+  { value: 'skylight', label: 'Sky Light' },
+  { value: 'wrapping_bars', label: 'Wrapping Bars' },
+  { value: 'stonelam', label: 'StoneLam' },
   { value: 'vox', label: 'VOX' },
-  { value: 'wrapping_bars', label: 'Wrapping bars' },
+  { value: 'premial', label: 'PremiAL' },
   { value: 'others', label: 'Others' },
 ]
 
@@ -44,7 +45,15 @@ export function segmentLabel(value) {
   return SEGMENT_LABELS[value] ?? value
 }
 
-// "IN16 + Tostem" — the way Harpreet's sheet already writes a combination.
+// What an RFQ was raised for, by name: its own frozen product list
+// (rfqs.product_ids — Schema/migration_lead_products.sql), in the owner's
+// order; an RFQ from before that has only segment keys, named the old way.
+// `byId` is useProductMap()'s map. Null when there's nothing to say.
+export function rfqProductsLabel(rfq, byId) {
+  return productNames(rfq?.product_ids, byId) ?? segmentsLabel(rfq?.segments)
+}
+
+// "Tostem + IN16" — the way Harpreet's sheet already writes a combination.
 // Kept in the option list's order, not the order they were tapped.
 export function segmentsLabel(segments) {
   if (!segments?.length) return null

@@ -22,7 +22,7 @@ const LOOKUP_CAP = 150
 const RESULT_CAP = 25
 
 const LEAD_COLUMNS =
-  'id, current_stage, source_type, party_id, parties!party_id(name, party_type), sites(id, nickname, locality, house_no, site_stage)'
+  'id, current_stage, source_type, party_id, product_ids, parties!party_id(name, party_type), sites(id, nickname, locality, house_no, site_stage)'
 
 // The lead's own name (src/lib/leadName.js) plus whatever site descriptor the
 // name didn't already use, so a lead identified by its address doesn't read

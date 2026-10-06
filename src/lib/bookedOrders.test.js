@@ -29,9 +29,15 @@ const lead = (id, extra = {}) => ({
   parties: { name: `Client ${id}` },
   sites: null,
   employees: { name: `Owner ${extra.owner ?? 1}` },
-  products: { name: 'TOSTEM' },
+  product_ids: [12],
   ...extra,
 })
+
+// The products lookup, as fetchProducts returns it.
+const PRODUCTS = [
+  { id: 12, name: 'TOSTEM', sort_order: 1 },
+  { id: 22, name: 'IN16', sort_order: 2 },
+]
 
 const leads = [
   lead(1, { owner: 1, source_type: 'scanning', office_territory: 'ludhiana' }),
@@ -54,7 +60,7 @@ const roster = [
   { id: 3, name: 'Owner 3' }, // closed nothing
 ]
 
-const all = closedDeals({ wonStageHistory: history, breakdownLeads: leads, employees: roster })
+const all = closedDeals({ wonStageHistory: history, breakdownLeads: leads, employees: roster, products: PRODUCTS })
 const deals = dealsIn(all, range)
 const view = (filters = {}, extra = {}) =>
   computeBookedView({ deals, previousDeals: null, roster, filters, previousLabel: 'last month', ...extra })
@@ -223,6 +229,30 @@ describe('computeBookedView', () => {
       expect(view({ size: '20plus' }).rows.map((r) => r.leadId)).toEqual([4])
       expect(view({ product: 'TOSTEM' }).total).toBe(4)
       expect(view({ product: 'VOX' }).total).toBe(0)
+    })
+
+    it('splits a deal with several products by the latest quote, and matches it under each', () => {
+      const mixed = lead(5, {
+        product_ids: [12, 22],
+        quote_lines: [
+          { product_id: 12, value: 600000 },
+          { product_id: 22, value: 400000 },
+        ],
+      })
+      const ds = dealsIn(
+        closedDeals({ wonStageHistory: [won(5, '2026-09-08T05:00:00', 1, 900000)], breakdownLeads: [mixed], employees: roster, products: PRODUCTS }),
+        range
+      )
+      const v = computeBookedView({ deals: ds, previousDeals: null, roster, filters: {}, previousLabel: 'x' })
+      // ₹9L split 60:40 like the quote
+      expect(v.byProduct.map((r) => [r.label, r.value])).toEqual([
+        ['TOSTEM', '₹5.4L'],
+        ['IN16', '₹3.6L'],
+      ])
+      const onlyIn16 = computeBookedView({ deals: ds, previousDeals: null, roster, filters: { product: 'IN16' }, previousLabel: 'x' })
+      expect(onlyIn16.total).toBe(1)
+      // facets go by count, ties alphabetical
+      expect(bookedFacets(ds, roster).products.map((p) => p.key)).toEqual(['IN16', 'TOSTEM'])
     })
 
     it('never matches a deal with no value against a size band', () => {

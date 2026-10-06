@@ -19,6 +19,7 @@ import { fetchRfqsForLead } from '../lib/rfqQueries'
 import LeadFollowUpsCard from '../components/LeadFollowUpsCard'
 import LeadRfqCard from '../components/LeadRfqCard'
 import { latestDeskQuote } from '../lib/rfqDesk'
+import { leadProductIds, productNames, productShares, productsById, productsOf } from '../lib/productShares'
 import BdmChip from '../components/BdmChip'
 import { isWonImportLead } from '../lib/wonImport'
 import { fetchFollowUpsForLead, FOLLOW_UP_OPEN, compareFollowUps } from '../lib/followUpQueries'
@@ -632,7 +633,7 @@ function LeadDetail() {
   if (lead.quote_sent) {
     quoteRows.push({
       id: 'Quote',
-      what: products.find((p) => p.id === lead.product_id)?.name ?? 'Quote',
+      what: productNames(leadProductIds(lead), productsById(products)) ?? 'Quote',
       value: formatCurrency(lead.quote_value),
       date: shortDate(lead.quote_sent_at) ?? '—',
       status: isWon ? 'Superseded' : stage === 'negotiation' ? 'In negotiation' : 'Sent',
@@ -650,7 +651,13 @@ function LeadDetail() {
     })
   }
 
-  const product = products.find((p) => p.id === lead.product_id)
+  // The lead's products, in the owner's order, each with its share of the deal
+  // value by the latest quote's split (productShares.js — the rule every
+  // by-product report reads).
+  const productMap = productsById(products)
+  const leadProducts = productsOf(leadProductIds(lead), productMap)
+  const { shares: productShareList, unsplit: productUnsplit } = productShares(lead, dealValue)
+  const shareOf = (id) => productShareList.find((x) => Number(x.productId) === Number(id))?.value ?? 0
 
   // Mobile's collapsed-sections card (see the return below) — one summary
   // line per section, derived from data already loaded above, not a new
@@ -1107,17 +1114,33 @@ function LeadDetail() {
         <div className="vip-card-head">
           <h2 className="vip-card-title">Products in scope</h2>
         </div>
-        {!product ? (
+        {leadProducts.length === 0 ? (
           <p className="vip-empty">No product specified yet.</p>
         ) : (
-          <div className="vip-bar-row">
-            <div className="vip-product-label">{product.name}</div>
-            <div className="vip-bar-track vip-thick">
-              <div className="vip-bar-fill" style={{ width: '100%', background: isWon ? TONE_GOOD : lead.quote_sent ? TONE_MID : 'var(--vip-line)' }} />
-            </div>
-            <div className="vip-bar-value vip-bar-value-wide">{formatCurrencyCompact(dealValue)}</div>
-            <div className="vip-product-status">{isWon ? 'ordered' : lead.quote_sent ? 'quoted' : 'pending'}</div>
-          </div>
+          <>
+            {leadProducts.map((p) => {
+              const share = shareOf(p.id)
+              const width = dealValue > 0 ? `${Math.max(2, Math.round((share / dealValue) * 100))}%` : '100%'
+              return (
+                <div key={p.id} className="vip-bar-row">
+                  <div className="vip-product-label">{p.name}</div>
+                  <div className="vip-bar-track vip-thick">
+                    <div
+                      className="vip-bar-fill"
+                      style={{ width, background: isWon ? TONE_GOOD : lead.quote_sent ? TONE_MID : 'var(--vip-line)' }}
+                    />
+                  </div>
+                  <div className="vip-bar-value vip-bar-value-wide">{share > 0 ? formatCurrencyCompact(share) : '—'}</div>
+                  <div className="vip-product-status">{isWon ? 'ordered' : lead.quote_sent ? 'quoted' : 'pending'}</div>
+                </div>
+              )
+            })}
+            {productUnsplit > 0 && (
+              <p className="vip-field-hint">
+                {formatCurrencyCompact(productUnsplit)} not split by product yet — the RFQ desk's next quote splits it.
+              </p>
+            )}
+          </>
         )}
       </div>
 

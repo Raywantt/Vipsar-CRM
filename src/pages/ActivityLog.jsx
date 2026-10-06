@@ -21,7 +21,11 @@ import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { fetchArchitect } from '../lib/architectQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { leadDisplayName } from '../lib/leadName'
-import { RFQ_SEGMENT_OPTIONS, isDeskLive, segmentsLabel } from '../lib/rfqDesk'
+import { isDeskLive } from '../lib/rfqDesk'
+import ProductPicker from '../components/ProductPicker'
+import { useCachedQuery } from '../hooks/useCachedQuery'
+import { fetchProducts } from '../lib/lookupQueries'
+import { leadProductIds, productNames, productsById } from '../lib/productShares'
 import { fetchRfqDeskSettings } from '../lib/rfqQueries'
 import { requestAssignmentPush } from '../lib/notificationQueries'
 
@@ -178,12 +182,18 @@ function ActivityLog() {
   // since the on_hold branch needs an async lookup this can't wait on.
   const [resolvedRfqKind, setResolvedRfqKind] = useState(null)
   // RFQ Raised's two facts for the desk (RFQ-DESK.md §3 "What it changes for
-  // sales"): how many windows, and which product segments (one or more, a
-  // closed list — see RFQ_SEGMENT_OPTIONS). Both required on this form; the
+  // sales"): how many windows, and which products (one or more — the lead's
+  // own list, below). Both required on this form; the
   // database keeps them optional, since an RFQ logged any other way (an
   // import, admin SQL) still has to reach the desk.
   const [rfqWindowCount, setRfqWindowCount] = useState('')
-  const [rfqSegments, setRfqSegments] = useState([])
+  // The products are THE lead's products (owner's ruling, 2026-10-06 — one
+  // column with Lead Detail): ProductPicker opens on the lead's list, the RFQ
+  // keeps its own frozen copy (activities.rfq_product_ids → rfqs.product_ids)
+  // and saving sets the lead's list to what was picked.
+  const [rfqProductIds, setRfqProductIds] = useState([])
+  const productsQuery = useCachedQuery(['lookup', 'products'], fetchProducts)
+  const productMap = productsById(productsQuery.result && !productsQuery.result.error ? productsQuery.result.data : [])
   // The RFQ desk's launch switch (rfq_desk_settings). While it is on, an RFQ
   // Raised goes to the Production Executive and the lead moves to RFQ Raised
   // on their approval — so this form stops moving it, and stops stamping
@@ -243,7 +253,7 @@ function ActivityLog() {
       // re-identify an exec they've already implicitly selected by opening
       // this specific lead's activity log.
       .select(
-        'id, current_stage, source_type, owner_employee_id, parties!party_id(name), sites(id, nickname, locality, house_no, site_stage), employees!owner_employee_id(id, name)'
+        'id, current_stage, source_type, owner_employee_id, product_ids, parties!party_id(name), sites(id, nickname, locality, house_no, site_stage), employees!owner_employee_id(id, name)'
       )
       .eq('id', preselectedLeadId)
       .maybeSingle()
@@ -297,6 +307,12 @@ function ActivityLog() {
     const stage = selectedLead?.sites?.site_stage
     setSiteStage(stage && SITE_STAGE_OPTIONS.includes(stage) ? stage : '')
   }, [selectedLead])
+
+  // RFQ Raised opens on the lead's own products — the same list Lead Detail
+  // shows — whenever the lead or the type changes.
+  useEffect(() => {
+    if (activityType === 'rfq_raised') setRfqProductIds(leadProductIds(selectedLead).map(Number))
+  }, [selectedLead, activityType])
 
   // The firm belongs to the architect, not to this activity — so it follows
   // whoever is selected, pre-filled from their stored link. This is the
@@ -402,7 +418,7 @@ function ActivityLog() {
   const rfqWindowNumber = Number(rfqWindowCount)
   const rfqDetailsSatisfied =
     !isRfqRaised ||
-    (rfqWindowCount !== '' && Number.isInteger(rfqWindowNumber) && rfqWindowNumber > 0 && rfqSegments.length > 0)
+    (rfqWindowCount !== '' && Number.isInteger(rfqWindowNumber) && rfqWindowNumber > 0 && rfqProductIds.length > 0)
   const canSubmit =
     Boolean(activityType) &&
     anchorSatisfied &&
@@ -466,7 +482,7 @@ function ActivityLog() {
     }
     if (value !== 'rfq_raised') {
       setRfqWindowCount('')
-      setRfqSegments([])
+      setRfqProductIds([])
     }
     // The same rule, finally applied to the follow-up fields and the lead.
     // It wasn't, and that was a real reachable bug: a date typed under Site
@@ -524,7 +540,7 @@ function ActivityLog() {
     setEndTime('')
     setMeetingLocation('')
     setRfqWindowCount('')
-    setRfqSegments([])
+    setRfqProductIds([])
     setOrderValue('')
     setNextFollowupDate('')
     setFollowupNote('')
@@ -532,9 +548,6 @@ function ActivityLog() {
     setResult(null)
   }
 
-  function toggleRfqSegment(value) {
-    setRfqSegments((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]))
-  }
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -632,7 +645,7 @@ function ActivityLog() {
         // The window count and segments ride the same guard: the database
         // allows them on an RFQ Raised only (activities_rfq_details_check).
         ...(activityType === 'rfq_raised'
-          ? { rfq_kind: finalRfqKind, rfq_window_count: rfqWindowNumber, rfq_segments: rfqSegments }
+          ? { rfq_kind: finalRfqKind, rfq_window_count: rfqWindowNumber, rfq_product_ids: rfqProductIds }
           : {}),
       })
       .select()
@@ -703,6 +716,14 @@ function ActivityLog() {
       }
       if (activityType === 'booking_update' && orderValue !== '') {
         leadUpdates.order_value = Number(orderValue)
+      }
+      // The RFQ's products ARE the lead's products: picking them here sets the
+      // lead's list (owner's ruling) — only when they changed, so an untouched
+      // picker never rewrites the lead.
+      if (activityType === 'rfq_raised') {
+        const before = leadProductIds(selectedLead).map(Number)
+        const changed = before.length !== rfqProductIds.length || before.some((id, i) => id !== Number(rfqProductIds[i]))
+        if (changed) leadUpdates.product_ids = rfqProductIds
       }
       // next_followup_date is NOT written here anymore. It used to be — a bare
       // date stamp with no title, no notes, no push and no row in follow_ups,
@@ -897,10 +918,10 @@ function ActivityLog() {
               <div className="vip-fact-value">{result.activity.rfq_window_count}</div>
             </div>
           )}
-          {result.activity.rfq_segments?.length > 0 && (
+          {result.activity.rfq_product_ids?.length > 0 && (
             <div>
-              <div className="vip-fact-label">Segment</div>
-              <div className="vip-fact-value">{segmentsLabel(result.activity.rfq_segments)}</div>
+              <div className="vip-fact-label">Products</div>
+              <div className="vip-fact-value">{productNames(result.activity.rfq_product_ids, productMap) ?? '—'}</div>
             </div>
           )}
           {isOfficeDay && formatTimeRange(result.activity.start_time, result.activity.end_time) && (
@@ -1314,27 +1335,14 @@ function ActivityLog() {
                       onChange={(e) => setRfqWindowCount(e.target.value)}
                     />
                   </label>
-                  <div className="vip-field">
-                    Product segment *
-                    <div className="vip-chip-wrap" role="group" aria-label="Product segment">
-                      {RFQ_SEGMENT_OPTIONS.map((opt) => {
-                        const picked = rfqSegments.includes(opt.value)
-                        return (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            className="vip-chip-select"
-                            aria-pressed={picked}
-                            style={picked ? { color: 'var(--vip-teal)' } : undefined}
-                            onClick={() => toggleRfqSegment(opt.value)}
-                          >
-                            {opt.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                    <span className="vip-field-hint">Pick one or more.</span>
-                  </div>
+                  <ProductPicker
+                    value={rfqProductIds}
+                    onChange={setRfqProductIds}
+                    products={productsQuery.result && !productsQuery.result.error ? productsQuery.result.data : null}
+                    label="Products"
+                    required
+                    hint="The lead's products — change them here and the lead changes too."
+                  />
                 </>
               )}
               {/* Says out loud what the CRM is about to decide on the rep's

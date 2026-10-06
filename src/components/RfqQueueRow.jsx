@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
-import { revisionLabel, rfqLeadName, rfqStepSince, rfqWaitLabel, rfqWaitLevel, segmentsLabel } from '../lib/rfqDesk'
+import { revisionLabel, rfqLeadName, rfqProductsLabel, rfqStepSince, rfqWaitLabel, rfqWaitLevel } from '../lib/rfqDesk'
+import { useProductMap } from '../hooks/useProductMap'
 import { territoryLabel } from '../lib/territoryOptions'
 import { stageChipClass } from '../lib/statusColors'
 import { stageLabel } from '../lib/leadStageOptions'
@@ -29,6 +30,7 @@ function sinceTitle(value) {
 }
 
 function RfqQueueRow({ rfq, others = [], note, children }) {
+  const productMap = useProductMap()
   const level = rfqWaitLevel(rfq)
   const age = rfqWaitLabel(rfq)
   const stage = rfq.leads?.current_stage
@@ -39,7 +41,7 @@ function RfqQueueRow({ rfq, others = [], note, children }) {
     .join(' · ')
   const scope = [
     rfq.window_count ? `${rfq.window_count} ${rfq.window_count === 1 ? 'window' : 'windows'}` : null,
-    segmentsLabel(rfq.segments),
+    rfqProductsLabel(rfq, productMap),
   ].filter(Boolean)
 
   return (
@@ -60,7 +62,7 @@ function RfqQueueRow({ rfq, others = [], note, children }) {
         {FLAGGED_STAGES.has(stage) && <span className={stageChipClass(stage)}>Lead {stageLabel(stage)}</span>}
       </div>
       {loggedBy && rfq.kind !== 'price_revision' && <div className="vip-rfq-facts">Logged by {loggedBy}</div>}
-      <div className="vip-rfq-facts">{scope.length ? scope.join(' · ') : 'No window count or segment given'}</div>
+      <div className="vip-rfq-facts">{scope.length ? scope.join(' · ') : 'No window count or product given'}</div>
       {note && <div className="vip-rfq-facts">{note}</div>}
       {others.length > 0 && (
         <div className="vip-rfq-also">Also waiting for this lead: {others.map(revisionLabel).join(', ')}</div>

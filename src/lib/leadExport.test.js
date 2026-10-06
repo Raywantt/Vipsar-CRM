@@ -25,7 +25,7 @@ const archA = { id: 2, name: 'Ar. Mehta', mobile: '9811111111', party_type: 'arc
 const archB = { id: 3, name: 'Ar. Kaur', mobile: null, party_type: 'architect', firm_party_id: null, firm_name: null }
 const builder = { id: 4, name: 'Bricks & Stones', mobile: '9822222222', party_type: 'builder' }
 
-const noExtras = { firms: new Map(), lastTouch: new Map(), remarks: new Map(), notes: new Map(), rfqs: new Map() }
+const noExtras = { firms: new Map(), lastTouch: new Map(), remarks: new Map(), notes: new Map(), rfqs: new Map(), products: new Map() }
 
 function lead(overrides = {}) {
   return {
@@ -171,8 +171,9 @@ describe('the column list', () => {
   })
 
   it('asks for an extra read only when a column needs it', () => {
-    expect(extrasNeededFor(DEFAULT_EXPORT_COLUMN_IDS)).toEqual({ firms: true, lastTouch: false, remarks: false, notes: false, rfqs: false })
-    expect(extrasNeededFor(['lead_id', 'last_touch', 'latest_remark'])).toEqual({ firms: false, lastTouch: true, remarks: true, notes: false, rfqs: false })
+    expect(extrasNeededFor(DEFAULT_EXPORT_COLUMN_IDS)).toEqual({ firms: true, lastTouch: false, remarks: false, notes: false, rfqs: false, products: false })
+    expect(extrasNeededFor(['lead_id', 'last_touch', 'latest_remark'])).toEqual({ firms: false, lastTouch: true, remarks: true, notes: false, rfqs: false, products: false })
+    expect(extrasNeededFor(['product'])).toMatchObject({ products: true })
     expect(extrasNeededFor(['rfq_desk_status'])).toMatchObject({ rfqs: true })
   })
 })
