@@ -32,7 +32,7 @@ session of the role, never from the SQL Editor; verify as the role with the
 | 3 | Exec side: RFQ Raised form, RFQ status on Lead Detail, sent-back / quote-ready | ✅ built 2026-10-06 on branch `rfq-desk` (NOT on master — ships on launch day), live-checked end to end on test data; `migration_rfq_desk_advance_fix.sql` run live, `verify_rfq_desk.sql` 43 PASS, 0 FAIL |
 | 4 | Production Executive: review queue (approve / send back) | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 5, 6 on launch day); live-checked on test data as the test exec, both desk logins and the owner, at phone and desktop width |
 | 5 | Estimation Executive: estimation queue, Lixil step, quote, send back, price revision | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 4, 6 on launch day); live-checked on test data as the test exec, both desk logins, at phone and desktop width |
-| 6 | Reporting changes: RFQ target on approval, Needs Attention rework | 🟡 code built 2026-10-06 (ships with 3–5 on launch day); 700 tests, lint clean. **`migration_rfq_desk_reporting.sql` NOT yet run**, so `verify_rfq_desk.sql` T40–T50 and the live check are still to do |
+| 6 | Reporting changes: RFQ target on approval, Needs Attention rework | 🟡 code built 2026-10-06 (ships with 3–5 on launch day); 700 tests, lint clean. `migration_rfq_desk_reporting.sql` **run 2026-10-06**; `verify_rfq_desk.sql` T40–T50 and the live check still to do |
 | 7 | Owner's **RFQ Desk** screen | — |
 | 8 | Launch day + docs (`CLAUDE.md`) | — |
 
@@ -546,7 +546,8 @@ two screens will disagree:
    **In order, on the day:**
    1. ~~`migration_rfq_desk_advance_fix.sql`~~ — already run and verified
       2026-10-06; nothing to do unless an older file was re-run since.
-   2. `migration_rfq_desk_reporting.sql` (Step 6), if it hasn't run already.
+   2. `migration_rfq_desk_reporting.sql` (Step 6): ran 2026-10-06, so nothing
+      to do unless a file defining `leads_needing_attention()` was re-run since.
       **It must run before the merge**: the branch's Dashboard reads
       `rfqs.counts_toward_target`, and a missing column fails the whole period
       read, so every role's Dashboard would break.
@@ -857,3 +858,17 @@ approve a technical check.
   `verify_rfq_desk.sql` (expect T40–T50 to PASS alongside the 43 before them),
   then the live check of Step 6 as the test exec, both desk logins and the
   owner at both widths.
+- **2026-10-06 — Step 6 SQL live.** The owner ran
+  `migration_rfq_desk_reporting.sql` in the SQL Editor. Pasting the whole file
+  failed with "unterminated dollar-quoted string": only its first 100 lines
+  reached Supabase (a copy problem; nothing ran). It went in as two parts with
+  the comments stripped and the SQL unchanged: Part 1 is the column, index,
+  trigger and the raiser's read policy; Part 2 is `leads_needing_attention()`.
+  Both reported Success. Checked beforehand on a local Postgres 16 with a
+  stand-in schema: the file and the parts both ran, re-runs included, and gave
+  identical results. Approval counting gave fresh-after-cutover → counted; a
+  second approval on the lead, a pre-cutover RFQ and a price revision → not
+  counted. Needs Attention flagged sent_back 3d and quote_in 3d, skipped a
+  quote already sent, kept the Excel 3-day rule, and answered master's
+  3-argument call. **Next:** `verify_rfq_desk.sql` (T40–T50), then the live
+  check.

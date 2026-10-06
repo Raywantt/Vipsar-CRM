@@ -98,7 +98,7 @@ Step 2's role plumbing (Search and a read-only Lead Detail for the desk).
 approval, Needs Attention's "RFQs back with the exec") are built on the
 `claude/rfq-counting-needs-attention-2wgmy5` branch, not on master.** That was
 the PC's local `rfq-desk` until 2026-10-06. They ship together on launch day.
-Step 6's SQL hasn't run yet. The owner's RFQ Desk (7) is still a plan.
+Step 6's SQL ran 2026-10-06. The owner's RFQ Desk (7) is still a plan.
 
 **Deliberately not built — don't add as a side effect of unrelated work:**
 
@@ -2966,7 +2966,7 @@ on Lead Detail** ("Start a price revision" on the current quote,
 the send-back form there, not in a copy. Both strips are the Day Review's
 `DayKpiStrip`. The "being set up" Today card is gone.
 
-**Step 6 — also on the branch, NOT live, and its SQL NOT yet run**
+**Step 6 — also on the branch, NOT live; its SQL ran 2026-10-06**
 (RFQ-DESK.md §3 "Step 6 rulings"). **The RFQ Raised target counts an RFQ on the
 day it passes the technical check, once per lead, credited to whoever raised
 it.** The database decides at the approval and freezes it
@@ -3296,8 +3296,11 @@ removing your own login.
 
 ### Outstanding migrations
 
-* **`migration_rfq_desk_reporting.sql`** (RFQ-DESK.md Step 6) — **NOT yet
-  run.** Adds `rfqs.counts_toward_target` + its approval trigger, the
+* **`migration_rfq_desk_reporting.sql`** (RFQ-DESK.md Step 6) — **run
+  2026-10-06**, as two parts with the comments stripped (the whole file got
+  cut off when pasted). The parts were proven to give the same functions,
+  trigger and policy as the file on a local Postgres 16, re-runs included.
+  `verify_rfq_desk.sql` T40–T50 not yet read. Adds `rfqs.counts_toward_target` + its approval trigger, the
   `rfqs_raised_by_select` policy, and re-creates `leads_needing_attention()`
   with a 9th argument (`p_rfq_back_days`) and two output columns. Must run
   **before** the Step 3–6 branch is merged. Safe for master meanwhile: master
