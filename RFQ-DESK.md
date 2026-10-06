@@ -864,7 +864,10 @@ approve a technical check.
   reached Supabase (a copy problem; nothing ran). It went in as two parts with
   the comments stripped and the SQL unchanged: Part 1 is the column, index,
   trigger and the raiser's read policy; Part 2 is `leads_needing_attention()`.
-  Both reported Success. Checked beforehand on a local Postgres 16 with a
+  Part 2 took effect, but Part 1 did not, though Success was reported:
+  the verify script then failed with `column "counts_toward_target" does
+  not exist`. Part 1 was re-run with a check query appended, which showed
+  column, trigger, policy and the 9-argument function all present. Checked beforehand on a local Postgres 16 with a
   stand-in schema: the file and the parts both ran, re-runs included, and gave
   identical results. Approval counting gave fresh-after-cutover → counted; a
   second approval on the lead, a pre-cutover RFQ and a price revision → not

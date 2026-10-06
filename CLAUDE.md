@@ -3300,6 +3300,8 @@ removing your own login.
   2026-10-06**, as two parts with the comments stripped (the whole file got
   cut off when pasted). The parts were proven to give the same functions,
   trigger and policy as the file on a local Postgres 16, re-runs included.
+  Part 1 needed a second run; confirmed present afterwards by a catalog
+  check.
   `verify_rfq_desk.sql` T40–T50 not yet read. Adds `rfqs.counts_toward_target` + its approval trigger, the
   `rfqs_raised_by_select` policy, and re-creates `leads_needing_attention()`
   with a 9th argument (`p_rfq_back_days`) and two output columns. Must run
