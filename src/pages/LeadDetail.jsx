@@ -14,8 +14,11 @@ import OrderValueEdit from '../components/OrderValueEdit'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchAreas, fetchProducts } from '../lib/lookupQueries'
 import { useCachedQuery } from '../hooks/useCachedQuery'
-import { fetchLeadDetail } from '../lib/leadDetailQueries'
+import { fetchLeadAfterRfqMove, fetchLeadDetail } from '../lib/leadDetailQueries'
+import { fetchRfqsForLead } from '../lib/rfqQueries'
 import LeadFollowUpsCard from '../components/LeadFollowUpsCard'
+import LeadRfqCard from '../components/LeadRfqCard'
+import { latestDeskQuote } from '../lib/rfqDesk'
 import BdmChip from '../components/BdmChip'
 import { isWonImportLead } from '../lib/wonImport'
 import { fetchFollowUpsForLead, FOLLOW_UP_OPEN, compareFollowUps } from '../lib/followUpQueries'
@@ -101,6 +104,14 @@ function LeadDetail() {
   const [activities, setActivities] = useState([])
   const [ownerHistory, setOwnerHistory] = useState([])
   const [leadFollowUps, setLeadFollowUps] = useState([])
+  // The lead's desk RFQs (RFQ-DESK.md). Seeded with the rest of the page and
+  // updated in place by the RFQ card's own actions (withdraw).
+  const [rfqs, setRfqs] = useState([])
+  // Bumped when something outside Sales progress changes a field it holds
+  // (the RFQ card's "Mark quote sent to client"), so that form remounts from
+  // the new lead instead of keeping its old checkbox and writing it back on
+  // the next Save.
+  const [salesFormBump, setSalesFormBump] = useState(0)
   const [lastActivityAt, setLastActivityAt] = useState(null)
   // Mobile-only: which collapsed section (if any) is pushed open as a
   // full-screen editor, and whether the sticky action bar's ⇄ button has
@@ -177,6 +188,7 @@ function LeadDetail() {
     setActivities(d.activities)
     setOwnerHistory(d.ownerHistory)
     setLeadFollowUps(d.followUps)
+    setRfqs(d.rfqs ?? [])
     const mostRecent = [...d.stageHistory.map((h) => h.changed_at), ...d.activities.map((a) => a.created_at)].sort().pop()
     setLastActivityAt(mostRecent ?? d.lead.created_at)
     setSeed({ id, fresh, version: seed.version + 1 })
@@ -777,6 +789,26 @@ function LeadDetail() {
     fetchFollowUpsForLead(updatedLead.id).then(({ data }) => setLeadFollowUps(data ?? []))
   }
 
+  // A desk decision on the RFQ card (RFQ-DESK.md Steps 4–5). The database did
+  // more than the RFQ row it returns: an approval stamps rfq_raised and may
+  // move the lead to RFQ Raised with a stage_history row, and a recorded quote
+  // sets the lead's quote_value (rfqs_after_write). Re-read just those, so the
+  // stepper, timeline and Sales progress say what happened. A failed re-read
+  // leaves the page as it was — the RFQ row itself is right.
+  function handleRfqDecided(updated) {
+    setRfqs((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
+    const leadId = updated.lead_id
+    fetchLeadAfterRfqMove(leadId).then(({ data }) => {
+      if (!data || currentIdRef.current !== String(leadId)) return
+      setLead((prev) => ({ ...prev, ...data.lead }))
+      if (data.stageHistory) setStageHistory(data.stageHistory)
+      // A recorded quote is the lead's new quote value. Sales progress holds
+      // Quote value as a form seed — remount it from the new figure (and its
+      // new lock) rather than keep the old one to write back on the next Save.
+      if (updated.status === 'quoted') setSalesFormBump((n) => n + 1)
+    })
+  }
+
   // Set follow-up creates a real follow_ups row (FollowUpForm, the same flow
   // Home's "Add reminder" uses), so this receives the follow-up, not a lead.
   //
@@ -940,6 +972,36 @@ function LeadDetail() {
           ))}
         </div>
       </div>
+
+      {/* RFQ-DESK.md Step 3 — the owner's placement: main column, under Deal
+          progress. Renders nothing (and the :empty fieldset with it) on a
+          lead with no desk RFQ. Its actions — withdraw, mark sent, and (Step
+          4) the technical check's approve / send back for canReviewRfqs —
+          wait with every other write while a remembered copy refreshes
+          (editsLocked). "Mark quote sent"
+          is for whoever may edit the lead's quote details (canEdit — never
+          the desk, never a manager on a team lead, whom
+          enforce_manager_lock() would refuse anyway). */}
+      <fieldset className="vip-lock" disabled={editsLocked}>
+        <LeadRfqCard
+          rfqs={rfqs}
+          lead={lead}
+          viewer={employee}
+          canMarkQuoteSent={canEdit}
+          onRfqUpdated={(updated) => setRfqs((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))}
+          onLeadUpdated={(updated) => {
+            setLead((prev) => ({ ...prev, ...updated }))
+            setSalesFormBump((n) => n + 1)
+          }}
+          onRfqDecided={handleRfqDecided}
+          onRfqCreated={(created) => setRfqs((prev) => [created, ...prev])}
+          onRfqsStale={() =>
+            fetchRfqsForLead(lead.id).then(({ data, error }) => {
+              if (!error && currentIdRef.current === String(lead.id)) setRfqs(data ?? [])
+            })
+          }
+        />
+      </fieldset>
 
       <div className="vip-card">
         <div className="vip-card-head">
@@ -1163,10 +1225,11 @@ function LeadDetail() {
 
   const salesProgressEditor = (
     <SalesProgressSection
-      key={`sales-${seed.version}`}
+      key={`sales-${seed.version}-${salesFormBump}`}
       lead={lead}
       products={products}
       rfq={rfqSummary}
+      deskQuote={latestDeskQuote(rfqs)}
       onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
     />
   )

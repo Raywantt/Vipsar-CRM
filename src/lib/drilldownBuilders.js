@@ -16,6 +16,8 @@ import {
   computeScanningLeadsActuals,
   computeActivityActuals,
   countsTowardActivityMetric,
+  countedRfqsFor,
+  NO_RFQ_DESK,
   blendedAttainmentFor,
   targetFor,
   targetRowFor,
@@ -573,11 +575,11 @@ export function shapeLeadNames(rows) {
 // ACTIVITY_METRIC_OPTIONS + order_value) exactly — this panel is what that
 // heatmap's "Overall" cell opens, so a mismatch would show a different
 // number than the cell itself.
-export function buildOverallAttainPanel({ employee, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel }) {
+export function buildOverallAttainPanel({ employee, targets, activities, rfqCounting, wonStageHistory, breakdownLeads, range, rangeLabel }) {
   const metrics = ['scanning_leads', ...ACTIVITY_METRIC_OPTIONS.map((t) => t.value), 'order_value']
   const orderValueActuals = computeOrderValueActuals(wonStageHistory, range, true)
   const scanningLeadsActuals = computeScanningLeadsActuals(breakdownLeads, range, true)
-  const activityActuals = computeActivityActuals(activities, true)
+  const activityActuals = computeActivityActuals(activities, true, rfqCounting)
   const orderActual = orderValueActuals.get(employee.id) ?? 0
   const scanningActual = scanningLeadsActuals.get(employee.id) ?? 0
   const rows = metrics.map((metric) => {
@@ -649,7 +651,7 @@ function lastNWeekdays(n) {
   return days
 }
 
-export function buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows, canCancelTarget = false }) {
+export function buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows, canCancelTarget = false, rfqCounting = NO_RFQ_DESK }) {
   const label = ACTIVITY_LABELS[activityType]
   // The row (for its id, so "Cancel this target" can delete it), not just
   // targetFor's plain value.
@@ -669,7 +671,20 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
   // real audit trail of everything logged, and the rhythm chart is a
   // separate "how much paperwork happened" question (see
   // countsTowardActivityMetric's own comment).
-  const quotaCount = inRange.filter((r) => countsTowardActivityMetric({ activity_type: activityType, rfq_kind: r.rfq_kind })).length
+  //
+  // RFQ Raised with the desk live (RFQ-DESK.md Step 6): an RFQ logged after
+  // the cutover counts when it passes the technical check, so the headline is
+  // the old-rule entries plus this exec's counted approvals in the period —
+  // exactly computeActivityActuals' figure. The list stays what was logged.
+  const liveFrom = rfqCounting?.liveFrom ?? null
+  const isDeskRfq = activityType === 'rfq_raised' && Boolean(liveFrom)
+  const approvedCount = isDeskRfq
+    ? countedRfqsFor(rfqCounting).filter((r) => r.raised_by_employee_id === employee.id).length
+    : 0
+  const quotaCount =
+    inRange.filter((r) =>
+      countsTowardActivityMetric({ activity_type: activityType, rfq_kind: r.rfq_kind, created_at: r.created_at }, liveFrom)
+    ).length + approvedCount
 
   const rhythmDays = lastNWeekdays(20)
   const counts = rhythmDays.map((d) => logRows.filter((r) => new Date(r.created_at).toDateString() === d.toDateString()).length)
@@ -687,9 +702,11 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
     title: `${label} — logged entries`,
     value: target != null ? `${quotaCount} / ${target}` : String(quotaCount),
     delta: rawTarget != null ? `${Math.round((quotaCount / rawTarget) * 100)}%` : null,
-    note: `${rangeLabel}. Every row below is a real entry ${employee.name.split(' ')[0]} logged in the Activity log.`,
+    note: isDeskRfq
+      ? `${rangeLabel}. An RFQ counts toward the target once it passes the technical check — once per lead. Every row below is an RFQ ${employee.name.split(' ')[0]} logged.`
+      : `${rangeLabel}. Every row below is a real entry ${employee.name.split(' ')[0]} logged in the Activity log.`,
     stats: [
-      { label: 'Logged', value: String(quotaCount), sub: rangeLabel, color: '#101617' },
+      { label: isDeskRfq ? 'Counted' : 'Logged', value: String(quotaCount), sub: isDeskRfq ? 'toward the target' : rangeLabel, color: '#101617' },
       { label: 'Target', value: target != null ? String(target) : '—', sub: 'for this period', color: '#485456' },
       { label: 'Last 20 working days', value: String(counts.reduce((s, c) => s + c, 0)), sub: 'entries logged', color: '#101617' },
       { label: 'Silent days', value: String(silentDays), sub: 'of last 20', color: silentDays > 6 ? '#b4232a' : silentDays > 3 ? '#7a6413' : '#1f6f4a' },

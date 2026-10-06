@@ -4,6 +4,7 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import { useSyncState } from '../hooks/useCachedQuery'
 import AssignedLeadsCard from './AssignedLeadsCard'
 import BdmUpdatesLine from './BdmUpdatesLine'
+import RfqUpdatesCard from './RfqUpdatesCard'
 
 // The greeting bar shared by every role's Today screen (Home.jsx for
 // owner/sales_executive, CoordinatorToday.jsx for sales_coordinator) — was
@@ -71,6 +72,9 @@ function TodayGreetingHeader({ employee }) {
         the one component all four already render. It returns null when there
         is nothing to show, so no screen pays for it otherwise. */}
     <AssignedLeadsCard />
+    {/* Same one-mount rule, for the RFQ desk's sent-back and quote-ready
+        alerts to whoever raised the RFQ (RFQ-DESK.md Step 3). */}
+    <RfqUpdatesCard />
     {/* Same one-mount rule, for a business development manager's lead
         updates (assigned / won / lost). Renders nothing for any other role. */}
     <BdmUpdatesLine />

@@ -91,6 +91,24 @@ const ASSIGNMENT_KINDS = [
 ]
 const POOL_KINDS = new Set(['bdm_pool_lead', 'bdm_pool_nudge'])
 
+// The RFQ desk's five kinds (RFQ-DESK.md §3 Notifications), written by
+// rfqs_after_write() in Schema/migration_rfq_desk.sql and drained by the same
+// loop as the assignment kinds. rfq_new / rfq_approved / rfq_bounced reach the
+// desk; rfq_sent_back / rfq_quote_ready reach the exec who raised the RFQ and
+// whoever logged it.
+const RFQ_KINDS = ['rfq_new', 'rfq_approved', 'rfq_sent_back', 'rfq_bounced', 'rfq_quote_ready']
+const RFQ_KIND_SET = new Set(RFQ_KINDS)
+
+// src/lib/rfqDesk.js's segment labels, which this runtime can't import.
+const RFQ_SEGMENT_LABELS = {
+  windows: 'Windows',
+  giesta: 'Giesta',
+  in16: 'IN16',
+  skylight: 'Skylight',
+  facade: 'Facade',
+  wrapping_bars: 'Wrapping bars',
+}
+
 // src/lib/lossReasonOptions.js's labels, for a "your lead was lost" push.
 const LOSS_REASON_LABELS = {
   price: 'Price',
@@ -315,9 +333,82 @@ async function drainFollowUps(supabase, now) {
 // (BDM.md Step 3). Same fetch, same send/stamp/prune loop; only the payload
 // text (assignmentPayload) branches on `n.kind`.
 // ---------------------------------------------------------------------------
+// The push text for one RFQ desk notification (RFQ-DESK.md Step 3). Mirrors
+// src/lib/rfqDesk.js's wording: "Fresh" / "R1", the step names, a quote as
+// value · Lixil ref. The desk's three kinds open Today, where their queues
+// are; the exec's two open the lead, where the RFQ card is. One tag per RFQ,
+// so a later alert about the same RFQ replaces the earlier banner.
+function rfqRevision(rfq) {
+  if (!rfq) return null
+  if (rfq.kind === 'price_revision') return rfq.revision > 0 ? `R${rfq.revision} price revision` : 'Price revision'
+  return rfq.revision > 0 ? `R${rfq.revision}` : 'Fresh'
+}
+
+function clip(text, max = 100) {
+  if (!text) return null
+  return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text
+}
+
+function rfqPayload(n) {
+  const name = leadName(n.leads)
+  const rfq = n.rfqs
+  const rev = rfqRevision(rfq)
+  const who = n.actor?.name
+  const tag = `rfq-${n.rfq_id ?? n.id}`
+  const toLead = n.lead_id ? `/leads/${n.lead_id}` : '/'
+  const join = (...parts) => parts.filter(Boolean).join(' · ')
+
+  if (n.kind === 'rfq_new') {
+    const windows = rfq?.window_count ? `${rfq.window_count} windows` : null
+    const segments = (rfq?.segments ?? []).map((s) => RFQ_SEGMENT_LABELS[s] ?? s).join(' + ') || null
+    const from = rfq?.raised_by?.name ? `from ${rfq.raised_by.name}` : null
+    return { title: 'New RFQ to check', body: `${name} — ${join(rev, windows, segments, from)}`, url: '/', tag, requireInteraction: true }
+  }
+  if (n.kind === 'rfq_approved') {
+    return {
+      title: 'RFQ ready for estimation',
+      body: `${name} — ${join(rev, who ? `approved by ${who}` : null)}`,
+      url: '/',
+      tag,
+      requireInteraction: true,
+    }
+  }
+  if (n.kind === 'rfq_bounced') {
+    const note = clip(rfq?.send_back_note)
+    return {
+      title: 'An RFQ you approved was sent back',
+      body: `${name} — ${join(rev, who ? `by ${who}` : null)}${note ? `: "${note}"` : ''}`,
+      url: toLead,
+      tag,
+    }
+  }
+  if (n.kind === 'rfq_sent_back') {
+    const note = clip(rfq?.send_back_note)
+    const from = rfq?.sent_back_from === 'estimation' ? 'from estimation' : 'from the technical check'
+    return {
+      title: 'RFQ sent back',
+      body: `${name} — ${join(rev, from)}${note ? `: "${note}"` : '. Check your email for the details.'}`,
+      url: toLead,
+      tag,
+      requireInteraction: true,
+    }
+  }
+  // rfq_quote_ready
+  const value = rfq?.quote_value != null ? `₹${Number(rfq.quote_value).toLocaleString('en-IN')}` : null
+  return {
+    title: 'Quote ready',
+    body: `${name} — ${join(rev, value, rfq?.quote_ref)}`,
+    url: toLead,
+    tag,
+    requireInteraction: true,
+  }
+}
+
 // The push text for one notifications row. Lead-assignment kinds are as they
 // always were; the BDM kinds (BDM.md Step 3) follow.
 function assignmentPayload(n, lossReasonByLead) {
+  if (RFQ_KIND_SET.has(n.kind)) return rfqPayload(n)
+
   const who = n.actor?.name
   const name = leadName(n.leads)
 
@@ -430,13 +521,35 @@ async function queuePoolNudges(supabase, now) {
   return { queued: rows.length }
 }
 
+// The RFQ desk's launch time (rfq_desk_settings.live_from), or null while it
+// is off. An RFQ alert is only pushed if it was written at or after this
+// moment: the switch went on early (2026-10-06) and launch day re-stamps it,
+// so everything queued before the desk was really in use — RFQs Harjot
+// handled in Excel — is stamped as handled WITHOUT a push rather than
+// arriving all at once on the day this function learns the RFQ kinds.
+async function fetchRfqDeskLiveFrom(supabase) {
+  const { data } = await supabase.from('rfq_desk_settings').select('live_from').maybeSingle()
+  const from = data?.live_from ? new Date(data.live_from) : null
+  return from && !Number.isNaN(from.getTime()) ? from : null
+}
+
+// notifications.created_at is a naive TIMESTAMP holding a UTC wall clock —
+// read it as UTC explicitly rather than trusting this runtime's zone.
+function utcStamp(value) {
+  if (!value) return null
+  const s = String(value)
+  return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(s) ? s : `${s.replace(' ', 'T')}Z`)
+}
+
 async function drainAssignments(supabase) {
   const { data: pending, error: fetchError } = await supabase
     .from('notifications')
     .select(
-      'id, kind, employee_id, lead_id, actor_employee_id, actor:employees!actor_employee_id(name), leads(id, owner_employee_id, order_value, parties!party_id(name), sites(nickname, locality), owner:employees!owner_employee_id(name))'
+      'id, kind, employee_id, lead_id, rfq_id, created_at, actor_employee_id, actor:employees!actor_employee_id(name), ' +
+        'leads(id, owner_employee_id, order_value, parties!party_id(name), sites(nickname, locality), owner:employees!owner_employee_id(name)), ' +
+        'rfqs(kind, revision, window_count, segments, sent_back_from, send_back_note, quote_value, quote_ref, raised_by:employees!raised_by_employee_id(name))'
     )
-    .in('kind', ASSIGNMENT_KINDS)
+    .in('kind', [...ASSIGNMENT_KINDS, ...RFQ_KINDS])
     .is('notified_at', null)
     .order('created_at', { ascending: true })
     .limit(ASSIGNMENT_BATCH_LIMIT)
@@ -459,6 +572,7 @@ async function drainAssignments(supabase) {
   }
 
   const subsByEmployee = await fetchSubscriptionsFor(supabase, [...new Set(pending.map((n) => n.employee_id))])
+  const rfqLiveFrom = pending.some((n) => RFQ_KIND_SET.has(n.kind)) ? await fetchRfqDeskLiveFrom(supabase) : null
 
   let sentCount = 0
   const notifiedIds = []
@@ -471,6 +585,16 @@ async function drainAssignments(supabase) {
     if (POOL_KINDS.has(n.kind) && n.leads?.owner_employee_id != null) {
       notifiedIds.push(n.id)
       continue
+    }
+    // An RFQ alert from before the desk's launch (see fetchRfqDeskLiveFrom):
+    // handled, never sent — and stamped, so it can't sit at the front of this
+    // oldest-first queue starving newer alerts of the batch.
+    if (RFQ_KIND_SET.has(n.kind)) {
+      const at = utcStamp(n.created_at)
+      if (!rfqLiveFrom || !at || at < rfqLiveFrom) {
+        notifiedIds.push(n.id)
+        continue
+      }
     }
 
     const subscriptions = subsByEmployee.get(n.employee_id) ?? []

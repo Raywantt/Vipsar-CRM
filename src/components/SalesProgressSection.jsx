@@ -2,17 +2,24 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { errorMessage } from '../lib/errorMessage'
 import NumPadInput from './NumPadInput'
-import { formatDateShort } from '../lib/format'
+import { formatCurrency, formatDateShort } from '../lib/format'
 
 // `rfq` is summariseRfqHistory()'s output (src/lib/rfqKind.js) — read-only.
 // The RFQ raised checkbox and its date input were removed 2026-09-09: an RFQ
 // is now recorded by logging the RFQ Raised activity, which also advances the
 // stage, so this card reports that history rather than asking for it a second
-// time. leads.rfq_raised / rfq_raised_at are still written automatically by
-// ActivityLog (and still drive Needs Attention's pending-RFQ bucket) — this
-// form simply no longer touches them, which is why they're absent from the
-// update payload below.
-function SalesProgressSection({ lead, products, rfq, onSaved }) {
+// time. leads.rfq_raised / rfq_raised_at are written automatically — by
+// ActivityLog while the RFQ desk is off, by the desk's approval once it is on
+// (RFQ-DESK.md) — and still drive Needs Attention's pending-RFQ bucket. This
+// form never touches them, which is why they're absent from the update
+// payload below.
+//
+// `deskQuote` is the latest quote the RFQ desk recorded on this lead (null if
+// none). Once one exists the quote value is the desk's: the desk's own write
+// sets it, so the field here turns read-only and says where the figure came
+// from (owner's ruling, 2026-10-06 — RFQ-DESK.md Q4: an exec may still type it
+// until the first desk quote lands, e.g. on a lead quoted through Excel).
+function SalesProgressSection({ lead, products, rfq, deskQuote = null, onSaved }) {
   const [productId, setProductId] = useState(lead.product_id ?? '')
   const [quoteSent, setQuoteSent] = useState(lead.quote_sent ?? false)
   const [quoteSentAt, setQuoteSentAt] = useState(lead.quote_sent_at ?? '')
@@ -28,13 +35,20 @@ function SalesProgressSection({ lead, products, rfq, onSaved }) {
     setError(null)
     setSavedAt(null)
 
+    // quote_value is sent only when the rep actually changed it, and never
+    // once the desk owns it. Re-sending the value this form was opened with
+    // would quietly overwrite a desk quote that landed while the page was
+    // open — the form can't know about it until it reloads.
+    const nextQuoteValue = quoteValue !== '' ? Number(quoteValue) : null
+    const quoteValueChanged = nextQuoteValue !== (lead.quote_value != null ? Number(lead.quote_value) : null)
+
     const { data, error } = await supabase
       .from('leads')
       .update({
         product_id: productId || null,
         quote_sent: quoteSent,
         quote_sent_at: quoteSent ? quoteSentAt || null : null,
-        quote_value: quoteValue !== '' ? Number(quoteValue) : null,
+        ...(!deskQuote && quoteValueChanged ? { quote_value: nextQuoteValue } : {}),
         closure_probability: closureProbability !== '' ? Number(closureProbability) : null,
         estimated_close_date: estimatedCloseDate || null,
       })
@@ -112,17 +126,27 @@ function SalesProgressSection({ lead, products, rfq, onSaved }) {
       <div className="vip-section-split vip-stack-s">{rfqSummary}</div>
 
       <div className="vip-section-split vip-stack-s">
-        <label className="vip-field">
-          Quote value
-          <NumPadInput
-            variant="decimal"
-            label="Quote value"
-            type="number"
-            step="0.01"
-            value={quoteValue}
-            onChange={(e) => setQuoteValue(e.target.value)}
-          />
-        </label>
+        {deskQuote ? (
+          <div className="vip-kv-row">
+            <span>Quote value</span>
+            <b>
+              {formatCurrency(lead.quote_value ?? deskQuote.quote_value)}
+              <span className="vip-field-hint"> · from Lixil quote {deskQuote.quote_ref}</span>
+            </b>
+          </div>
+        ) : (
+          <label className="vip-field">
+            Quote value
+            <NumPadInput
+              variant="decimal"
+              label="Quote value"
+              type="number"
+              step="0.01"
+              value={quoteValue}
+              onChange={(e) => setQuoteValue(e.target.value)}
+            />
+          </label>
+        )}
 
         <label className="vip-check">
           <input type="checkbox" checked={quoteSent} onChange={(e) => setQuoteSent(e.target.checked)} />

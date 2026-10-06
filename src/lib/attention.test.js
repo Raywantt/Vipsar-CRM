@@ -10,7 +10,12 @@ import {
   ATTENTION_DAYS,
   SILENT_QUOTE_DAYS,
   PENDING_RFQ_DAYS,
+  RFQ_BACK_DAYS,
 } from './attention'
+import { latestDeskRfqByLead } from './rfqDesk'
+import { toISODate } from './followupDates'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 // Deliberately well past attention.js's HISTORY_STARTS_AT (2026-09-02) so the
 // legacy-import clamp is inert here and every threshold test below measures
@@ -301,6 +306,86 @@ describe('computeAttentionBucketsFromRpc — stale display matches the client-si
     const row = baseRpcRow({ is_stale: false, last_activity_at: daysAgo(400) })
     const [stale] = computeAttentionBucketsFromRpc([row])
     expect(stale.count).toBe(0)
+  })
+
+  // RFQ-DESK.md Step 6 — Schema/migration_rfq_desk_reporting.sql's two new
+  // columns say which kind of "back with the exec" a row is, and from when.
+  it('words an RFQ row by rfq_back_kind, aged from rfq_back_at', () => {
+    const sent = baseRpcRow({ is_stale: false, is_pending_rfq: true, rfq_back_kind: 'sent_back', rfq_back_at: daysAgo(3) })
+    const quote = baseRpcRow({ lead_id: 'r-2', is_stale: false, is_pending_rfq: true, rfq_back_kind: 'quote_in', rfq_back_at: daysAgo(2) })
+    const excel = baseRpcRow({ lead_id: 'r-3', is_stale: false, is_pending_rfq: true, rfq_raised_at: daysAgo(5) })
+    const rfq = computeAttentionBucketsFromRpc([sent, quote, excel]).find((b) => b.key === 'pending_rfq')
+    expect(rfq.rows.map((r) => r.last)).toEqual([
+      'RFQ raised 5d ago, no quote yet',
+      'Sent back 3d ago, not re-logged',
+      'Quote in 2d ago, not sent to client',
+    ])
+  })
+})
+
+describe('RFQs back with the exec — client-side path (RFQ-DESK.md Step 6)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const rfqBucket = (leads, desk) =>
+    computeAttentionBuckets(leads, new Map(), new Map(), latestDeskRfqByLead(desk)).find((b) => b.key === 'pending_rfq')
+  const localDay = (n) => toISODate(new Date(NOW.getTime() - n * 24 * 60 * 60 * 1000))
+
+  it('is named for the exec, not the desk', () => {
+    expect(rfqBucket([], []).title).toBe('RFQs back with the exec')
+  })
+
+  it(`a sent-back RFQ lands after ${RFQ_BACK_DAYS} days with nothing re-logged`, () => {
+    const lead = baseLead({ id: 'sb' })
+    const late = rfqBucket([lead], [{ id: 1, lead_id: 'sb', status: 'sent_back', raised_at: daysAgo(4), sent_back_at: daysAgo(RFQ_BACK_DAYS) }])
+    expect(late.rows.map((r) => r.last)).toEqual([`Sent back ${RFQ_BACK_DAYS}d ago, not re-logged`])
+    const fresh = rfqBucket([lead], [{ id: 1, lead_id: 'sb', status: 'sent_back', raised_at: daysAgo(4), sent_back_at: daysAgo(RFQ_BACK_DAYS - 1) }])
+    expect(fresh.count).toBe(0)
+  })
+
+  it('a re-logged RFQ takes the lead off it — it is back with the desk', () => {
+    const lead = baseLead({ id: 'sb2' })
+    const desk = [
+      { id: 1, lead_id: 'sb2', status: 'sent_back', raised_at: daysAgo(6), sent_back_at: daysAgo(5) },
+      { id: 2, lead_id: 'sb2', status: 'with_technical', raised_at: daysAgo(1) },
+    ]
+    expect(rfqBucket([lead], desk).count).toBe(0)
+  })
+
+  it("a quote lands after the same days until it is marked sent — an earlier quote's date doesn't count", () => {
+    const desk = [{ id: 1, lead_id: 'q', status: 'quoted', raised_at: daysAgo(8), quote_received_at: daysAgo(RFQ_BACK_DAYS) }]
+    const unsent = baseLead({ id: 'q' })
+    expect(rfqBucket([unsent], desk).rows.map((r) => r.last)).toEqual([`Quote in ${RFQ_BACK_DAYS}d ago, not sent to client`])
+    const sentEarlier = baseLead({ id: 'q', quote_sent: true, quote_sent_at: localDay(RFQ_BACK_DAYS + 1) })
+    expect(rfqBucket([sentEarlier], desk).count).toBe(1)
+    const sent = baseLead({ id: 'q', quote_sent: true, quote_sent_at: localDay(RFQ_BACK_DAYS) })
+    expect(rfqBucket([sent], desk).count).toBe(0)
+  })
+
+  it("waiting on the desk or Lixil is never the exec's delay, even with an old rfq_raised on the lead", () => {
+    const lead = baseLead({ id: 'w', rfq_raised: true, rfq_raised_at: daysAgo(20) })
+    const desk = [{ id: 1, lead_id: 'w', status: 'with_lixil', raised_at: daysAgo(20) }]
+    expect(rfqBucket([lead], desk).count).toBe(0)
+  })
+
+  it('a lead with no desk RFQ (worked in Excel) keeps the rule from before the desk', () => {
+    const lead = baseLead({ id: 'x', rfq_raised: true, rfq_raised_at: daysAgo(PENDING_RFQ_DAYS) })
+    expect(rfqBucket([lead], []).rows.map((r) => r.last)).toEqual([`RFQ raised ${PENDING_RFQ_DAYS}d ago, no quote yet`])
+    // A withdrawn desk RFQ doesn't count as one.
+    const withdrawn = [{ id: 1, lead_id: 'x', status: 'withdrawn', raised_at: daysAgo(1) }]
+    expect(rfqBucket([lead], withdrawn).count).toBe(1)
+  })
+
+  it("the thresholds are the RPC's own defaults (SQL owns the predicate)", () => {
+    const sql = readFileSync(resolve(process.cwd(), 'Schema/migration_rfq_desk_reporting.sql'), 'utf8')
+    expect(sql).toMatch(new RegExp(`p_rfq_back_days\\s+integer DEFAULT ${RFQ_BACK_DAYS}\\b`))
+    expect(sql).toMatch(new RegExp(`p_pending_rfq_days\\s+integer DEFAULT ${PENDING_RFQ_DAYS}\\b`))
   })
 })
 

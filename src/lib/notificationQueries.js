@@ -104,9 +104,17 @@ export async function markBdmUpdatesSeen() {
 // Marking seen is separate from notified_at on purpose: a rep who has denied
 // notification permission never gets a notified_at, and must still be able to
 // clear the card. The two columns answer different questions.
-export function markNotificationsSeen(ids) {
-  if (!ids?.length) return Promise.resolve({ error: null })
-  return supabase.from('notifications').update({ seen_at: new Date().toISOString() }).in('id', ids)
+//
+// ASYNC ON PURPOSE. A supabase-js query builder is lazy — it sends nothing
+// until something awaits it (or calls .then). Tapping one row of
+// AssignedLeadsCard / RfqUpdatesCard calls this fire-and-forget as the page
+// navigates away, so returning the bare builder meant that request was never
+// sent and a tapped alert came back on the next visit (found 2026-10-06; only
+// "Got it", which awaits, ever worked). Awaiting inside makes the call happen
+// whether or not the caller waits for it.
+export async function markNotificationsSeen(ids) {
+  if (!ids?.length) return { error: null }
+  return await supabase.from('notifications').update({ seen_at: new Date().toISOString() }).in('id', ids)
 }
 
 // Ask the push sender to flush pending assignment notifications RIGHT NOW,

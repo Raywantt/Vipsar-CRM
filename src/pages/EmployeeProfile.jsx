@@ -10,7 +10,7 @@ import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchTargetsForPeriod, fetchWonStageHistory } from '../lib/targetQueries'
 import { fetchAccompaniedLogForEmployee, fetchActiveSalesExecs, fetchActivityLogForEmployee, fetchEmployeeProfile } from '../lib/employeeQueries'
 import { fetchFollowUpsForEmployee, markFollowUpDone, cancelFollowUp, rescheduleFollowUp, reopenFollowUp, compareFollowUps, lockedFollowUpIds } from '../lib/followUpQueries'
-import { computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
+import { computeActivityActuals, computeOrderValueActuals, computeQuoteSentActuals, computeWonCountActuals, targetFor } from '../components/TargetsVsActualsCard'
 import { computeStale7Bucket, STALE_DAYS, ATTENTION_DAYS, staleGateDays, buildLastStageChangeByLead } from '../lib/attention'
 import { dealValueFor } from '../lib/pipelineValue'
 import BdmChip from '../components/BdmChip'
@@ -376,6 +376,16 @@ function EmployeeProfile() {
     .some((q) => q.result === undefined)
   const rowsOf = (q) => (q.result && !q.result.error ? q.result.data ?? [] : [])
   const activities = useMemo(() => periodQuery.result?.data?.activities ?? [], [periodQuery.result])
+  // Per exec, the target's own activity tallies — RFQs raised read from here,
+  // through the same rule as the Dashboard's heatmap (computeActivityActuals,
+  // with the RFQ desk's counted approvals keyed by whoever raised them).
+  const rfqTargetActuals = useMemo(() => {
+    const data = periodQuery.result?.data
+    return computeActivityActuals(data?.activities ?? [], true, {
+      liveFrom: data?.rfqLiveFrom ?? null,
+      counted: data?.rfqCounted ?? [],
+    })
+  }, [periodQuery.result])
   const breakdownLeads = useMemo(() => rowsOf(breakdownQuery), [breakdownQuery.result]) // eslint-disable-line react-hooks/exhaustive-deps
   const wonStageHistory = useMemo(() => rowsOf(wonQuery), [wonQuery.result]) // eslint-disable-line react-hooks/exhaustive-deps
   const decidedStageHistory = useMemo(() => rowsOf(decidedQuery), [decidedQuery.result]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -419,8 +429,15 @@ function EmployeeProfile() {
   }
   const activityCountFor = (execIdArg, activityType) =>
     activities.filter((a) => a.employee_id === execIdArg && a.activity_type === activityType).length
+  // RFQs raised is the TARGET's count, the heatmap's own — fresh RFQs only,
+  // and with the desk live, once per lead on the day it passed the technical
+  // check (RFQ-DESK.md Step 6). It used to be a raw tally here, revised RFQs
+  // included, so this tile and the owner's heatmap could disagree.
+  const rfqCountFor = (execIdArg) => rfqTargetActuals.get(execIdArg)?.rfq_raised ?? 0
   const actualFor = (execIdArg, key) =>
-    key === 'site_visit' || key === 'call' || key === 'rfq_raised'
+    key === 'rfq_raised'
+      ? rfqCountFor(execIdArg)
+      : key === 'site_visit' || key === 'call'
       ? activityCountFor(execIdArg, key)
       : actuals[key].get(execIdArg) ?? 0
 
@@ -448,7 +465,7 @@ function EmployeeProfile() {
   // a coordinator viewing their own team member gets the real peer-relative
   // view too, not the plain self-view a sales exec sees on their own page.
   const canSeeOwnerView = isOwner || isMyTeamMember
-  const att = canSeeOwnerView ? blendedAttainment({ ...targetActuals, site_visit: { get: (e) => activityCountFor(e, 'site_visit') }, call: { get: (e) => activityCountFor(e, 'call') }, rfq_raised: { get: (e) => activityCountFor(e, 'rfq_raised') } }, targets, execId) : null
+  const att = canSeeOwnerView ? blendedAttainment({ ...targetActuals, site_visit: { get: (e) => activityCountFor(e, 'site_visit') }, call: { get: (e) => activityCountFor(e, 'call') }, rfq_raised: { get: rfqCountFor } }, targets, execId) : null
 
   let rank = null
   let teamSize = 0
@@ -463,7 +480,7 @@ function EmployeeProfile() {
             won_count: actuals.won_count,
             site_visit: { get: (ex) => activityCountFor(ex, 'site_visit') },
             call: { get: (ex) => activityCountFor(ex, 'call') },
-            rfq_raised: { get: (ex) => activityCountFor(ex, 'rfq_raised') },
+            rfq_raised: { get: rfqCountFor },
           },
           targets,
           e.id

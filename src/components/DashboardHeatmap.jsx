@@ -32,10 +32,10 @@ const COLS = [
 // entries on demand (`onOpenLog`, async — see Dashboard.jsx); scanning
 // leads, order value and overall are built synchronously from state already
 // on the page.
-function DashboardHeatmap({ employees, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel, onOpenLog, onOpenPanel, onOpenBooked, canCancelTarget = false }) {
+function DashboardHeatmap({ employees, targets, activities, rfqCounting, wonStageHistory, breakdownLeads, range, rangeLabel, onOpenLog, onOpenPanel, onOpenBooked, canCancelTarget = false }) {
   const orderActuals = computeOrderValueActuals(wonStageHistory, range, true)
   const scanningActuals = computeScanningLeadsActuals(breakdownLeads, range, true)
-  const activityActuals = computeActivityActuals(activities, true)
+  const activityActuals = computeActivityActuals(activities, true, rfqCounting)
   const blendedActuals = { activityActuals, orderValueActuals: orderActuals, scanningLeadsActuals: scanningActuals }
 
   // The grid's column count is published to CSS rather than duplicated in the
@@ -94,7 +94,7 @@ function DashboardHeatmap({ employees, targets, activities, wonStageHistory, bre
               actual = null
               target = null
               sub = 'weighted'
-              onClick = () => onOpenPanel(buildOverallAttainPanel({ employee: emp, targets, activities, wonStageHistory, breakdownLeads, range, rangeLabel }))
+              onClick = () => onOpenPanel(buildOverallAttainPanel({ employee: emp, targets, activities, rfqCounting, wonStageHistory, breakdownLeads, range, rangeLabel }))
             } else {
               // Read from the already-computed, correctly-filtered map
               // (excludes revised RFQs from the rfq_raised quota, per the

@@ -39,12 +39,30 @@ import {
 import { countUnseenBdmUpdates } from './notificationQueries'
 import { fetchRecentParties, searchParties, fetchLeadsForParties } from './partyQueries'
 import { periodForPreset } from './targetPeriods'
+import { fetchCountedRfqs, fetchRfqDeskSettings } from './rfqQueries'
 
-// Dashboard: the date range's activities and new leads, as one answer.
+// Dashboard (and the Sales Exec Profile, same key): the date range's
+// activities and new leads, as one answer — plus what the RFQ Raised target
+// counts once the desk is live (RFQ-DESK.md Step 6): the RFQs approved in the
+// range that count (`rfqCounted`) and the cutover (`rfqLiveFrom`, before which
+// an RFQ still counts by the day it was logged). TargetsVsActualsCard's
+// computeActivityActuals turns the two into the rule.
 export function fetchDashboardPeriod(range) {
-  return Promise.all([fetchActivityCounts(range), fetchNewLeadsBySource(range)]).then(([activitiesRes, leadsRes]) => ({
-    data: { activities: activitiesRes.data ?? [], leads: leadsRes.data ?? [] },
-    error: activitiesRes.error ?? leadsRes.error ?? null,
+  return Promise.all([
+    fetchActivityCounts(range),
+    fetchNewLeadsBySource(range),
+    fetchCountedRfqs(range),
+    fetchRfqDeskSettings(),
+  ]).then(([activitiesRes, leadsRes, countedRes, settingsRes]) => ({
+    data: {
+      activities: activitiesRes.data ?? [],
+      leads: leadsRes.data ?? [],
+      rfqCounted: countedRes.data ?? [],
+      rfqLiveFrom: settingsRes.data?.live_from ?? null,
+    },
+    // A failed RFQ read is an error like a failed activities read: half the
+    // rule would be a wrong RFQ figure that looks right.
+    error: activitiesRes.error ?? leadsRes.error ?? countedRes.error ?? settingsRes.error ?? null,
   }))
 }
 

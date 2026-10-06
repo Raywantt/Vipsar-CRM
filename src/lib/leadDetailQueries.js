@@ -15,6 +15,7 @@ import { fetchAllRows } from './fetchAllRows'
 import { fetchLeadOwnerHistory } from './leadOwnerHistory'
 import { fetchFollowUpsForLead } from './followUpQueries'
 import { attachFirms } from './partyQueries'
+import { fetchRfqsForLead } from './rfqQueries'
 
 const NONE = { data: null, error: null }
 
@@ -27,11 +28,46 @@ const NONE = { data: null, error: null }
 const LEAD_SELECT =
   '*, employees!owner_employee_id(name, office_location), created_by:employees!created_by_employee_id(name, role), bdm:employees!bdm_employee_id(name)'
 
+function fetchStageHistoryForLead(leadId) {
+  return fetchAllRows(() =>
+    supabase
+      .from('stage_history')
+      .select('id, stage, changed_at, changed_by, employees(name)', { count: 'exact' })
+      .eq('lead_id', leadId)
+      .order('changed_at', { ascending: true })
+  )
+}
+
+// After a desk action on Lead Detail's RFQ card (RFQ-DESK.md Step 4): an
+// approval may have moved the lead to RFQ Raised and written a stage_history
+// row (rfqs_after_write in SQL), and neither comes back from the action
+// itself. Re-reads just those, so the page's stage, stepper and timeline
+// show what the approval did instead of waiting for a reload.
+export async function fetchLeadAfterRfqMove(leadId) {
+  const [leadRes, historyRes] = await Promise.all([
+    supabase.from('leads').select('id, current_stage, rfq_raised, rfq_raised_at, quote_value').eq('id', leadId).single(),
+    fetchStageHistoryForLead(leadId),
+  ])
+  if (leadRes.error) return { data: null, error: leadRes.error }
+  return { data: { lead: leadRes.data, stageHistory: historyRes.error ? null : historyRes.data }, error: null }
+}
+
 export async function fetchLeadDetail(id) {
   const { data: lead, error } = await supabase.from('leads').select(LEAD_SELECT).eq('id', id).single()
   if (error) return { data: null, error }
 
-  const [partyRes, otherPartyRes, referrerRes, siteRes, contactsRes, stageHistoryRes, activitiesRes, ownerHistoryRes, followUpsRes] =
+  const [
+    partyRes,
+    otherPartyRes,
+    referrerRes,
+    siteRes,
+    contactsRes,
+    stageHistoryRes,
+    activitiesRes,
+    ownerHistoryRes,
+    followUpsRes,
+    rfqsRes,
+  ] =
     await Promise.all([
       lead.party_id ? supabase.from('parties').select('*').eq('id', lead.party_id).single() : Promise.resolve(NONE),
       lead.other_party_id ? supabase.from('parties').select('*').eq('id', lead.other_party_id).single() : Promise.resolve(NONE),
@@ -49,13 +85,7 @@ export async function fetchLeadDetail(id) {
               .eq('site_id', lead.site_id)
           )
         : Promise.resolve({ data: [], error: null }),
-      fetchAllRows(() =>
-        supabase
-          .from('stage_history')
-          .select('id, stage, changed_at, changed_by, employees(name)', { count: 'exact' })
-          .eq('lead_id', lead.id)
-          .order('changed_at', { ascending: true })
-      ),
+      fetchStageHistoryForLead(lead.id),
       fetchAllRows(() =>
         supabase
           .from('activities')
@@ -69,6 +99,9 @@ export async function fetchLeadDetail(id) {
       fetchLeadOwnerHistory(lead.id),
       // Every follow-up on this lead, any status (FOLLOWUPS.md Rule 3.1).
       fetchFollowUpsForLead(lead.id),
+      // The lead's desk RFQs (RFQ-DESK.md), for the RFQ card and Sales
+      // progress's quote-value lock. Empty on a lead that never had one.
+      fetchRfqsForLead(lead.id),
     ])
 
   // .firm is resolved separately, not embedded — see attachFirms. The
@@ -89,6 +122,7 @@ export async function fetchLeadDetail(id) {
       activities: activitiesRes.data ?? [],
       ownerHistory: ownerHistoryRes.data ?? [],
       followUps: followUpsRes.data ?? [],
+      rfqs: rfqsRes.data ?? [],
     },
     error: null,
   }

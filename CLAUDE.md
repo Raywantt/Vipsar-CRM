@@ -92,8 +92,11 @@ two back-office roles after a sales exec's RFQ — Production Executive
 (technical check) and Estimation Executive (Lixil quote). Built so far: the
 two role values, Step 1's database (live, and its switch is ON since
 2026-10-06 09:26 IST — RFQs are entering the desk ahead of launch day) and
-Step 2's role plumbing (Search and a read-only Lead Detail for the desk). The
-desk's own queues (Steps 3–7) are still a plan.
+Step 2's role plumbing (Search and a read-only Lead Detail for the desk).
+**Steps 3 (the exec side), 4 (the Production Executive's review queue) and 5
+(the Estimation Executive's lists) are built on the `rfq-desk` branch, not on
+master** — they ship with Step 6 on launch day. Reporting (6) and the owner's
+RFQ Desk (7) are still a plan.
 
 **Deliberately not built — don't add as a side effect of unrelated work:**
 
@@ -2907,6 +2910,60 @@ sticky bar; the test production-exec could read that one lead and nothing
 else, and got exactly one `rfq_new` alert; Search found it by site and client.
 The test exec's own view of the same lead was unchanged at both widths.
 
+**Step 3 — on the `rfq-desk` branch, NOT live** (merge on launch day with
+Steps 4–6; RFQ-DESK.md §3 "Step 3 rulings"). `src/lib/rfqDesk.js` holds the
+pure rules (segments — a closed list pinned to the SQL CHECK by
+`rfqDesk.test.js` — statuses, "Fresh"/"R1" labels, `canWithdrawRfq` mirroring
+`rfq_withdraw()`, `latestDeskQuote`, `isDeskLive`); `rfqQueries.js` the reads
+and the two exec actions. **Log Activity → RFQ Raised** asks Number of windows
+and Product segment (both required) and, while the switch is on, no longer
+moves the lead or stamps `rfq_raised`/`rfq_raised_at` — the approval does
+(re-read at submit; a failed read falls back to the old behaviour). **Lead
+Detail** has an "RFQs" card under Deal progress (`LeadRfqCard`; Withdraw,
+"Mark quote sent to client"), and Sales progress locks Quote value once a desk
+quote exists. **Today** has `RfqUpdatesCard` (sent back / quote in) mounted in
+`TodayGreetingHeader`. The Edge Function pushes the five `rfq_*` kinds but
+**must be deployed only after launch day re-stamps `live_from`**.
+`migration_rfq_desk_advance_fix.sql` (run and verified live 2026-10-06)
+makes an approval move a lead still before RFQ Raised whatever the RFQ's
+kind.
+
+**Step 4 — also on `rfq-desk`, NOT live** (RFQ-DESK.md §3 "Step 4 rulings").
+The Production Executive's Today is `ProductionToday` (`.vip-narrow`, one
+column at both widths): the greeting bar, a "this month" strip of their own
+decisions (`technicalMonthStats`), then `TechnicalQueueCard` — every
+`with_technical` RFQ oldest first, the age amber at 1 / red at 2 **working
+days, Sundays not counted** (`workingDaysWaited`, `RFQ_WAIT_LIMITS`, and the
+label switches to "N working days" at the same moment so number and colour
+agree). **Approve (two taps) and Send back (optional note) are ONE component,
+`RfqReviewActions`**, rendered by the queue AND by Lead Detail's RFQ card for
+`canReviewRfqs` (production + owner) — don't split them. An approval on Lead
+Detail re-reads the lead (`fetchLeadAfterRfqMove`), since the database moved
+its stage. A click on an RFQ that moved on (23514 / P0002,
+`isRfqMovedOnError`) drops the row with the database's own message.
+`RfqUpdatesCard` also lists `rfq_bounced` for whoever approved. **`supabaseFetch.js` now
+invalidates the cache after a WRITING RPC** (`isWriteRequest`: every `rfq_*`
+function and `delete_lead_totally`) — every other `/rpc/` is still a read; a
+new function that writes belongs in that list.
+
+**Step 5 — also on `rfq-desk`, NOT live** (RFQ-DESK.md §3 "Step 5 rulings").
+The Estimation Executive's Today is `EstimationToday` (`.vip-narrow`): the
+greeting bar, a "this month" strip (`estimationMonthStats`), then
+`EstimationQueues` — "Waiting for estimation" above "With Lixil", **both
+from one read and one set of rows**, so "Raised with Lixil" moves a row down
+with no refetch; each list longest-wait-at-its-step first
+(`sortRfqsByWait`); ages amber/red at 1/2 working days for estimation and
+5/7 for Lixil. **`RfqEstimationActions` is the one implementation** of
+Raised with Lixil (one tap, §3), Send back, Withdraw (a price revision only —
+the SQL won't send one back) and Quote received (reference, value without
+GST read back in rupees, date) — rendered by the lists AND by Lead Detail's
+RFQ card for `canEstimateRfqs` (estimation + owner). **Price revisions start
+on Lead Detail** ("Start a price revision" on the current quote,
+`canStartPriceRevision`), never on Today. Both desk steps share
+`RfqQueueRow`, `RfqSendBackForm` and `RfqWithdrawControl` — change a row or
+the send-back form there, not in a copy. Both strips are the Day Review's
+`DayKpiStrip`. The "being set up" Today card is gone.
+
 ### Data isolation — audited, don't re-litigate
 
 A full audit traced "a sales exec only sees their own data and only changes
@@ -3216,6 +3273,14 @@ it leaves orphaned Auth logins to clean up by hand; scripting that risks
 removing your own login.
 
 ### Outstanding migrations
+
+* **`migration_rfq_desk_advance_fix.sql`** — **run and verified live
+  2026-10-06** (`verify_rfq_desk.sql`: 43 PASS, 0 FAIL, new T16b included) —
+  replaces `rfqs_after_write()` so an approval moves a lead still before RFQ
+  Raised whatever the approved RFQ's kind (it was fresh-only, which stranded a
+  lead whose fresh RFQ was sent back at Calling — seen in Step 3's live
+  trial). `migration_rfq_desk.sql` carries the same line, so re-running it
+  keeps the fix.
 
 * **`migration_rfq_desk.sql`** — **run and verified live 2026-10-06**
   (`verify_rfq_desk.sql`: 42 PASS, 0 FAIL, as real test sessions plus the
@@ -3665,7 +3730,9 @@ kills React StrictMode's dev double-fetch.
 * **Errors are never cached** — a dropped connection must not be replayed for
   90s.
 * **Invalidation happens ONCE, at the transport layer**: `supabaseFetch` drops
-  the cache after any successful non-GET (excluding `/rpc/`, a read here).
+  the cache after any successful non-GET (excluding `/rpc/`, a read here —
+  except the writing functions `isWriteRequest` names: `rfq_*` and
+  `delete_lead_totally`; add any new writing function there).
   Deliberately not per call site, for the same reason `lead_change_log` is
   trigger-written — `leads` alone is written from eight paths, and "remember
   to invalidate" fails the first time someone adds a ninth.

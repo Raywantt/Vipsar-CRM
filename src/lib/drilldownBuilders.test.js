@@ -17,6 +17,7 @@ import {
   buildArchitectsToMeetPanel,
 } from './drilldownBuilders'
 import { TONE_NEUTRAL } from './statusColors'
+import { computeActivityActuals } from '../components/TargetsVsActualsCard'
 
 describe('buildArchitectsToMeetPanel', () => {
   it("lists architectsToMeet's rows in order, each with firm and last meeting", () => {
@@ -376,6 +377,39 @@ describe('buildLogPanel', () => {
 
     const noTargetSet = buildLogPanel({ employee, activityType: 'rfq_raised', targets, range, rangeLabel: 'this month', logRows, canCancelTarget: true })
     expect(noTargetSet.cancelTarget).toBeNull()
+  })
+
+  // RFQ-DESK.md Step 6 — the RFQ Raised cell's panel must agree with the cell:
+  // pre-cutover fresh RFQs by their logging day, plus this exec's counted
+  // approvals; the list stays what was logged.
+  it('RFQ Raised with the desk live: headline = old-rule entries + this exec\'s counted approvals', () => {
+    const rfqTargets = [{ id: 502, employee_id: 'e1', metric_name: 'rfq_raised', target_value: 4 }]
+    const rfqRows = [
+      { id: 11, created_at: '2026-08-05T05:00:00', rfq_kind: 'fresh', parties: { name: 'A' } }, // before cutover: counts
+      { id: 12, created_at: '2026-08-06T05:00:00', rfq_kind: 'revised', parties: { name: 'B' } }, // revision: never
+      { id: 13, created_at: '2026-08-20T05:00:00', rfq_kind: 'fresh', parties: { name: 'C' } }, // after: via approval only
+    ]
+    const rfqCounting = {
+      liveFrom: '2026-08-15T03:30:00+00:00',
+      counted: [
+        { raised_by_employee_id: 'e1', approved_at: '2026-08-21T06:00:00+00:00' },
+        { raised_by_employee_id: 'e9', approved_at: '2026-08-21T06:00:00+00:00' }, // someone else's
+      ],
+    }
+    const panel = buildLogPanel({ employee, activityType: 'rfq_raised', targets: rfqTargets, range, rangeLabel: 'this month', logRows: rfqRows, rfqCounting })
+    expect(panel.value).toBe('2 / 4')
+    expect(panel.stats[0]).toMatchObject({ label: 'Counted', value: '2' })
+    expect(panel.log).toHaveLength(3)
+    expect(panel.note).toMatch(/passes the technical check/)
+
+    // The heatmap cell computes the same figure.
+    const cell = computeActivityActuals(rfqRows.map((r) => ({ ...r, employee_id: 'e1', activity_type: 'rfq_raised' })), true, rfqCounting)
+    expect(cell.get('e1').rfq_raised).toBe(2)
+
+    // Desk off: the old panel, untouched.
+    const off = buildLogPanel({ employee, activityType: 'rfq_raised', targets: rfqTargets, range, rangeLabel: 'this month', logRows: rfqRows })
+    expect(off.value).toBe('2 / 4')
+    expect(off.stats[0].label).toBe('Logged')
   })
 })
 

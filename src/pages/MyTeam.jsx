@@ -6,6 +6,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { fetchTeamMembers } from '../lib/employeeQueries'
 import { fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { computeAttentionBuckets, countDistinctLeads, buildLastStageChangeByLead } from '../lib/attention'
+import { fetchDeskRfqsForAttention } from '../lib/rfqQueries'
+import { latestDeskRfqByLead } from '../lib/rfqDesk'
 import { dealValueFor } from '../lib/pipelineValue'
 import { formatCurrencyCompact } from '../lib/format'
 import { getInitials } from '../lib/initials'
@@ -54,7 +56,10 @@ function MyTeam() {
   const leadsQuery = useCachedQuery(['dash', 'breakdown-leads'], () => fetchLeadsForBreakdown())
   const lastActivityQuery = useCachedQuery(['dash', 'last-activity-per-lead'], fetchLastActivityPerLead)
   const funnelQuery = useCachedQuery(['dash', 'funnel-history'], () => fetchStageHistoryForFunnel())
-  const loading = [teamQuery, leadsQuery, lastActivityQuery, funnelQuery].some((q) => q.result === undefined)
+  // "RFQs back with the exec" needs each lead's newest desk RFQ (RFQ-DESK.md
+  // Step 6) — the Dashboard's own fallback key.
+  const deskRfqsQuery = useCachedQuery(['dash', 'desk-rfqs-attention'], fetchDeskRfqsForAttention)
+  const loading = [teamQuery, leadsQuery, lastActivityQuery, funnelQuery, deskRfqsQuery].some((q) => q.result === undefined)
   const error = teamQuery.result?.error ? errorMessage(teamQuery.result.error) : null
 
   const employees = useMemo(() => {
@@ -81,6 +86,10 @@ function MyTeam() {
     () => buildLastStageChangeByLead(funnelQuery.result?.data),
     [funnelQuery.result]
   )
+  const latestDeskRfqs = useMemo(
+    () => latestDeskRfqByLead(deskRfqsQuery.result && !deskRfqsQuery.result.error ? deskRfqsQuery.result.data : []),
+    [deskRfqsQuery.result]
+  )
 
   // Open-lead count + open pipeline value per employee, from the same
   // unbounded breakdown query Dashboard/EmployeeProfile already fetch —
@@ -100,7 +109,7 @@ function MyTeam() {
 
   // Needs-attention count per employee — distinct leads across all 5
   // attention.js buckets (stale/silent quotes/overdue follow-ups/slipped
-  // close/pending RFQ) for that employee's own leads, the same holistic
+  // close/RFQs back with the exec) for that employee's own leads, the same holistic
   // total the Dashboard's own Needs Attention card badge shows, just scoped
   // to one exec at a time. Deduped by lead, not a sum of bucket counts — a
   // lead can land in more than one bucket at once.
@@ -108,11 +117,11 @@ function MyTeam() {
     const map = new Map()
     employees.forEach((emp) => {
       const empLeads = leads.filter((l) => l.owner_employee_id === emp.id)
-      const buckets = computeAttentionBuckets(empLeads, lastActivityByLead, lastStageChangeByLead)
+      const buckets = computeAttentionBuckets(empLeads, lastActivityByLead, lastStageChangeByLead, latestDeskRfqs)
       map.set(emp.id, countDistinctLeads(buckets))
     })
     return map
-  }, [employees, leads, lastActivityByLead, lastStageChangeByLead])
+  }, [employees, leads, lastActivityByLead, lastStageChangeByLead, latestDeskRfqs])
 
   const roles = useMemo(() => [...new Set(employees.map((e) => e.role))].sort(), [employees])
 

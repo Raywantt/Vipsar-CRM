@@ -29,9 +29,9 @@ session of the role, never from the SQL Editor; verify as the role with the
 | 0 | Planning, decisions, this file | ✅ 2026-10-05 |
 | 1 | Database: `rfqs` + `rfq_events`, triggers, RLS, notifications | ✅ 2026-10-06 — `migration_rfq_desk.sql` live (switch OFF); `verify_rfq_desk.sql` 42 PASS, 0 FAIL, 0 SKIP |
 | 2 | Role plumbing: `roles.js`, routes, nav, Today switch, two test ports | ✅ 2026-10-06 — Search + read-only Lead Detail for the desk; both test logins checked at both widths, including on a real (throwaway) RFQ'd lead |
-| 3 | Exec side: RFQ Raised form, RFQ status on Lead Detail, sent-back / quote-ready | — |
-| 4 | Production Executive: review queue (approve / send back) | — |
-| 5 | Estimation Executive: estimation queue, Lixil step, quote, send back, price revision | — |
+| 3 | Exec side: RFQ Raised form, RFQ status on Lead Detail, sent-back / quote-ready | ✅ built 2026-10-06 on branch `rfq-desk` (NOT on master — ships on launch day), live-checked end to end on test data; `migration_rfq_desk_advance_fix.sql` run live, `verify_rfq_desk.sql` 43 PASS, 0 FAIL |
+| 4 | Production Executive: review queue (approve / send back) | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 5, 6 on launch day); live-checked on test data as the test exec, both desk logins and the owner, at phone and desktop width |
+| 5 | Estimation Executive: estimation queue, Lixil step, quote, send back, price revision | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 4, 6 on launch day); live-checked on test data as the test exec, both desk logins, at phone and desktop width |
 | 6 | Reporting changes: RFQ target on approval, Needs Attention rework | — |
 | 7 | Owner's **RFQ Desk** screen | — |
 | 8 | Launch day + docs (`CLAUDE.md`) | — |
@@ -49,6 +49,11 @@ Step 2 session, over turning it back off). Every RFQ Raised since then sits in
 Harjot's queue as `with_technical` with an `rfq_new` alert row, while Harjot
 keeps working them in Excel. Nothing is pushed yet. Launch day has to clear
 this backlog — §8 Step 8.
+
+**Steps 3–6 live on the `rfq-desk` branch until then** (2026-10-06): master
+deploys straight to the live CRM, and with the switch already on, Step 3 alone
+would stop logging from moving leads to RFQ Raised while nobody could approve
+them yet. Merge the branch on launch day.
 
 **Steps 3–6 go live together on a chosen launch day**, not one at a time.
 Shipping the exec side alone would stack RFQs up with nobody able to approve
@@ -201,6 +206,104 @@ Exec logs "RFQ Raised" (+ windows, segment)
   would be false), and the timeline is titled "Stage history". The owner's
   RFQ Desk link waits for its screen (Step 7); `canSeeRfqDesk` exists now.
 
+### Step 3 rulings (2026-10-06)
+- **Lead Detail: a new "RFQs" card in the main column, under Deal progress**
+  (offered: inside Sales progress). One row per desk RFQ, newest first, three
+  shown then "+N more earlier": revision · step · age, raised by / windows /
+  segments, the send-back note (or "No note — check your email"), the quote,
+  and Withdraw for the credited exec / logger / owner while it is with the
+  technical check or estimation (two-step confirm). Every role that can open
+  the lead sees it; only those two actions are gated.
+- **Today: a line at the top** (offered: also keep a sent-back RFQ in "Needs
+  your attention" until revised) — `RfqUpdatesCard`, mounted once in
+  `TodayGreetingHeader` like `AssignedLeadsCard`, same look. One row per unseen
+  `rfq_sent_back` / `rfq_quote_ready`; a tap opens the lead and clears it.
+- **Q4: the exec may type Quote value until the first desk quote lands**, then
+  it is locked and shows "from Lixil quote {ref}". Sales progress also now
+  sends Quote value only when the rep changed it, so a quote that lands while
+  the page is open can't be overwritten by a stale form.
+- **Q9: yes, a one-tap "Mark quote sent to client"** on the latest quote, for
+  whoever may edit the lead (owner / coordinator / its exec — `canEdit`).
+- Decided in the build, not asked (say if any is wrong): the steps are named,
+  not the people ("Technical check", "Estimation", "With Lixil") — there can be
+  more than one of each; **windows and at least one segment are required on
+  the form** (the database keeps them optional); a revision's hint and success
+  line promise nothing about the target (only a FRESH RFQ is said to count —
+  Step 6 decides how a corrected revision counts).
+- **Found in the live trial and fixed in SQL** (`migration_rfq_desk_advance_fix.sql`):
+  approval moved the lead to RFQ Raised only for a FRESH RFQ, so a lead whose
+  fresh RFQ was sent back stayed at Calling after its revision was approved.
+  Now the lead's first approved RFQ of any kind (not a price revision) moves
+  it; the stage test still stops a second move. New verify check T16b.
+
+### Step 4 rulings (2026-10-06)
+- **Harjot's Today = one column at every width, queue first** (offered: a
+  desktop table + side panel). The same rows on a phone and a desktop, like
+  the BDM pool card. Top to bottom: the greeting bar (carrying the "An RFQ you
+  approved was sent back" line), a "this month" strip, the queue.
+- **Approve takes two taps** (Approve → "Yes, approve"), since nothing can
+  reverse an approval (offered: one tap). Send back opens an optional note box
+  under the row (≤1,000 characters, the SQL limit), then Send back / Cancel.
+- **Q8: a slim "this month" strip on their Today** — Approved, Sent back,
+  Sent back later (by estimation, after they approved — amber above zero) and
+  Typical check (median raised → their decision). The full figures stay on the
+  owner's RFQ Desk (Step 7).
+- **Q7, technical step: amber at 1 working day, red at 2; Sundays don't
+  count** (offered: calendar days, or no colour). Once a working day has
+  passed the age is written in the same unit ("1 working day"), so two rows
+  saying "2 days" can't be different colours; before that it reads in
+  hours/minutes. Estimation and Lixil get theirs at Step 5.
+- Decided in the build, not asked (say if any is wrong): the queue is oldest
+  first and never hidden when empty ("Nothing waiting…"); each row shows lead,
+  revision, exec, office (the old sheets were split LDH/JLD), who logged it if
+  not the exec, windows + segments ("No window count or segment given" when
+  missing), the lead's stage only when it is Won / Lost / On hold, and "Also
+  waiting for this lead: R2" when two revisions of one lead are both queued.
+  **Lead Detail's RFQ card gets the same Approve / Send back** (one
+  `RfqReviewActions` component, gated on `canReviewRfqs`), so **the owner can
+  already cover Harjot from any lead** before the RFQ Desk exists; an approval
+  there re-reads the lead so the stepper and timeline show the move to RFQ
+  Raised. "Bounced at estimation" reuses Step 3's Today line
+  (`RfqUpdatesCard`, now also listing `rfq_bounced`). An RFQ that moved on
+  before the click landed (approved by someone else, withdrawn) leaves the
+  queue with the database's own explanation.
+- **Fixed in passing:** the desk's actions are database functions (RPCs), and
+  the transport treated every RPC as a read, so an approval / withdrawal /
+  Delete lead never cleared the remembered screens. `supabaseFetch.js` now
+  names the writing functions (`rfq_*`, `delete_lead_totally`).
+
+### Step 5 rulings (2026-10-06)
+- **Harpreet's Today = two cards in one column** (offered: one card with a
+  two-way switch): the greeting bar, a "this month" strip, then **Waiting for
+  estimation** (Raised with Lixil / Send back) above **With Lixil** (Quote
+  received). The same rows on a phone and a desktop.
+- **Q7: estimation amber 1 / red 2 working days (counted from the
+  approval), Lixil amber 5 / red 7 (from "Raised with Lixil")** — the sheets'
+  75th / 90th percentile for a whole RFQ → quote (offered: Lixil 3 / 5, or no
+  colour on Lixil).
+- **Price revisions start on Lead Detail's RFQs card**, on the current quote
+  ("Start a price revision", two taps), found through Search (offered: also a
+  "Quoted" list on Today). The new one then waits in "Waiting for estimation".
+- **Q8: Harpreet's strip** — Raised with Lixil, Quotes recorded, Sent back,
+  Typical Lixil time (median raised with Lixil → quote recorded).
+- Kept from §3 (locked): **"Raised with Lixil" is one tap**; a price revision
+  can't be sent back — it offers **Withdraw** instead (to whoever started it,
+  or the owner).
+- Decided in the build, not asked (say if any is wrong): each list is longest
+  wait AT ITS STEP first (an RFQ raised last week and approved this morning
+  has waited for estimation since this morning); a row in "Waiting for
+  estimation" says where it came from ("Approved by Harjot · 10:40 am" /
+  "Price revision started by Harpreet"); **Quote received is a form under the
+  row** — Lixil's reference (required), value without GST (the on-screen
+  keypad on a phone) with the figure read back in rupees under it so a missed
+  zero shows, and the quote date (today by default, limited to between the
+  raised day and today). The database's own checks are said before the save
+  (`quoteProblem`); recording the quote needs no second confirm — filling the
+  form is the deliberate step. **The owner gets the same estimation controls
+  on Lead Detail** (`canEstimateRfqs`), as with the technical check. A quote
+  recorded on Lead Detail re-reads the lead and refreshes Sales progress, so
+  its Quote value lock shows the new figure.
+
 ### What it changes for sales
 - **The RFQ Raised form asks for two new things:** number of windows
   (required) and product segment (pick one or more). The list comes from §2,
@@ -247,12 +350,12 @@ Exec logs "RFQ Raised" (+ windows, segment)
 
 | # | Question | My recommendation | Step |
 |---|---|---|---|
-| Q4 | Quote value on a lead that has **no** desk quote (in-flight Excel RFQs, older leads) | Exec can still type it until the first desk quote lands; locked from then on | 3 |
+| Q4 | Quote value on a lead that has **no** desk quote (in-flight Excel RFQs, older leads) | ✅ answered 2026-10-06 as recommended — see Step 3 rulings | 3 |
 | Q5 | Needs Attention's "RFQ raised 3+ days, no quote" bucket now measures the desk's speed, not the exec's | Replace it with "sent back, not revised in N days" and "quote in, not sent to client in N days" | 6 |
-| Q6 | Where a sent-back RFQ shows on the exec's Today | In "Needs your attention today", above follow-ups | 3 |
-| Q7 | "Waiting too long" per step | Technical 1 working day, estimation 1 day, Lixil 5 days (data: median 3 days end to end) | 4–7 |
-| Q8 | Do Harjot and Harpreet see their own figures (RFQ Desk or a slimmer view)? | A slim "my desk this month" strip on their Today, but not the full RFQ Desk | 4–5 |
-| Q9 | Does "Quote ready" offer a one-tap "Mark quote sent to client"? | Yes, on Lead Detail, for the exec | 3 |
+| Q6 | Where a sent-back RFQ shows on the exec's Today | ✅ answered 2026-10-06: a line at the top of Today (not the attention list) — see Step 3 rulings | 3 |
+| Q7 | "Waiting too long" per step | Technical 1 working day, estimation 1 day, Lixil 5 days (data: median 3 days end to end) | ✅ answered 2026-10-06, working days with Sundays excluded: technical and estimation amber 1 / red 2, Lixil amber 5 / red 7 — Step 4 and Step 5 rulings |
+| Q8 | Do Harjot and Harpreet see their own figures (RFQ Desk or a slimmer view)? | A slim "my desk this month" strip on their Today, but not the full RFQ Desk | ✅ answered 2026-10-06 as recommended, for both (Step 4 and Step 5 rulings) |
+| Q9 | Does "Quote ready" offer a one-tap "Mark quote sent to client"? | ✅ answered 2026-10-06: yes — see Step 3 rulings | 3 |
 
 ---
 
@@ -298,9 +401,10 @@ test scope and starting status under a row lock: `rfq_approve`,
 
 **Side effects, in `rfqs_after_write()`:**
 - approved → `leads.rfq_raised`, `rfq_raised_at` (the later of its own and
-  this RFQ's raised date), and for a FRESH RFQ on a lead still before RFQ
-  (calling / presentation / joinery follow-up) the move to `rfq` + a
-  `stage_history` row credited to the approver — exactly `shouldAdvanceToRfq`.
+  this RFQ's raised date), and on a lead still before RFQ (calling /
+  presentation / joinery follow-up) the move to `rfq` + a `stage_history` row
+  credited to the approver. Any kind but a price revision — it was FRESH-only
+  until `migration_rfq_desk_advance_fix.sql` (Step 3 rulings).
 - quoted → `leads.quote_value`.
 - notifications (five new kinds, `notifications.rfq_id`): `rfq_new`,
   `rfq_approved`, `rfq_sent_back`, `rfq_bounced`, `rfq_quote_ready`.
@@ -391,6 +495,17 @@ two screens will disagree:
    Harpreet switch from Excel to the CRM for new RFQs that day; in-flight ones
    finish in Excel. Then document everything in `CLAUDE.md` and mark this
    file historical.
+   **In order, on the day:**
+   1. ~~`migration_rfq_desk_advance_fix.sql`~~ — already run and verified
+      2026-10-06; nothing to do unless an older file was re-run since.
+   2. The backlog SQL below (re-stamp the switch first).
+   3. Merge `rfq-desk` into master (Vercel deploys it).
+   4. **Then** `supabase functions deploy send-followup-reminders` — never
+      before the re-stamp: it pushes every RFQ alert written at or after
+      `live_from`, and today's `live_from` would push weeks of Excel-handled
+      RFQs to Harjot. (It also stamps older alerts as handled without
+      sending, so the backlog can't clog its queue.)
+
    **The switch is already on (since 2026-10-06 09:26 IST, §1)**, so launch
    day also has to deal with the backlog that built up before it. Write this
    as one SQL file for the owner, run just before the deploy, and decide each
@@ -544,3 +659,111 @@ approve a technical check.
   past RLS). Not walked this session: the coordinator / manager / BDM /
   owner Lead Detail — their logic is unchanged (every new condition is true
   for them).
+- **2026-10-06 — Step 3 built (branch `rfq-desk`, uncommitted).** Owner's
+  rulings in §3 "Step 3 rulings". New: `src/lib/rfqDesk.js` (pure rules —
+  segments, statuses, labels, the withdraw rule mirroring SQL, the latest desk
+  quote, the switch; `rfqDesk.test.js` also pins the segment list to the
+  migration's CHECKs), `src/lib/rfqQueries.js`, `LeadRfqCard.jsx`,
+  `RfqUpdatesCard.jsx`, theme section 44. Changed: Log Activity (windows +
+  segments; with the desk on it stops moving the lead / stamping rfq_raised
+  and says where the RFQ goes; re-reads the switch at submit; pings the push
+  sender), Lead Detail (fetches the lead's RFQs; the card; remounts Sales
+  progress after Mark sent), Sales progress (quote lock, send Quote value only
+  when changed), the Edge Function (five rfq_* kinds with wording; an alert
+  older than `live_from` is stamped handled, never sent). **Fixed in passing,
+  live bug:** `markNotificationsSeen` returned a lazy query builder, so tapping
+  one row of "lead assigned to you" (fire-and-forget) never sent the request
+  and the alert came back next visit — now async. **Live trial** (test exec +
+  both desk test logins, deleted afterwards with `delete_lead_totally`): the
+  real form at 375px and 1280px (fresh then revised; Log it disabled until
+  windows + a segment), lead stayed at Calling with no rfq_raised; send-back →
+  Today line with the note → tap opened the lead and (after the fix) cleared
+  it; approve / Lixil / quote → "A quote came in", card quote row, Sales
+  progress locked; Mark sent → lead + checkbox + Quotes & orders; withdraw and
+  Keep it; the desk sees the card read-only. Lint clean, 637 tests. Not seen:
+  the coordinator / manager / BDM Today line (no session) — same one mount.
+- **2026-10-06 — advance fix live.** The owner ran
+  `migration_rfq_desk_advance_fix.sql`, then `verify_rfq_desk.sql`: **43
+  PASS, 0 FAIL** (T16b: approving a revised RFQ on a lead at Calling moved it
+  to RFQ Raised, one history row; T26 still holds — no second move). Step 3's
+  code is still uncommitted on `rfq-desk`.
+- **2026-10-06 — Step 4 built (branch `rfq-desk`, uncommitted).** Owner's
+  rulings in §3 "Step 4 rulings" (one column; two-tap Approve; Q8 strip; Q7
+  amber 1 / red 2 working days, Sundays out). New: `ProductionToday.jsx`
+  (greeting bar → "this month" strip → queue), `TechnicalQueueCard.jsx`,
+  `RfqReviewActions.jsx` (Approve / Send back — the one implementation, also
+  on Lead Detail's RFQ card for `canReviewRfqs`, so the owner can cover from
+  any lead), theme section 45 + two text tokens (`--vip-status-warn-ink` /
+  `-bad-ink`: the plain warn/bad colours measured 3.1:1 and 4.2:1 on their
+  soft fills). `rfqDesk.js` gained the working-day clock, wait levels/labels,
+  oldest-first sort, "also waiting" siblings, the month stats and the
+  moved-on error test; `rfqQueries.js` the queue, the decisions read, approve
+  and send back; `leadDetailQueries.js` `fetchLeadAfterRfqMove`.
+  `RfqUpdatesCard` now lists `rfq_bounced` ("An RFQ you approved was sent
+  back", first name only so the time survives at 375px — measured 255 of
+  258px) and names the kind in a plural heading ("3 RFQs were sent back").
+  The setup card now serves only the Estimation Executive. **Fixed in
+  passing:** `supabaseFetch.js` treated every RPC as a read, so the desk's
+  actions and Delete lead never cleared remembered screens — the writing
+  functions are now named (`isWriteRequest`, tested). **Live trial** (test
+  exec 26, production-exec 48, estimation-exec 49, owner; three throwaway
+  leads #1624–1626 with RFQs #18–21): the queue oldest first with "Also
+  waiting for this lead" on two revisions of one lead; Send back with a note
+  (row leaves, flash, strip updates at once — the RPC invalidation working);
+  two-tap Approve (lead moved to RFQ Raised); estimation sent that one back →
+  `rfq_bounced` to production-exec only → the Today line + strip "Sent back
+  later 1" in amber; Approve from Harjot's Lead Detail at 375px (stepper and
+  Stage history updated without a reload); the owner (Test accounts switched
+  ON for the check, then OFF — confirmed in the database) sent one back from
+  Lead Detail at 1280px with no note; Harjot's stale Approve on it was
+  refused and the row left with "…it is already sent back"; the exec saw only
+  Withdraw on Lead Detail and "3 RFQs were sent back" on Today; the
+  Estimation Executive's Today unchanged. No horizontal scroll at phone width.
+  **Cleaned up** with `delete_lead_totally` (1624–1626): leads, sites,
+  activities, RFQs, events and alerts re-read as gone from the exec and both
+  desk sessions. Lint clean, 662 tests. **Not seen:** an amber or red age on a
+  real row (nothing in the trial was a working day old — the levels are unit
+  tested and the colours measured 5.0–5.9:1 in both themes); the
+  coordinator / manager / BDM Today line with the new plural headings (same
+  one mount); the owner's Today receiving `rfq_bounced` after approving.
+- **2026-10-06 — Step 5 built (branch `rfq-desk`, uncommitted).** Owner's
+  rulings in §3 "Step 5 rulings" (two cards; Q7 estimation 1/2, Lixil 5/7;
+  price revision from Lead Detail; Q8 strip). New: `EstimationToday.jsx`,
+  `EstimationQueues.jsx` (both lists from one read), `RfqEstimationActions.jsx`
+  (Raised with Lixil / Send back / Withdraw a price revision / Quote received
+  — the one implementation, also on Lead Detail's card for `canEstimateRfqs`),
+  and three pieces split out of Step 4's components so both desk steps share
+  them: `RfqQueueRow.jsx`, `RfqSendBackForm.jsx`, `RfqWithdrawControl.jsx`.
+  Lead Detail's card gained "Start a price revision" on the current quote.
+  `rfqDesk.js`: the two new wait limits, `sortRfqsByWait`,
+  `estimationMonthStats`, `canStartPriceRevision` (mirrors the SQL),
+  `quoteProblem` / `rfqRaisedDay` (mirror `rfq_record_quote`'s refusals),
+  `rfqLeadName`; `durationLabel` now says "<1m" rather than "0m".
+  `rfqQueries.js`: raise with Lixil, record quote, start price revision, the
+  estimation read and the decisions read. Harjot's strip now uses the Day
+  Review's `DayKpiStrip`, as Harpreet's does. The "being set up" Today card is
+  gone — both desk roles have their real screen. The sent-back pill on Lead
+  Detail's card now uses `TONE_WARN_INK` (the plain amber measured 3.1:1).
+  **Live trial** (test exec 26, production-exec 48, estimation-exec 49; leads
+  #1627–1629, RFQs #22–28): Harpreet's lists at 1280px and 375px; Raised with
+  Lixil moved D into With Lixil at once; Send back from estimation with a note
+  → the exec's line and Harjot's "An RFQ you approved was sent back" + "Sent
+  back later 1"; Save quote with nothing filled → "Enter Lixil's quote
+  reference."; the quote via the phone keypad with "₹4,25,000 without GST" read
+  back → saved, strip counted it, exec told "Quote in"; on D's Lead Detail
+  Harpreet started a price revision (Withdraw offered, no Send back, the start
+  link gone while it was open), raised it with Lixil and recorded ₹4,40,000 →
+  the lead's quote value in the database, the exec's Sales progress locked at
+  "₹4,40,000 · from Lixil quote ZZ-TRIAL-502" and "Mark quote sent" on the new
+  quote; a second price revision withdrawn from Today ("The earlier quote
+  still stands", lead value unchanged); the exec withdrew F while Harpreet's
+  screen still showed it → her Raised with Lixil was refused and the row left
+  with "…it is withdrawn"; Harjot's Lead Detail showed estimation's RFQ with no
+  buttons. No horizontal scroll at 375px. **Cleaned up** with
+  `delete_lead_totally` (1627–1629): leads, sites, activities, RFQs, events
+  and alerts re-read as gone from all three sessions. Lint clean, 676 tests.
+  **Not seen:** the owner's estimation controls on Lead Detail (needs the
+  owner's Test accounts switch — same component as Harpreet's, which was
+  walked); an amber/red age on a real row (unit tested); a quote dated in the
+  past through the form (the date input's own min/max; the rule is unit
+  tested and the SQL refuses it).
