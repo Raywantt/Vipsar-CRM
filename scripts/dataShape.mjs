@@ -29,6 +29,7 @@ const EXTRA = [
   'src/lib/fetchAllRows.js',
   'src/lib/leadOwnerHistory.js',
   'src/lib/poolLeads.js',
+  'src/lib/productOrder.js',
   'src/lib/queryClient.js',
   'src/hooks/useCachedQuery.js',
   'src/hooks/useAttentionBuckets.js',

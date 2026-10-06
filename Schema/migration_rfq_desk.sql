@@ -85,7 +85,9 @@ $guard$;
 -- STEP 1: what an RFQ Raised activity carries
 --
 -- Both columns are only legal on an rfq_raised activity. Segments are a
--- closed list (two-sided: the Step 3 JS list must match this one).
+-- closed list (two-sided: the Step 3 JS list must match this one). The list
+-- is the owner's product portfolio since 2026-10-06
+-- (migration_products_portfolio.sql / _part_b.sql replaced Windows, Facade…).
 -- ------------------------------------------------------------
 ALTER TABLE activities
   ADD COLUMN IF NOT EXISTS rfq_window_count INTEGER,
@@ -98,7 +100,7 @@ ALTER TABLE activities ADD CONSTRAINT activities_rfq_details_check CHECK (
   (rfq_segments IS NULL OR (
      activity_type = 'rfq_raised'
      AND cardinality(rfq_segments) > 0
-     AND rfq_segments <@ ARRAY['windows','giesta','in16','skylight','facade','wrapping_bars']::text[]
+     AND rfq_segments <@ ARRAY['tostem','noki','in16','giesta','skylight','wrapping_bars','premial','vox','stonelam','others']::text[]
   ))
 );
 
@@ -175,7 +177,7 @@ CREATE TABLE IF NOT EXISTS rfqs (
   is_test                BOOLEAN NOT NULL DEFAULT false,
   window_count           INTEGER CHECK (window_count IS NULL OR window_count > 0),
   segments               TEXT[] NOT NULL DEFAULT '{}'
-                           CHECK (segments <@ ARRAY['windows','giesta','in16','skylight','facade','wrapping_bars']::text[]),
+                           CHECK (segments <@ ARRAY['tostem','noki','in16','giesta','skylight','wrapping_bars','premial','vox','stonelam','others']::text[]),
   status                 TEXT NOT NULL DEFAULT 'with_technical'
                            CHECK (status IN ('with_technical','with_estimation','with_lixil',
                                              'quoted','sent_back','withdrawn')),

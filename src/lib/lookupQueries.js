@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient'
 import { fetchAllRows } from './fetchAllRows'
+import { compareProducts } from './productOrder'
 
 // Small, mostly-static reference tables that don't have a home in any other
 // *Queries.js file (they aren't about a lead, a party, an employee, or a
@@ -19,6 +20,12 @@ export function fetchAreas() {
 // near the cap, but wrapped anyway for the same reason every other list query
 // in this app now is: it costs nothing extra under the cap, and it means "is
 // this query safe" is never again a judgment call made table-by-table.
-export function fetchProducts() {
-  return fetchAllRows(() => supabase.from('products').select('id, name, category', { count: 'exact' }).order('name'))
+// VIPSAR's product portfolio (the owner's ten, 2026-10-06 —
+// Schema/migration_products_portfolio.sql), in the picker's order
+// (productOrder.js: alphabetical, Others last).
+export async function fetchProducts() {
+  const res = await fetchAllRows(() =>
+    supabase.from('products').select('id, name, category', { count: 'exact' }).order('name')
+  )
+  return res.data ? { ...res, data: [...res.data].sort(compareProducts) } : res
 }

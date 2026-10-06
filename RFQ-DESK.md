@@ -368,6 +368,17 @@ Exec logs "RFQ Raised" (+ windows, segment)
   Attention's rule); lanes show 5 rows then "+N more"; price revisions stay
   out of "RFQs raised", the technical step and end to end.
 
+### After launch: product segments = the product portfolio (2026-10-06)
+- **The segment list is VIPSAR's ten products** (owner's ruling): Giesta, IN16,
+  Noki, PremiAL, Sky Light, StoneLam, Tostem, VOX, Wrapping bars, Others —
+  alphabetical, Others last (owner's pick), the same as the products table.
+  Windows and Facade retired: PART A of `migration_products_portfolio.sql`
+  accepts both lists, the deploy switches the form, PART B moves leftovers
+  (Windows → Tostem, Facade → Others) and tightens the CHECKs.
+- **RFQ #62 on lead #482 was a test** (owner): erased — the RFQ, its RFQ
+  Raised activity and the follow-up it created; the lead (MR. Vineet, a real
+  client of Vipul Sharma's) and its history stay.
+
 ### After launch: the RFQ popups (2026-10-06)
 - **Every figure on the owner's RFQ Desk and on both desk Todays opens a
   popup** (offered: the RFQ Desk only). The lanes don't (owner's pick — a lane

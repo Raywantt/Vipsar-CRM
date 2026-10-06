@@ -20,13 +20,22 @@ import { leadDisplayName } from './leadName'
 // option offered here that the CHECK doesn't know fails the whole RFQ Raised
 // save. rfqDesk.test.js reads the SQL and pins the two together. Order is the
 // owner's (RFQ-DESK.md §3 Step 1 rulings).
+//
+// Since 2026-10-06 it is VIPSAR's product portfolio (owner's ruling) — the same
+// ten as the products table, alphabetical with Others last (owner's pick).
+// The old Windows / Facade values were moved off by
+// Schema/migration_products_portfolio_part_b.sql.
 export const RFQ_SEGMENT_OPTIONS = [
-  { value: 'windows', label: 'Windows' },
   { value: 'giesta', label: 'Giesta' },
   { value: 'in16', label: 'IN16' },
-  { value: 'skylight', label: 'Skylight' },
-  { value: 'facade', label: 'Facade' },
+  { value: 'noki', label: 'Noki' },
+  { value: 'premial', label: 'PremiAL' },
+  { value: 'skylight', label: 'Sky Light' },
+  { value: 'stonelam', label: 'StoneLam' },
+  { value: 'tostem', label: 'Tostem' },
+  { value: 'vox', label: 'VOX' },
   { value: 'wrapping_bars', label: 'Wrapping bars' },
+  { value: 'others', label: 'Others' },
 ]
 
 const SEGMENT_LABELS = Object.fromEntries(RFQ_SEGMENT_OPTIONS.map((o) => [o.value, o.label]))
@@ -35,7 +44,7 @@ export function segmentLabel(value) {
   return SEGMENT_LABELS[value] ?? value
 }
 
-// "Windows + IN16" — the way Harpreet's sheet already writes a combination.
+// "IN16 + Tostem" — the way Harpreet's sheet already writes a combination.
 // Kept in the option list's order, not the order they were tapped.
 export function segmentsLabel(segments) {
   if (!segments?.length) return null

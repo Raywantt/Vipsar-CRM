@@ -2983,6 +2983,15 @@ on Lead Detail** ("Start a price revision" on the current quote,
 the send-back form there, not in a copy. Both strips are the Day Review's
 `DayKpiStrip`. The "being set up" Today card is gone.
 
+**Product segments = the product portfolio (owner's ruling, 2026-10-06).** The
+RFQ Raised form's "Product segment" chips are VIPSAR's ten products —
+`RFQ_SEGMENT_OPTIONS`, alphabetical with Others last, the same order as every
+product picker (`productOrder.js`'s `compareProducts`, which `fetchProducts`
+sorts by; `productOrder.test.js` pins the two lists name for name). Windows
+and Facade are gone (`migration_products_portfolio*.sql`). The products
+themselves are rows in `products`, never a list in code — every screen that
+names a product reads that table.
+
 **Step 6 — reporting** (live 2026-10-06; RFQ-DESK.md §3 "Step 6 rulings").
 **An RFQ counts toward the exec's RFQ Raised target once per lead, on the day
 it passes the technical check**, credited to `raised_by_employee_id` — decided
@@ -3362,7 +3371,10 @@ reads that have no such guard.
 halves changed together, or the app offers an option that fails to save:
 `leads.office_territory` ↔ `territoryOptions.js`, `sites.site_stage` ↔
 `siteStageOptions.js` (pinned by `siteStageClosedList.test.js`),
-`activities.meeting_location` ↔ `meetingLocationOptions.js`. Adding an
+`activities.meeting_location` ↔ `meetingLocationOptions.js`,
+`rfqs.segments` + `activities.rfq_segments` ↔ `rfqDesk.js`'s
+`RFQ_SEGMENT_OPTIONS` (pinned by `rfqDesk.test.js`, which reads
+`migration_rfq_desk.sql` and `migration_products_portfolio_part_b.sql`). Adding an
 activity type needs **two** CHECKs widened — `activities.activity_type` *and*
 `follow_ups.activity_type`, since `FollowUpForm`'s chip picker reads the same
 list and would otherwise offer a chip that fails to save on any reminder.
@@ -3373,6 +3385,20 @@ it leaves orphaned Auth logins to clean up by hand; scripting that risks
 removing your own login.
 
 ### Outstanding migrations
+
+* **`migration_products_portfolio.sql`** (PART A, 2026-10-06, **not yet run —
+  run BEFORE the deploy**) — VIPSAR's product portfolio becomes exactly the
+  owner's ten (Tostem, Noki, IN16, Giesta, Sky Light, Wrapping bars, PremiAL,
+  VOX, StoneLam, Others): the six that existed are renamed in place (same id,
+  so the 1,281 leads keep their product), four are added, Veneto/In 16 → IN16
+  and Veneto → Others, then the two Veneto rows are deleted. It also erases
+  the owner-confirmed TEST RFQ #62 on lead #482 (MR. Vineet — a real client;
+  only the RFQ, its activity #4446 and its follow-up #1529 go) and lets the
+  RFQ segment CHECKs accept the old AND new values.
+* **`migration_products_portfolio_part_b.sql`** (PART B, **run AFTER the
+  deploy**) — moves any RFQ still tagged Windows → Tostem / Facade → Others and
+  tightens both segment CHECKs to the ten. The two-file split is the "retire a
+  value the running build still writes" rule below.
 
 * **`migration_rfq_desk_in_process.sql`** — **run and verified live
   2026-10-06** (`verify_rfq_desk_in_process.sql`: 10 PASS, 0 FAIL; live trial

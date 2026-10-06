@@ -36,7 +36,11 @@ import {
   loggedWhileDeskLive,
 } from './rfqDesk'
 
-const SQL = readFileSync(resolve(process.cwd(), 'Schema/migration_rfq_desk.sql'), 'utf8')
+// The original migration and the product-portfolio one that tightened the
+// list (PART B) — both must hold exactly the JS list.
+const SQL = ['Schema/migration_rfq_desk.sql', 'Schema/migration_products_portfolio_part_b.sql']
+  .map((f) => readFileSync(resolve(process.cwd(), f), 'utf8'))
+  .join('\n')
 
 // Every ARRAY['…'] literal the migration checks segments against.
 function sqlSegmentArrays() {
@@ -47,7 +51,7 @@ function sqlSegmentArrays() {
 
 describe('product segments are one closed list on both sides', () => {
   it('finds the CHECK in the migration (activities and rfqs)', () => {
-    expect(sqlSegmentArrays().length).toBeGreaterThanOrEqual(2)
+    expect(sqlSegmentArrays().length).toBeGreaterThanOrEqual(4)
   })
 
   it('offers exactly the values every CHECK allows, no more and no fewer', () => {
@@ -56,7 +60,8 @@ describe('product segments are one closed list on both sides', () => {
   })
 
   it('labels a combination in list order, joined the way the sheets write it', () => {
-    expect(segmentsLabel(['in16', 'windows'])).toBe('Windows + IN16')
+    expect(segmentsLabel(['tostem', 'in16'])).toBe('IN16 + Tostem')
+    expect(segmentsLabel(['others', 'skylight'])).toBe('Sky Light + Others')
     expect(segmentsLabel([])).toBeNull()
   })
 })
