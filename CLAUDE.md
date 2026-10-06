@@ -3302,7 +3302,8 @@ removing your own login.
   trigger and policy as the file on a local Postgres 16, re-runs included.
   Part 1 needed a second run; confirmed present afterwards by a catalog
   check.
-  `verify_rfq_desk.sql` T40–T50 not yet read. Adds `rfqs.counts_toward_target` + its approval trigger, the
+  **Verified 2026-10-06: `verify_rfq_desk.sql` 54 PASS, 0 FAIL** (T40–T50
+  are this file's). Adds `rfqs.counts_toward_target` + its approval trigger, the
   `rfqs_raised_by_select` policy, and re-creates `leads_needing_attention()`
   with a 9th argument (`p_rfq_back_days`) and two output columns. Must run
   **before** the Step 3–6 branch is merged. Safe for master meanwhile: master
@@ -3310,7 +3311,7 @@ removing your own login.
   function. One visible effect on master: a lead whose RFQ entered the desk
   leaves master's "RFQs pending a quote" on Today and Dashboard, while My Team's
   client-side count still includes it. That shows from 2026-10-09 at the
-  earliest. Then run `verify_rfq_desk.sql` and expect T40–T50 to PASS. **Any
+  earliest. **Any
   re-run of a file defining `leads_needing_attention()` must be followed by
   this one.**
 

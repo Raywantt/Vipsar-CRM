@@ -32,7 +32,7 @@ session of the role, never from the SQL Editor; verify as the role with the
 | 3 | Exec side: RFQ Raised form, RFQ status on Lead Detail, sent-back / quote-ready | ✅ built 2026-10-06 on branch `rfq-desk` (NOT on master — ships on launch day), live-checked end to end on test data; `migration_rfq_desk_advance_fix.sql` run live, `verify_rfq_desk.sql` 43 PASS, 0 FAIL |
 | 4 | Production Executive: review queue (approve / send back) | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 5, 6 on launch day); live-checked on test data as the test exec, both desk logins and the owner, at phone and desktop width |
 | 5 | Estimation Executive: estimation queue, Lixil step, quote, send back, price revision | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 4, 6 on launch day); live-checked on test data as the test exec, both desk logins, at phone and desktop width |
-| 6 | Reporting changes: RFQ target on approval, Needs Attention rework | 🟡 code built 2026-10-06 (ships with 3–5 on launch day); 700 tests, lint clean. `migration_rfq_desk_reporting.sql` **run 2026-10-06**; `verify_rfq_desk.sql` T40–T50 and the live check still to do |
+| 6 | Reporting changes: RFQ target on approval, Needs Attention rework | 🟡 code built 2026-10-06 (ships with 3–5 on launch day); 700 tests, lint clean. `migration_rfq_desk_reporting.sql` **run 2026-10-06, `verify_rfq_desk.sql` 54 PASS, 0 FAIL**; the live check in the browser is still to do |
 | 7 | Owner's **RFQ Desk** screen | — |
 | 8 | Launch day + docs (`CLAUDE.md`) | — |
 
@@ -875,3 +875,17 @@ approve a technical check.
   quote already sent, kept the Excel 3-day rule, and answered master's
   3-argument call. **Next:** `verify_rfq_desk.sql` (T40–T50), then the live
   check.
+- **2026-10-06 — Step 6 verified in the database.** `verify_rfq_desk.sql`:
+  **54 PASS, 0 FAIL** (the 43 before plus T40–T50, as the real test sessions).
+  Covered: a fresh RFQ counts on approval and stays counted after estimation
+  sends it back (T40), its later revision doesn't count again (T41), a lead
+  whose fresh RFQ predates the cutover gets no count from an approved revision
+  (T42), sent back → "RFQs back with the exec" after 2 days but not 1 (T43)
+  and off it once re-logged (T44), a sent-back fresh RFQ counts through its
+  passed correction (T45), quote in and not sent → on it after 2 days (T46)
+  and an earlier quote's sent date doesn't clear it (T47), an Excel-era lead
+  keeps the 3-day rule (T48), the raiser still reads their counted RFQ after
+  the lead is reassigned while the lead itself is hidden (T49), and nobody
+  else gains that read (T50). **Still to do for Step 6:** the live check in the
+  browser (test exec, both desk logins, owner; 375px and 1280px), which needs
+  signed-in sessions, so it's for a local session.
