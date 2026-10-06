@@ -368,6 +368,21 @@ Exec logs "RFQ Raised" (+ windows, segment)
   Attention's rule); lanes show 5 rows then "+N more"; price revisions stay
   out of "RFQs raised", the technical step and end to end.
 
+### After launch: the RFQ popups (2026-10-06)
+- **Every figure on the owner's RFQ Desk and on both desk Todays opens a
+  popup** (offered: the RFQ Desk only). The lanes don't (owner's pick — a lane
+  is its list).
+- **A breakdown per figure** (offered: one RFQ list, pre-filtered): its own
+  four figures, "By exec" / "By office" / "By kind" / "Where they are now" /
+  "Approved by" as fits, and the RFQs — like the Dashboard's Orders booked
+  popup.
+- **Filters: Exec, Office, Kind, Step** (all four picked).
+- Decided in the build, not asked (say if any is wrong): the figures ignore the
+  Step filter (it narrows the list); a breakdown ignores its own filter; a
+  turnaround list is slowest first; the send-back table's rows open "RFQs
+  raised" on that exec; the desk's two "Typical" tiles switched to working
+  time (Sundays out) so they match their popups.
+
 ### After launch: only the leads in their own process (2026-10-06)
 - **The owner narrowed what the desk can open** (it was every lead that had
   ever had a desk RFQ, plus Search): **Production Executive** — only leads with
@@ -928,3 +943,23 @@ approve a technical check.
   shows "This lead isn't in your queue."; `/search` bounces and the nav is
   Today alone. Cleaned up with `delete_lead_totally` (1654), re-read as gone
   from the exec and production sessions. Lint clean, 722 tests.
+- **2026-10-06 — RFQ popups.** Owner's rulings in §3 "After launch: the RFQ
+  popups". New: `src/lib/rfqDeskPanels.js` (+ 13 tests pinning every popup to
+  its figure), `RfqBreakdownBody` (panel kind `rfqBreakdown`), clickable
+  `DayKpiStrip` tiles, `DECISION_SELECT`. **Live trial** (test exec 26,
+  production-exec 48, estimation-exec 49; leads #1655–1658, RFQs #66–69 — A
+  quoted, B with Lixil, C approved then sent back by estimation, D sent back by
+  the technical check): Harjot's four tiles (3 approved / 1 sent back / 1 sent
+  back later / typical check) each opened their popup with matching figures,
+  Step = Sent back narrowed the list to "1 of 3" while the figures held, leads
+  out of his process read "Lead #…" unlinked; Harpreet's four tiles likewise,
+  with an Office facet (Amritsar / Ludhiana) and links on the two leads still
+  in her process; the popup fills a 375px phone with no overflow. Owner
+  (Test accounts ON with permission, then OFF — read back false): all four
+  strip tiles, the technical Turnaround row, an exec's send-back row (opened
+  on that exec, "4 of 5 RFQs · exec", By exec unfiltered with them highlighted)
+  and both "Details ›" links. Found and fixed: the "Sent back" popup's headline
+  read 5 (RFQs raised) instead of 2. **A real RFQ was already in the desk** —
+  #62, Vipul Sharma, Patiala — left untouched. Cleaned up with
+  `delete_lead_totally` (1655–1658). Lint clean, 735 tests.
+

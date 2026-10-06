@@ -265,6 +265,9 @@ function OwnerStageFilters({
   onStageChange,
   stageLabel: facetLabel = 'Stage',
   more = [],
+  // The RFQ popups call the person who raised an RFQ an "Exec".
+  ownerLabel = 'Owner',
+  allOwnersLabel = 'All owners',
 }) {
   const showOwner = owners.length > 1
   const showStage = stages.length > 1
@@ -274,9 +277,11 @@ function OwnerStageFilters({
     <div className="vip-dd-section">
       {showOwner && (
         <div className="vip-stack-s" style={{ gap: 6, marginBottom: 10 }}>
-          <div className="vip-fact-label">Owner</div>
+          <div className="vip-fact-label">{ownerLabel}</div>
           <select className="vip-select" value={ownerValue} onChange={(e) => onOwnerChange(e.target.value)}>
-            <option value="">All owners ({allOwnersCount})</option>
+            <option value="">
+              {allOwnersLabel} ({allOwnersCount})
+            </option>
             {owners.map((o) => (
               <option key={o.key} value={o.key}>
                 {o.name} ({o.count})
@@ -1145,6 +1150,182 @@ function BookedBody({ panel }) {
               </div>
             ))}
             <ShowMoreRows shown={shown.length} total={view.rows.length} noun="deals" onShowMore={() => setVisible((v) => v + DEAL_CHUNK)} />
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// The RFQ popups (rfqDeskPanels.js's buildRfqPanel) — every figure on the
+// owner's RFQ Desk and the two desk Todays. Filters: Exec (a select), Office,
+// Kind and Step (chips); a facet with one choice hides itself
+// (OwnerStageFilters). The figures ignore Step, the breakdowns ignore their own
+// dimension (panel.viewFor does both), and the list follows everything. A lead
+// the viewer can't read (the desk sees only its own process) is named, not
+// linked.
+const RFQ_ROW_CHUNK = 20
+
+function RfqBreakdownBody({ panel }) {
+  const { filters } = panel
+  const [exec, setExec] = useState(panel.initial.exec)
+  const [office, setOffice] = useState(panel.initial.office)
+  const [kind, setKind] = useState(panel.initial.kind)
+  const [step, setStep] = useState(panel.initial.step)
+  const [sort, setSort] = useState(panel.sorts[0].key)
+  const [visible, setVisible] = useState(RFQ_ROW_CHUNK)
+
+  useEffect(() => {
+    setExec(panel.initial.exec)
+    setOffice(panel.initial.office)
+    setKind(panel.initial.kind)
+    setStep(panel.initial.step)
+    setSort(panel.sorts[0].key)
+    setVisible(RFQ_ROW_CHUNK)
+  }, [panel])
+
+  const offered = (options, value) => (options.some((o) => o.key === value) ? value : '')
+  const execNow = offered(filters.execs, exec)
+  const officeNow = offered(filters.offices, office)
+  const kindNow = offered(filters.kinds, kind)
+  const stepNow = offered(filters.steps, step)
+  const labels = [
+    filters.execs.find((o) => o.key === execNow)?.name,
+    filters.offices.find((o) => o.key === officeNow)?.label,
+    filters.kinds.find((o) => o.key === kindNow)?.label,
+    filters.steps.find((o) => o.key === stepNow)?.label,
+  ].filter(Boolean)
+
+  const view = useMemo(
+    () => panel.viewFor({ exec: execNow, office: officeNow, kind: kindNow, step: stepNow }, sort),
+    [panel, execNow, officeNow, kindNow, stepNow, sort]
+  )
+
+  useEffect(() => {
+    setVisible(RFQ_ROW_CHUNK)
+  }, [execNow, officeNow, kindNow, stepNow, sort])
+
+  function clearFilters() {
+    setExec('')
+    setOffice('')
+    setKind('')
+    setStep('')
+  }
+
+  const shown = view.rows.slice(0, visible)
+
+  return (
+    <div className="vip-dd-section-stack">
+      <OwnerStageFilters
+        owners={filters.execs}
+        ownerValue={execNow}
+        onOwnerChange={setExec}
+        allOwnersCount={filters.total}
+        ownerLabel="Exec"
+        allOwnersLabel="All execs"
+        stages={filters.offices}
+        stageValue={officeNow}
+        onStageChange={setOffice}
+        stageLabel="Office"
+        more={[
+          { label: 'Kind', options: filters.kinds, value: kindNow, onChange: setKind },
+          { label: 'Step', options: filters.steps, value: stepNow, onChange: setStep },
+        ]}
+      />
+      {labels.length > 0 && (
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-hint">
+            {view.total} of {filters.total} RFQs · {labels.join(' · ')}
+          </div>
+          <button type="button" className="vip-btn-link" onClick={clearFilters}>
+            Clear filters
+          </button>
+        </div>
+      )}
+
+      <StatsGrid stats={view.stats} />
+      {stepNow && <p className="vip-dd-hint">The figures above count every step; Step narrows the list below.</p>}
+
+      {view.sections.map((sec) => (
+        <div key={sec.key} className="vip-dd-section">
+          <div className="vip-dd-section-head">
+            <div className="vip-dd-section-title">{sec.title}</div>
+          </div>
+          {sec.rows.map((r) =>
+            r.initials ? (
+              <div key={r.key} className={r.active ? 'vip-act-row vip-act-row-selected' : 'vip-act-row'}>
+                <div className="vip-act-row-main">
+                  <span className="vip-dd-avatar vip-dd-avatar-sm">{r.initials}</span>
+                  <EmployeeLink id={r.id} name={r.label} className="vip-dd-contrib-label" />
+                  <span className="vip-dd-contrib-track">
+                    <span className="vip-dd-contrib-fill" style={{ width: r.pct }} />
+                  </span>
+                  <span className="vip-dd-contrib-value">{r.value}</span>
+                </div>
+                <div className="vip-act-row-sub">
+                  <span>{r.sub}</span>
+                </div>
+              </div>
+            ) : (
+              <BreakdownRows key={r.key} rows={[r]} />
+            )
+          )}
+        </div>
+      ))}
+
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">RFQs</div>
+          <div className="vip-seg-mini" role="tablist" aria-label="Order the RFQs by">
+            {panel.sorts.map((so) => (
+              <button
+                key={so.key}
+                type="button"
+                role="tab"
+                aria-selected={sort === so.key}
+                className={sort === so.key ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setSort(so.key)}
+              >
+                {so.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {view.rows.length === 0 ? (
+          <p className="vip-empty">{labels.length ? 'No RFQs for this filter.' : 'No RFQs in this period.'}</p>
+        ) : (
+          <>
+            {shown.map((r) => (
+              <div key={r.id} className="vip-dd-log-row">
+                <div className="vip-dd-log-when">
+                  <span>{r.when}</span>
+                </div>
+                <div className="vip-dd-log-main">
+                  <div className="vip-dd-log-head">
+                    {r.linkable ? (
+                      <Link to={`/leads/${r.leadId}`} className="vip-dd-log-party">
+                        {r.name}
+                      </Link>
+                    ) : (
+                      <span className="vip-dd-log-party">{r.name}</span>
+                    )}
+                    <span className="vip-role-tag">{r.rev}</span>
+                  </div>
+                  <div className="vip-dd-log-notes">
+                    {[r.execName, r.office, r.status].filter(Boolean).join(' · ')}
+                    {r.approver ? ` · approved by ${r.approver}` : ''}
+                  </div>
+                  {r.meta && <div className="vip-dd-log-notes">{r.meta}</div>}
+                  {r.note && <div className="vip-dd-log-notes">“{r.note}”</div>}
+                </div>
+              </div>
+            ))}
+            <ShowMoreRows
+              shown={shown.length}
+              total={view.rows.length}
+              noun="RFQs"
+              onShowMore={() => setVisible((v) => v + RFQ_ROW_CHUNK)}
+            />
           </>
         )}
       </div>
@@ -2418,6 +2599,7 @@ const BODIES = {
   attain: AttainBody,
   activities: ActivitiesBody,
   booked: BookedBody,
+  rfqBreakdown: RfqBreakdownBody,
   pipeline: PipelineBody,
   stageLeads: StageLeadsBody,
   winrate: WinRateBody,

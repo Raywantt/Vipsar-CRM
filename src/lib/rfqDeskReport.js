@@ -128,7 +128,10 @@ export const TURNAROUND_STEPS = [
   { key: 'endToEnd', label: 'End to end', span: 'RFQ raised → quote recorded' },
 ]
 
-function stepSpan(r, key) {
+// [start, end] of one step for one RFQ, or null when it didn't finish that
+// step — exported for the RFQ popups (rfqDeskPanels.js), which list the RFQs
+// behind each turnaround figure.
+export function stepSpan(r, key) {
   switch (key) {
     case 'technical':
       if (isPriceRevision(r)) return null

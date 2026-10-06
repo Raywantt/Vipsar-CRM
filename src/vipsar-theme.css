@@ -3934,3 +3934,15 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
 }
 .vip-rfqdesk-kv-row:first-child { border-top: 0; }
 .vip-rfqdesk-kv-row b { font-family: var(--vip-display); font-variant-numeric: tabular-nums; }
+
+/* Section 47, continued — the figures open popups (owner's ruling,
+   2026-10-06): a whole table row is the click target, with a real button in
+   it for the keyboard. */
+.vip-rfqdesk-click { cursor: pointer; }
+.vip-rfqdesk-click:hover th, .vip-rfqdesk-click:hover td { background: var(--vip-surface-soft); }
+.vip-rfqdesk-rowbtn {
+  padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-weight: inherit; color: inherit; text-align: inherit;
+}
+.vip-rfqdesk-rowbtn:hover { color: var(--vip-teal-dark); }
+.vip-rfqdesk-head-end { display: inline-flex; align-items: center; gap: 10px; }

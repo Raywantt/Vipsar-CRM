@@ -3031,6 +3031,36 @@ other RFQs on sent-back leads) and `fetchRfqDeskPeriod` (any RFQ with a step
 in the range). **Built on launch day with no real data** — tables and counts,
 no charts; choose chart forms once real weeks exist (UI-DESIGN.md).
 
+**The RFQ popups (owner's ruling, 2026-10-06).** Every figure under "Over the
+period" opens a breakdown popup — the four strip tiles, each Turnaround row,
+each Send-backs-by-exec row (opens on that exec) and the cards' "Details ›" —
+and so does every tile of both desk Todays' "this month" strips (each tile is a
+button now: `DayKpiStrip` renders one when a kpi has `onClick`). The lanes
+don't (a lane is its list). **One panel kind, `rfqBreakdown`**
+(`RfqBreakdownBody` in `DrilldownPanel.jsx`), built by
+`rfqDeskPanels.js`'s `buildRfqPanel({ focus, rows, ctx, initial })` — pure,
+one FOCUS per figure saying which RFQs it counts, how they're dated, its four
+figures and its breakdowns ("By exec", "By office", "By kind", "Where they are
+now", "Approved by"). Filters: Exec (select), Office, Kind, Step (chips),
+through the shared `OwnerStageFilters` (now with `ownerLabel`); a facet with
+one choice hides itself. Load-bearing:
+- **A focus counts exactly what its figure counts** — `rfqDeskPanels.test.js`
+  pins every focus against `rfqVolume` / `turnaroundByStep` /
+  `bouncedAfterApproval` / `priceRevisionSummary` / `technicalMonthStats` /
+  `estimationMonthStats`. A new figure gets a focus and a line in that test.
+- **The figures ignore the Step filter** (it narrows the list, and the popup
+  says so) and **a breakdown never filters by its own dimension** — so "Sent
+  back" (the `sentBack` focus: the RFQs raised, opened on Step = Sent back)
+  still shows the share of every RFQ raised.
+- **The desk's "Typical check" / "Typical Lixil time" tiles now read the
+  popup's own figure** — working time with Sundays out (`workingMs`), where
+  they used to be plain elapsed time — so tile and popup can't disagree.
+- The desk reads only its own process, so in their popups a lead that has left
+  it is "Lead #id", not a link, and the Office facet only knows the leads they
+  can still read. The month reads and `fetchRfqDeskPeriod` now select
+  `DECISION_SELECT` (the queue row + `sent_back_by`, `lixil_raised_by`,
+  `quote_received_by`).
+
 ### Data isolation — audited, don't re-litigate
 
 A full audit traced "a sales exec only sees their own data and only changes

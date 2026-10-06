@@ -7,6 +7,8 @@ import DateRangeSelector from '../components/DateRangeSelector'
 import RfqQueueRow from '../components/RfqQueueRow'
 import ShowMoreRows from '../components/ShowMoreRows'
 import { DayKpiStrip } from '../components/DayReviewHeader'
+import DrilldownPanel from '../components/DrilldownPanel'
+import { buildRfqPanel } from '../lib/rfqDeskPanels'
 import { fetchRfqDeskLive, fetchRfqDeskPeriod } from '../lib/rfqQueries'
 import {
   RFQ_LANES,
@@ -35,6 +37,11 @@ import { errorMessage } from '../lib/errorMessage'
 // Dashboard's date range (its own memory here, Month by default) and the
 // period figures. VIEW ONLY: rows open the lead; acting stays on Lead Detail's
 // RFQs card and the desk's own Today. Every figure is rfqDeskReport.js's.
+//
+// Every figure under "Over the period" opens a breakdown popup (owner's
+// ruling, 2026-10-06 — rfqDeskPanels.js): the strip tiles, each turnaround
+// row, each send-back row, and the cards' "Details ›". The lanes don't — a
+// lane already is its list.
 
 const STORAGE_KEY = 'vip-filters:rfq-desk'
 const LANE_ROWS = 5
@@ -122,7 +129,7 @@ function WaitingOnExec({ rows, loading }) {
   )
 }
 
-function TurnaroundCard({ steps, rangeLabel }) {
+function TurnaroundCard({ steps, rangeLabel, onOpen }) {
   return (
     <section className="vip-card" aria-labelledby="vip-rfqdesk-turn">
       <div className="vip-card-head">
@@ -145,9 +152,15 @@ function TurnaroundCard({ steps, rangeLabel }) {
           </thead>
           <tbody>
             {steps.map((s) => (
-              <tr key={s.key} className={s.key === 'endToEnd' ? 'vip-rfqdesk-total' : undefined}>
+              <tr
+                key={s.key}
+                className={s.key === 'endToEnd' ? 'vip-rfqdesk-total vip-rfqdesk-click' : 'vip-rfqdesk-click'}
+                onClick={() => onOpen(`turnaround:${s.key}`)}
+              >
                 <th scope="row">
-                  {s.label}
+                  <button type="button" className="vip-rfqdesk-rowbtn" onClick={(e) => { e.stopPropagation(); onOpen(`turnaround:${s.key}`) }}>
+                    {s.label} ›
+                  </button>
                   <span className="vip-rfqdesk-sub">{s.span}</span>
                 </th>
                 <td>{turnaroundLabel(s.medianMs)}</td>
@@ -162,13 +175,18 @@ function TurnaroundCard({ steps, rangeLabel }) {
   )
 }
 
-function SendBacksCard({ rows, rangeLabel }) {
+function SendBacksCard({ rows, rangeLabel, onOpen }) {
   return (
     <section className="vip-card" aria-labelledby="vip-rfqdesk-sb">
       <div className="vip-card-head">
         <h2 id="vip-rfqdesk-sb" className="vip-card-title">
           Send-backs by exec
         </h2>
+        {rows.length > 0 && (
+          <button type="button" className="vip-dd-open-link" onClick={() => onOpen('sentBack', { step: 'sent_back' })}>
+            Details ›
+          </button>
+        )}
       </div>
       <p className="vip-rfqdesk-hint">
         Of the RFQs each exec raised {rangeLabel}. One still with the desk may yet be sent back.
@@ -193,12 +211,33 @@ function SendBacksCard({ rows, rangeLabel }) {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id ?? 'unknown'} className={r.sentBack === 0 ? 'vip-rfqdesk-muted' : undefined}>
-                  <th scope="row">{r.id != null ? <Link to={`/employees/${r.id}`}>{r.name}</Link> : r.name}</th>
+                <tr
+                  key={r.id ?? 'unknown'}
+                  className={r.sentBack === 0 ? 'vip-rfqdesk-muted vip-rfqdesk-click' : 'vip-rfqdesk-click'}
+                  onClick={() => onOpen('raised', { exec: r.id != null ? String(r.id) : '' })}
+                >
+                  <th scope="row">
+                    {r.id != null ? (
+                      <Link to={`/employees/${r.id}`} onClick={(e) => e.stopPropagation()}>
+                        {r.name}
+                      </Link>
+                    ) : (
+                      r.name
+                    )}
+                  </th>
                   <td>{r.raised}</td>
                   <td>{r.technical || '—'}</td>
                   <td>{r.estimation || '—'}</td>
-                  <td>{shareLabel(r.sentBack, r.raised)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="vip-rfqdesk-rowbtn"
+                      aria-label={`${r.name}'s RFQs`}
+                      onClick={(e) => { e.stopPropagation(); onOpen('raised', { exec: r.id != null ? String(r.id) : '' }) }}
+                    >
+                      {shareLabel(r.sentBack, r.raised)} ›
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -210,7 +249,7 @@ function SendBacksCard({ rows, rangeLabel }) {
 }
 
 // The technical check's misses: approved, then sent back by estimation.
-function BouncedCard({ bounced, rangeLabel }) {
+function BouncedCard({ bounced, rangeLabel, onOpen }) {
   const [shown, setShown] = useState(5)
   const { list, approved } = bounced
   return (
@@ -219,8 +258,13 @@ function BouncedCard({ bounced, rangeLabel }) {
         <h2 id="vip-rfqdesk-bounce" className="vip-card-title">
           Sent back after approval
         </h2>
-        <span className={list.length ? 'vip-rfq-count vip-rfqdesk-count-warn' : 'vip-rfq-count'}>
-          {list.length}
+        <span className="vip-rfqdesk-head-end">
+          <span className={list.length ? 'vip-rfq-count vip-rfqdesk-count-warn' : 'vip-rfq-count'}>{list.length}</span>
+          {list.length > 0 && (
+            <button type="button" className="vip-dd-open-link" onClick={() => onOpen('bounced')}>
+              Details ›
+            </button>
+          )}
         </span>
       </div>
       <p className="vip-rfqdesk-hint">
@@ -257,7 +301,7 @@ function BouncedCard({ bounced, rangeLabel }) {
   )
 }
 
-function PriceRevisionsCard({ summary, rangeLabel }) {
+function PriceRevisionsCard({ summary, rangeLabel, onOpen }) {
   const rows = [
     ['Started', summary.started],
     ['Quoted', summary.quoted],
@@ -270,6 +314,11 @@ function PriceRevisionsCard({ summary, rangeLabel }) {
         <h2 id="vip-rfqdesk-pr" className="vip-card-title">
           Price revisions
         </h2>
+        {summary.started > 0 && (
+          <button type="button" className="vip-dd-open-link" onClick={() => onOpen('priceRevisions')}>
+            Details ›
+          </button>
+        )}
       </div>
       <p className="vip-rfqdesk-hint">Re-quotes started when Lixil changed its prices, {rangeLabel}, and where each is now.</p>
       <div className="vip-rfqdesk-kv">
@@ -285,6 +334,8 @@ function PriceRevisionsCard({ summary, rangeLabel }) {
 }
 
 function RfqDesk() {
+  const [panel, setPanel] = useState(null)
+
   // ---- Right now ----
   const liveQuery = useCachedQuery(['rfq-desk', 'live'], fetchRfqDeskLive)
   const live = liveQuery.result
@@ -326,6 +377,20 @@ function RfqDesk() {
     // rangeKey stands for range — a new object every render.
   }, [period, rangeKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Opens the popup for one figure, over the same rows the figure counts.
+  function openPanel(focus, initial = {}) {
+    if (!figures || !period?.data) return
+    setPanel(
+      buildRfqPanel({
+        focus,
+        rows: period.data,
+        ctx: { range, rangeLabel, approvedCount: figures.bounced.approved },
+        initial,
+        eyebrow: `RFQ Desk · ${rangeLabel}`,
+      })
+    )
+  }
+
   const kpis = figures
     ? [
         {
@@ -333,25 +398,29 @@ function RfqDesk() {
           label: 'RFQs raised',
           value: figures.volume.raised,
           sub: `${figures.volume.fresh} fresh · ${figures.volume.revised} ${figures.volume.revised === 1 ? 'revision' : 'revisions'}`,
+          onClick: () => openPanel('raised'),
         },
-        { key: 'quotes', label: 'Quotes received', value: figures.volume.quotes, sub: 'from Lixil' },
+        { key: 'quotes', label: 'Quotes received', value: figures.volume.quotes, sub: 'from Lixil', onClick: () => openPanel('quotes') },
         {
           key: 'sentBack',
           label: 'Sent back',
           value: figures.sentBackTotal,
           sub: figures.volume.raised ? `${shareLabel(figures.sentBackTotal, figures.volume.raised)} of RFQs raised` : 'of RFQs raised',
+          onClick: () => openPanel('sentBack', { step: 'sent_back' }),
         },
         {
           key: 'price',
           label: 'Price revisions',
           value: figures.volume.priceRevisions,
           sub: 'Lixil price changes',
+          onClick: () => openPanel('priceRevisions'),
         },
       ]
     : null
 
   return (
     <div className="vip-wide vip-stack">
+      <DrilldownPanel panel={panel} onClose={() => setPanel(null)} />
       <div className="vip-report-section">Right now</div>
       {liveError && (
         <p className="vip-error" role="alert">
@@ -389,10 +458,10 @@ function RfqDesk() {
         <>
           <DayKpiStrip kpis={kpis} />
           <div className="vip-report-grid">
-            <TurnaroundCard steps={figures.steps} rangeLabel={rangeLabel} />
-            <SendBacksCard rows={figures.sendBacks} rangeLabel={rangeLabel} />
-            <BouncedCard bounced={figures.bounced} rangeLabel={rangeLabel} />
-            <PriceRevisionsCard summary={figures.priceRevisions} rangeLabel={rangeLabel} />
+            <TurnaroundCard steps={figures.steps} rangeLabel={rangeLabel} onOpen={openPanel} />
+            <SendBacksCard rows={figures.sendBacks} rangeLabel={rangeLabel} onOpen={openPanel} />
+            <BouncedCard bounced={figures.bounced} rangeLabel={rangeLabel} onOpen={openPanel} />
+            <PriceRevisionsCard summary={figures.priceRevisions} rangeLabel={rangeLabel} onOpen={openPanel} />
           </div>
         </>
       )}

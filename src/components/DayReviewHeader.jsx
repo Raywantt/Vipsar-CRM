@@ -57,11 +57,21 @@ function DayDateBar({ dateISO, onDateChange, updatedAt }) {
 // These REPLACE the standing Dashboard KPIs for this period rather than
 // re-filtering them — an open-pipeline total or a month's attainment means
 // nothing over eight hours (§4.2 of the handoff).
+//
+// A tile with `onClick` is a button that opens a popup (the RFQ desk's
+// strips); every other tile stays a static figure.
 function DayKpiStrip({ kpis }) {
   return (
     <div className="vip-dd-kpi-grid vip-dd-kpi-grid-4">
-      {kpis.map((k) => (
-        <div key={k.key} className="vip-dd-kpi-tile vip-dd-kpi-static">
+      {kpis.map((k) => {
+        const Tag = k.onClick ? 'button' : 'div'
+        return (
+        <Tag
+          key={k.key}
+          type={k.onClick ? 'button' : undefined}
+          className={k.onClick ? 'vip-dd-kpi-tile' : 'vip-dd-kpi-tile vip-dd-kpi-static'}
+          onClick={k.onClick}
+        >
           <span className="vip-dd-kpi-label">{k.label}</span>
           <span className="vip-dd-kpi-value" style={{ color: k.color }}>
             {k.value != null ? (
@@ -75,8 +85,9 @@ function DayKpiStrip({ kpis }) {
             )}
           </span>
           <span className="vip-dd-kpi-sub">{k.sub}</span>
-        </div>
-      ))}
+        </Tag>
+        )
+      })}
     </div>
   )
 }

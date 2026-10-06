@@ -68,6 +68,13 @@ export function sendBackRfq(rfqId, note) {
 const QUEUE_SELECT =
   RFQ_SELECT + ', leads(id, current_stage, office_territory, parties!party_id(name), sites(nickname, locality, house_no))'
 
+// A queue row plus who did each step — what the RFQ popups
+// (rfqDeskPanels.js) and the desk's month strips count by. For the desk, the
+// `leads` embed comes back null on a lead that has left their process (they
+// read only their own — migration_rfq_desk_in_process.sql); the popup then
+// names it "Lead #id" without a link.
+const DECISION_SELECT = QUEUE_SELECT + ', sent_back_by, lixil_raised_by, quote_received_by'
+
 // Every RFQ waiting at the technical check. RLS scopes it: the desk reads
 // only RFQs of its own test kind, so the test Production Executive never sees
 // a real one and the real one never a test one. Oldest first, as the queue
@@ -92,7 +99,7 @@ export function fetchMyTechnicalDecisions(employeeId, sinceISO) {
   return fetchAllRows(() =>
     supabase
       .from('rfqs')
-      .select('id, raised_at, approved_at, approved_by, sent_back_at, sent_back_by, sent_back_from', { count: 'exact' })
+      .select(DECISION_SELECT, { count: 'exact' })
       .or(
         `and(approved_by.eq.${employeeId},approved_at.gte.${since}),` +
           `and(sent_back_by.eq.${employeeId},sent_back_at.gte.${since}),` +
@@ -151,10 +158,7 @@ export function fetchMyEstimationDecisions(employeeId, sinceISO) {
   return fetchAllRows(() =>
     supabase
       .from('rfqs')
-      .select(
-        'id, lixil_raised_at, lixil_raised_by, quote_received_at, quote_received_by, sent_back_at, sent_back_by, sent_back_from',
-        { count: 'exact' }
-      )
+      .select(DECISION_SELECT, { count: 'exact' })
       .or(
         `and(lixil_raised_by.eq.${employeeId},lixil_raised_at.gte.${since}),` +
           `and(quote_received_by.eq.${employeeId},quote_received_at.gte.${since}),` +
@@ -292,7 +296,7 @@ export function fetchRfqDeskPeriod(range) {
   return fetchAllRows(() =>
     supabase
       .from('rfqs')
-      .select(QUEUE_SELECT, { count: 'exact' })
+      .select(DECISION_SELECT, { count: 'exact' })
       .or(['raised_at', 'approved_at', 'sent_back_at', 'lixil_raised_at', 'quote_received_at'].map(clause).join(','))
   )
 }
