@@ -99,6 +99,11 @@
   --vip-status-good-soft:    #dbeceb;
   --vip-status-warn-soft:    #f6ecdb;
   --vip-status-bad-soft:     #f7dcdd;
+  /* Small TEXT on the matching -soft fill (RFQ desk waiting ages, section
+     45). --vip-status-warn on its soft fill measured 3.1:1 in light and
+     --vip-lost on bad-soft 4.2:1 in dark — both under 4.5 for 12px text. */
+  --vip-status-warn-ink:     #8a5a12;
+  --vip-status-bad-ink:      #b4232a;
   --vip-status-neutral:      #5f6a6c;
   --vip-status-neutral-soft: #eef0f0;
 
@@ -2021,6 +2026,8 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   --vip-status-good-soft:    #17332f;
   --vip-status-warn-soft:    #3a2f14;
   --vip-status-bad-soft:     #3a1c1e;
+  --vip-status-warn-ink:     #d9a53f;
+  --vip-status-bad-ink:      #ef7b7b;
   --vip-status-neutral:      #9aa4a5;
   --vip-status-neutral-soft: #2a3134;
 
@@ -2093,6 +2100,8 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
     --vip-status-good-soft:    #17332f;
     --vip-status-warn-soft:    #3a2f14;
     --vip-status-bad-soft:     #3a1c1e;
+    --vip-status-warn-ink:     #d9a53f;
+    --vip-status-bad-ink:      #ef7b7b;
     --vip-status-neutral:      #9aa4a5;
     --vip-status-neutral-soft: #2a3134;
 
@@ -3749,6 +3758,40 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
   border-radius: 999px; vertical-align: 1px; white-space: nowrap;
 }
 
+/* ===========================================================================
+   44. RFQ desk — Lead Detail's RFQ card (LeadRfqCard.jsx) + Today's RFQ line
+       (RfqUpdatesCard.jsx) (RFQ-DESK.md Step 3, 2026-10-06)
+   =========================================================================== */
+/* One row per desk RFQ, hairline-separated like the timeline. Tokens only, so
+   section 22 repaints it for dark. The status pill reuses .vip-pill with its
+   tone set inline from statusColors.js, like Lead Detail's other pills. */
+.vip-rfq-rows { display: flex; flex-direction: column; }
+.vip-rfq-row {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 0; border-top: 1px solid var(--vip-line-soft);
+}
+.vip-rfq-row:first-child { border-top: 0; padding-top: 2px; }
+.vip-rfq-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vip-rfq-rev { font-family: var(--vip-display); font-weight: 600; font-size: 14px; color: var(--vip-ink); }
+.vip-rfq-age { font-size: 12px; color: var(--vip-muted); margin-left: auto; white-space: nowrap; }
+.vip-rfq-facts { font-size: 12px; color: var(--vip-muted); line-height: 1.45; }
+.vip-rfq-sentback { display: flex; flex-direction: column; gap: 3px; }
+/* The send-back note is the one thing the exec has to act on — body colour,
+   wraps, never clipped. */
+.vip-rfq-note { font-size: 13px; color: var(--vip-body); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.vip-rfq-quote { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; }
+.vip-rfq-quote-value { font-family: var(--vip-mono); font-size: 13px; font-weight: 600; color: var(--vip-ink); }
+/* Sized to their words, not stretched across the row the way .vip-btn-row
+   stretches its buttons by default. Two classes, so it outranks
+   `.vip-btn-row .vip-btn { flex: 1 }` (equal specificity, later wins). */
+.vip-rfq-row .vip-rfq-action { width: auto; flex: 0 0 auto; min-height: 36px; padding: 0 14px; }
+.vip-rfq-withdraw { align-self: flex-start; min-height: 32px; padding: 0; color: var(--vip-lost); }
+/* The question takes its own line and the two buttons sit together under it,
+   at every width — with a flex basis the row wrapped "Keep it" alone onto a
+   second line at 375px, away from the button it's the alternative to. */
+.vip-rfq-confirm { align-items: center; flex-wrap: wrap; margin-top: 2px; }
+.vip-rfq-confirm-text { font-size: 13px; color: var(--vip-body); flex: 0 0 100%; }
+
 /* ---------- Multi-select filter (MultiSelectFilter.jsx, All Leads) --------
    A button shaped like .vip-select that opens a checklist. Everything is
    tokens, so dark mode repaints it with no override. Below 1024px the list
@@ -3781,3 +3824,60 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
     margin-top: 4px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
   }
 }
+
+/* ===========================================================================
+   45. RFQ desk — the technical check's queue (TechnicalQueueCard.jsx) and
+       its Approve / Send back control (RfqReviewActions.jsx, also on Lead
+       Detail's RFQ card) (RFQ-DESK.md Step 4, 2026-10-06)
+   =========================================================================== */
+/* Builds on section 44's .vip-rfq-row. One column at every width (owner's
+   ruling), so nothing here switches at 1024px. Tokens only — section 22
+   repaints it for dark. */
+.vip-rfq-count {
+  font-family: var(--vip-display); font-weight: 700; font-size: 13px;
+  color: var(--vip-teal-dark); background: var(--vip-teal-soft);
+  padding: 2px 9px; border-radius: var(--vip-r-pill);
+}
+.vip-rfq-qrow { gap: 5px; padding: 14px 0; }
+.vip-rfq-qrow:first-child { padding-top: 4px; }
+/* The lead's name gives way to the age, never the reverse: the age is the
+   figure the queue is sorted by. */
+.vip-rfq-qrow-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.vip-rfq-qrow-lead {
+  flex: 1 1 auto; min-width: 0;
+  font-weight: 600; font-size: 15px; color: var(--vip-ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vip-rfq-qrow-lead:hover { text-decoration: underline; }
+.vip-rfq-qrow-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+/* The waiting age: plain under a working day, amber from 1, red from 2
+   (rfqWaitLevel — Q7). A tint, a threshold, not a length (UI-DESIGN.md §5). */
+.vip-rfq-wait {
+  flex: 0 0 auto; white-space: nowrap; font-size: 12px; font-variant-numeric: tabular-nums;
+  padding: 2px 8px; border-radius: var(--vip-r-pill); color: var(--vip-muted);
+}
+.vip-rfq-wait-warn { color: var(--vip-status-warn-ink); background: var(--vip-status-warn-soft); font-weight: 600; }
+.vip-rfq-wait-late { color: var(--vip-status-bad-ink); background: var(--vip-status-bad-soft); font-weight: 600; }
+.vip-rfq-also {
+  align-self: flex-start; font-size: 12px; font-weight: 600;
+  color: var(--vip-teal-dark); background: var(--vip-teal-soft);
+  border-radius: var(--vip-r-control); padding: 3px 8px;
+}
+.vip-rfq-review { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.vip-rfq-review-row { flex-wrap: wrap; }
+.vip-rfq-sendback-form { display: flex; flex-direction: column; gap: 6px; }
+
+/* ===========================================================================
+   46. RFQ desk — estimation (RfqEstimationActions.jsx, EstimationQueues.jsx)
+       and "Start a price revision" on Lead Detail's RFQ card
+       (RFQ-DESK.md Step 5, 2026-10-06)
+   =========================================================================== */
+/* The rows and buttons are section 44/45's; only the quote form is new.
+   Tokens only — section 22 repaints it for dark. */
+.vip-rfq-quote-form { display: flex; flex-direction: column; gap: 8px; }
+/* The value read back in rupees — the one check against a missed zero, so
+   ink, not muted, and on its own line under the field. */
+.vip-rfq-quote-form .vip-rfq-quote-preview {
+  margin: -2px 0 0; font-family: var(--vip-mono); font-size: 13px; font-weight: 600; color: var(--vip-ink);
+}
+.vip-rfq-revise { align-self: flex-start; min-height: 32px; padding: 0; color: var(--vip-teal-dark); }

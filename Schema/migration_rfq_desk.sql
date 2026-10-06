@@ -495,7 +495,12 @@ BEGIN
   -- ---- lead side effects ----
   IF v_action = 'approved' THEN
     SELECT current_stage INTO v_stage FROM leads WHERE id = NEW.lead_id;
-    v_advance := NEW.kind = 'fresh'
+    -- The lead's FIRST approved RFQ moves it, whatever its kind: a revision
+    -- whose fresh RFQ was sent back is the RFQ that actually passed
+    -- (migration_rfq_desk_advance_fix.sql, 2026-10-06 — it used to be
+    -- fresh-only, which left such a lead at 'calling'). The stage test is what
+    -- stops a second move; a price revision never applies (it re-quotes).
+    v_advance := NEW.kind <> 'price_revision'
                  AND COALESCE(v_stage, 'calling') IN ('calling','presentation','joinery_follow_up');
     v_raised_on := (NEW.raised_at AT TIME ZONE 'Asia/Kolkata')::date;
 

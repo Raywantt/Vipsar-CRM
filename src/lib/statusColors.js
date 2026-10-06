@@ -58,6 +58,10 @@ export const TONE_GOOD_SOFT = 'var(--vip-status-good-soft)'
 export const TONE_WARN_SOFT = 'var(--vip-status-warn-soft)'
 export const TONE_BAD_SOFT = 'var(--vip-status-bad-soft)'
 export const TONE_NEUTRAL_SOFT = 'var(--vip-status-neutral-soft)'
+// Small TEXT on the matching -soft fill (RFQ desk pills and waiting ages):
+// TONE_WARN on TONE_WARN_SOFT measured 3.1:1 in light mode, under the 4.5
+// that 12px text needs. Its own token so dark mode keeps its own value.
+export const TONE_WARN_INK = 'var(--vip-status-warn-ink)'
 
 // Attainment scale — "how complete is this metric against its target", a
 // 6-step red-to-green gradient (see vipsar-theme.css's --vip-attain-1..6).

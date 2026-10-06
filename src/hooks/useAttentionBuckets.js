@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 import { fetchLeadsNeedingAttention, fetchLeadsForBreakdown, fetchLastActivityPerLead, fetchStageHistoryForFunnel } from '../lib/dashboardQueries'
 import { computeAttentionBuckets, computeAttentionBucketsFromRpc, buildLastStageChangeByLead } from '../lib/attention'
 import { todayISO } from '../lib/followupDates'
+import { fetchDeskRfqsForAttention } from '../lib/rfqQueries'
+import { latestDeskRfqByLead } from '../lib/rfqDesk'
 import { useCachedQuery } from './useCachedQuery'
 
 // The Needs Attention buckets for a Today screen — Home (a rep, or a
@@ -37,10 +39,10 @@ import { useCachedQuery } from './useCachedQuery'
 //
 // Returns null while loading, then the buckets array from attention.js.
 function fetchFallbackRows() {
-  return Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead(), fetchStageHistoryForFunnel()]).then(
-    ([leadsRes, activityRes, stageRes]) => ({
-      data: { leads: leadsRes.data ?? [], activities: activityRes.data ?? [], stages: stageRes.data ?? [] },
-      error: leadsRes.error ?? activityRes.error ?? stageRes.error ?? null,
+  return Promise.all([fetchLeadsForBreakdown(), fetchLastActivityPerLead(), fetchStageHistoryForFunnel(), fetchDeskRfqsForAttention()]).then(
+    ([leadsRes, activityRes, stageRes, deskRes]) => ({
+      data: { leads: leadsRes.data ?? [], activities: activityRes.data ?? [], stages: stageRes.data ?? [], deskRfqs: deskRes.data ?? [] },
+      error: leadsRes.error ?? activityRes.error ?? stageRes.error ?? deskRes.error ?? null,
     })
   )
 }
@@ -69,7 +71,12 @@ export function useAttentionBuckets(employeeId, { onlyOwnerId = null } = {}) {
         if (!existing || new Date(row.created_at) > new Date(existing)) lastActivityByLead.set(row.lead_id, row.created_at)
       })
       const leads = onlyOwnerId == null ? fallbackData.leads : fallbackData.leads.filter((l) => l.owner_employee_id === onlyOwnerId)
-      return computeAttentionBuckets(leads, lastActivityByLead, buildLastStageChangeByLead(fallbackData.stages))
+      return computeAttentionBuckets(
+        leads,
+        lastActivityByLead,
+        buildLastStageChangeByLead(fallbackData.stages),
+        latestDeskRfqByLead(fallbackData.deskRfqs)
+      )
     }
     return null
   }, [rpcRows, fallbackData, onlyOwnerId])

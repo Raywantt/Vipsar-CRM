@@ -21,6 +21,9 @@ import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { fetchArchitect } from '../lib/architectQueries'
 import { errorMessage } from '../lib/errorMessage'
 import { leadDisplayName } from '../lib/leadName'
+import { RFQ_SEGMENT_OPTIONS, isDeskLive, segmentsLabel } from '../lib/rfqDesk'
+import { fetchRfqDeskSettings } from '../lib/rfqQueries'
+import { requestAssignmentPush } from '../lib/notificationQueries'
 
 // The two free-text boxes on this form answer opposite questions, and reps
 // were mixing them up. These two strings are one teaching device and only
@@ -70,6 +73,21 @@ async function hasPriorRfqActivity(leadId) {
     .eq('lead_id', leadId)
     .eq('activity_type', 'rfq_raised')
   return (count ?? 0) > 0
+}
+
+// What an RFQ Raised promises about its approval, once the RFQ desk is on —
+// read by the hint before saving and the success card after, so the two say
+// the same thing. Only a FRESH RFQ counts toward the target (RFQ-DESK.md §3) —
+// once per lead, on the day the lead's first RFQ passes (Step 6,
+// rfqs.counts_toward_target). A revision only counts when it is the
+// correction of a fresh one that never passed, which this form can't see
+// cheaply, so a revision still promises nothing. Any kind moves a lead still
+// before RFQ Raised.
+function deskApprovalNote(isFresh, leadBeforeRfq) {
+  if (isFresh) {
+    return ` It counts toward the RFQ target${leadBeforeRfq ? ', and the lead moves to RFQ Raised,' : ''} once it's approved.`
+  }
+  return leadBeforeRfq ? " The lead moves to RFQ Raised once it's approved." : ''
 }
 
 function ActivityLog() {
@@ -159,6 +177,19 @@ function ActivityLog() {
   // and re-resolved fresh inside handleSubmit itself for the actual write,
   // since the on_hold branch needs an async lookup this can't wait on.
   const [resolvedRfqKind, setResolvedRfqKind] = useState(null)
+  // RFQ Raised's two facts for the desk (RFQ-DESK.md §3 "What it changes for
+  // sales"): how many windows, and which product segments (one or more, a
+  // closed list — see RFQ_SEGMENT_OPTIONS). Both required on this form; the
+  // database keeps them optional, since an RFQ logged any other way (an
+  // import, admin SQL) still has to reach the desk.
+  const [rfqWindowCount, setRfqWindowCount] = useState('')
+  const [rfqSegments, setRfqSegments] = useState([])
+  // The RFQ desk's launch switch (rfq_desk_settings). While it is on, an RFQ
+  // Raised goes to the Production Executive and the lead moves to RFQ Raised
+  // on their approval — so this form stops moving it, and stops stamping
+  // leads.rfq_raised/rfq_raised_at, itself. Read for the hint; read again at
+  // submit for the write (see handleSubmit). Null until it answers.
+  const [deskSettings, setDeskSettings] = useState(null)
 
   const [employees, setEmployees] = useState([])
 
@@ -176,6 +207,16 @@ function ActivityLog() {
     fetchAllRows(() => supabase.from('employees').select('id, name', { count: 'exact' }).eq('is_active', true).order('name')).then(
       ({ data }) => setEmployees(data ?? [])
     )
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    fetchRfqDeskSettings().then(({ data }) => {
+      if (active && data) setDeskSettings(data)
+    })
+    return () => {
+      active = false
+    }
   }, [])
 
   useEffect(() => {
@@ -344,17 +385,30 @@ function ActivityLog() {
   const resolvedMeetingType =
     isClientMeeting && selectedLead ? meetingTypeForStage(selectedLead.current_stage) : null
   const isRfqRaised = activityType === 'rfq_raised'
-  // Whether the CRM will also move this lead to RFQ Raised stage — only
-  // ever true for a lead genuinely sitting before it in the funnel right
-  // now (never on_hold/won/lost, see shouldAdvanceToRfq). Uses the lead's
-  // real current stage, not resolvedRfqKind's possibly-pausedAt-derived one.
-  const rfqWillAdvance =
-    isRfqRaised && selectedLead && resolvedRfqKind === FRESH_RFQ && shouldAdvanceToRfq(selectedLead.current_stage ?? 'calling')
+  const deskLive = isDeskLive(deskSettings)
+  // Whether this RFQ moves the lead to RFQ Raised stage — only ever for a lead
+  // genuinely sitting before it in the funnel right now (never
+  // on_hold/won/lost, see shouldAdvanceToRfq). Uses the lead's real current
+  // stage, not resolvedRfqKind's possibly-pausedAt-derived one.
+  //   desk off — this form moves it, for a FRESH RFQ only (unchanged).
+  //   desk on  — the Production Executive's approval moves it, for the lead's
+  //              first approved RFQ of any kind (rfqs_after_write() in SQL,
+  //              migration_rfq_desk_advance_fix.sql), so the hint says "once
+  //              approved" instead of promising it now.
+  const leadBeforeRfq = isRfqRaised && selectedLead && shouldAdvanceToRfq(selectedLead.current_stage ?? 'calling')
+  const rfqWillAdvance = leadBeforeRfq && resolvedRfqKind === FRESH_RFQ && !deskLive
+  // A whole number of windows above zero (the database's own CHECK), and at
+  // least one segment.
+  const rfqWindowNumber = Number(rfqWindowCount)
+  const rfqDetailsSatisfied =
+    !isRfqRaised ||
+    (rfqWindowCount !== '' && Number.isInteger(rfqWindowNumber) && rfqWindowNumber > 0 && rfqSegments.length > 0)
   const canSubmit =
     Boolean(activityType) &&
     anchorSatisfied &&
     officeDaySatisfied &&
     meetingLocationSatisfied &&
+    rfqDetailsSatisfied &&
     (!isCoordinator || Boolean(forExec)) &&
     !submitting
   const architectPreselectedAndLocked =
@@ -409,6 +463,10 @@ function ActivityLog() {
     }
     if (value !== PICKABLE_MEETING) {
       setMeetingLocation('')
+    }
+    if (value !== 'rfq_raised') {
+      setRfqWindowCount('')
+      setRfqSegments([])
     }
     // The same rule, finally applied to the follow-up fields and the lead.
     // It wasn't, and that was a real reachable bug: a date typed under Site
@@ -465,11 +523,17 @@ function ActivityLog() {
     setStartTime('')
     setEndTime('')
     setMeetingLocation('')
+    setRfqWindowCount('')
+    setRfqSegments([])
     setOrderValue('')
     setNextFollowupDate('')
     setFollowupNote('')
     setSubmitError(null)
     setResult(null)
+  }
+
+  function toggleRfqSegment(value) {
+    setRfqSegments((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]))
   }
 
   async function handleSubmit(event) {
@@ -507,6 +571,14 @@ function ActivityLog() {
     // whether the hint's effect has finished by the time Log it is tapped.
     let finalRfqKind = null
     let willAdvanceToRfq = false
+    // Whether this RFQ goes to the desk, asked again now rather than trusted
+    // from page load: the trigger that creates the desk RFQ asks the database
+    // at the moment of the insert, and this decides whether the form ALSO
+    // moves the lead — the two must not both do it, or both skip it. If the
+    // read fails, the answer from page load stands; if that never came either,
+    // the form behaves as it did before the desk existed (the lead moves here,
+    // and an approval later finds it already at RFQ Raised — harmless).
+    let sendsToDesk = false
     if (activityType === 'rfq_raised' && selectedLead) {
       const stageForClassification =
         selectedLead.current_stage === 'on_hold'
@@ -514,8 +586,16 @@ function ActivityLog() {
           : selectedLead.current_stage ?? 'calling'
       const priorRfq = await hasPriorRfqActivity(selectedLead.id)
       finalRfqKind = rfqKindForLead(stageForClassification, priorRfq)
-      willAdvanceToRfq = finalRfqKind === FRESH_RFQ && shouldAdvanceToRfq(selectedLead.current_stage ?? 'calling')
+      const { data: settingsNow } = await fetchRfqDeskSettings()
+      sendsToDesk = settingsNow ? isDeskLive(settingsNow) : deskLive
+      willAdvanceToRfq =
+        !sendsToDesk && finalRfqKind === FRESH_RFQ && shouldAdvanceToRfq(selectedLead.current_stage ?? 'calling')
     }
+    // What the success card says about the approval — the same words the
+    // hint used (deskApprovalNote), decided from the values actually written.
+    const deskOutcome = sendsToDesk
+      ? deskApprovalNote(finalRfqKind === FRESH_RFQ, shouldAdvanceToRfq(selectedLead?.current_stage ?? 'calling'))
+      : null
 
     const { data: activity, error: activityError } = await supabase
       .from('activities')
@@ -549,7 +629,11 @@ function ActivityLog() {
         // Architect Meeting precedent: until the migration runs, only RFQ
         // Raised itself fails (a normal inline "column does not exist"
         // error), nothing else in this form is affected.
-        ...(activityType === 'rfq_raised' ? { rfq_kind: finalRfqKind } : {}),
+        // The window count and segments ride the same guard: the database
+        // allows them on an RFQ Raised only (activities_rfq_details_check).
+        ...(activityType === 'rfq_raised'
+          ? { rfq_kind: finalRfqKind, rfq_window_count: rfqWindowNumber, rfq_segments: rfqSegments }
+          : {}),
       })
       .select()
       .single()
@@ -561,6 +645,13 @@ function ActivityLog() {
     }
 
     const warnings = []
+
+    // The desk RFQ and its alert to the Production Executive were written by
+    // database triggers with this insert. Ask the push sender to flush now
+    // rather than at its next scheduled run — fire and forget, exactly like a
+    // reassignment: the activity is already saved, and the schedule is the
+    // guarantee.
+    if (sendsToDesk) requestAssignmentPush()
 
     // Rule 4.1/4.2 (FOLLOWUPS.md) — arriving here from Home's "Log call"/"Log
     // visit" on a due follow-up is what's supposed to close it, with this
@@ -597,7 +688,9 @@ function ActivityLog() {
     if (selectedLead) {
       const leadUpdates = {}
 
-      if (activityType === 'rfq_raised') {
+      // With the desk on, the approval stamps these (rfqs_after_write() in
+      // SQL) — an RFQ only counts as raised once it passes the technical check.
+      if (activityType === 'rfq_raised' && !sendsToDesk) {
         leadUpdates.rfq_raised = true
         leadUpdates.rfq_raised_at = todayISO()
         // The owner's request: recording a fresh RFQ also moves the lead to
@@ -742,7 +835,7 @@ function ActivityLog() {
     }
 
     setSubmitting(false)
-    setResult({ activity, warnings, stageMovedToRfq, reminderClosed })
+    setResult({ activity, warnings, stageMovedToRfq, reminderClosed, deskOutcome })
   }
 
   if (result) {
@@ -798,6 +891,18 @@ function ActivityLog() {
               <div className="vip-fact-value">{RFQ_KIND_LABELS[result.activity.rfq_kind]}</div>
             </div>
           )}
+          {result.activity.rfq_window_count && (
+            <div>
+              <div className="vip-fact-label">Windows</div>
+              <div className="vip-fact-value">{result.activity.rfq_window_count}</div>
+            </div>
+          )}
+          {result.activity.rfq_segments?.length > 0 && (
+            <div>
+              <div className="vip-fact-label">Segment</div>
+              <div className="vip-fact-value">{segmentsLabel(result.activity.rfq_segments)}</div>
+            </div>
+          )}
           {isOfficeDay && formatTimeRange(result.activity.start_time, result.activity.end_time) && (
             <div>
               <div className="vip-fact-label">Time</div>
@@ -811,6 +916,9 @@ function ActivityLog() {
           <p className="vip-form-note">What you did: {result.activity.work_summary}</p>
         )}
         {result.stageMovedToRfq && <p className="vip-form-note">Stage moved to RFQ Raised.</p>}
+        {result.deskOutcome != null && (
+          <p className="vip-form-note">Sent to the technical check.{result.deskOutcome}</p>
+        )}
         {result.reminderClosed && <p className="vip-form-note">Reminder closed.</p>}
         {notes && <p className="vip-form-note">Notes: {notes}</p>}
         {result.warnings.map((w) => (
@@ -1187,12 +1295,59 @@ function ActivityLog() {
                   )}
                 </div>
               )}
+              {/* What the desk needs to check it (RFQ-DESK.md §3). Both
+                  required. Segments are a multi-pick of six — more than any
+                  .vip-choice-grid holds — so wrapping chips, like Follow-ups'
+                  "When". */}
+              {isRfqRaised && (
+                <>
+                  <label className="vip-field">
+                    Number of windows *
+                    <NumPadInput
+                      variant="integer"
+                      label="Number of windows"
+                      type="number"
+                      min="1"
+                      step="1"
+                      maxLength={4}
+                      value={rfqWindowCount}
+                      onChange={(e) => setRfqWindowCount(e.target.value)}
+                    />
+                  </label>
+                  <div className="vip-field">
+                    Product segment *
+                    <div className="vip-chip-wrap" role="group" aria-label="Product segment">
+                      {RFQ_SEGMENT_OPTIONS.map((opt) => {
+                        const picked = rfqSegments.includes(opt.value)
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            className="vip-chip-select"
+                            aria-pressed={picked}
+                            style={picked ? { color: 'var(--vip-teal)' } : undefined}
+                            onClick={() => toggleRfqSegment(opt.value)}
+                          >
+                            {opt.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <span className="vip-field-hint">Pick one or more.</span>
+                  </div>
+                </>
+              )}
               {/* Says out loud what the CRM is about to decide on the rep's
-                  behalf, same reasoning as the Client Meeting hint above. */}
+                  behalf, same reasoning as the Client Meeting hint above —
+                  and, with the desk on, where the RFQ goes next. */}
               {isRfqRaised && resolvedRfqKind && (
                 <div className="vip-field-hint">
                   Logs as <b>{RFQ_KIND_LABELS[resolvedRfqKind]} RFQ</b>
-                  {rfqWillAdvance ? ' — the lead will move to RFQ Raised stage.' : '.'}
+                  {deskLive
+                    ? ` — goes to the technical check next.${deskApprovalNote(resolvedRfqKind === FRESH_RFQ, leadBeforeRfq)}`
+                    : rfqWillAdvance
+                      ? ' — the lead will move to RFQ Raised stage.'
+                      : '.'}
                 </div>
               )}
               {activityType === 'booking_update' && (

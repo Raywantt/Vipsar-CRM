@@ -6,6 +6,7 @@ import { dealValueFor } from './pipelineValue'
 import { todayISO } from './followupDates'
 import { daysSince } from './dateMath'
 import { leadDisplayName } from './leadName'
+import { rfqBackWithExec } from './rfqDesk'
 
 const CLOSED_STAGES = ['won', 'lost']
 
@@ -35,7 +36,17 @@ const CLOSED_STAGES = ['won', 'lost']
 export const STALE_DAYS = 7
 export const ATTENTION_DAYS = 14
 export const SILENT_QUOTE_DAYS = 5
+// A lead with NO desk RFQ (its RFQ was handled in Excel, before the desk) is
+// still judged by the rule from before the desk: RFQ raised this many days
+// ago and no quote sent.
 export const PENDING_RFQ_DAYS = 3
+// A lead WITH a desk RFQ lands in the same item, "RFQs back with the exec",
+// once its newest one has been the exec's to act on for this many days — sent
+// back and nothing re-logged, or Lixil's quote in and not sent to the client
+// (owner's ruling, RFQ-DESK.md Step 6). Waiting on the desk or on Lixil is no
+// longer the exec's delay, so it never counts. The RPC's p_rfq_back_days
+// default (Schema/migration_rfq_desk_reporting.sql) must match.
+export const RFQ_BACK_DAYS = 2
 
 // ---------------------------------------------------------------------------
 // The date the legacy sheets were imported. For AN IMPORTED LEAD ONLY (see
@@ -276,11 +287,25 @@ function sortByAgeDesc(rows) {
   return [...rows].sort((a, b) => (b.age ?? 0) - (a.age ?? 0))
 }
 
+// "RFQs back with the exec" — one row's description, shared by both paths.
+// `kind` is rfqBackWithExec's ('sent_back' / 'quote_in'), or null for a lead
+// judged by the rule from before the desk.
+function rfqBackDescription(kind, age) {
+  if (kind === 'sent_back') return `Sent back ${age}d ago, not re-logged`
+  if (kind === 'quote_in') return `Quote in ${age}d ago, not sent to client`
+  return `RFQ raised ${age}d ago, no quote yet`
+}
+
 // Every field below is a straight read/derivation from `leads` columns
 // already on `breakdownLeads` (see fetchLeadsForBreakdown) plus
 // `lastActivityByLead` (see fetchLastActivityPerLead) — no inferred/narrative
 // content, just the filters the CRM already tracks made visible in one place.
-export function computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead = new Map()) {
+//
+// `latestDeskRfqByLead` (rfqDesk.js's latestDeskRfqByLead over
+// fetchDeskRfqsForAttention) decides "RFQs back with the exec" for a lead with
+// a desk RFQ. Every caller passes it: left out, every lead would be judged by
+// the rule from before the desk, and the item would disagree with the RPC.
+export function computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead = new Map(), latestDeskRfqByLead = new Map()) {
   const openLeads = breakdownLeads.filter(isOpen)
   // Today as a plain local YYYY-MM-DD, NOT an instant.
   //
@@ -347,11 +372,20 @@ export function computeAttentionBuckets(breakdownLeads, lastActivityByLead, last
       slipped.push(toRow(lead, slipAge, `Est. close was ${slipAge}d ago`))
     }
 
-    if (lead.rfq_raised && !lead.quote_sent && lead.rfq_raised_at) {
+    const deskRfq = latestDeskRfqByLead.get(lead.id)
+    if (deskRfq) {
+      // The desk's newest RFQ decides; no import clamp — every desk date is
+      // newer than the floor.
+      const back = rfqBackWithExec(deskRfq, lead)
+      const backAge = back ? daysSince(back.at) : null
+      if (backAge != null && backAge >= RFQ_BACK_DAYS) {
+        pendingRfq.push(toRow(lead, backAge, rfqBackDescription(back.kind, backAge)))
+      }
+    } else if (lead.rfq_raised && !lead.quote_sent && lead.rfq_raised_at) {
       const rfqAge = daysSince(lead.rfq_raised_at)
       const rfqGate = queueAge(lead.rfq_raised_at, imported)
       if (rfqGate != null && rfqGate >= PENDING_RFQ_DAYS) {
-        pendingRfq.push(toRow(lead, rfqAge, `RFQ raised ${rfqAge}d ago, no quote yet`))
+        pendingRfq.push(toRow(lead, rfqAge, rfqBackDescription(null, rfqAge)))
       }
     }
   })
@@ -520,14 +554,16 @@ function assembleBuckets({ stale, silentQuotes, followupsOverdue, slipped, pendi
       rows: sortByAgeDesc(slipped),
     },
     {
+      // Key kept from before the desk (callers pick buckets by it — e.g.
+      // ManagerToday's list); the meaning is RFQ-DESK.md Step 6's.
       key: 'pending_rfq',
-      title: 'RFQs pending a quote',
+      title: 'RFQs back with the exec',
       sub: pendingRfq.length ? `Avg wait ${avgAge(pendingRfq).toFixed(1)}d` : 'None right now',
       count: pendingRfq.length,
       color: '#2f5878',
-      note: 'RFQ raised on the lead but no quote sent yet.',
+      note: `Sent back and not re-logged, or Lixil's quote in and not sent to the client, for ${RFQ_BACK_DAYS}+ days. An RFQ handled in Excel shows here ${PENDING_RFQ_DAYS}+ days after it was raised with no quote sent.`,
       listTitle: 'Longest wait first',
-      listHint: 'RFQ raised, no quote yet',
+      listHint: 'waiting on the exec',
       rows: sortByAgeDesc(pendingRfq),
     },
   ]
@@ -597,8 +633,12 @@ export function computeAttentionBucketsFromRpc(rpcRows) {
       slipped.push(toRow(lead, slipAge, `Est. close was ${slipAge}d ago`))
     }
     if (r.is_pending_rfq) {
-      const rfqAge = daysSince(r.rfq_raised_at)
-      pendingRfq.push(toRow(lead, rfqAge, `RFQ raised ${rfqAge}d ago, no quote yet`))
+      // rfq_back_kind / rfq_back_at: Schema/migration_rfq_desk_reporting.sql.
+      // A row from before that migration has neither and reads as the old
+      // rule, which is exactly what it was.
+      const kind = r.rfq_back_kind ?? null
+      const rfqAge = daysSince(kind ? r.rfq_back_at : r.rfq_raised_at)
+      pendingRfq.push(toRow(lead, rfqAge, rfqBackDescription(kind, rfqAge)))
     }
   })
 

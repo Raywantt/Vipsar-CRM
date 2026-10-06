@@ -19,6 +19,7 @@ import { toISODate } from './followupDates'
 import { formatDateShort } from './format'
 import { isPoolLead, sourcingArchitect } from './poolLeads'
 import { partyTypeLabel, SITE_CONTACT_ROLE_LABELS } from './partyTypeOptions'
+import { latestDeskQuote, latestDeskRfqByLead, quoteSentToClient, revisionLabel, rfqStatusLabel, RFQ_STATUS } from './rfqDesk'
 
 // ---- Who's who on a lead ----------------------------------------------------
 
@@ -60,6 +61,29 @@ export function architectsForLead(lead) {
 // (partyQueries.js — nothing writes firm_name any more).
 function firmName(party, firms) {
   return firms.get(party.firm_party_id)?.name ?? party.firm_name?.trim() ?? null
+}
+
+// The RFQ desk (RFQ-DESK.md Step 6). `rfqs` is the lead's desk RFQs from
+// fetchExportExtras. Blank when the lead never went through the desk — its RFQ
+// (if any) was handled in Excel.
+//
+// The status is the lead's NEWEST desk RFQ that wasn't withdrawn — the one
+// Needs Attention also reads (latestDeskRfqByLead) — e.g. "R1 · With Lixil".
+// A quote already marked sent to the client says so rather than "Quote in".
+// Only withdrawn ones on file: "Withdrawn".
+export function deskRfqStatus(lead, rfqs) {
+  if (!rfqs?.length) return null
+  const rfq = latestDeskRfqByLead(rfqs).get(lead.id)
+  if (!rfq) return rfqStatusLabel(RFQ_STATUS.WITHDRAWN)
+  const status =
+    rfq.status === RFQ_STATUS.QUOTED && quoteSentToClient(lead, rfq) ? 'Quote sent to client' : rfqStatusLabel(rfq.status)
+  return `${revisionLabel(rfq)} · ${status}`
+}
+
+// The reference of the quote the desk recorded most recently — the one the
+// lead's quote value now comes from (latestDeskQuote, as Sales progress shows).
+export function deskQuoteRef(rfqs) {
+  return latestDeskQuote(rfqs)?.quote_ref?.trim() || null
 }
 
 function trimmed(value) {
@@ -133,6 +157,7 @@ export const EXPORT_COLUMN_GROUPS = [
   { id: 'contacts', label: 'Other contacts' },
   { id: 'status', label: 'Status' },
   { id: 'deal', label: 'Deal' },
+  { id: 'rfq', label: 'RFQ desk' },
   { id: 'dates', label: 'Dates' },
   { id: 'notes', label: 'Notes' },
 ]
@@ -181,12 +206,19 @@ export const EXPORT_COLUMNS = [
   { id: 'probability', group: 'deal', label: 'Probability', kind: 'percent', width: 11, get: (l) => l.closure_probability },
   { id: 'expected_close', group: 'deal', label: 'Expected close', kind: 'date', width: 14, get: (l) => calendarDay(l.estimated_close_date) },
 
+  { id: 'rfq_desk_status', group: 'rfq', label: 'RFQ desk status', kind: 'text', width: 26, needs: 'rfqs', get: (l, x) => deskRfqStatus(l, x.rfqs.get(l.id)) },
+  { id: 'lixil_quote_ref', group: 'rfq', label: 'Lixil quote ref', kind: 'text', width: 18, needs: 'rfqs', get: (l, x) => deskQuoteRef(x.rfqs.get(l.id)) },
+
   { id: 'created_on', group: 'dates', label: 'Created on', kind: 'date', width: 13, get: (l) => calendarDay(l.created_at) },
   // All Leads' own "Last touch": the latest logged activity, else the day the
   // lead entered the CRM (which counts as a touch — CLAUDE.md, Needs Attention).
   { id: 'last_touch', group: 'dates', label: 'Last touch', kind: 'date', width: 13, needs: 'lastTouch', get: (l, x) => calendarDay(x.lastTouch.get(l.id) ?? l.created_at) },
   { id: 'next_followup', group: 'dates', label: 'Next follow-up', kind: 'date', width: 14, get: (l) => calendarDay(l.next_followup_date) },
-  { id: 'rfq_raised_on', group: 'dates', label: 'RFQ raised on', kind: 'date', width: 14, get: (l) => calendarDay(l.rfq_raised_at) },
+  // leads.rfq_raised_at. Once the RFQ desk is live it is stamped when the RFQ
+  // passes the technical check, not when it is logged — hence the label; a
+  // lead whose RFQ predates the desk holds the day it was logged (the About
+  // sheet says so). The id stays, so a remembered column set still finds it.
+  { id: 'rfq_raised_on', group: 'dates', label: 'RFQ approved on', kind: 'date', width: 14, get: (l) => calendarDay(l.rfq_raised_at) },
   { id: 'quote_sent_on', group: 'dates', label: 'Quote sent on', kind: 'date', width: 14, get: (l) => calendarDay(l.quote_sent_at) },
 
   {
@@ -222,7 +254,7 @@ export function normaliseColumnIds(ids) {
 
 // Which extra reads the chosen columns need (fetchExportExtras' `needs`).
 export function extrasNeededFor(columnIds) {
-  const needs = { firms: false, lastTouch: false, remarks: false, notes: false }
+  const needs = { firms: false, lastTouch: false, remarks: false, notes: false, rfqs: false }
   for (const id of columnIds) {
     const need = COLUMNS_BY_ID.get(id)?.needs
     if (need) needs[need] = true
@@ -307,6 +339,12 @@ export function buildLeadExport({ leads, columnIds, extras, origin, filterSummar
   }
   if (columnIds.includes('last_touch')) {
     notes.push('Last touch: the latest logged activity, or the day the lead was created if nothing has been logged.')
+  }
+  if (columnIds.includes('rfq_raised_on')) {
+    notes.push('RFQ approved on: the day the RFQ passed the technical check. For an RFQ from before the RFQ desk, the day it was logged.')
+  }
+  if (columnIds.includes('rfq_desk_status') || columnIds.includes('lixil_quote_ref')) {
+    notes.push("RFQ desk: the lead's newest RFQ at the desk (Fresh, R1, R2… and where it is). Blank when the lead's RFQ was handled in Excel, before the desk.")
   }
   if (searchCapped) {
     notes.push('The search matched more than 50 parties, sites or people, so this list may be incomplete — narrow the search for a full list.')

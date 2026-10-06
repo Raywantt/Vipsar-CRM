@@ -18,8 +18,11 @@
 --
 --   ► THE RED ERROR BOX IS THE REPORT. Read the PASS/FAIL lines in it. ◄
 --
--- NEEDS: migration_rfq_desk.sql already run; the three test logins above,
--- active, marked is_test_account, with Auth logins linked.
+-- NEEDS: migration_rfq_desk.sql (+ migration_rfq_desk_advance_fix.sql) and
+-- migration_rfq_desk_reporting.sql already run — T40–T50 test the last one
+-- (Step 6: target counting, "RFQs back with the exec", the raiser's read);
+-- the three test logins above, active, marked is_test_account, with Auth
+-- logins linked.
 --
 -- RUN: paste into the Supabase SQL Editor, press Run, copy the whole error
 -- message back.
@@ -47,6 +50,13 @@ DECLARE
   v_rfq3    integer;
   v_rfq4    integer;
   v_rfq5    integer;
+  v_lead3   integer;   -- Step 6: sent back, then corrected
+  v_lead4   integer;   -- Step 6: quote in, then sent to the client
+  v_lead5   integer;   -- Step 6: an RFQ handled in Excel (no desk RFQ)
+  v_rfq6    integer;
+  v_rfq7    integer;
+  v_rfq8    integer;
+  v_bool    boolean;
   v_r       rfqs;
   v_int     integer;
   v_num     numeric;
@@ -103,6 +113,22 @@ BEGIN
                      office_territory, current_stage)
   VALUES (v_site, v_client, v_exec_id, v_exec_id, 'scanning', 'ludhiana', 'calling')
   RETURNING id INTO v_lead2;
+  -- Step 6's three (see their section at the end).
+  INSERT INTO leads (site_id, party_id, owner_employee_id, created_by_employee_id, source_type,
+                     office_territory, current_stage)
+  VALUES (v_site, v_client, v_exec_id, v_exec_id, 'scanning', 'ludhiana', 'calling')
+  RETURNING id INTO v_lead3;
+  INSERT INTO leads (site_id, party_id, owner_employee_id, created_by_employee_id, source_type,
+                     office_territory, current_stage)
+  VALUES (v_site, v_client, v_exec_id, v_exec_id, 'scanning', 'ludhiana', 'calling')
+  RETURNING id INTO v_lead4;
+  -- An RFQ raised five days ago and worked in Excel: the lead carries
+  -- rfq_raised, no desk RFQ, no quote sent.
+  INSERT INTO leads (site_id, party_id, owner_employee_id, created_by_employee_id, source_type,
+                     office_territory, current_stage, rfq_raised, rfq_raised_at)
+  VALUES (v_site, v_client, v_exec_id, v_exec_id, 'scanning', 'ludhiana', 'rfq',
+          true, (now() AT TIME ZONE 'Asia/Kolkata')::date - 5)
+  RETURNING id INTO v_lead5;
 
   -- The switch OFF for T00a (whatever it really is — rolled back at the end).
   UPDATE rfq_desk_settings SET live_from = NULL;
@@ -242,6 +268,20 @@ BEGIN
 
   SELECT count(*) INTO v_int FROM notifications WHERE rfq_id = v_rfq1 AND kind = 'rfq_approved' AND employee_id = v_ee_id;
   lines := lines || format('%s T17 rfq_approved → estimation-exec (%s)', CASE WHEN v_int = 1 THEN 'PASS' ELSE 'FAIL' END, v_int);
+
+  -- T16b (migration_rfq_desk_advance_fix.sql): a lead whose FIRST approved RFQ
+  -- is a revision — its fresh one was sent back, or (here) it was logged as a
+  -- revision — still moves to RFQ Raised on that approval. v_lead2 is at
+  -- 'calling' with the revised RFQ from T00b waiting at the technical check.
+  SELECT id INTO v_rfq5 FROM rfqs WHERE lead_id = v_lead2 AND status = 'with_technical' ORDER BY id LIMIT 1;
+  PERFORM set_config('role', 'authenticated', true);   -- still the production-exec's JWT
+  PERFORM rfq_approve(v_rfq5);
+  PERFORM set_config('role', 'none', true);
+  SELECT current_stage INTO v_text FROM leads WHERE id = v_lead2;
+  SELECT count(*) INTO v_int FROM stage_history WHERE lead_id = v_lead2 AND stage = 'rfq' AND changed_by = v_pe_id;
+  lines := lines || format('%s T16b approving a REVISED RFQ on a lead still before RFQ moves it too: calling → %s, history rows %s',
+    CASE WHEN v_text = 'rfq' AND v_int = 1 THEN 'PASS' ELSE 'FAIL' END, v_text, v_int);
+  v_rfq5 := NULL;
 
   -- ================= AS THE TEST ESTIMATION EXECUTIVE =================
   PERFORM set_config('request.jwt.claim.sub', v_ee_uid::text, true);
@@ -466,6 +506,144 @@ BEGIN
       CASE WHEN v_own_sees_test THEN 'ON' ELSE 'OFF' END, v_int);
     PERFORM set_config('role', 'none', true);
   END IF;
+
+  -- ================= Step 6: the target count (migration_rfq_desk_reporting.sql) =================
+  -- Everything in this block shares one transaction, so now() — and with it
+  -- live_from, every raised_at and every approved_at — is the same instant.
+  PERFORM set_config('role', 'none', true);
+
+  SELECT counts_toward_target INTO v_ok FROM rfqs WHERE id = v_rfq1;
+  lines := lines || format('%s T40 a fresh RFQ counts toward the target once approved, and still counts after estimation sent it back (%s)',
+    CASE WHEN v_ok THEN 'PASS' ELSE 'FAIL' END, v_ok);
+
+  SELECT counts_toward_target INTO v_ok FROM rfqs WHERE id = v_rfq2;
+  SELECT count(*) INTO v_int FROM rfqs WHERE lead_id = v_lead AND counts_toward_target;
+  lines := lines || format('%s T41 its revision, approved later, does not count again (%s) — one count per lead (%s)',
+    CASE WHEN NOT v_ok AND v_int = 1 THEN 'PASS' ELSE 'FAIL' END, v_ok, v_int);
+
+  SELECT COALESCE(bool_or(counts_toward_target), false) INTO v_ok FROM rfqs WHERE lead_id = v_lead2;
+  lines := lines || format('%s T42 a lead whose fresh RFQ was logged before the desk went live gets no count from its approved revision (%s) — it counted by its logging day',
+    CASE WHEN NOT v_ok THEN 'PASS' ELSE 'FAIL' END, v_ok);
+
+  -- v_lead3: a fresh RFQ sent back at the technical check, then corrected.
+  PERFORM set_config('request.jwt.claim.sub', v_exec_uid::text, true);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_exec_uid, 'role', 'authenticated')::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+  INSERT INTO activities (employee_id, lead_id, activity_type, rfq_kind, rfq_window_count, rfq_segments, notes)
+  VALUES (v_exec_id, v_lead3, 'rfq_raised', 'fresh', 8, ARRAY['windows'], 'verify Step 6 fresh')
+  RETURNING id INTO v_act;
+  SELECT id INTO v_rfq6 FROM rfqs WHERE activity_id = v_act;
+
+  PERFORM set_config('request.jwt.claim.sub', v_pe_uid::text, true);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_pe_uid, 'role', 'authenticated')::text, true);
+  PERFORM rfq_send_back(v_rfq6, NULL);
+
+  -- Needs Attention as the exec, read 3 days and 1 day from now (p_now).
+  PERFORM set_config('request.jwt.claim.sub', v_exec_uid::text, true);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_exec_uid, 'role', 'authenticated')::text, true);
+  SELECT a.is_pending_rfq, a.rfq_back_kind INTO v_ok, v_text
+    FROM leads_needing_attention(now() + interval '3 days', ((now() + interval '3 days') AT TIME ZONE 'Asia/Kolkata')::date, 330) a
+   WHERE a.lead_id = v_lead3;
+  SELECT COALESCE((SELECT a.is_pending_rfq
+                     FROM leads_needing_attention(now() + interval '1 day', ((now() + interval '1 day') AT TIME ZONE 'Asia/Kolkata')::date, 330) a
+                    WHERE a.lead_id = v_lead3), false) INTO v_bool;
+  lines := lines || format('%s T43 sent back and not re-logged: "RFQs back with the exec" after 2 days (%s, %s), not after 1 (%s)',
+    CASE WHEN v_ok AND v_text = 'sent_back' AND NOT v_bool THEN 'PASS' ELSE 'FAIL' END, v_ok, v_text, v_bool);
+
+  INSERT INTO activities (employee_id, lead_id, activity_type, rfq_kind, rfq_window_count, rfq_segments, notes)
+  VALUES (v_exec_id, v_lead3, 'rfq_raised', 'revised', 8, ARRAY['windows'], 'verify Step 6 corrected')
+  RETURNING id INTO v_act;
+  SELECT id INTO v_rfq7 FROM rfqs WHERE activity_id = v_act;
+  SELECT COALESCE((SELECT a.is_pending_rfq
+                     FROM leads_needing_attention(now() + interval '3 days', ((now() + interval '3 days') AT TIME ZONE 'Asia/Kolkata')::date, 330) a
+                    WHERE a.lead_id = v_lead3), false) INTO v_ok;
+  lines := lines || format('%s T44 once the corrected RFQ is logged the lead leaves it — back with the desk (%s)',
+    CASE WHEN NOT v_ok THEN 'PASS' ELSE 'FAIL' END, v_ok);
+
+  PERFORM set_config('request.jwt.claim.sub', v_pe_uid::text, true);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_pe_uid, 'role', 'authenticated')::text, true);
+  v_r := rfq_approve(v_rfq7);
+  PERFORM set_config('role', 'none', true);
+  lines := lines || format('%s T45 a sent-back fresh RFQ counts when its correction passes: fresh %s, revision %s (returned to the app: %s)',
+    CASE WHEN NOT (SELECT counts_toward_target FROM rfqs WHERE id = v_rfq6) AND v_r.counts_toward_target
+         THEN 'PASS' ELSE 'FAIL' END,
+    (SELECT counts_toward_target FROM rfqs WHERE id = v_rfq6), (SELECT counts_toward_target FROM rfqs WHERE id = v_rfq7),
+    v_r.counts_toward_target);
+
+  -- v_lead4: approved, quoted, then sent to the client.
+  PERFORM set_config('request.jwt.claim.sub', v_exec_uid::text, true);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_exec_uid, 'role', 'authenticated')::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+  INSERT INTO activities (employee_id, lead_id, activity_type, rfq_kind, rfq_window_count, rfq_segments, notes)
+  VALUES (v_exec_id, v_lead4, 'rfq_raised', 'fresh', 5, ARRAY['giesta'], 'verify Step 6 quote')
+  RETURNING id INTO v_act;
+  SELECT id INTO v_rfq8 FROM rfqs WHERE activity_id = v_act;
+  PERFORM set_config('request.jwt.claim.sub', v_pe_uid::text, true);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_pe_uid, 'role', 'authenticated')::text, true);
+  PERFORM rfq_approve(v_rfq8);
+  PERFORM set_config('request.jwt.claim.sub', v_ee_uid::text, true);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_ee_uid, 'role', 'authenticated')::text, true);
+  PERFORM rfq_raise_with_lixil(v_rfq8);
+  PERFORM rfq_record_quote(v_rfq8, 'R26-TEST-6', 500000, NULL);
+
+  PERFORM set_config('request.jwt.claim.sub', v_exec_uid::text, true);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_exec_uid, 'role', 'authenticated')::text, true);
+  SELECT a.is_pending_rfq, a.rfq_back_kind INTO v_ok, v_text
+    FROM leads_needing_attention(now() + interval '3 days', ((now() + interval '3 days') AT TIME ZONE 'Asia/Kolkata')::date, 330) a
+   WHERE a.lead_id = v_lead4;
+  lines := lines || format('%s T46 quote in and not sent to the client: "RFQs back with the exec" after 2 days (%s, %s)',
+    CASE WHEN v_ok AND v_text = 'quote_in' THEN 'PASS' ELSE 'FAIL' END, v_ok, v_text);
+
+  -- Sent to the client the day BEFORE this quote came in — an earlier quote.
+  UPDATE leads SET quote_sent = true, quote_sent_at = (now() AT TIME ZONE 'Asia/Kolkata')::date - 1 WHERE id = v_lead4;
+  SELECT COALESCE((SELECT a.is_pending_rfq
+                     FROM leads_needing_attention(now() + interval '3 days', ((now() + interval '3 days') AT TIME ZONE 'Asia/Kolkata')::date, 330) a
+                    WHERE a.lead_id = v_lead4), false) INTO v_ok;
+  UPDATE leads SET quote_sent_at = (now() AT TIME ZONE 'Asia/Kolkata')::date WHERE id = v_lead4;
+  SELECT COALESCE((SELECT a.is_pending_rfq
+                     FROM leads_needing_attention(now() + interval '3 days', ((now() + interval '3 days') AT TIME ZONE 'Asia/Kolkata')::date, 330) a
+                    WHERE a.lead_id = v_lead4), false) INTO v_bool;
+  lines := lines || format('%s T47 an earlier quote''s "sent" date doesn''t clear it (%s); marking it sent the day it came in does (%s)',
+    CASE WHEN v_ok AND NOT v_bool THEN 'PASS' ELSE 'FAIL' END, v_ok, v_bool);
+
+  -- v_lead5: no desk RFQ — the rule from before the desk.
+  SELECT a.is_pending_rfq, a.rfq_back_kind INTO v_ok, v_text
+    FROM leads_needing_attention(now(), (now() AT TIME ZONE 'Asia/Kolkata')::date, 330) a
+   WHERE a.lead_id = v_lead5;
+  lines := lines || format('%s T48 a lead with no desk RFQ keeps the old rule — raised 5 days ago, no quote sent: %s (kind %s)',
+    CASE WHEN v_ok AND v_text IS NULL THEN 'PASS' ELSE 'FAIL' END, v_ok, COALESCE(v_text, 'none'));
+
+  -- The exec's own count is read through rfqs — so it must survive the lead
+  -- being handed to someone else (rfqs_raised_by_select).
+  IF v_own_id IS NULL THEN
+    lines := lines || 'SKIP T49 no owner to hand the lead to';
+  ELSE
+    PERFORM set_config('role', 'none', true);
+    PERFORM set_config('request.jwt.claim.sub', '', true);
+    PERFORM set_config('request.jwt.claims', '', true);
+    PERFORM set_config('app.skip_assignment_notifications', 'on', true);
+    UPDATE leads SET owner_employee_id = v_own_id WHERE id = v_lead4;
+
+    PERFORM set_config('request.jwt.claim.sub', v_exec_uid::text, true);
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_exec_uid, 'role', 'authenticated')::text, true);
+    PERFORM set_config('role', 'authenticated', true);
+    SELECT count(*) INTO v_int FROM leads WHERE id = v_lead4;
+    SELECT count(*) INTO v_num FROM rfqs WHERE lead_id = v_lead4 AND counts_toward_target;
+    lines := lines || format('%s T49 after the lead is handed to the owner, the exec still reads the counted RFQ they raised (%s) — the lead itself: %s rows',
+      CASE WHEN v_num = 1 THEN 'PASS' ELSE 'FAIL' END, v_num, v_int);
+  END IF;
+
+  IF v_rexec_id IS NULL THEN
+    lines := lines || 'SKIP T50 no real sales exec with a login';
+  ELSE
+    PERFORM set_config('request.jwt.claim.sub', v_rexec_uid::text, true);
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_rexec_uid, 'role', 'authenticated')::text, true);
+    PERFORM set_config('role', 'authenticated', true);
+    SELECT count(*) INTO v_int FROM rfqs WHERE lead_id IN (v_lead3, v_lead4);
+    lines := lines || format('%s T50 someone who did not raise them still can''t read them (%s)',
+      CASE WHEN v_int = 0 THEN 'PASS' ELSE 'FAIL' END, v_int);
+  END IF;
+  PERFORM set_config('role', 'none', true);
 
   -- ================= report (and roll everything back) =================
   SELECT count(*) INTO n_fail FROM unnest(lines) l WHERE l LIKE 'FAIL%';

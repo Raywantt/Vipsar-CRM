@@ -86,6 +86,8 @@ import {
   fetchActivitiesTrendWindow,
 } from '../lib/dashboardQueries'
 import { fetchDashboardPeriod } from '../lib/screenQueries'
+import { fetchDeskRfqsForAttention } from '../lib/rfqQueries'
+import { latestDeskRfqByLead } from '../lib/rfqDesk'
 import { fetchTargetsForPeriod, fetchWonStageHistory, deleteTarget } from '../lib/targetQueries'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { todayISO } from '../lib/followupDates'
@@ -371,6 +373,15 @@ function Dashboard() {
     })
     return map
   }, [lastActivityQuery.result])
+  // The same fallback's "RFQs back with the exec" (RFQ-DESK.md Step 6): each
+  // lead's newest desk RFQ. Same gate — the RPC answers it on the normal path.
+  const deskRfqsQuery = useCachedQuery(['dash', 'desk-rfqs-attention'], fetchDeskRfqsForAttention, {
+    enabled: wantsReports && (isManager || attentionRpcFailed),
+  })
+  const latestDeskRfqs = useMemo(
+    () => latestDeskRfqByLead(deskRfqsQuery.result && !deskRfqsQuery.result.error ? deskRfqsQuery.result.data : []),
+    [deskRfqsQuery.result]
+  )
 
   // Powers the win-rate KPI/drill-down and the `loss` kind's lost-leads list.
   const decidedQuery = useCachedQuery(['dash', 'decided-history'], () => fetchDecidedStageHistory(), { enabled: wantsReports })
@@ -626,6 +637,19 @@ function Dashboard() {
   // are a rep and there is nobody to break down by; looking at their team
   // they are a supervisor and the breakdowns are the point.
   const seesOthersData = isOwner || isCoordinator || (isManager && managerScope === 'team')
+  // The RFQ desk's part of the RFQ Raised target (RFQ-DESK.md Step 6) — the
+  // counted approvals in the period, scoped like `activities` by whoever
+  // raised them. Looking at only your own numbers it is only the RFQs you
+  // raised: RLS also hands an exec the RFQs on leads they now own that a
+  // colleague raised before the lead came to them, and those are the
+  // colleague's.
+  const rfqCounting = useMemo(() => {
+    const data = periodQuery.result?.data
+    const counted = (data?.rfqCounted ?? EMPTY).filter((r) =>
+      seesOthersData ? inScope(r.raised_by_employee_id) : r.raised_by_employee_id === employee?.id
+    )
+    return { liveFrom: data?.rfqLiveFrom ?? null, counted }
+  }, [periodQuery.result, seesOthersData, inScope, employee?.id])
   // The drill-down eyebrow. 'Company' would overstate a manager's visibility
   // in either mode — they see their own leads and their own team's, never
   // the company's.
@@ -759,7 +783,7 @@ function Dashboard() {
   // reduction over every lead, unchanged.
   const attentionBuckets = fastAttentionRows
     ? computeAttentionBucketsFromRpc(fastAttentionRows)
-    : computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead)
+    : computeAttentionBuckets(breakdownLeads, lastActivityByLead, lastStageChangeByLead, latestDeskRfqs)
   // RightNowStrip's "Stale Leads" tile, gated on STALE_DAYS (7) — a
   // deliberately DIFFERENT, earlier number than Needs Attention's own
   // 'stale' entry inside attentionBuckets above (gated on ATTENTION_DAYS/14,
@@ -796,7 +820,7 @@ function Dashboard() {
     if (!employee || !range) return
     const { data, error: logError } = await fetchActivityLogForExec(employeeId, activityType, range.start)
     if (logError) return
-    setPanel(buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows: data ?? [], canCancelTarget: isOwner }))
+    setPanel(buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows: data ?? [], canCancelTarget: isOwner, rfqCounting }))
   }
 
   // The Activities logged popup — opened from the KPI tile AND from Activity
@@ -1116,6 +1140,7 @@ function Dashboard() {
                 <div className="vip-featured-row">
                   <TargetsVsActualsCard
                     activities={activities}
+                    rfqCounting={rfqCounting}
                     wonStageHistory={wonStageHistory}
                     breakdownLeads={breakdownLeads}
                     targets={targets}

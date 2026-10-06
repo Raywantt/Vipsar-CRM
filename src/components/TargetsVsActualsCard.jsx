@@ -3,6 +3,7 @@ import { METRIC_OPTIONS } from '../lib/targetMetrics'
 import { formatCurrencyCompact } from '../lib/format'
 import SetTargetForm from './SetTargetForm'
 import DashboardHeatmap from './DashboardHeatmap'
+import { loggedWhileDeskLive } from '../lib/rfqDesk'
 
 // order_value/scanning_leads are computed by their own dedicated functions
 // below (not tallied from activities), so they're excluded from the
@@ -27,8 +28,32 @@ function emptyMetricCounts() {
 // opened by clicking a heatmap cell, so a second copy of this rule is
 // exactly the kind of drift that already broke this once (see
 // computeActivityActuals's own comment above).
-export function countsTowardActivityMetric(a) {
-  return !(a.activity_type === 'rfq_raised' && a.rfq_kind === 'revised')
+//
+// ONCE THE RFQ DESK IS LIVE (RFQ-DESK.md Step 6) an RFQ counts when it passes
+// the technical check, not when it is logged: `liveFrom` is the cutover
+// (rfq_desk_settings.live_from). An RFQ Raised logged before it still counts
+// here by the day it was logged; one logged after counts through
+// rfqCounting.counted instead (see computeActivityActuals) — never both.
+export function countsTowardActivityMetric(a, liveFrom = null) {
+  if (a.activity_type !== 'rfq_raised') return true
+  if (a.rfq_kind === 'revised') return false
+  return !loggedWhileDeskLive(a, liveFrom)
+}
+
+// What the RFQ Raised target reads besides the activities, from
+// fetchDashboardPeriod: `liveFrom` (the desk's cutover; null = the desk is
+// off) and `counted` — the RFQs approved in the period that count, each
+// { raised_by_employee_id, approved_at }. The database decides which count
+// (once per lead, frozen at approval — Schema/migration_rfq_desk_reporting.sql).
+// The default is "desk off": every RFQ counts by its logging day, as before.
+export const NO_RFQ_DESK = Object.freeze({ liveFrom: null, counted: [] })
+
+// The approvals that count for this period, or none while the desk is off —
+// with no cutover every RFQ already counted by its logging day above, so an
+// approval as well would count it twice. Exported for buildLogPanel, whose
+// headline must equal the heatmap cell it opens from.
+export function countedRfqsFor(rfqCounting) {
+  return rfqCounting?.liveFrom ? rfqCounting.counted ?? [] : []
 }
 
 // activities is already scoped to the current period + role by the caller
@@ -39,20 +64,33 @@ export function countsTowardActivityMetric(a) {
 // re-deriving its own copy of "how many of X did this exec log" — see that
 // function's own comment for why a second copy of this specifically caused
 // a real, reported discrepancy.
-export function computeActivityActuals(activities, showByEmployee) {
+//
+// `rfqCounting` (NO_RFQ_DESK's shape) carries the RFQ desk's part of RFQ
+// Raised, scoped by the caller exactly like `activities` — each counted RFQ
+// is credited to the exec who raised it (raised_by_employee_id).
+export function computeActivityActuals(activities, showByEmployee, rfqCounting = NO_RFQ_DESK) {
+  const liveFrom = rfqCounting?.liveFrom ?? null
+  const counted = countedRfqsFor(rfqCounting)
   if (!showByEmployee) {
     const totals = emptyMetricCounts()
     activities.forEach((a) => {
-      if (a.activity_type in totals && countsTowardActivityMetric(a)) totals[a.activity_type] += 1
+      if (a.activity_type in totals && countsTowardActivityMetric(a, liveFrom)) totals[a.activity_type] += 1
     })
+    if ('rfq_raised' in totals) totals.rfq_raised += counted.length
     return totals
   }
   const map = new Map()
-  activities.forEach((a) => {
-    const key = a.employee_id ?? 'unassigned'
+  const totalsFor = (key) => {
     if (!map.has(key)) map.set(key, emptyMetricCounts())
-    const totals = map.get(key)
-    if (a.activity_type in totals && countsTowardActivityMetric(a)) totals[a.activity_type] += 1
+    return map.get(key)
+  }
+  activities.forEach((a) => {
+    const totals = totalsFor(a.employee_id ?? 'unassigned')
+    if (a.activity_type in totals && countsTowardActivityMetric(a, liveFrom)) totals[a.activity_type] += 1
+  })
+  counted.forEach((r) => {
+    const totals = totalsFor(r.raised_by_employee_id ?? 'unassigned')
+    if ('rfq_raised' in totals) totals.rfq_raised += 1
   })
   return map
 }
@@ -251,6 +289,9 @@ function formatValue(metric, value) {
 // render an empty state (see the Dashboard section of CLAUDE.md).
 function TargetsVsActualsCard({
   activities,
+  // The RFQ desk's part of RFQ Raised (NO_RFQ_DESK's shape), scoped like
+  // `activities`.
+  rfqCounting = NO_RFQ_DESK,
   wonStageHistory,
   breakdownLeads,
   targets,
@@ -290,6 +331,7 @@ function TargetsVsActualsCard({
             employees={employees}
             targets={targets}
             activities={activities}
+            rfqCounting={rfqCounting}
             wonStageHistory={wonStageHistory}
             breakdownLeads={breakdownLeads}
             range={range}
@@ -324,6 +366,7 @@ function TargetsVsActualsCard({
         )}
         <TargetsTable
           activities={activities}
+          rfqCounting={rfqCounting}
           wonStageHistory={wonStageHistory}
           breakdownLeads={breakdownLeads}
           targets={targets}
@@ -480,9 +523,9 @@ function ExecAttainmentRow({ employee, actuals, targets }) {
   )
 }
 
-function TargetsTable({ activities, wonStageHistory, breakdownLeads, targets, range, employees, showByEmployee }) {
+function TargetsTable({ activities, rfqCounting, wonStageHistory, breakdownLeads, targets, range, employees, showByEmployee }) {
   const actuals = {
-    activityActuals: computeActivityActuals(activities, showByEmployee),
+    activityActuals: computeActivityActuals(activities, showByEmployee, rfqCounting),
     orderValueActuals: computeOrderValueActuals(wonStageHistory, range, showByEmployee),
     scanningLeadsActuals: computeScanningLeadsActuals(breakdownLeads ?? [], range, showByEmployee),
   }

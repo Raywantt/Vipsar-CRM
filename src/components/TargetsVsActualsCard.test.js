@@ -160,6 +160,45 @@ describe('computeActivityActuals', () => {
   })
 })
 
+// RFQ-DESK.md Step 6: once the desk is live an RFQ counts when it passes the
+// technical check (the database's counted approvals), and one logged before
+// the cutover still counts by its logging day — never both.
+describe('computeActivityActuals — RFQ Raised with the desk live', () => {
+  const liveFrom = '2026-08-15T03:30:00+00:00' // 15 Aug, 09:00 IST
+  const activities = [
+    // before the cutover: counts by logging day
+    { employee_id: 'e1', activity_type: 'rfq_raised', rfq_kind: 'fresh', created_at: '2026-08-10T05:00:00' },
+    // after it: counts only through an approval
+    { employee_id: 'e1', activity_type: 'rfq_raised', rfq_kind: 'fresh', created_at: '2026-08-20T05:00:00' },
+    { employee_id: 'e2', activity_type: 'rfq_raised', rfq_kind: 'fresh', created_at: '2026-08-21T05:00:00' },
+    // a revision never counts here, before or after
+    { employee_id: 'e1', activity_type: 'rfq_raised', rfq_kind: 'revised', created_at: '2026-08-11T05:00:00' },
+    { employee_id: 'e1', activity_type: 'call', created_at: '2026-08-20T05:00:00' },
+  ]
+  const counted = [
+    { raised_by_employee_id: 'e1', approved_at: '2026-08-21T06:00:00+00:00' },
+    { raised_by_employee_id: 'e3', approved_at: '2026-08-22T06:00:00+00:00' },
+  ]
+
+  it('adds each counted approval to the exec who raised it, and stops counting post-cutover logging', () => {
+    const map = computeActivityActuals(activities, true, { liveFrom, counted })
+    expect(map.get('e1').rfq_raised).toBe(2) // one pre-cutover log + one approval
+    expect(map.get('e2').rfq_raised).toBe(0) // logged after the cutover, not approved yet
+    expect(map.get('e3').rfq_raised).toBe(1) // approved; raised by e3 (activity not in view)
+    expect(map.get('e1').call).toBe(1)
+  })
+
+  it('totals the same way for a single-person view', () => {
+    expect(computeActivityActuals(activities, false, { liveFrom, counted }).rfq_raised).toBe(1 + 2)
+  })
+
+  it('with the desk off every fresh RFQ counts by its logging day and approvals are ignored', () => {
+    expect(computeActivityActuals(activities, false, { liveFrom: null, counted }).rfq_raised).toBe(3)
+    // the default is the same "desk off"
+    expect(computeActivityActuals(activities, false).rfq_raised).toBe(3)
+  })
+})
+
 // blendedAttainmentFor is the ONE place "overall attainment" should be
 // computed — EmployeeProfile's rank pill, this card's own mobile
 // ExecAttainmentRow, DashboardHeatmap's desktop "Overall" column and

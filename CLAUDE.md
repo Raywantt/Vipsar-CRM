@@ -87,13 +87,14 @@ documented in its own section below. `BDM.md` (repo root) is now a historical
 build log for that role: its §3 decisions and §10 session log explain *why*;
 this file describes *what is*.
 
-**Phase 12, the RFQ desk, is being planned** in `RFQ-DESK.md` (repo root):
+**Phase 12, the RFQ desk, LAUNCHED 2026-10-06** (`RFQ-DESK.md`, repo root):
 two back-office roles after a sales exec's RFQ — Production Executive
-(technical check) and Estimation Executive (Lixil quote). Built so far: the
-two role values, Step 1's database (live, and its switch is ON since
-2026-10-06 09:26 IST — RFQs are entering the desk ahead of launch day) and
-Step 2's role plumbing (Search and a read-only Lead Detail for the desk). The
-desk's own queues (Steps 3–7) are still a plan.
+(technical check) and Estimation Executive (Lixil quote). Steps 1–6 are live:
+the database (switch ON since 2026-10-06 09:26 IST), role plumbing, the exec
+side, both desk queues and the reporting changes (an RFQ counts toward the
+target on approval; Needs Attention's "RFQs back with the exec"). See Roles →
+Production Executive / Estimation Executive. Still a plan: the owner's **RFQ
+Desk** screen (Step 7).
 
 **Deliberately not built — don't add as a side effect of unrelated work:**
 
@@ -2859,7 +2860,7 @@ locked decisions; **don't reverse one without asking.**
   `FollowUpForm`'s lead picker lists only leads the BDM owns. The real BDM's
   portfolio is empty until the owner's architect import runs.
 
-#### Production Executive / Estimation Executive (the RFQ desk — being built)
+#### Production Executive / Estimation Executive (the RFQ desk — live 2026-10-06)
 
 `production_executive` ("Production Executive", Harjot — checks an RFQ
 against Lixil's technical limits) and `estimation_executive` ("Estimation
@@ -2871,11 +2872,11 @@ named them; "Production" is the owner's word, not a mistake for "Technical".
 role plumbing.** `migration_rfq_desk_roles.sql` widens `employees_role_check`;
 `roles.js` lists both in `ROLE_OPTIONS`. **Step 1's database is live**
 (`migration_rfq_desk.sql` — see Outstanding migrations and RFQ-DESK.md §5) and
-**its switch is ON since 2026-10-06 09:26 IST** (owner's choice, ahead of
-launch day): every RFQ Raised now creates a `with_technical` desk RFQ and an
-`rfq_new` alert row that nothing pushes yet (the Edge Function drains
-assignment kinds only). Launch day has to clear that backlog — RFQ-DESK.md §8
-Step 8.
+**its switch is ON since 2026-10-06 09:26 IST** (owner's choice): every RFQ
+Raised creates a `with_technical` desk RFQ and an `rfq_new` alert. **Launched
+the same day** (Steps 3–6 merged to master): no real RFQ had been logged
+between the switch and the launch, so there was no backlog to clear and
+`live_from` was left at 09:26 rather than re-stamped.
 
 **Step 2 (2026-10-06):** both roles get Today, **Search**, a **read-only Lead
 Detail** and Profile; their nav is Today + Search at both widths (phone bar
@@ -2906,6 +2907,84 @@ architect as plain text, "not visible to the desk", "Stage history", no
 sticky bar; the test production-exec could read that one lead and nothing
 else, and got exactly one `rfq_new` alert; Search found it by site and client.
 The test exec's own view of the same lead was unchanged at both widths.
+
+**Step 3 — the exec side** (live 2026-10-06; RFQ-DESK.md §3 "Step 3 rulings"). `src/lib/rfqDesk.js` holds the
+pure rules (segments — a closed list pinned to the SQL CHECK by
+`rfqDesk.test.js` — statuses, "Fresh"/"R1" labels, `canWithdrawRfq` mirroring
+`rfq_withdraw()`, `latestDeskQuote`, `isDeskLive`); `rfqQueries.js` the reads
+and the two exec actions. **Log Activity → RFQ Raised** asks Number of windows
+and Product segment (both required) and, while the switch is on, no longer
+moves the lead or stamps `rfq_raised`/`rfq_raised_at` — the approval does
+(re-read at submit; a failed read falls back to the old behaviour). **Lead
+Detail** has an "RFQs" card under Deal progress (`LeadRfqCard`; Withdraw,
+"Mark quote sent to client"), and Sales progress locks Quote value once a desk
+quote exists. **Today** has `RfqUpdatesCard` (sent back / quote in) mounted in
+`TodayGreetingHeader`. The Edge Function pushes the five `rfq_*` kinds
+written at or after `live_from` (older ones are stamped handled unsent) — **if
+`live_from` is ever moved, mind that boundary before redeploying it**.
+`migration_rfq_desk_advance_fix.sql` (run and verified live 2026-10-06)
+makes an approval move a lead still before RFQ Raised whatever the RFQ's
+kind.
+
+**Step 4 — the Production Executive** (live 2026-10-06; RFQ-DESK.md §3 "Step 4 rulings").
+The Production Executive's Today is `ProductionToday` (`.vip-narrow`, one
+column at both widths): the greeting bar, a "this month" strip of their own
+decisions (`technicalMonthStats`), then `TechnicalQueueCard` — every
+`with_technical` RFQ oldest first, the age amber at 1 / red at 2 **working
+days, Sundays not counted** (`workingDaysWaited`, `RFQ_WAIT_LIMITS`, and the
+label switches to "N working days" at the same moment so number and colour
+agree). **Approve (two taps) and Send back (optional note) are ONE component,
+`RfqReviewActions`**, rendered by the queue AND by Lead Detail's RFQ card for
+`canReviewRfqs` (production + owner) — don't split them. An approval on Lead
+Detail re-reads the lead (`fetchLeadAfterRfqMove`), since the database moved
+its stage. A click on an RFQ that moved on (23514 / P0002,
+`isRfqMovedOnError`) drops the row with the database's own message.
+`RfqUpdatesCard` also lists `rfq_bounced` for whoever approved. **`supabaseFetch.js` now
+invalidates the cache after a WRITING RPC** (`isWriteRequest`: every `rfq_*`
+function and `delete_lead_totally`) — every other `/rpc/` is still a read; a
+new function that writes belongs in that list.
+
+**Step 5 — the Estimation Executive** (live 2026-10-06; RFQ-DESK.md §3 "Step 5 rulings").
+The Estimation Executive's Today is `EstimationToday` (`.vip-narrow`): the
+greeting bar, a "this month" strip (`estimationMonthStats`), then
+`EstimationQueues` — "Waiting for estimation" above "With Lixil", **both
+from one read and one set of rows**, so "Raised with Lixil" moves a row down
+with no refetch; each list longest-wait-at-its-step first
+(`sortRfqsByWait`); ages amber/red at 1/2 working days for estimation and
+5/7 for Lixil. **`RfqEstimationActions` is the one implementation** of
+Raised with Lixil (one tap, §3), Send back, Withdraw (a price revision only —
+the SQL won't send one back) and Quote received (reference, value without
+GST read back in rupees, date) — rendered by the lists AND by Lead Detail's
+RFQ card for `canEstimateRfqs` (estimation + owner). **Price revisions start
+on Lead Detail** ("Start a price revision" on the current quote,
+`canStartPriceRevision`), never on Today. Both desk steps share
+`RfqQueueRow`, `RfqSendBackForm` and `RfqWithdrawControl` — change a row or
+the send-back form there, not in a copy. Both strips are the Day Review's
+`DayKpiStrip`. The "being set up" Today card is gone.
+
+**Step 6 — reporting** (live 2026-10-06; RFQ-DESK.md §3 "Step 6 rulings").
+**An RFQ counts toward the exec's RFQ Raised target once per lead, on the day
+it passes the technical check**, credited to `raised_by_employee_id` — decided
+by the database at approval and frozen (`rfqs.counts_toward_target`); it stays
+counted if estimation later sends it back; revisions and price revisions never
+count again. An RFQ Raised logged before `rfq_desk_settings.live_from` counts
+the old way, by its logging day. **One rule, `computeActivityActuals(activities,
+byEmployee, rfqCounting)`** (`TargetsVsActualsCard.jsx`), fed by
+`fetchDashboardPeriod`'s `rfqCounted` + `rfqLiveFrom`: the targets card,
+heatmap, Overall and RFQ log drill-downs and the Sales Exec Profile's "RFQs
+raised" tile + rank pill all read it — **a new RFQ figure must too**. Activity
+counts and the Activities logged popup stay a raw tally on purpose.
+**Needs Attention's `pending_rfq` bucket is now "RFQs back with the exec"**:
+for a lead with a desk RFQ, its newest non-withdrawn one sent back with nothing
+re-logged, or quoted and not marked sent to the client since the quote came in,
+for `RFQ_BACK_DAYS` (2) — the RPC's `p_rfq_back_days` must match; a lead with
+no desk RFQ keeps the old 3-day "raised, no quote" rule. Every client-side
+fallback (Dashboard, My Team, `useAttentionBuckets`) passes
+`latestDeskRfqByLead` — leave it out and the fallback disagrees with the RPC.
+The exec who raised an RFQ keeps reading it after the lead moves
+(`rfqs_raised_by_select`). The Excel export gained optional "RFQ desk status"
+and "Lixil quote ref" columns, and "RFQ raised on" reads **"RFQ approved on"**
+(same id).
 
 ### Data isolation — audited, don't re-litigate
 
@@ -3137,7 +3216,8 @@ with no error. The layered order is:
    the BDM file re-creates with five roles — **re-running
    `migration_bdm_role.sql` once a production/estimation employee exists
    fails on that CHECK; re-run `migration_rfq_desk_roles.sql` right after
-   it**) → `migration_rfq_desk.sql` (RFQ-DESK.md Step 1)
+   it**) → `migration_rfq_desk.sql` (RFQ-DESK.md Step 1) →
+   `migration_rfq_desk_advance_fix.sql` → `migration_rfq_desk_reporting.sql`
 9. `migration_rls_per_row_fixes.sql` (2026-09-22) — **must stay the last
    file that defines its 49 policies** (parties, sites, employees, products,
    areas, site_contacts, loss_reasons, targets, lead_change_log,
@@ -3217,15 +3297,31 @@ removing your own login.
 
 ### Outstanding migrations
 
+* **`migration_rfq_desk_reporting.sql`** — **run and verified live
+  2026-10-06** (`verify_rfq_desk.sql`: 0 FAIL through T50; live trial on test
+  data). `rfqs.counts_toward_target` + its BEFORE UPDATE trigger,
+  `rfqs_raised_by_select`, and `leads_needing_attention()` re-created (DROP +
+  CREATE) with `rfq_back_kind` / `rfq_back_at`. **Re-running
+  `migration_needs_attention_bdm_chip.sql`, `migration_bdm_handoff.sql`,
+  `migration_stale_7day_tile.sql` or any older file defining
+  `leads_needing_attention()` puts the old RFQ rule back — re-run this file
+  straight after.**
+
+* **`migration_rfq_desk_advance_fix.sql`** — **run and verified live
+  2026-10-06** (`verify_rfq_desk.sql`: 43 PASS, 0 FAIL, new T16b included) —
+  replaces `rfqs_after_write()` so an approval moves a lead still before RFQ
+  Raised whatever the approved RFQ's kind (it was fresh-only, which stranded a
+  lead whose fresh RFQ was sent back at Calling — seen in Step 3's live
+  trial). `migration_rfq_desk.sql` carries the same line, so re-running it
+  keeps the fix.
+
 * **`migration_rfq_desk.sql`** — **run and verified live 2026-10-06**
   (`verify_rfq_desk.sql`: 42 PASS, 0 FAIL, as real test sessions plus the
   real Production Executive and the owner). The RFQ
   desk's tables, actions, triggers, visibility and notifications (RFQ-DESK.md
-  §5). **The owner switched the desk ON 2026-10-06 09:26 IST**, ahead of
-  launch day: every RFQ Raised activity — by anyone — now enters the desk and
-  writes an `rfq_new` alert for the Production Executive (not pushed until
-  Step 3 redeploys the Edge Function). Launch day must clear the pre-launch
-  backlog first — RFQ-DESK.md §8 Step 8.
+  §5). **The owner switched the desk ON 2026-10-06 09:26 IST** and it
+  launched the same day: every RFQ Raised activity — by anyone — enters the
+  desk and alerts the Production Executive.
 
 * **`migration_rfq_desk_roles.sql`** — **run and confirmed live
   2026-10-06**: four employees now hold the new roles (Harjot and Harpreet

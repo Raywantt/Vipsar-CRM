@@ -4,6 +4,8 @@ import {
   architectsForLead,
   buildLeadExport,
   clientForLead,
+  deskQuoteRef,
+  deskRfqStatus,
   DEFAULT_EXPORT_COLUMN_IDS,
   EXPORT_COLUMN_GROUPS,
   EXPORT_COLUMNS,
@@ -23,7 +25,7 @@ const archA = { id: 2, name: 'Ar. Mehta', mobile: '9811111111', party_type: 'arc
 const archB = { id: 3, name: 'Ar. Kaur', mobile: null, party_type: 'architect', firm_party_id: null, firm_name: null }
 const builder = { id: 4, name: 'Bricks & Stones', mobile: '9822222222', party_type: 'builder' }
 
-const noExtras = { firms: new Map(), lastTouch: new Map(), remarks: new Map(), notes: new Map() }
+const noExtras = { firms: new Map(), lastTouch: new Map(), remarks: new Map(), notes: new Map(), rfqs: new Map() }
 
 function lead(overrides = {}) {
   return {
@@ -169,8 +171,9 @@ describe('the column list', () => {
   })
 
   it('asks for an extra read only when a column needs it', () => {
-    expect(extrasNeededFor(DEFAULT_EXPORT_COLUMN_IDS)).toEqual({ firms: true, lastTouch: false, remarks: false, notes: false })
-    expect(extrasNeededFor(['lead_id', 'last_touch', 'latest_remark'])).toEqual({ firms: false, lastTouch: true, remarks: true, notes: false })
+    expect(extrasNeededFor(DEFAULT_EXPORT_COLUMN_IDS)).toEqual({ firms: true, lastTouch: false, remarks: false, notes: false, rfqs: false })
+    expect(extrasNeededFor(['lead_id', 'last_touch', 'latest_remark'])).toEqual({ firms: false, lastTouch: true, remarks: true, notes: false, rfqs: false })
+    expect(extrasNeededFor(['rfq_desk_status'])).toMatchObject({ rfqs: true })
   })
 })
 
@@ -242,6 +245,38 @@ describe('exportFileName', () => {
     expect(exportFileName([{ value: 'a/b:c"d', active: true, fileLabel: 'Search a/b:c"d' }], day)).toBe(
       'VIPSAR Leads – Search a-b-c-d – 22 Sep 2026.xlsx'
     )
+  })
+})
+
+describe('the RFQ desk columns', () => {
+  const rfq = (o) => ({ id: 1, lead_id: 7, kind: 'fresh', revision: 0, status: 'with_technical', raised_at: '2026-10-06T05:00:00+00:00', ...o })
+
+  it('is blank for a lead that never went through the desk', () => {
+    expect(deskRfqStatus({ id: 7 }, undefined)).toBeNull()
+    expect(deskQuoteRef(undefined)).toBeNull()
+  })
+
+  it("names the lead's newest RFQ and where it is", () => {
+    const rfqs = [
+      rfq({ id: 1, status: 'sent_back' }),
+      rfq({ id: 2, kind: 'revision', revision: 1, status: 'with_lixil', raised_at: '2026-10-07T05:00:00+00:00' }),
+    ]
+    expect(deskRfqStatus({ id: 7 }, rfqs)).toBe('R1 · With Lixil')
+  })
+
+  it('says a quote has gone to the client only when it was marked sent on or after the day it came in', () => {
+    const rfqs = [rfq({ status: 'quoted', quote_received_at: '2026-10-08T06:00:00+00:00', quote_ref: ' LX-501 ' })]
+    expect(deskRfqStatus({ id: 7, quote_sent: false }, rfqs)).toBe('Fresh · Quote in')
+    expect(deskRfqStatus({ id: 7, quote_sent: true, quote_sent_at: '2026-10-01' }, rfqs)).toBe('Fresh · Quote in')
+    expect(deskRfqStatus({ id: 7, quote_sent: true, quote_sent_at: '2026-10-08' }, rfqs)).toBe('Fresh · Quote sent to client')
+    expect(deskQuoteRef(rfqs)).toBe('LX-501')
+  })
+
+  it('skips a withdrawn price revision, and says Withdrawn when nothing else is on file', () => {
+    const quoted = rfq({ status: 'quoted', quote_received_at: '2026-10-08T06:00:00+00:00', quote_ref: 'LX-501' })
+    const withdrawn = rfq({ id: 3, kind: 'price_revision', status: 'withdrawn', raised_at: '2026-10-09T05:00:00+00:00' })
+    expect(deskRfqStatus({ id: 7 }, [quoted, withdrawn])).toBe('Fresh · Quote in')
+    expect(deskRfqStatus({ id: 7 }, [rfq({ status: 'withdrawn' })])).toBe('Withdrawn')
   })
 })
 

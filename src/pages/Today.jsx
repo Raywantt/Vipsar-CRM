@@ -5,7 +5,8 @@ import CoordinatorToday from './CoordinatorToday'
 import OwnerToday from './OwnerToday'
 import ManagerToday from './ManagerToday'
 import BdmToday from './BdmToday'
-import TodayGreetingHeader from '../components/TodayGreetingHeader'
+import ProductionToday from './ProductionToday'
+import EstimationToday from './EstimationToday'
 
 // `/` is one route serving a different screen per role.
 //
@@ -32,10 +33,10 @@ import TodayGreetingHeader from '../components/TodayGreetingHeader'
 //   business_development_manager — BdmToday (BDM.md). Architect-shaped, not
 //                       rep-shaped.
 //   sales_executive   — Home itself, unchanged.
-//   production_executive / estimation_executive — the RFQ desk (RFQ-DESK.md).
-//                       Their queues aren't built yet (Steps 4–5), so a
-//                       "being set up" screen; Search, a read-only Lead
-//                       Detail and Profile already work (Step 2).
+//   production_executive — ProductionToday: the technical check's review
+//                       queue (RFQ-DESK.md Step 4).
+//   estimation_executive — EstimationToday: waiting for estimation + with
+//                       Lixil (RFQ-DESK.md Step 5).
 //
 // EVERY ROLE IS NAMED. This used to end in a bare `return <Home />`, which
 // silently handed any role nobody had thought about an exec's screen and an
@@ -54,8 +55,9 @@ function Today() {
     case ROLES.BDM:
       return <BdmToday />
     case ROLES.PRODUCTION_EXECUTIVE:
+      return <ProductionToday />
     case ROLES.ESTIMATION_EXECUTIVE:
-      return <RfqDeskSetupToday employee={employee} />
+      return <EstimationToday />
     default:
       return (
         <div className="vip-narrow">
@@ -68,28 +70,6 @@ function Today() {
         </div>
       )
   }
-}
-
-// Until the RFQ desk's queues are built (RFQ-DESK.md Steps 4–5). The greeting
-// header is kept because on a phone its avatar is the only way to Profile.
-function RfqDeskSetupToday({ employee }) {
-  const waiting =
-    employee?.role === ROLES.PRODUCTION_EXECUTIVE
-      ? 'RFQs waiting for your technical check'
-      : 'RFQs waiting for estimation and Lixil quotes'
-  return (
-    <div className="vip-narrow">
-      <TodayGreetingHeader employee={employee} />
-      <div className="vip-card">
-        <h2 className="vip-card-title">Your RFQ desk is being set up</h2>
-        <p className="vip-form-note" style={{ marginTop: 0 }}>
-          {waiting} will appear here. You'll be told when to start using it — until then, carry on with your Excel sheet.
-        </p>
-        <p className="vip-form-note">You can already look up any lead that has an RFQ in Search.</p>
-        <p className="vip-form-note">You can already change your password and appearance in Profile.</p>
-      </div>
-    </div>
-  )
 }
 
 export default Today
