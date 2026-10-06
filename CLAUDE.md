@@ -93,10 +93,12 @@ two back-office roles after a sales exec's RFQ — Production Executive
 two role values, Step 1's database (live, and its switch is ON since
 2026-10-06 09:26 IST — RFQs are entering the desk ahead of launch day) and
 Step 2's role plumbing (Search and a read-only Lead Detail for the desk).
-**Steps 3 (the exec side), 4 (the Production Executive's review queue) and 5
-(the Estimation Executive's lists) are built on the `rfq-desk` branch, not on
-master** — they ship with Step 6 on launch day. Reporting (6) and the owner's
-RFQ Desk (7) are still a plan.
+**Steps 3 (the exec side), 4 (the Production Executive's review queue), 5
+(the Estimation Executive's lists) and 6 (reporting: the RFQ target on
+approval, Needs Attention's "RFQs back with the exec") are built on the
+`claude/rfq-counting-needs-attention-2wgmy5` branch, not on master.** That was
+the PC's local `rfq-desk` until 2026-10-06. They ship together on launch day.
+Step 6's SQL hasn't run yet. The owner's RFQ Desk (7) is still a plan.
 
 **Deliberately not built — don't add as a side effect of unrelated work:**
 
@@ -2910,7 +2912,7 @@ sticky bar; the test production-exec could read that one lead and nothing
 else, and got exactly one `rfq_new` alert; Search found it by site and client.
 The test exec's own view of the same lead was unchanged at both widths.
 
-**Step 3 — on the `rfq-desk` branch, NOT live** (merge on launch day with
+**Step 3 — on the `claude/rfq-counting-needs-attention-2wgmy5` branch, NOT live** (merge on launch day with
 Steps 4–6; RFQ-DESK.md §3 "Step 3 rulings"). `src/lib/rfqDesk.js` holds the
 pure rules (segments — a closed list pinned to the SQL CHECK by
 `rfqDesk.test.js` — statuses, "Fresh"/"R1" labels, `canWithdrawRfq` mirroring
@@ -2928,7 +2930,7 @@ quote exists. **Today** has `RfqUpdatesCard` (sent back / quote in) mounted in
 makes an approval move a lead still before RFQ Raised whatever the RFQ's
 kind.
 
-**Step 4 — also on `rfq-desk`, NOT live** (RFQ-DESK.md §3 "Step 4 rulings").
+**Step 4 — also on the branch, NOT live** (RFQ-DESK.md §3 "Step 4 rulings").
 The Production Executive's Today is `ProductionToday` (`.vip-narrow`, one
 column at both widths): the greeting bar, a "this month" strip of their own
 decisions (`technicalMonthStats`), then `TechnicalQueueCard` — every
@@ -2946,7 +2948,7 @@ invalidates the cache after a WRITING RPC** (`isWriteRequest`: every `rfq_*`
 function and `delete_lead_totally`) — every other `/rpc/` is still a read; a
 new function that writes belongs in that list.
 
-**Step 5 — also on `rfq-desk`, NOT live** (RFQ-DESK.md §3 "Step 5 rulings").
+**Step 5 — also on the branch, NOT live** (RFQ-DESK.md §3 "Step 5 rulings").
 The Estimation Executive's Today is `EstimationToday` (`.vip-narrow`): the
 greeting bar, a "this month" strip (`estimationMonthStats`), then
 `EstimationQueues` — "Waiting for estimation" above "With Lixil", **both
@@ -2963,6 +2965,26 @@ on Lead Detail** ("Start a price revision" on the current quote,
 `RfqQueueRow`, `RfqSendBackForm` and `RfqWithdrawControl` — change a row or
 the send-back form there, not in a copy. Both strips are the Day Review's
 `DayKpiStrip`. The "being set up" Today card is gone.
+
+**Step 6 — also on the branch, NOT live, and its SQL NOT yet run**
+(RFQ-DESK.md §3 "Step 6 rulings"). **The RFQ Raised target counts an RFQ on the
+day it passes the technical check, once per lead, credited to whoever raised
+it.** The database decides at the approval and freezes it
+(`rfqs.counts_toward_target`, a trigger in `migration_rfq_desk_reporting.sql`).
+An RFQ logged before `rfq_desk_settings.live_from` still counts by the day it
+was logged; `countsTowardActivityMetric(a, liveFrom)` stops counting it there
+once it's after, and `computeActivityActuals`'s `rfqCounting` adds the
+approvals. The heatmap, `buildLogPanel` and the Sales Exec Profile all read
+that one rule (the profile's tile used to count revisions too). **Needs
+Attention's `pending_rfq` item is now "RFQs back with the exec"**: for a lead
+with a desk RFQ, its newest non-withdrawn one sent back, or quoted and not
+marked sent to the client, for `RFQ_BACK_DAYS` (2); a lead whose RFQ was
+handled in Excel keeps the old 3-day rule. That's `rfqBackWithExec`
+(`rfqDesk.js`) on the client paths and `leads_needing_attention()`'s new 9th
+argument on the RPC — change both together. The raiser keeps reading their
+RFQs after a reassignment (`rfqs_raised_by_select`). **Run the SQL before the
+merge**: `fetchDashboardPeriod` reads `counts_toward_target`, and a missing
+column fails every role's Dashboard.
 
 ### Data isolation — audited, don't re-litigate
 
@@ -3273,6 +3295,19 @@ it leaves orphaned Auth logins to clean up by hand; scripting that risks
 removing your own login.
 
 ### Outstanding migrations
+
+* **`migration_rfq_desk_reporting.sql`** (RFQ-DESK.md Step 6) — **NOT yet
+  run.** Adds `rfqs.counts_toward_target` + its approval trigger, the
+  `rfqs_raised_by_select` policy, and re-creates `leads_needing_attention()`
+  with a 9th argument (`p_rfq_back_days`) and two output columns. Must run
+  **before** the Step 3–6 branch is merged. Safe for master meanwhile: master
+  never reads `rfqs`, and its 3-argument RPC call resolves to the new
+  function. One visible effect on master: a lead whose RFQ entered the desk
+  leaves master's "RFQs pending a quote" on Today and Dashboard, while My Team's
+  client-side count still includes it. That shows from 2026-10-09 at the
+  earliest. Then run `verify_rfq_desk.sql` and expect T40–T50 to PASS. **Any
+  re-run of a file defining `leads_needing_attention()` must be followed by
+  this one.**
 
 * **`migration_rfq_desk_advance_fix.sql`** — **run and verified live
   2026-10-06** (`verify_rfq_desk.sql`: 43 PASS, 0 FAIL, new T16b included) —
@@ -3934,6 +3969,11 @@ carries over into a later "unauthenticated" check, producing false-positive
 real writes. Confirm which state a tab is actually in (expect
 `permission denied` from an intentionally logged-out check, or check which
 employee name renders) rather than assuming.
+
+**Never rewrite a file through PowerShell's `Get-Content`/`Set-Content`**
+(Windows PowerShell 5.1). It reads BOM-less UTF-8 as the ANSI code page, so
+every em-dash, arrow and `§` came back as mojibake. This garbled two SQL files
+on 2026-10-06 and had to be repaired byte by byte. Use the Edit tool.
 
 **The documented fallback when a login genuinely isn't available** is a
 throwaway Vite harness mounting the real component with

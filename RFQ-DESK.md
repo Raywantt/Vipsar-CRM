@@ -32,7 +32,7 @@ session of the role, never from the SQL Editor; verify as the role with the
 | 3 | Exec side: RFQ Raised form, RFQ status on Lead Detail, sent-back / quote-ready | ✅ built 2026-10-06 on branch `rfq-desk` (NOT on master — ships on launch day), live-checked end to end on test data; `migration_rfq_desk_advance_fix.sql` run live, `verify_rfq_desk.sql` 43 PASS, 0 FAIL |
 | 4 | Production Executive: review queue (approve / send back) | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 5, 6 on launch day); live-checked on test data as the test exec, both desk logins and the owner, at phone and desktop width |
 | 5 | Estimation Executive: estimation queue, Lixil step, quote, send back, price revision | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 4, 6 on launch day); live-checked on test data as the test exec, both desk logins, at phone and desktop width |
-| 6 | Reporting changes: RFQ target on approval, Needs Attention rework | — |
+| 6 | Reporting changes: RFQ target on approval, Needs Attention rework | 🟡 code built 2026-10-06 (ships with 3–5 on launch day); 700 tests, lint clean. **`migration_rfq_desk_reporting.sql` NOT yet run**, so `verify_rfq_desk.sql` T40–T50 and the live check are still to do |
 | 7 | Owner's **RFQ Desk** screen | — |
 | 8 | Launch day + docs (`CLAUDE.md`) | — |
 
@@ -50,7 +50,10 @@ Harjot's queue as `with_technical` with an `rfq_new` alert row, while Harjot
 keeps working them in Excel. Nothing is pushed yet. Launch day has to clear
 this backlog — §8 Step 8.
 
-**Steps 3–6 live on the `rfq-desk` branch until then** (2026-10-06): master
+**Steps 3–6 live on a branch until then**: on GitHub,
+`claude/rfq-counting-needs-attention-2wgmy5` (it was the PC's local `rfq-desk`
+until 2026-10-06, when it was pushed there; pull from it before working
+locally again). Master
 deploys straight to the live CRM, and with the switch already on, Step 3 alone
 would stop logging from moving leads to RFQ Raised while nobody could approve
 them yet. Merge the branch on launch day.
@@ -304,6 +307,51 @@ Exec logs "RFQ Raised" (+ windows, segment)
   recorded on Lead Detail re-reads the lead and refreshes Sales progress, so
   its Quote value lock shows the new figure.
 
+### Step 6 rulings (2026-10-06)
+Recorded after the fact: the build session paused before writing them down,
+so this is the owner's answers as relayed in that session plus what the code
+on the branch does. Say if anything here is wrong.
+- **The RFQ Raised target counts an RFQ on the day Harjot approves it** (the
+  technical check passes), credited to whoever raised it, **once per lead**.
+- **A corrected resubmission counts when it passes**: a fresh RFQ sent back
+  counts through the revision that is approved. Later revisions never count,
+  and neither does a price revision.
+- **RFQs logged before the cutover count the old way, by the day they were
+  logged.** The cutover is `rfq_desk_settings.live_from`, which launch day
+  re-stamps, so the pre-launch backlog (switch on since 09:26 today) counts by
+  its log date, never again on approval.
+- **An RFQ that estimation sends back after approval stays counted.** A
+  month's figure never changes after the fact.
+- **Needs Attention: ONE combined item, "RFQs back with the exec"**
+  (offered: two separate items, Q5). A lead with a desk RFQ is judged by its
+  newest RFQ that wasn't withdrawn: **sent back and not re-logged**, or
+  **Lixil's quote in and not marked sent to the client** since the day it came
+  in. Waiting on the desk or on Lixil never counts against the exec.
+- **Sales progress's RFQ block: unchanged** (§6 had suggested adding desk
+  status beside it).
+- **All Leads' Excel export: unchanged** (§6: "decide whether the export gains
+  desk status"; it doesn't).
+- Decided in the build, not asked (say if any is wrong):
+  - **2 days** before either "back with the exec" case lands on Needs
+    Attention (`RFQ_BACK_DAYS` in `attention.js`, the RPC's `p_rfq_back_days`
+    default; change both together). Calendar days, not working days.
+  - **A lead with no desk RFQ** (its RFQ was handled in Excel) keeps the old
+    rule ("RFQ raised 3+ days, no quote sent") until it clears. The bucket key
+    stays `pending_rfq`; its title becomes "RFQs back with the exec".
+  - **Whether an approval counts is decided by the database at the moment of
+    approval and frozen** (`rfqs.counts_toward_target`, a trigger; nobody can
+    set it by hand).
+  - **The exec who raised an RFQ keeps reading it after the lead is reassigned**
+    (new `rfqs_raised_by_select` policy, plus their coordinator / manager), so
+    their own RFQ figure doesn't drop while the owner's view still credits them.
+    Activities already behave this way.
+  - **The Sales Exec Profile's "RFQs raised" tile now uses the target's rule**
+    (fresh only, and approval-dated once the desk is live). It used to count
+    revisions too, so it could disagree with the owner's heatmap.
+  - **Lead Detail offers "Mark quote sent to client" again on a re-quote** (a
+    revision or price revision). Without it the "quote in, not sent" case could
+    never clear.
+
 ### What it changes for sales
 - **The RFQ Raised form asks for two new things:** number of windows
   (required) and product segment (pick one or more). The list comes from §2,
@@ -351,7 +399,7 @@ Exec logs "RFQ Raised" (+ windows, segment)
 | # | Question | My recommendation | Step |
 |---|---|---|---|
 | Q4 | Quote value on a lead that has **no** desk quote (in-flight Excel RFQs, older leads) | ✅ answered 2026-10-06 as recommended — see Step 3 rulings | 3 |
-| Q5 | Needs Attention's "RFQ raised 3+ days, no quote" bucket now measures the desk's speed, not the exec's | Replace it with "sent back, not revised in N days" and "quote in, not sent to client in N days" | 6 |
+| Q5 | Needs Attention's "RFQ raised 3+ days, no quote" bucket now measures the desk's speed, not the exec's | Replace it with "sent back, not revised in N days" and "quote in, not sent to client in N days" | ✅ answered 2026-10-06: replaced, but as ONE combined item ("RFQs back with the exec"), not two — see Step 6 rulings |
 | Q6 | Where a sent-back RFQ shows on the exec's Today | ✅ answered 2026-10-06: a line at the top of Today (not the attention list) — see Step 3 rulings | 3 |
 | Q7 | "Waiting too long" per step | Technical 1 working day, estimation 1 day, Lixil 5 days (data: median 3 days end to end) | ✅ answered 2026-10-06, working days with Sundays excluded: technical and estimation amber 1 / red 2, Lixil amber 5 / red 7 — Step 4 and Step 5 rulings |
 | Q8 | Do Harjot and Harpreet see their own figures (RFQ Desk or a slimmer view)? | A slim "my desk this month" strip on their Today, but not the full RFQ Desk | ✅ answered 2026-10-06 as recommended, for both (Step 4 and Step 5 rulings) |
@@ -498,9 +546,15 @@ two screens will disagree:
    **In order, on the day:**
    1. ~~`migration_rfq_desk_advance_fix.sql`~~ — already run and verified
       2026-10-06; nothing to do unless an older file was re-run since.
-   2. The backlog SQL below (re-stamp the switch first).
-   3. Merge `rfq-desk` into master (Vercel deploys it).
-   4. **Then** `supabase functions deploy send-followup-reminders` — never
+   2. `migration_rfq_desk_reporting.sql` (Step 6), if it hasn't run already.
+      **It must run before the merge**: the branch's Dashboard reads
+      `rfqs.counts_toward_target`, and a missing column fails the whole period
+      read, so every role's Dashboard would break.
+   3. The backlog SQL below (re-stamp the switch first).
+   4. Merge `claude/rfq-counting-needs-attention-2wgmy5` (Steps 3–6, pushed
+      from the PC's local `rfq-desk` branch on 2026-10-06) into master. Vercel
+      deploys it.
+   5. **Then** `supabase functions deploy send-followup-reminders` — never
       before the re-stamp: it pushes every RFQ alert written at or after
       `live_from`, and today's `live_from` would push weeks of Excel-handled
       RFQs to Harjot. (It also stamps older alerts as handled without
@@ -767,3 +821,39 @@ approve a technical check.
   walked); an amber/red age on a real row (unit tested); a quote dated in the
   past through the form (the date input's own min/max; the rule is unit
   tested and the SQL refuses it).
+- **2026-10-06 — Step 6 built (code only), then rescued to GitHub.** Owner's
+  rulings in §3 "Step 6 rulings". New: `Schema/migration_rfq_desk_reporting.sql`
+  (`rfqs.counts_toward_target` + its BEFORE UPDATE trigger on approval; the
+  `rfqs_raised_by_select` policy; `leads_needing_attention()` re-created with a
+  9th argument, `p_rfq_back_days`, and two output columns, `rfq_back_kind` /
+  `rfq_back_at`); `verify_rfq_desk.sql` T40–T50. App: `rfqDesk.js`
+  (`latestDeskRfqByLead`, `quoteSentToClient`, `rfqBackWithExec`,
+  `loggedWhileDeskLive`); `rfqQueries.js` (`fetchCountedRfqs`,
+  `fetchDeskRfqsForAttention`); the target rule in `TargetsVsActualsCard.jsx`
+  (`countsTowardActivityMetric(a, liveFrom)`, `rfqCounting`, `countedRfqsFor`),
+  passed through the heatmap, `buildLogPanel`, Dashboard and the Sales Exec
+  Profile (whose RFQ tile now reads the target's rule); `attention.js`'s
+  combined item on both paths (RPC and the client fallback used by My Team and
+  a manager's Team scope); Lead Detail's RFQ card re-offering "Mark quote sent
+  to client" on a re-quote. **The local session ran out of usage credits
+  before running the SQL or writing this log**, with everything (Steps 3–6)
+  still uncommitted on the PC's `rfq-desk` branch. It was committed as-is and
+  pushed to GitHub as **`claude/rfq-counting-needs-attention-2wgmy5`** (commit
+  `2c94626`). **That branch is now the launch-day branch, not a local
+  `rfq-desk`.** A cloud session checked it: 700 tests pass, lint has no errors,
+  the production build is clean, and no file has mojibake, a BOM or CRLF
+  endings (a PowerShell 5.1 `Get-Content`/`Set-Content` rewrite had garbled
+  the SQL files' dashes and arrows mid-session; repaired, and confirmed
+  intact). Also checked: the migration's DROP matches the live 8-argument
+  signature, master's 3-argument call resolves to the new function, and master
+  never reads `rfqs`, so the new policy can't touch it.
+  **Live effect of running the SQL before launch day** (master is still the
+  live app): a lead whose RFQ entered the desk (every RFQ since 09:26 today)
+  drops out of master's "RFQs pending a quote" on Today and Dashboard, which
+  read the RPC. My Team's per-card count and a manager's Team scope compute it
+  client-side the old way and still include it. No difference before
+  2026-10-09, since master stamps `rfq_raised_at` on every RFQ and the old rule
+  waits 3 days. **Not done yet:** run `migration_rfq_desk_reporting.sql`, then
+  `verify_rfq_desk.sql` (expect T40–T50 to PASS alongside the 43 before them),
+  then the live check of Step 6 as the test exec, both desk logins and the
+  owner at both widths.
