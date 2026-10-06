@@ -3665,7 +3665,9 @@ kills React StrictMode's dev double-fetch.
 * **Errors are never cached** — a dropped connection must not be replayed for
   90s.
 * **Invalidation happens ONCE, at the transport layer**: `supabaseFetch` drops
-  the cache after any successful non-GET (excluding `/rpc/`, a read here).
+  the cache after any successful non-GET (excluding `/rpc/`, a read here —
+  except the writing functions `isWriteRequest` names: `rfq_*` and
+  `delete_lead_totally`; add any new writing function there).
   Deliberately not per call site, for the same reason `lead_change_log` is
   trigger-written — `leads` alone is written from eight paths, and "remember
   to invalidate" fails the first time someone adds a ninth.

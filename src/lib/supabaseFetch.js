@@ -237,17 +237,28 @@ function warnIfSilentlyTruncated(input, init, response) {
 // Only 2xx invalidates: a rejected write (RLS refusal, constraint violation)
 // changed nothing, and throwing away good cached reads over it would just
 // make a failed save slow as well as failed.
+//
+// A POST to /rest/v1/rpc/... is a READ in this app by default (see
+// fetchCategoryBreakdown) — PostgREST requires POST for function calls, so
+// method alone would misread those as writes and defeat the cache on every
+// single Dashboard load. The functions that DO write are named here instead:
+// the RFQ desk's actions (every rfq_* function — Schema/migration_rfq_desk.sql
+// STEP 8: an approval moves the lead's stage and stamps rfq_raised, a quote
+// sets its quote value) and Delete lead. A new writing function belongs in
+// this list, or every screen keeps its pre-write copy until its next refresh.
+const WRITE_RPC = /\/rest\/v1\/rpc\/(rfq_\w+|delete_lead_totally)(?:[?/]|$)/
+
+export function isWriteRequest(url, method) {
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false
+  if (url && url.includes('/rest/v1/rpc/')) return WRITE_RPC.test(url)
+  return true
+}
+
 function invalidateCacheAfterWrite(input, method, response) {
   try {
-    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
     if (!response.ok) return
-
     const url = typeof input === 'string' ? input : input?.url
-    // A POST to /rest/v1/rpc/... is a read in this app (see
-    // fetchCategoryBreakdown) — PostgREST requires POST for function calls,
-    // so method alone would misread those as writes and defeat the cache on
-    // every single Dashboard load.
-    if (url && url.includes('/rest/v1/rpc/')) return
+    if (!isWriteRequest(url, method)) return
 
     invalidateAllQueries()
   } catch {

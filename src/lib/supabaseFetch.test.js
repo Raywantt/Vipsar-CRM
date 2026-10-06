@@ -1,5 +1,29 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { createSupabaseFetch, pendingWriteCount } from './supabaseFetch'
+import { createSupabaseFetch, isWriteRequest, pendingWriteCount } from './supabaseFetch'
+
+// Which successful requests drop the cache (invalidateCacheAfterWrite).
+describe('isWriteRequest', () => {
+  const base = 'https://x.supabase.co/rest/v1'
+
+  it('treats every non-GET table request as a write and a GET as a read', () => {
+    expect(isWriteRequest(`${base}/leads?id=eq.1`, 'PATCH')).toBe(true)
+    expect(isWriteRequest(`${base}/activities`, 'POST')).toBe(true)
+    expect(isWriteRequest(`${base}/leads?id=eq.1`, 'GET')).toBe(false)
+  })
+
+  it('treats a function call as a read unless it is one of the writing functions', () => {
+    expect(isWriteRequest(`${base}/rpc/leads_needing_attention`, 'POST')).toBe(false)
+    expect(isWriteRequest(`${base}/rpc/last_activity_per_lead`, 'POST')).toBe(false)
+    expect(isWriteRequest(`${base}/rpc/rfq_approve`, 'POST')).toBe(true)
+    expect(isWriteRequest(`${base}/rpc/rfq_send_back`, 'POST')).toBe(true)
+    expect(isWriteRequest(`${base}/rpc/rfq_withdraw?select=*`, 'POST')).toBe(true)
+    expect(isWriteRequest(`${base}/rpc/delete_lead_totally`, 'POST')).toBe(true)
+  })
+
+  it('matches a writing function by its whole name, not a prefix of another', () => {
+    expect(isWriteRequest(`${base}/rpc/delete_lead_totally_preview`, 'POST')).toBe(false)
+  })
+})
 
 // WebKit's wording for a request that never reached the server — the exact
 // failure the iOS PWA hit on every first Save (see supabaseFetch.js).
