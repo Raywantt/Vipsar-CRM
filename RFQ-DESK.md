@@ -368,7 +368,17 @@ Exec logs "RFQ Raised" (+ windows, segment)
   Attention's rule); lanes show 5 rows then "+N more"; price revisions stay
   out of "RFQs raised", the technical step and end to end.
 
-### What it changes for sales
+### After launch: only the leads in their own process (2026-10-06)
+- **The owner narrowed what the desk can open** (it was every lead that had
+  ever had a desk RFQ, plus Search): **Production Executive** — only leads with
+  an RFQ waiting at the technical check (offered: also the ones they decided
+  in the last 30 days); **Estimation Executive** — RFQs waiting for estimation
+  or with Lixil, plus open leads whose latest desk RFQ is a quote, so price
+  revisions keep working from Lead Detail (offered: move price revision to a
+  Today list, or leave it to the owner); **Search removed for both** (offered:
+  keep it, limited). `Schema/migration_rfq_desk_in_process.sql` replaces
+  `desk_lead_ids()`; `verify_rfq_desk_in_process.sql` checks it.
+
 - **The RFQ Raised form asks for two new things:** number of windows
   (required) and product segment (pick one or more). The list comes from §2,
   to be confirmed.
@@ -899,3 +909,22 @@ approve a technical check.
   (read back false). Lint clean, 722 tests. **Not seen:** a real turnaround
   past an hour (the trial ran in minutes; `workingMs` and the labels are unit
   tested), and amber/red ages in the lanes (same `RfqQueueRow` as Steps 4–5).
+- **2026-10-06 — desk limited to leads in their own process** (owner's
+  ruling, §3 "After launch"). SQL: `migration_rfq_desk_in_process.sql`
+  (`desk_lead_ids()` only) + `verify_rfq_desk_in_process.sql`. App:
+  `canSearch` is sales-only (nav is Today alone for the desk); Lead Detail's
+  "This lead isn't in your queue" + Back to Today, and a "left your queue"
+  page after a decision that takes the lead away; the bounced alert rows are
+  no longer links for the desk.
+- **2026-10-06 — in-process limit verified.** The owner ran
+  `migration_rfq_desk_in_process.sql`; `verify_rfq_desk_in_process.sql`: **10
+  PASS, 0 FAIL**. Live trial (test exec 26, production-exec 48,
+  estimation-exec 49; lead #1654, RFQ #65): production-exec opened the lead
+  while it waited for them, approved it from Lead Detail and got "Approved —
+  it is with estimation now. This lead has left your queue." + Back to Today;
+  estimation-exec opened it, sent it back, then could no longer read it;
+  production-exec's Today showed "An RFQ you approved was sent back" as a
+  plain row ("Lead #1654 …", the note, no link); a lead outside their process
+  shows "This lead isn't in your queue."; `/search` bounces and the nav is
+  Today alone. Cleaned up with `delete_lead_totally` (1654), re-read as gone
+  from the exec and production sessions. Lint clean, 722 tests.

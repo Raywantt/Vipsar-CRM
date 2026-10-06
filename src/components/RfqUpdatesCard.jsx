@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { isRfqDeskRole } from '../lib/roles'
 import { useCachedQuery } from '../hooks/useCachedQuery'
 import { markNotificationsSeen } from '../lib/notificationQueries'
 import { fetchUnseenRfqUpdates, RFQ_UPDATES_LIMIT } from '../lib/rfqQueries'
@@ -102,6 +103,7 @@ function RfqUpdatesCard() {
   }, [query.result])
 
   if (!rows.length) return null
+  const deskViewer = isRfqDeskRole(employee?.role)
 
   async function dismissAll() {
     if (dismissing) return
@@ -140,6 +142,27 @@ function RfqUpdatesCard() {
         {rows.map((row) => {
           const when = relativeTime(row.created_at)
           const note = row.kind !== 'rfq_quote_ready' ? previewNote(row.rfqs?.send_back_note) : null
+          const body = (
+            <span className="vip-assigned-row-main">
+              <span className="vip-assigned-lead">{leadName(row)}</span>
+              <span className="vip-assigned-meta">
+                {describe(row)}
+                {when ? ` · ${when}` : ''}
+              </span>
+              {note && <span className="vip-assigned-remark">"{note}"</span>}
+            </span>
+          )
+          // The desk reads only the leads in its own process (owner's ruling,
+          // 2026-10-06): an RFQ sent back at estimation has left the
+          // Production Executive's, so the row tells them what happened but
+          // doesn't open a page they can no longer read. "Got it" clears it.
+          if (deskViewer) {
+            return (
+              <div key={row.id} className="vip-assigned-row">
+                {body}
+              </div>
+            )
+          }
           return (
             <Link
               key={row.id}
@@ -147,14 +170,7 @@ function RfqUpdatesCard() {
               className="vip-assigned-row"
               onClick={() => acknowledgeOne(row.id)}
             >
-              <span className="vip-assigned-row-main">
-                <span className="vip-assigned-lead">{leadName(row)}</span>
-                <span className="vip-assigned-meta">
-                  {describe(row)}
-                  {when ? ` · ${when}` : ''}
-                </span>
-                {note && <span className="vip-assigned-remark">"{note}"</span>}
-              </span>
+              {body}
               <span className="vip-assigned-chevron" aria-hidden="true">
                 ›
               </span>

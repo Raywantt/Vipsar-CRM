@@ -92,8 +92,8 @@ function BottomNav() {
   const canSeeRfqDesk = canSeeRfqDeskFor(employee?.role)
   // The sales Dashboard (Reports / All Leads / Follow-ups) and Search. Every
   // sales role has both; the RFQ-desk roles (RFQ-DESK.md) have Search only
-  // (Step 2), so their bar is Today + Search. One flag each, read by the
-  // mobile tabs AND the desktop sidebar links below.
+  // (Step 2) — taken away again 2026-10-06, so their bar is Today alone. One
+  // flag each, read by the mobile tabs AND the desktop sidebar links below.
   const canSeeSalesDashboard = canSeeSalesDashboardFor(employee?.role)
   const canSearch = canSearchFor(employee?.role)
   // A BDM's list is only ever the leads they brought in, so the desktop link
@@ -143,8 +143,8 @@ function BottomNav() {
         {/* The slot itself stays even when the button doesn't — it's the
             reserved 76px gap the four tabs are laid out around, so removing it
             would reflow the whole bar for a coordinator. It goes only when the
-            tabs either side of it do (the RFQ-desk roles, whose bar is Today +
-            Search): an empty slot there just pushes the pair off-centre. */}
+            tabs either side of it do (the RFQ-desk roles, whose bar is Today
+            alone): an empty slot there just pushes it off-centre. */}
         {canSeeSalesDashboard && (
           <div className="vip-fab-slot">
             {showFab && (

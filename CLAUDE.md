@@ -206,8 +206,9 @@ changes the invoke URL and would silently break the configured cron.
 
 ### Routing (`App.jsx`)
 
-`/`, `/profile` (every role), `/search`, `/leads/:id` (every sales role plus
-the two RFQ-desk roles — `canSearch`/`canOpenLeads`), `/dashboard` (every
+`/`, `/profile` (every role), `/search` (every **sales** role — `canSearch`),
+`/leads/:id` (every sales role plus the two RFQ-desk roles — `canOpenLeads`),
+`/dashboard` (every
 **sales** role only — `canSeeSalesDashboard`),
 `/leads/new`, `/employees/:id` (**not the BDM**), `/activity` (**not owner**),
 `/team` (**owner + sales_manager**), `/architects/:id` (every role),
@@ -2879,17 +2880,36 @@ the same day** (Steps 3–6 merged to master): no real RFQ had been logged
 between the switch and the launch, so there was no backlog to clear and
 `live_from` was left at 09:26 rather than re-stamped.
 
-**Step 2 (2026-10-06):** both roles get Today, **Search**, a **read-only Lead
-Detail** and Profile; their nav is Today + Search at both widths (phone bar
-split in two, no FAB slot). Today is still the **"Your RFQ desk is being set
+**Step 2 (2026-10-06):** both roles get Today, a **read-only Lead Detail** and
+Profile. They also got Search at Step 2; **the owner took it away again the
+same day** (see "Only the leads in their own process" below), so their nav is
+Today alone at both widths (no FAB slot). Today is still the **"Your RFQ desk is being set
 up"** card (`RfqDeskSetupToday`), now with a Search line; the queues are
 Steps 4–5. `canSearch`/`canOpenLeads` admit them; `canSeeSalesDashboard`
 never will. `canReviewRfqs` (production + owner), `canEstimateRfqs`
 (estimation + owner) and `canSeeRfqDesk` (owner) mirror the SQL action
 functions' own role tests and are wired from Step 4/5/7 on. Their RLS
-(`desk_select`) reaches the leads that have a desk RFQ — lead, parties, site,
-contacts, stage history — plus the company-wide architects/firms every role
-reads; **not** activities, remarks, follow-ups or ownership history.
+(`desk_select` → `desk_lead_ids()`) reaches **only the leads in their own
+process** — lead, parties, site, contacts, stage history — plus the
+company-wide architects/firms every role reads; **not** activities, remarks,
+follow-ups or ownership history.
+
+**Only the leads in their own process (owner's ruling, 2026-10-06 —
+`migration_rfq_desk_in_process.sql`).** The Production Executive reads a lead
+only while it has an RFQ waiting at the technical check; the moment they
+approve or send it back, it's gone for them. The Estimation Executive reads
+leads with an RFQ waiting for estimation or with Lixil, **plus** open (not
+won/lost) leads whose newest non-withdrawn desk RFQ is a quote — that's where
+"Start a price revision" lives. `desk_lead_ids()` is the one place that
+decides it; every desk policy reads it. The `rfqs` rows themselves stay
+readable (their Today strips count their own decisions). Lead Detail says
+"This lead isn't in your queue" with a Back to Today button instead of "Lead
+not found", and a decision made there that takes the lead out of their
+process ("Approved — it is with estimation now. This lead has left your
+queue.") replaces the page rather than leaving a copy they can't refresh.
+Harjot's "An RFQ you approved was sent back" rows (`RfqUpdatesCard`) are no
+longer links — the lead has left his process — and name it "Lead #id" when
+its name is no longer readable.
 Lead Detail therefore has a desk branch (`isDeskViewer`, owner's rulings
 2026-10-06): main column + rail like a BDM's handed-off lead, **no Call
 client** (the client's number is plain text, not `tel:`), no Log activity, no
@@ -3242,7 +3262,9 @@ with no error. The layered order is:
    `migration_bdm_role.sql` once a production/estimation employee exists
    fails on that CHECK; re-run `migration_rfq_desk_roles.sql` right after
    it**) → `migration_rfq_desk.sql` (RFQ-DESK.md Step 1) →
-   `migration_rfq_desk_advance_fix.sql` → `migration_rfq_desk_reporting.sql`
+   `migration_rfq_desk_advance_fix.sql` → `migration_rfq_desk_reporting.sql` →
+   `migration_rfq_desk_in_process.sql` (re-run it after any re-run of
+   `migration_rfq_desk.sql`, which restores the old "every desk lead" body)
 9. `migration_rls_per_row_fixes.sql` (2026-09-22) — **must stay the last
    file that defines its 49 policies** (parties, sites, employees, products,
    areas, site_contacts, loss_reasons, targets, lead_change_log,
@@ -3321,6 +3343,14 @@ it leaves orphaned Auth logins to clean up by hand; scripting that risks
 removing your own login.
 
 ### Outstanding migrations
+
+* **`migration_rfq_desk_in_process.sql`** — **run and verified live
+  2026-10-06** (`verify_rfq_desk_in_process.sql`: 10 PASS, 0 FAIL; live trial
+  below) —
+  replaces `desk_lead_ids()` so each desk role reads only the leads in its own
+  process (see Roles → Production Executive / Estimation Executive). Function
+  body only; no table, column or policy change, so it can run before or after
+  the deploy. Check with `Schema/verify_rfq_desk_in_process.sql`.
 
 * **`migration_rfq_desk_reporting.sql`** — **run and verified live
   2026-10-06** (`verify_rfq_desk.sql`: 0 FAIL through T50; live trial on test

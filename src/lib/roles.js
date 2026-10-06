@@ -92,10 +92,14 @@ export function isRfqDeskRole(role) {
 
 // The sales screens. They used to be open to EVERY role, which was only true
 // while every role was a sales role. The Dashboard stays sales-only by design:
-// it would list every exec at zero to the RFQ desk. Search and Lead Detail
-// opened to the desk at RFQ-DESK.md Step 2 — their RLS (desk_select) reaches
-// exactly the leads that have a desk RFQ, plus the company-wide architects
-// every role reads. Lead Detail is read-only for them (LeadDetail.jsx).
+// it would list every exec at zero to the RFQ desk. Lead Detail opened to the
+// desk at RFQ-DESK.md Step 2 and is read-only for them (LeadDetail.jsx). Their
+// RLS (desk_select → desk_lead_ids()) reaches only the leads IN THEIR OWN
+// PROCESS (owner's ruling, 2026-10-06 — migration_rfq_desk_in_process.sql):
+// the Production Executive, RFQs waiting at the technical check; the
+// Estimation Executive, RFQs waiting for estimation or with Lixil plus open
+// leads whose latest desk RFQ is a quote. Search was taken away from them the
+// same day — every lead they may open is already listed on their Today.
 //   canSeeSalesDashboard — /dashboard: Reports, All Leads, Follow-ups (one
 //                          route), and every nav link into it
 //   canSearch            — /search and its nav tab
@@ -108,7 +112,7 @@ export function canSeeSalesDashboard(role) {
 }
 
 export function canSearch(role) {
-  return SALES_ROLES.includes(role) || RFQ_DESK_ROLES.includes(role)
+  return SALES_ROLES.includes(role)
 }
 
 export function canOpenLeads(role) {

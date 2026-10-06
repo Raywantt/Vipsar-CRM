@@ -194,10 +194,11 @@ describe('RFQ-desk roles', () => {
     }
   })
 
-  it('open Search and Lead Detail to the desk (Step 2), and keep the Dashboard sales-only', () => {
-    for (const can of [canSearch, canOpenLeads]) {
-      expect(rolesWith(can).sort()).toEqual([...SALES, ...DESK].sort())
-    }
+  // Lead Detail opened to the desk at Step 2; Search was taken away again on
+  // 2026-10-06 (owner's ruling) — their Today lists every lead they may open.
+  it('open Lead Detail to the desk, and keep Search and the Dashboard sales-only', () => {
+    expect(rolesWith(canOpenLeads).sort()).toEqual([...SALES, ...DESK].sort())
+    expect(rolesWith(canSearch).sort()).toEqual([...SALES].sort())
     expect(rolesWith(canSeeSalesDashboard).sort()).toEqual([...SALES].sort())
   })
 

@@ -92,6 +92,12 @@ function LeadDetail() {
   const { setOverride } = useHeaderOverride()
 
   const [lead, setLead] = useState(null)
+  // A desk viewer's decision on this page that took the lead out of their
+  // process (an approval, a send-back): { leadId, status }. Their RLS stops
+  // reading the lead at that moment (migration_rfq_desk_in_process.sql), so
+  // the page says what happened and leads back to Today rather than sitting
+  // on a copy they can no longer refresh.
+  const [leftQueue, setLeftQueue] = useState(null)
   const [party, setParty] = useState(null)
   // The "other" party and the referrer are read during load, to link them as
   // site contacts (see the loader below). The one thing kept from them is
@@ -275,12 +281,43 @@ function LeadDetail() {
     }
   }, [leadIdForLoss, leadIsLost])
 
-  if (goneNow) return <p className="vip-state-msg">Lead not found.</p>
+  // The desk reads only the leads in their own process (owner's ruling,
+  // 2026-10-06), so for them "not found" almost always means "not in your
+  // queue any more" — say that, and give them the way back.
+  const deskNotHere = isRfqDeskRole(employee?.role)
+  if (leftQueue && leftQueue.leadId === Number(id)) {
+    return (
+      <div className="vip-narrow vip-stack">
+        <p className="vip-success" role="status">
+          {leftQueue.status === 'sent_back'
+            ? 'Sent back to the exec.'
+            : leftQueue.status === 'with_estimation'
+              ? 'Approved — it is with estimation now.'
+              : 'Done.'}{' '}
+          This lead has left your queue.
+        </p>
+        <Link to="/" className="vip-btn">
+          Back to Today
+        </Link>
+      </div>
+    )
+  }
+  const notFound = deskNotHere ? (
+    <div className="vip-narrow vip-stack">
+      <p className="vip-state-msg">This lead isn't in your queue.</p>
+      <Link to="/" className="vip-btn">
+        Back to Today
+      </Link>
+    </div>
+  ) : (
+    <p className="vip-state-msg">Lead not found.</p>
+  )
+  if (goneNow) return notFound
   if (seed.id !== id) {
     if (detailResult?.error) return <p className="vip-state-msg-error">{errorMessage(detailResult.error)}</p>
     return <p className="vip-state-msg">Loading…</p>
   }
-  if (!lead) return <p className="vip-state-msg">Lead not found.</p>
+  if (!lead) return notFound
 
   // Exactly three people may change a lead (owner's ruling, 2026-08-13): its
   // own sales executive, that exec's sales coordinator, and the owner. Another
@@ -799,7 +836,11 @@ function LeadDetail() {
     setRfqs((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
     const leadId = updated.lead_id
     fetchLeadAfterRfqMove(leadId).then(({ data }) => {
-      if (!data || currentIdRef.current !== String(leadId)) return
+      if (currentIdRef.current !== String(leadId)) return
+      if (!data) {
+        if (isRfqDeskRole(employee?.role)) setLeftQueue({ leadId: Number(leadId), status: updated.status })
+        return
+      }
       setLead((prev) => ({ ...prev, ...data.lead }))
       if (data.stageHistory) setStageHistory(data.stageHistory)
       // A recorded quote is the lead's new quote value. Sales progress holds
