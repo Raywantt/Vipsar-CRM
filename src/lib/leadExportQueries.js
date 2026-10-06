@@ -37,7 +37,7 @@ const EXPORT_SITE_COLUMNS = `id, nickname, locality, house_no, pincode, site_sta
 // party_id itself on an imported lead), or on the site as a contact.
 function exportSelect(siteStage) {
   return [
-    'id, current_stage, source_type, office_territory, order_value, quote_value, closure_probability, estimated_close_date, next_followup_date, rfq_raised_at, quote_sent_at, created_at, owner_employee_id, bdm_employee_id',
+    'id, current_stage, source_type, office_territory, order_value, quote_value, closure_probability, estimated_close_date, next_followup_date, rfq_raised_at, quote_sent, quote_sent_at, created_at, owner_employee_id, bdm_employee_id',
     `parties!party_id(${PARTY_COLUMNS})`,
     `referrer:parties!referred_by_party_id(${PARTY_COLUMNS})`,
     `other_party:parties!other_party_id(${PARTY_COLUMNS})`,
@@ -119,6 +119,27 @@ function fetchLatestActivityNotes(leadIds) {
   )
 }
 
+// Map(lead_id -> that lead's desk RFQs), for the RFQ desk columns. Read
+// through the downloader's own RLS on rfqs, like everything here; a lead with
+// no desk RFQ simply has no entry.
+async function fetchDeskRfqs(leadIds) {
+  const byLead = new Map()
+  for (const ids of chunk(leadIds)) {
+    const { data, error } = await fetchAllRows(() =>
+      supabase
+        .from('rfqs')
+        .select('id, lead_id, kind, revision, status, raised_at, quote_received_at, quote_ref', { count: 'exact' })
+        .in('lead_id', ids)
+    )
+    if (error) return { data: null, error }
+    for (const row of data ?? []) {
+      if (!byLead.has(row.lead_id)) byLead.set(row.lead_id, [])
+      byLead.get(row.lead_id).push(row)
+    }
+  }
+  return { data: byLead, error: null }
+}
+
 // Map(lead_id -> latest activity timestamp), from the same cached source All
 // Leads' own "Last touch" column reads.
 async function fetchLastActivityMap() {
@@ -160,7 +181,7 @@ async function fetchFirms(leads) {
 // so the panel can say what it's actually waiting on.
 export async function fetchExportExtras(leads, needs, onStep = () => {}) {
   const ids = leads.map((l) => l.id)
-  const extras = { lastTouch: new Map(), remarks: new Map(), notes: new Map(), firms: new Map() }
+  const extras = { lastTouch: new Map(), remarks: new Map(), notes: new Map(), firms: new Map(), rfqs: new Map() }
   const failed = []
 
   const steps = [
@@ -168,6 +189,7 @@ export async function fetchExportExtras(leads, needs, onStep = () => {}) {
     ['lastTouch', 'last touch dates', fetchLastActivityMap],
     ['remarks', 'latest remarks', () => fetchLatestRemarks(ids)],
     ['notes', 'activity notes', () => fetchLatestActivityNotes(ids)],
+    ['rfqs', 'RFQ desk status', () => fetchDeskRfqs(ids)],
   ]
   for (const [key, label, run] of steps) {
     if (!needs[key] || ids.length === 0) continue

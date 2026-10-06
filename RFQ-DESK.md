@@ -32,7 +32,7 @@ session of the role, never from the SQL Editor; verify as the role with the
 | 3 | Exec side: RFQ Raised form, RFQ status on Lead Detail, sent-back / quote-ready | ✅ built 2026-10-06 on branch `rfq-desk` (NOT on master — ships on launch day), live-checked end to end on test data; `migration_rfq_desk_advance_fix.sql` run live, `verify_rfq_desk.sql` 43 PASS, 0 FAIL |
 | 4 | Production Executive: review queue (approve / send back) | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 5, 6 on launch day); live-checked on test data as the test exec, both desk logins and the owner, at phone and desktop width |
 | 5 | Estimation Executive: estimation queue, Lixil step, quote, send back, price revision | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3, 4, 6 on launch day); live-checked on test data as the test exec, both desk logins, at phone and desktop width |
-| 6 | Reporting changes: RFQ target on approval, Needs Attention rework | — |
+| 6 | Reporting changes: RFQ target on approval, Needs Attention rework | ✅ built 2026-10-06 on branch `rfq-desk` (ships with 3–5 on launch day); `migration_rfq_desk_reporting.sql` live, `verify_rfq_desk.sql` 55 PASS, 0 FAIL (T00a–T50); live-checked on test data |
 | 7 | Owner's **RFQ Desk** screen | — |
 | 8 | Launch day + docs (`CLAUDE.md`) | — |
 
@@ -304,6 +304,46 @@ Exec logs "RFQ Raised" (+ windows, segment)
   recorded on Lead Detail re-reads the lead and refreshes Sales progress, so
   its Quote value lock shows the new figure.
 
+### Step 6 rulings (2026-10-06)
+- **An RFQ counts toward the exec's RFQ Raised target once per lead, on the
+  day it passes the technical check**, credited to whoever raised it. A fresh
+  RFQ that is sent back counts when its corrected revision passes; later
+  revisions and price revisions never count. The database decides at the
+  moment of approval and freezes it (`rfqs.counts_toward_target`).
+- **It stays counted if estimation sends it back later** — a month's figures
+  never change after the fact.
+- **The cutover is `rfq_desk_settings.live_from`.** An RFQ Raised logged
+  before it counts the old way, by the day it was logged; a revision of such a
+  lead approved later doesn't count it again. Launch day re-stamps `live_from`
+  (§8 Step 8), so the pre-launch backlog never counts twice.
+- **Q5: Needs Attention's "RFQs pending a quote" becomes "RFQs back with the
+  exec"** (same `pending_rfq` key). For a lead with a desk RFQ, its newest one
+  that wasn't withdrawn decides: sent back and nothing re-logged since, or
+  Lixil's quote in and not marked sent to the client since the day it came
+  in — for **2+ days** (`RFQ_BACK_DAYS`, matching the RPC's
+  `p_rfq_back_days`). Waiting on the desk or Lixil is not the exec's delay and
+  never lands there. A lead with no desk RFQ (handled in Excel) keeps the old
+  rule (raised 3+ days, no quote sent) until it clears.
+- **The exec who raised an RFQ keeps reading it after the lead is reassigned**
+  (`rfqs_raised_by_select`), as activities already behave — otherwise their
+  own RFQ figure would drop the day the lead moved.
+- Decided in the build, not asked (say if any is wrong): **the Sales Exec
+  Profile's "RFQs raised" tile now reads the target's count** (fresh only, and
+  once per lead on approval with the desk live) — it used to be a raw tally,
+  revisions included, so it could disagree with the owner's heatmap. Activity
+  counts and the Activities logged popup stay a raw tally on purpose ("how much
+  RFQ paperwork happened"). The heatmap's RFQ drill-down headline says
+  "Counted · toward the target"; its list stays every RFQ logged.
+- **Excel export (owner's pick, 2026-10-06):** two optional columns in a new
+  "RFQ desk" group, unticked by default — **RFQ desk status** (the newest desk
+  RFQ, e.g. "R1 · With Lixil", "Fresh · Quote sent to client"; "Withdrawn" if
+  only withdrawn ones; blank when handled in Excel) and **Lixil quote ref**
+  (the latest desk quote's). **"RFQ raised on" is renamed "RFQ approved on"**
+  (same id, so a remembered column set still finds it), since
+  `leads.rfq_raised_at` is stamped at approval once the desk is live; the
+  About sheet says a pre-desk RFQ holds its logging day. The 13 defaults are
+  unchanged.
+
 ### What it changes for sales
 - **The RFQ Raised form asks for two new things:** number of windows
   (required) and product segment (pick one or more). The list comes from §2,
@@ -351,7 +391,7 @@ Exec logs "RFQ Raised" (+ windows, segment)
 | # | Question | My recommendation | Step |
 |---|---|---|---|
 | Q4 | Quote value on a lead that has **no** desk quote (in-flight Excel RFQs, older leads) | ✅ answered 2026-10-06 as recommended — see Step 3 rulings | 3 |
-| Q5 | Needs Attention's "RFQ raised 3+ days, no quote" bucket now measures the desk's speed, not the exec's | Replace it with "sent back, not revised in N days" and "quote in, not sent to client in N days" | 6 |
+| Q5 | Needs Attention's "RFQ raised 3+ days, no quote" bucket now measures the desk's speed, not the exec's | ✅ answered 2026-10-06 as recommended, N = 2 days — see Step 6 rulings | 6 |
 | Q6 | Where a sent-back RFQ shows on the exec's Today | ✅ answered 2026-10-06: a line at the top of Today (not the attention list) — see Step 3 rulings | 3 |
 | Q7 | "Waiting too long" per step | Technical 1 working day, estimation 1 day, Lixil 5 days (data: median 3 days end to end) | ✅ answered 2026-10-06, working days with Sundays excluded: technical and estimation amber 1 / red 2, Lixil amber 5 / red 7 — Step 4 and Step 5 rulings |
 | Q8 | Do Harjot and Harpreet see their own figures (RFQ Desk or a slimmer view)? | A slim "my desk this month" strip on their Today, but not the full RFQ Desk | ✅ answered 2026-10-06 as recommended, for both (Step 4 and Step 5 rulings) |
@@ -435,6 +475,10 @@ two screens will disagree:
 - `SalesProgressSection.jsx`: the read-only RFQ block (Fresh / Revised dates)
   gets the desk status beside it
 - `leadExport.js`: RFQ columns. Decide whether the export gains desk status.
+
+✅ **All moved at Step 6** (2026-10-06) — see "Step 6 rulings" in §3.
+`SalesProgressSection`'s desk status was covered at Step 3 by the RFQs card
+under Deal progress plus the Quote value lock.
 
 ---
 
@@ -767,3 +811,34 @@ approve a technical check.
   walked); an amber/red age on a real row (unit tested); a quote dated in the
   past through the form (the date input's own min/max; the rule is unit
   tested and the SQL refuses it).
+- **2026-10-06 — Step 6 built (branch `rfq-desk`).** Started in a session
+  that paused mid-way (WIP commit `2c94626`), finished in the next. Owner's
+  rulings in §3 "Step 6 rulings". New: `Schema/migration_rfq_desk_reporting.sql`
+  (`counts_toward_target` + its trigger, `rfqs_raised_by_select`,
+  `leads_needing_attention()` with `rfq_back_kind` / `rfq_back_at`) and
+  verify checks T40–T50. App: `computeActivityActuals` / `countsTowardActivityMetric`
+  take the cutover and the counted approvals (`fetchDashboardPeriod` reads
+  both), read by the targets card, heatmap, Overall and RFQ drill-downs, the
+  Sales Exec Profile tile and rank pill; `attention.js` and every fallback
+  path (Dashboard, My Team, `useAttentionBuckets`) pass each lead's newest
+  desk RFQ; Excel export columns. **The reporting SQL was found already run**
+  (column, RPC output and switch read back as the owner). Lint clean, 704
+  tests. Same day, separately: the two live-bug fixes from this branch
+  (`markNotificationsSeen`, `isWriteRequest`) went to master as `cd4444d`.
+- **2026-10-06 — Step 6 verified.** `verify_rfq_desk.sql` after the reporting
+  SQL: **0 FAIL**, T00a–T50 all PASS. **Live trial** (test exec 26,
+  production-exec 48, estimation-exec 49; lead #1645, RFQs #53–54): the exec's
+  RFQ Raised for the month read 0 → logged a fresh RFQ, still 0 (logged after
+  `live_from`, so it waits for approval) → Harjot approved it from Today, 1
+  (`counts_toward_target` true, lead moved to RFQ Raised), and the Sales Exec
+  Profile's "RFQs raised" tile read 1 → Harpreet sent it back with a note,
+  still 1, the exec got `rfq_sent_back` → the exec logged R1, Harjot approved
+  it, still 1 (R1 `counts_toward_target` false). The exec's Dashboard shows
+  "RFQs back with the exec". The export picker's "RFQ desk" group and "RFQ
+  approved on" checked at 1280px and 375px (no horizontal scroll). **Cleaned
+  up** with `delete_lead_totally` (1645): lead, site, activities, RFQs and
+  alerts re-read as gone from all three sessions. **Not seen:** the RFQ
+  figure inside the targets card / heatmap with a target set (the test exec
+  has none, and the owner's view needs the Test accounts switch — same
+  `computeActivityActuals` the profile tile read); a lead actually landing in
+  "RFQs back with the exec" (needs 2 days — verify T43–T47 cover it).
