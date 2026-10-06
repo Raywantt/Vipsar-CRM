@@ -15,6 +15,9 @@ import {
   canSearch,
   canOpenLeads,
   canExportLeads,
+  canReviewRfqs,
+  canEstimateRfqs,
+  canSeeRfqDesk,
   carriesOwnLeads,
   createActionLabel,
   isBdm,
@@ -150,11 +153,11 @@ describe('roleLabel', () => {
   })
 })
 
-// RFQ-DESK.md: the two back-office roles exist so the owner can add the people,
-// but their screens aren't built — so they must get NOTHING but Today and
-// Profile. Every capability is listed explicitly, so a sales-shaped one
+// RFQ-DESK.md: the two back-office roles. Until their queues exist (Steps 4–5)
+// they get Today, Search, a read-only Lead Detail and Profile — nothing
+// sales-shaped. Every capability is listed explicitly, so a sales-shaped one
 // quietly admitting them is what these tests are for.
-describe('RFQ-desk roles (not built yet)', () => {
+describe('RFQ-desk roles', () => {
   const DESK = [ROLES.PRODUCTION_EXECUTIVE, ROLES.ESTIMATION_EXECUTIVE]
   const SALES = [ROLES.OWNER, ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER, ROLES.BDM]
 
@@ -181,8 +184,6 @@ describe('RFQ-desk roles (not built yet)', () => {
         canSeeBdmFollowUps,
         canOpenArchitectProfiles,
         canSeeSalesDashboard,
-        canSearch,
-        canOpenLeads,
         carriesOwnLeads,
         canHaveCoordinator,
         canHaveManager,
@@ -193,9 +194,23 @@ describe('RFQ-desk roles (not built yet)', () => {
     }
   })
 
-  it('leave the Dashboard, Search and Lead Detail exactly where they were for the five sales roles', () => {
-    for (const can of [canSeeSalesDashboard, canSearch, canOpenLeads]) {
-      expect(rolesWith(can).sort()).toEqual([...SALES].sort())
+  it('open Search and Lead Detail to the desk (Step 2), and keep the Dashboard sales-only', () => {
+    for (const can of [canSearch, canOpenLeads]) {
+      expect(rolesWith(can).sort()).toEqual([...SALES, ...DESK].sort())
     }
+    expect(rolesWith(canSeeSalesDashboard).sort()).toEqual([...SALES].sort())
+  })
+
+  // Mirrors the role tests inside the SQL action functions
+  // (migration_rfq_desk.sql STEP 8) — the owner covers either queue.
+  it('give each desk action to its own role plus the owner, and to nobody else', () => {
+    expect(rolesWith(canReviewRfqs).sort()).toEqual([ROLES.OWNER, ROLES.PRODUCTION_EXECUTIVE].sort())
+    expect(rolesWith(canEstimateRfqs).sort()).toEqual([ROLES.OWNER, ROLES.ESTIMATION_EXECUTIVE].sort())
+    expect(canReviewRfqs(ROLES.ESTIMATION_EXECUTIVE)).toBe(false)
+    expect(canEstimateRfqs(ROLES.PRODUCTION_EXECUTIVE)).toBe(false)
+  })
+
+  it('give the RFQ Desk screen to the owner only', () => {
+    expect(rolesWith(canSeeRfqDesk)).toEqual([ROLES.OWNER])
   })
 })

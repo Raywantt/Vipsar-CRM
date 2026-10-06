@@ -58,8 +58,9 @@ follow:
 - **Walk the matrix before declaring done.** Five dev servers
   (`role-owner`/`role-coordinator`/`role-exec`/`role-manager`/`role-bdm`,
   ports 5181/5182/5183/5184/5185) let several roles be logged in at once — separate origins mean separate
-  localStorage. The two RFQ-desk roles have no port or test login yet
-  (RFQ-DESK.md Step 2 adds them). **The session on a port may not match the port's name**; key
+  localStorage. The two RFQ-desk roles have their own: `role-production`
+  (5186, test login `production-exec`) and `role-estimation` (5187,
+  `estimation-exec`). **The session on a port may not match the port's name**; key
   off the rendered role in `.vip-sidebar-foot-role`, not the launch-config
   label.
 
@@ -88,9 +89,11 @@ this file describes *what is*.
 
 **Phase 12, the RFQ desk, is being planned** in `RFQ-DESK.md` (repo root):
 two back-office roles after a sales exec's RFQ — Production Executive
-(technical check) and Estimation Executive (Lixil quote). Only the two role
-values exist so far (2026-10-05), so the owner can add the people; everything
-else in that file is a plan, not built.
+(technical check) and Estimation Executive (Lixil quote). Built so far: the
+two role values, Step 1's database (live, and its switch is ON since
+2026-10-06 09:26 IST — RFQs are entering the desk ahead of launch day) and
+Step 2's role plumbing (Search and a read-only Lead Detail for the desk). The
+desk's own queues (Steps 3–7) are still a plan.
 
 **Deliberately not built — don't add as a side effect of unrelated work:**
 
@@ -201,9 +204,9 @@ changes the invoke URL and would silently break the configured cron.
 
 ### Routing (`App.jsx`)
 
-`/`, `/profile` (every role), `/search`, `/dashboard`, `/leads/:id` (every
-**sales** role — `canSearch`/`canSeeSalesDashboard`/`canOpenLeads`; the
-RFQ-desk roles get only `/` and `/profile` until their screens exist),
+`/`, `/profile` (every role), `/search`, `/leads/:id` (every sales role plus
+the two RFQ-desk roles — `canSearch`/`canOpenLeads`), `/dashboard` (every
+**sales** role only — `canSeeSalesDashboard`),
 `/leads/new`, `/employees/:id` (**not the BDM**), `/activity` (**not owner**),
 `/team` (**owner + sales_manager**), `/architects/:id` (every role),
 `/architects` (**BDM only**) and `/network` (**owner only**). There is no
@@ -2498,7 +2501,7 @@ value shown was already produced by an existing query function.
   that clipped through the Dashboard label. **The slot div renders even when
   the button inside it doesn't**: it's the gap the tabs lay out around. It is
   dropped only when the tabs either side of it are (the RFQ-desk roles, whose
-  bar is Today alone — an empty slot pushed Today off-centre).
+  bar is Today + Search — an empty slot pushed the pair off-centre).
   The new tab links sit right after Home in the DOM so the desktop sidebar's
   link order is undisturbed.
 * **`.vip-drilled`** (added by `ProtectedRoute` for every route outside
@@ -2588,8 +2591,8 @@ default. `roles.js` exports `canCreateLead`, `canLogActivity`,
 `canSeeTeamDirectory`, `canOpenEmployeeProfiles`, `canSeeMyArchitects`,
 `canSeeArchitectNetwork`, `canSeeBdmFollowUps`, `canOpenArchitectProfiles`,
 `canExportLeads`, `canSeeSalesDashboard`, `canSearch`, `canOpenLeads`,
-`isBdm`, `isRfqDeskRole` and
-`rolesWith(capability)`; `BottomNav` and `App.jsx` both read them.
+`canReviewRfqs`, `canEstimateRfqs`, `canSeeRfqDesk`, `isBdm`,
+`isRfqDeskRole` and `rolesWith(capability)`; `BottomNav` and `App.jsx` both read them.
 **These are ONE flag per capability — do not re-split them.**
 
 #### Sales Coordinator
@@ -2856,7 +2859,7 @@ locked decisions; **don't reverse one without asking.**
   `FollowUpForm`'s lead picker lists only leads the BDM owns. The real BDM's
   portfolio is empty until the owner's architect import runs.
 
-#### Production Executive / Estimation Executive (the RFQ desk — planned)
+#### Production Executive / Estimation Executive (the RFQ desk — being built)
 
 `production_executive` ("Production Executive", Harjot — checks an RFQ
 against Lixil's technical limits) and `estimation_executive` ("Estimation
@@ -2864,16 +2867,45 @@ Executive", Harpreet — raises it with Lixil, records the quote). The owner
 named them; "Production" is the owner's word, not a mistake for "Technical".
 **`RFQ-DESK.md` (repo root) is the plan and its §3 the locked decisions.**
 
-**What exists (2026-10-05): the role values only**, so the owner can add the
-people from Profile. `migration_rfq_desk_roles.sql` widens
-`employees_role_check`; `roles.js` lists both in `ROLE_OPTIONS`. Until the
-desk is built, both get a **"Your RFQ desk is being set up"** Today
-(`RfqDeskSetupToday` in `Today.jsx`) and Profile — no Dashboard, Search,
-Lead Detail, FAB or create/log links, and their phone tab bar is Today
-alone. Every capability in `roles.js` is false for them, which
-`roles.test.js` pins. They hold no new data access: they own nothing, and
-every policy keys on own-data-or-owner-role. Not in `CARRIES_OWN_LEADS`.
-**Not yet seen in a real session** — no test login exists.
+**What exists (2026-10-06): the role values, Step 1's database and Step 2's
+role plumbing.** `migration_rfq_desk_roles.sql` widens `employees_role_check`;
+`roles.js` lists both in `ROLE_OPTIONS`. **Step 1's database is live**
+(`migration_rfq_desk.sql` — see Outstanding migrations and RFQ-DESK.md §5) and
+**its switch is ON since 2026-10-06 09:26 IST** (owner's choice, ahead of
+launch day): every RFQ Raised now creates a `with_technical` desk RFQ and an
+`rfq_new` alert row that nothing pushes yet (the Edge Function drains
+assignment kinds only). Launch day has to clear that backlog — RFQ-DESK.md §8
+Step 8.
+
+**Step 2 (2026-10-06):** both roles get Today, **Search**, a **read-only Lead
+Detail** and Profile; their nav is Today + Search at both widths (phone bar
+split in two, no FAB slot). Today is still the **"Your RFQ desk is being set
+up"** card (`RfqDeskSetupToday`), now with a Search line; the queues are
+Steps 4–5. `canSearch`/`canOpenLeads` admit them; `canSeeSalesDashboard`
+never will. `canReviewRfqs` (production + owner), `canEstimateRfqs`
+(estimation + owner) and `canSeeRfqDesk` (owner) mirror the SQL action
+functions' own role tests and are wired from Step 4/5/7 on. Their RLS
+(`desk_select`) reaches the leads that have a desk RFQ — lead, parties, site,
+contacts, stage history — plus the company-wide architects/firms every role
+reads; **not** activities, remarks, follow-ups or ownership history.
+Lead Detail therefore has a desk branch (`isDeskViewer`, owner's rulings
+2026-10-06): main column + rail like a BDM's handed-off lead, **no Call
+client** (the client's number is plain text, not `tel:`), no Log activity, no
+quick actions, no mobile action bar; Remarks hidden, the health pill and Last
+touch off ("not visible to the desk"), the timeline titled "Stage history".
+**Architect names are plain text for them** (Lead Detail and Search), since
+`canOpenArchitectProfiles` excludes them. Also fixed for everyone:
+`canLogActivityHere` now requires `canLogActivity(role)`, which the desk roles
+slipped past. Not in `CARRIES_OWN_LEADS`. **Verified 2026-10-06** as both
+test logins at 375px and 1280px (nav, Today card, Search lists architects as
+plain rows, `/dashboard` `/activity` `/leads/new` `/team` `/architects/:id`
+bounce, an unreadable lead says "Lead not found"), and **on a real lead** via a
+throwaway test lead + RFQ Raised (deleted afterwards): both desk logins at
+1280px and 375px saw the read-only page with no buttons, no `tel:` link, the
+architect as plain text, "not visible to the desk", "Stage history", no
+sticky bar; the test production-exec could read that one lead and nothing
+else, and got exactly one `rfq_new` alert; Search found it by site and client.
+The test exec's own view of the same lead was unchanged at both widths.
 
 ### Data isolation — audited, don't re-litigate
 
@@ -3105,7 +3137,7 @@ with no error. The layered order is:
    the BDM file re-creates with five roles — **re-running
    `migration_bdm_role.sql` once a production/estimation employee exists
    fails on that CHECK; re-run `migration_rfq_desk_roles.sql` right after
-   it**)
+   it**) → `migration_rfq_desk.sql` (RFQ-DESK.md Step 1)
 9. `migration_rls_per_row_fixes.sql` (2026-09-22) — **must stay the last
    file that defines its 49 policies** (parties, sites, employees, products,
    areas, site_contacts, loss_reasons, targets, lead_change_log,
@@ -3126,6 +3158,16 @@ removes the pool rule from those RPCs, putting pool leads back into owner
 figures — re-run `migration_bdm_handoff.sql` afterwards.
 `Schema/verify_bdm_role.sql` is the behavioural check (it impersonates real
 logins inside a block that deliberately ends in an error, so nothing saves).
+**`migration_rfq_desk.sql` re-installs two things older files also define:**
+`enforce_owner_only_stage_change()` (adding the desk's one exit for an
+approved RFQ's move to `rfq`) and `notifications_kind_check` (adding the five
+`rfq_*` kinds). Re-running `migration_bdm_role.sql`,
+`migration_bdm_handoff.sql`, `migration_retire_measurements_design_discussion.sql`
+or `migration_lead_remarks_and_lixil_notify.sql` undoes one or both — approvals
+then fail loudly, or the kind CHECK refuses to re-create once rfq_* rows exist.
+Re-run `migration_rfq_desk.sql` straight after any of them.
+`Schema/verify_rfq_desk.sql` is its behavioural check, same self-rolling-back
+shape as the BDM one.
 
 **If you re-run anything, re-run everything after it too.** Trigger and
 function names are deliberately kept even when historically inaccurate
@@ -3175,12 +3217,22 @@ removing your own login.
 
 ### Outstanding migrations
 
-* **`migration_rfq_desk_roles.sql`** (new 2026-10-05, **not yet run**) —
-  widens `employees_role_check` to add `production_executive` /
-  `estimation_executive`. Touches no policy, table or function. Until it
-  runs, saving either role in Add employee / Manage employees fails with a
-  check-constraint error; nothing else breaks, so the code may deploy first.
-  Run it before adding Harjot or Harpreet.
+* **`migration_rfq_desk.sql`** — **run and verified live 2026-10-06**
+  (`verify_rfq_desk.sql`: 42 PASS, 0 FAIL, as real test sessions plus the
+  real Production Executive and the owner). The RFQ
+  desk's tables, actions, triggers, visibility and notifications (RFQ-DESK.md
+  §5). **The owner switched the desk ON 2026-10-06 09:26 IST**, ahead of
+  launch day: every RFQ Raised activity — by anyone — now enters the desk and
+  writes an `rfq_new` alert for the Production Executive (not pushed until
+  Step 3 redeploys the Edge Function). Launch day must clear the pre-launch
+  backlog first — RFQ-DESK.md §8 Step 8.
+
+* **`migration_rfq_desk_roles.sql`** — **run and confirmed live
+  2026-10-06**: four employees now hold the new roles (Harjot and Harpreet
+  Kaur, plus the `production-exec` / `estimation-exec` test logins, both
+  `is_test_account = true`). Widens `employees_role_check` to add
+  `production_executive` / `estimation_executive`; touches no policy, table
+  or function.
 
 * **`migration_employee_can_export_leads.sql`** — **run 2026-10-05; column and
   Aanchal's grant confirmed live as the owner** (Profile → Manage employees →
@@ -3372,8 +3424,9 @@ hiding the UI.
 
 **Test accounts are hidden by RLS, not by the app**
 (`migration_hide_test_accounts.sql`, 2026-09-15 — the CRM is in daily real
-use). `employees.is_test_account` marks the four test logins (`sc`, `exec`,
-`sm`, `Test BDM`; set by SQL only, never from the UI). A `hide_test_accounts`
+use). `employees.is_test_account` marks the six test logins (`sc`, `exec`,
+`sm`, `Test BDM`, `production-exec`, `estimation-exec`; set by SQL only,
+never from the UI). A `hide_test_accounts`
 **RESTRICTIVE** SELECT policy on 13 tables (employees, leads, activities,
 follow_ups, targets, parties, sites, site_contacts and the five lead-history
 tables) removes them and everything they own/created/brought in, unless the
@@ -3804,7 +3857,7 @@ dev server, for any PWA / service-worker / offline testing.**
 into any field is off-limits, so storing them changes nothing. The working
 flow is that **the user logs in once per origin** and Claude drives the
 already-authenticated app; sessions persist per origin, which is what the
-five role ports are for. **When nothing is logged in, say so and ask** —
+seven role ports are for. **When nothing is logged in, say so and ask** —
 don't assume a fresh tab means a fresh session, and don't silently fall back
 to reasoning-only verification.
 

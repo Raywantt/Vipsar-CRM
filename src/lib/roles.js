@@ -23,8 +23,9 @@ export const ROLES = {
   // RFQ-DESK.md (repo root). The Production Executive checks an RFQ against
   // Lixil's technical limits; the Estimation Executive raises it with Lixil
   // and records the quote. Neither owns leads, so neither is in
-  // CARRIES_OWN_LEADS. Their screens aren't built yet: until they are, both
-  // get a "being set up" Today and Profile, nothing else (isRfqDeskRole).
+  // CARRIES_OWN_LEADS. Their queues aren't built yet (RFQ-DESK.md Steps 4–5):
+  // until they are, both get a "being set up" Today, Search, a read-only Lead
+  // Detail and Profile, nothing else (isRfqDeskRole).
   PRODUCTION_EXECUTIVE: 'production_executive',
   ESTIMATION_EXECUTIVE: 'estimation_executive',
 }
@@ -90,27 +91,51 @@ export function isRfqDeskRole(role) {
 }
 
 // The sales screens. They used to be open to EVERY role, which was only true
-// while every role was a sales role. The RFQ-desk roles are left out: the
-// Dashboard would list every exec at zero to them, Search and Lead Detail
-// would come back near-empty (their RLS reaches no leads yet). RFQ-DESK.md
-// Step 2 opens Search and Lead Detail to them — flip these two functions then,
-// not the routes. The Dashboard stays sales-only by design.
+// while every role was a sales role. The Dashboard stays sales-only by design:
+// it would list every exec at zero to the RFQ desk. Search and Lead Detail
+// opened to the desk at RFQ-DESK.md Step 2 — their RLS (desk_select) reaches
+// exactly the leads that have a desk RFQ, plus the company-wide architects
+// every role reads. Lead Detail is read-only for them (LeadDetail.jsx).
 //   canSeeSalesDashboard — /dashboard: Reports, All Leads, Follow-ups (one
 //                          route), and every nav link into it
 //   canSearch            — /search and its nav tab
 //   canOpenLeads         — /leads/:id
 const SALES_ROLES = [ROLES.OWNER, ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER, ROLES.BDM]
+const RFQ_DESK_ROLES = [ROLES.PRODUCTION_EXECUTIVE, ROLES.ESTIMATION_EXECUTIVE]
 
 export function canSeeSalesDashboard(role) {
   return SALES_ROLES.includes(role)
 }
 
 export function canSearch(role) {
-  return SALES_ROLES.includes(role)
+  return SALES_ROLES.includes(role) || RFQ_DESK_ROLES.includes(role)
 }
 
 export function canOpenLeads(role) {
-  return SALES_ROLES.includes(role)
+  return SALES_ROLES.includes(role) || RFQ_DESK_ROLES.includes(role)
+}
+
+// The RFQ desk's actions (RFQ-DESK.md §3 "The loop"). Each mirrors the role
+// test inside its SQL action function (Schema/migration_rfq_desk.sql STEP 8),
+// which is the real boundary — these only decide which controls are offered.
+// The owner is in every one: they cover either queue when someone is on leave.
+//   canReviewRfqs   — Approve / Send back at the technical check
+//                     (rfq_approve, rfq_send_back from with_technical)
+//   canEstimateRfqs — Send back / Raised with Lixil / Quote received / Price
+//                     revision (rfq_send_back from with_estimation,
+//                     rfq_raise_with_lixil, rfq_record_quote,
+//                     rfq_start_price_revision)
+//   canSeeRfqDesk   — the owner's RFQ Desk screen (Step 7) and its nav link
+export function canReviewRfqs(role) {
+  return role === ROLES.PRODUCTION_EXECUTIVE || role === ROLES.OWNER
+}
+
+export function canEstimateRfqs(role) {
+  return role === ROLES.ESTIMATION_EXECUTIVE || role === ROLES.OWNER
+}
+
+export function canSeeRfqDesk(role) {
+  return role === ROLES.OWNER
 }
 
 export function canCreateLead(role) {

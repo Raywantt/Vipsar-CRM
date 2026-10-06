@@ -33,7 +33,7 @@ import { linkPartiesAsSiteContacts } from '../lib/partyQueries'
 import { summariseRfqHistory } from '../lib/rfqKind'
 import { withSelfAssignTestOption } from '../lib/selfAssignTest'
 import { isPoolLead, sourcingArchitect } from '../lib/poolLeads'
-import { canOpenEmployeeProfiles, isBdm } from '../lib/roles'
+import { canLogActivity, canOpenArchitectProfiles, canOpenEmployeeProfiles, isBdm, isRfqDeskRole } from '../lib/roles'
 import { lossReasonLabel } from '../lib/lossReasonOptions'
 
 // Was a fourth hand-rolled copy of the source labels, which had already
@@ -301,6 +301,16 @@ function LeadDetail() {
   const isMyPoolLead = isBdmViewer && isPoolLead(lead) && lead.bdm_employee_id === employee?.id
   const isMyHandedOffLead = isBdmViewer && !isMyLead && !isPoolLead(lead) && lead.bdm_employee_id === employee?.id
   const canEdit = isOwner || isCoordinator || isMyLead || isMyPoolLead
+  // The RFQ desk (RFQ-DESK.md Step 2): the Production / Estimation Executive
+  // read a lead that has a desk RFQ and change nothing on it — no quick
+  // actions, no Log activity, and no Call client (owner's ruling, 2026-10-06:
+  // the desk deals with the exec, not the client). Their RLS reaches the lead,
+  // its parties, site, contacts and stage history, but NOT activities,
+  // remarks, follow-ups or ownership history — so anything on this page that
+  // is computed from those (the touch health, Last touch, the timeline's
+  // "no activity") would read wrong to them, and is switched off below.
+  const isDeskViewer = isRfqDeskRole(employee?.role)
+  const showCallClient = !isDeskViewer
 
   // A sales manager supervises without overwriting: on a team member's lead
   // they get the quick actions (stage, follow-up, reassign) but NOT the
@@ -350,7 +360,12 @@ function LeadDetail() {
   // activity logged there would sit on the exec's lead after assignment,
   // credited to the BDM — and their architect meetings anchor on the
   // architect, not a lead, anyway.
-  const canLogActivityHere = !isOwner && !isTeamLeadForManager && (!isBdmViewer || isMyLead)
+  //
+  // canLogActivity first: the role must reach /activity at all. Without it the
+  // RFQ-desk roles got the link (none of the exclusions below names them) and
+  // it bounced them to Today.
+  const canLogActivityHere =
+    canLogActivity(employee?.role) && !isOwner && !isTeamLeadForManager && (!isBdmViewer || isMyLead)
 
   const stage = lead.current_stage ?? 'calling'
   const isWon = stage === 'won'
@@ -392,7 +407,9 @@ function LeadDetail() {
   // ever gating "stale" (see attention.js), but the health pill/deal-stat
   // color and copy below still need this guard directly, since they render
   // even when the gate comes back "not stale".
-  const showTouchHealth = isOpen && !isOnHold
+  // Never for the RFQ desk: their RLS hides the lead's activities, so "last
+  // touch" would be the last stage change and call an active lead neglected.
+  const showTouchHealth = isOpen && !isOnHold && !isDeskViewer
   // Every threshold below tests touchGate (floored at HISTORY_STARTS_AT) while
   // every label still prints the real touchDays. A legacy lead therefore reads
   // "Active" until its floored age crosses the line, then reports its true age
@@ -410,7 +427,7 @@ function LeadDetail() {
       : touchGate >= STALE_DAYS
         ? TONE_WARN
         : TONE_GOOD
-  const isAtRisk = isOpen && !isOnHold && hasTouch && touchGate >= ATTENTION_DAYS
+  const isAtRisk = showTouchHealth && hasTouch && touchGate >= ATTENTION_DAYS
 
   const statusLabel = isWon ? 'Customer' : isLost ? 'Lost' : isOnHold ? 'On hold' : isAtRisk ? 'At risk' : 'Open lead'
   const statusStyle = isWon
@@ -548,9 +565,11 @@ function LeadDetail() {
         ? hasTouch
           ? `ago · by ${(lead.employees?.name ?? 'unassigned').split(' ')[0]}`
           : 'no activity on record'
-        : isOnHold
-          ? 'on hold'
-          : 'closed',
+        : isDeskViewer
+          ? 'not visible to the desk'
+          : isOnHold
+            ? 'on hold'
+            : 'closed',
       color: touchColor,
     },
   ]
@@ -667,7 +686,11 @@ function LeadDetail() {
             {sourcingArchitectParty && (
               <>
                 {' via Architect '}
-                <Link to={`/architects/${sourcingArchitectParty.id}`}>{sourcingArchitectParty.name}</Link>
+                {canOpenArchitectProfiles(employee?.role) ? (
+                  <Link to={`/architects/${sourcingArchitectParty.id}`}>{sourcingArchitectParty.name}</Link>
+                ) : (
+                  sourcingArchitectParty.name
+                )}
               </>
             )}
           </p>
@@ -696,8 +719,10 @@ function LeadDetail() {
             <div key={c.id} className="vip-contact-row">
               <div className="vip-contact-row-head">
                 <span className="vip-contact-row-name">
-                  {/* An architect has a profile page every role can open. */}
-                  {c.parties?.party_type === 'architect' ? (
+                  {/* An architect has a profile page every sales role can
+                      open; for the RFQ desk the name is plain text (owner's
+                      ruling, 2026-10-06 — a link would bounce them to Today). */}
+                  {c.parties?.party_type === 'architect' && canOpenArchitectProfiles(employee?.role) ? (
                     <Link to={`/architects/${c.party_id}`}>{c.parties?.name}</Link>
                   ) : (
                     c.parties?.name
@@ -708,11 +733,16 @@ function LeadDetail() {
             </div>
           ))
         )}
-        {party?.mobile && (
-          <a href={`tel:${party.mobile}`} className="vip-mono vip-contact-tel">
-            {party.mobile}
-          </a>
-        )}
+        {/* The number is shown to everyone; only a viewer offered Call client
+            gets it as a tap-to-call link. */}
+        {party?.mobile &&
+          (showCallClient ? (
+            <a href={`tel:${party.mobile}`} className="vip-mono vip-contact-tel">
+              {party.mobile}
+            </a>
+          ) : (
+            <span className="vip-mono vip-contact-tel">{party.mobile}</span>
+          ))}
         <div className="vip-rail-list">
           {[
             ['Type', party?.party_type ?? '—'],
@@ -831,22 +861,25 @@ function LeadDetail() {
           the bottom of this component's return) — same underlying data and
           the exact same LeadQuickActions component, just relocated. */}
       <div className="vip-only-desktop">
-        <div className="vip-btn-row">
-          {canLogActivityHere && (
-            <Link className="vip-btn vip-btn-sm" to={`/activity?lead=${id}`}>
-              Log activity
-            </Link>
-          )}
-          {party?.mobile ? (
-            <a className="vip-btn vip-btn-secondary vip-btn-sm" href={`tel:${party.mobile}`}>
-              Call client
-            </a>
-          ) : (
-            <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" disabled>
-              Call client
-            </button>
-          )}
-        </div>
+        {(canLogActivityHere || showCallClient) && (
+          <div className="vip-btn-row">
+            {canLogActivityHere && (
+              <Link className="vip-btn vip-btn-sm" to={`/activity?lead=${id}`}>
+                Log activity
+              </Link>
+            )}
+            {showCallClient &&
+              (party?.mobile ? (
+                <a className="vip-btn vip-btn-secondary vip-btn-sm" href={`tel:${party.mobile}`}>
+                  Call client
+                </a>
+              ) : (
+                <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" disabled>
+                  Call client
+                </button>
+              ))}
+          </div>
+        )}
 
         {canQuickAct && (
           <fieldset className="vip-lock" disabled={editsLocked}>
@@ -994,17 +1027,28 @@ function LeadDetail() {
         />
       </fieldset>
 
-      <fieldset className="vip-lock" disabled={editsLocked}>
-        <LeadRemarks leadId={id} employeeId={employee?.id} canAdd={canEdit} />
-      </fieldset>
+      {/* Not for the RFQ desk: their RLS can't read remarks, so the card
+          would say "No remarks yet." about remarks that exist. */}
+      {!isDeskViewer && (
+        <fieldset className="vip-lock" disabled={editsLocked}>
+          <LeadRemarks leadId={id} employeeId={employee?.id} canAdd={canEdit} />
+        </fieldset>
+      )}
 
-      <LeadActivityTimeline leadId={id} activities={activities} stageHistory={stageHistory} ownerHistory={ownerHistory} />
+      <LeadActivityTimeline
+        leadId={id}
+        activities={activities}
+        stageHistory={stageHistory}
+        ownerHistory={ownerHistory}
+        stageOnly={isDeskViewer}
+      />
     </div>
   )
 
   // Mobile-only sticky bar, replacing the desktop btn-row in mainContent —
-  // Log activity/Call client are available to every viewer (not gated by
-  // canEdit, matching the original unconditional btn-row), the ⇄
+  // Log activity/Call client read the same canLogActivityHere/showCallClient
+  // the desktop row does (not gated by canEdit; the RFQ desk never gets this
+  // bar — see its own branch below), the ⇄
   // quick-actions button only for canEdit (opens LeadQuickActions as a sheet).
   const mobileActionBar = (
     <div className="vip-only-mobile">
@@ -1015,15 +1059,16 @@ function LeadDetail() {
               Log activity
             </Link>
           )}
-          {party?.mobile ? (
-            <a className="vip-btn vip-btn-secondary" href={`tel:${party.mobile}`}>
-              Call client
-            </a>
-          ) : (
-            <button type="button" className="vip-btn vip-btn-secondary" disabled>
-              Call client
-            </button>
-          )}
+          {showCallClient &&
+            (party?.mobile ? (
+              <a className="vip-btn vip-btn-secondary" href={`tel:${party.mobile}`}>
+                Call client
+              </a>
+            ) : (
+              <button type="button" className="vip-btn vip-btn-secondary" disabled>
+                Call client
+              </button>
+            ))}
           {canQuickAct && (
             <button
               type="button"
@@ -1059,6 +1104,26 @@ function LeadDetail() {
         </div>
         {mobileActionBar}
       </>
+    )
+  }
+
+  // The RFQ desk (RFQ-DESK.md Step 2, owner's ruling 2026-10-06): the full
+  // read-only page — main column plus the rail (who owns it, client, contact,
+  // site), the same shape as a BDM's handed-off lead above. No mobile action
+  // bar at all: with no Log activity, no Call client and no quick actions it
+  // would be an empty sticky footer, so no sticky-footer padding either.
+  // Step 4 adds the RFQ history panel.
+  if (isDeskViewer) {
+    return (
+      <div className="vip-cols">
+        <div className="vip-stack">
+          <p className="vip-handoff-note">
+            This lead belongs to {lead.employees?.name ?? 'a sales executive'}. You can view it here but not change it.
+          </p>
+          {mainContent}
+        </div>
+        <div className="vip-stack">{rail}</div>
+      </div>
     )
   }
 

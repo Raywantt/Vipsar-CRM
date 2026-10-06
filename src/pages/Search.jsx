@@ -9,7 +9,7 @@ import { stageLabel } from '../lib/leadStageOptions'
 import { leadDisplayName } from '../lib/leadName'
 import { mostRecentLeadByParty } from '../lib/partyQueries'
 import { errorMessage } from '../lib/errorMessage'
-import { isBdm } from '../lib/roles'
+import { canOpenArchitectProfiles, isBdm } from '../lib/roles'
 import { portfolioTag } from '../lib/architectStats'
 import { useAuth } from '../contexts/AuthContext'
 import EmployeeLink from '../components/EmployeeLink'
@@ -62,6 +62,7 @@ const NO_ROWS = []
 function Search() {
   const { employee } = useAuth()
   const viewerIsBdm = isBdm(employee?.role)
+  const viewerOpensArchitects = canOpenArchitectProfiles(employee?.role)
   const [term, setTerm] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'term', '')
   const [results, setResults] = useState({ sites: [], leads: [] })
   const [searching, setSearching] = useState(false)
@@ -304,11 +305,13 @@ function Search() {
                 </div>
               </>
             )
-            // An architect opens their profile (every role may — owner's ruling
-            // at BDM.md Step 4) rather than whichever lead they last appeared
-            // on as the lead's own party, which for an architect is rarely the
-            // useful destination.
-            if (party.party_type === 'architect') {
+            // An architect opens their profile (every sales role may — owner's
+            // ruling at BDM.md Step 4) rather than whichever lead they last
+            // appeared on as the lead's own party, which for an architect is
+            // rarely the useful destination. The RFQ desk can't open profiles
+            // (owner's ruling, 2026-10-06), so for them an architect is an
+            // ordinary row: its lead if they can read one, else plain text.
+            if (party.party_type === 'architect' && viewerOpensArchitects) {
               return (
                 <Link key={party.id} to={`/architects/${party.id}`} className="vip-row vip-clickable" style={{ textDecoration: 'none' }}>
                   {rowContent}

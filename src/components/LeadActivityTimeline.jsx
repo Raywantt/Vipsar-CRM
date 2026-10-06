@@ -19,7 +19,11 @@ function formatWhen(value) {
   return parseTimestamp(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 }
 
-function LeadActivityTimeline({ leadId, activities, stageHistory, ownerHistory = [] }) {
+// stageOnly: the viewer's RLS reaches stage history but not activities or
+// ownership changes (the RFQ desk, RFQ-DESK.md Step 2). The card is then
+// titled for what it can actually show, so an empty list can't read as "this
+// lead has had no activity".
+function LeadActivityTimeline({ leadId, activities, stageHistory, ownerHistory = [], stageOnly = false }) {
   const [visibleCount, setVisibleCount] = useState(ROW_CHUNK)
 
   // A different lead is a different timeline — start it from the top rather
@@ -71,10 +75,10 @@ function LeadActivityTimeline({ leadId, activities, stageHistory, ownerHistory =
 
   return (
     <div className="vip-card">
-      <h2 className="vip-card-title">Activity</h2>
+      <h2 className="vip-card-title">{stageOnly ? 'Stage history' : 'Activity'}</h2>
 
       {entries.length === 0 ? (
-        <p className="vip-empty">No activity yet.</p>
+        <p className="vip-empty">{stageOnly ? 'No stage changes yet.' : 'No activity yet.'}</p>
       ) : (
         <>
           {entries.slice(0, visibleCount).map((entry) => (

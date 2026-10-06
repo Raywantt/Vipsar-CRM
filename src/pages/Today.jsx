@@ -33,8 +33,9 @@ import TodayGreetingHeader from '../components/TodayGreetingHeader'
 //                       rep-shaped.
 //   sales_executive   — Home itself, unchanged.
 //   production_executive / estimation_executive — the RFQ desk (RFQ-DESK.md).
-//                       Not built yet, so a "being set up" screen: they can
-//                       sign in and reach Profile, nothing else.
+//                       Their queues aren't built yet (Steps 4–5), so a
+//                       "being set up" screen; Search, a read-only Lead
+//                       Detail and Profile already work (Step 2).
 //
 // EVERY ROLE IS NAMED. This used to end in a bare `return <Home />`, which
 // silently handed any role nobody had thought about an exec's screen and an
@@ -69,8 +70,8 @@ function Today() {
   }
 }
 
-// Until the RFQ desk is built (RFQ-DESK.md). The greeting header is kept
-// because on a phone its avatar is the only way to Profile from here.
+// Until the RFQ desk's queues are built (RFQ-DESK.md Steps 4–5). The greeting
+// header is kept because on a phone its avatar is the only way to Profile.
 function RfqDeskSetupToday({ employee }) {
   const waiting =
     employee?.role === ROLES.PRODUCTION_EXECUTIVE
@@ -84,6 +85,7 @@ function RfqDeskSetupToday({ employee }) {
         <p className="vip-form-note" style={{ marginTop: 0 }}>
           {waiting} will appear here. You'll be told when to start using it — until then, carry on with your Excel sheet.
         </p>
+        <p className="vip-form-note">You can already look up any lead that has an RFQ in Search.</p>
         <p className="vip-form-note">You can already change your password and appearance in Profile.</p>
       </div>
     </div>
