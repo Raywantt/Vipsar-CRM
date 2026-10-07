@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
 import { useCachedQuery } from '../hooks/useCachedQuery'
-import { fetchLastActivityPerLead, LEADS_PAGE_SIZE, SITE_STAGE_UNSET } from '../lib/dashboardQueries'
+import { fetchLastActivityPerLead, LEADS_PAGE_SIZE, OFFICE_UNSET, SITE_STAGE_UNSET } from '../lib/dashboardQueries'
 import { fetchLeadsListPage } from '../lib/screenQueries'
 import { stageChipClass } from '../lib/statusColors'
 import { STALE_DAYS, staleGateDays } from '../lib/attention'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { SOURCE_TYPE_OPTIONS, SOURCE_TYPE_LABELS } from '../lib/sourceTypeOptions'
+import { TERRITORY_OPTIONS, territoryLabel } from '../lib/territoryOptions'
 import { formatCurrencyCompact } from '../lib/format'
 import NumPadInput from './NumPadInput'
 import { dealValueOrNull } from '../lib/pipelineValue'
@@ -115,6 +116,12 @@ const SITE_STAGE_FILTER_OPTIONS = [
   { value: SITE_STAGE_UNSET, label: 'Not set' },
 ]
 const SOURCE_FILTER_OPTIONS = SOURCE_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))
+// The five offices, plus "Not set" for a lead nobody has given an office.
+const OFFICE_FILTER_OPTIONS = [
+  ...TERRITORY_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+  { value: OFFICE_UNSET, label: 'Not set' },
+]
+const officeWord = (o) => (o === OFFICE_UNSET ? 'Not set' : territoryLabel(o))
 
 // "No leads yet", shared so it keeps one identity across renders. Never mutated.
 const NO_LEADS = []
@@ -127,6 +134,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const [stageFilterRaw, setStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'stageFilter', [])
   const [siteStageFilterRaw, setSiteStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'siteStageFilter', [])
   const [sourceFilterRaw, setSourceFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'sourceFilter', [])
+  const [officeFilterRaw, setOfficeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'officeFilter', [])
   const [statusFilter, setStatusFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'statusFilter', '')
   const [minValueInput, setMinValueInput] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'minValueInput', '')
   const [maxValueInput, setMaxValueInput] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'maxValueInput', '')
@@ -139,6 +147,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const stageFilter = useMemo(() => asList(stageFilterRaw), [stageFilterRaw])
   const siteStageFilter = useMemo(() => asList(siteStageFilterRaw), [siteStageFilterRaw])
   const sourceFilter = useMemo(() => asList(sourceFilterRaw), [sourceFilterRaw])
+  const officeFilter = useMemo(() => asList(officeFilterRaw), [officeFilterRaw])
 
   // Not persisted — derived from `search` (which is) via the debounce effect
   // below. Seeded from search's own restored value so a POP-navigation
@@ -211,6 +220,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     stageFilter,
     siteStageFilter,
     sourceFilter,
+    officeFilter,
     statusFilter,
     minValue,
     maxValue,
@@ -234,6 +244,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
       stage: stageFilter,
       siteStage: siteStageFilter,
       source: sourceFilter,
+      office: officeFilter,
       status: statusFilter || null,
       minValue: minValue !== '' ? Number(minValue) : null,
       maxValue: maxValue !== '' ? Number(maxValue) : null,
@@ -241,7 +252,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
       includePool: includePoolLeads,
       page: effectivePage,
     }),
-    [effectiveEmployeeId, effectiveEmployeeIds, stageFilter, siteStageFilter, sourceFilter, statusFilter, minValue, maxValue, debouncedSearch, includePoolLeads, effectivePage]
+    [effectiveEmployeeId, effectiveEmployeeIds, stageFilter, siteStageFilter, sourceFilter, officeFilter, statusFilter, minValue, maxValue, debouncedSearch, includePoolLeads, effectivePage]
   )
   // Remembered on the device (instant open): reopening All Leads with the same
   // filters paints the last page at once and refreshes it. A typed search is
@@ -316,6 +327,13 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
       active: sources.length > 0,
       fileLabel: listWords(sources),
     })
+    const offices = officeFilter.map(officeWord)
+    summary.push({
+      label: 'Office',
+      value: offices.length ? offices.join(', ') : 'All offices',
+      active: offices.length > 0,
+      fileLabel: `Office ${listWords(offices)}`,
+    })
     const value = formatValueChip(minValue, maxValue)
     summary.push({ label: 'Quote value', value: value ?? 'Any', active: !!value, fileLabel: `Quote ${value}` })
     const term = debouncedSearch.trim()
@@ -334,6 +352,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     stageFilter,
     siteStageFilter,
     sourceFilter,
+    officeFilter,
     minValue,
     maxValue,
     debouncedSearch,
@@ -367,6 +386,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     setStageFilter([])
     setSiteStageFilter([])
     setSourceFilter([])
+    setOfficeFilter([])
     setMinValueInput('')
     setMaxValueInput('')
   }
@@ -402,6 +422,13 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
         onRemove: () => setSourceFilter([]),
       })
     }
+    if (officeFilter.length) {
+      chips.push({
+        key: 'office',
+        label: `Office: ${listWords(officeFilter.map(officeWord))}`,
+        onRemove: () => setOfficeFilter([]),
+      })
+    }
     const valueLabel = formatValueChip(minValueInput, maxValueInput)
     if (valueLabel) {
       chips.push({
@@ -423,12 +450,14 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     stageFilter,
     siteStageFilter,
     sourceFilter,
+    officeFilter,
     minValueInput,
     maxValueInput,
     setEmployeeFilter,
     setStageFilter,
     setSiteStageFilter,
     setSourceFilter,
+    setOfficeFilter,
     setMinValueInput,
     setMaxValueInput,
   ])
@@ -532,6 +561,19 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     </div>
   )
 
+  const officeField = (
+    <div className="vip-filter-field">
+      <span className="vip-fact-label">Office</span>
+      <MultiSelectFilter
+        label="Office"
+        allLabel="All offices"
+        options={OFFICE_FILTER_OPTIONS}
+        selected={officeFilter}
+        onChange={setOfficeFilter}
+      />
+    </div>
+  )
+
   const valueField = (
     <div className="vip-filter-field vip-filter-field-wide">
       <span className="vip-fact-label">Quote value (₹)</span>
@@ -590,6 +632,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
       {stageField}
       {siteStageField}
       {sourceField}
+      {officeField}
       {valueField}
     </>
   )
@@ -788,6 +831,9 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
                         {lead.sites?.site_stage && (
                           <span className="vip-sitestage-tag">{lead.sites.site_stage}</span>
                         )}
+                        {lead.office_territory && (
+                          <span className="vip-sitestage-tag" title="Office">{territoryLabel(lead.office_territory)}</span>
+                        )}
                         <span className="vip-lead-row-sub">
                           {[
                             isPoolLead(lead) ? 'Awaiting assignment' : null,
@@ -825,6 +871,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
               <span>Stage</span>
               <span>Site stage</span>
               <span>Source</span>
+              <span>Office</span>
               <span className="vip-leadrow-num">Value</span>
               <span className="vip-leadrow-num">Last touch</span>
             </div>
@@ -862,6 +909,9 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
                   </span>
                   <span className="vip-leadrow-cell">
                     {SOURCE_TYPE_LABELS[lead.source_type] ?? lead.source_type ?? '—'}
+                  </span>
+                  <span className="vip-leadrow-cell">
+                    {lead.office_territory ? <span className="vip-sitestage-tag">{territoryLabel(lead.office_territory)}</span> : '—'}
                   </span>
                   <span className="vip-leadrow-num">{formatLeadValue(lead)}</span>
                   <span className={recency.isStale ? 'vip-leadrow-recency vip-stale' : 'vip-leadrow-recency'}>

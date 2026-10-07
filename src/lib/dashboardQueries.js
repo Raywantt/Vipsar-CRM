@@ -242,13 +242,31 @@ function applySiteStageFacet(query, value) {
   return query.or(`site_stage.is.null,site_stage.in.(${quoted})`, { referencedTable: 'sites' })
 }
 
+// Sentinel for the Office facet's "Not set" option — a lead with no
+// office_territory (nullable at the DB layer, so every lead predating the field
+// has none). Like SITE_STAGE_UNSET, the worklist worth being able to pull up.
+// Never a value the column can hold: stored offices are the lowercase slugs in
+// territoryOptions.js, which the CHECK pins.
+export const OFFICE_UNSET = '__unset__'
+
+// Office is a plain column on leads (no embed, so no `!inner` hint), but it can
+// mix real offices with "Not set" (a NULL), which no single eq/in can say.
+function applyOfficeFacet(query, value) {
+  const list = facetList(value)
+  const wantsUnset = list.includes(OFFICE_UNSET)
+  const offices = list.filter((o) => o !== OFFICE_UNSET)
+  if (!wantsUnset) return applyFacet(query, 'office_territory', offices)
+  if (offices.length === 0) return query.is('office_territory', null)
+  return query.or(`office_territory.is.null,office_territory.in.(${offices.join(',')})`)
+}
+
 // All Leads' filters, applied to a leads query. ONE definition, read by both
 // the on-screen list (fetchLeadsList below) and the Excel export
 // (leadExportQueries.js), so the file can never hold a different set of leads
 // from the screen it was downloaded from. A query that filters on Site stage
 // must embed sites through leadsListSitesEmbed(), or that filter does nothing.
 export function applyLeadsListFilters(query, filters = {}) {
-  const { employeeId, employeeIds, stage, siteStage, source, status, minValue, maxValue, searchOr, includePool = false } = filters
+  const { employeeId, employeeIds, stage, siteStage, source, office, status, minValue, maxValue, searchOr, includePool = false } = filters
 
   // employeeId (exact) wins over employeeIds (a scope, e.g. a sales
   // manager's team) whenever both are supplied — a specific pick inside a
@@ -263,6 +281,7 @@ export function applyLeadsListFilters(query, filters = {}) {
   query = applyFacet(query, 'current_stage', stage)
   query = applySiteStageFacet(query, siteStage)
   query = applyFacet(query, 'source_type', source)
+  query = applyOfficeFacet(query, office)
   // "Active" mirrors fetchClosureForecast's own not-won-not-lost filter;
   // "Inactive" is literally the complement (won or lost) — a lead has no
   // third state.
@@ -282,7 +301,7 @@ export function fetchLeadsList(filters = {}) {
     supabase
       .from('leads')
       .select(
-        `id, external_reference_id, current_stage, source_type, order_value, quote_value, created_at, owner_employee_id, bdm_employee_id, parties!party_id(name), ${sitesEmbed}, employees!owner_employee_id(name)`,
+        `id, external_reference_id, current_stage, source_type, office_territory, order_value, quote_value, created_at, owner_employee_id, bdm_employee_id, parties!party_id(name), ${sitesEmbed}, employees!owner_employee_id(name)`,
         { count: 'exact' }
       ),
     filters

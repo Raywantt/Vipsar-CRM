@@ -17,7 +17,7 @@ import {
   toCell,
 } from './leadExport'
 import { buildLeadExportBlob, columnLetters } from './leadExportFile'
-import { applyLeadsListFilters, leadsListSitesEmbed, SITE_STAGE_UNSET } from './dashboardQueries'
+import { applyLeadsListFilters, leadsListSitesEmbed, OFFICE_UNSET, SITE_STAGE_UNSET } from './dashboardQueries'
 import { canExportLeads, rolesWith } from './roles'
 
 const client = { id: 1, name: 'Sukhjinder Singh', mobile: '9876543210', party_type: 'client' }
@@ -400,6 +400,30 @@ describe('applyLeadsListFilters', () => {
     expect(leadsListSitesEmbed('', 'id')).toBe('sites(id)')
     expect(leadsListSitesEmbed(['DPC'], 'id')).toBe('sites!inner(id)')
     expect(leadsListSitesEmbed(SITE_STAGE_UNSET, 'id')).toBe('sites!inner(id)')
+  })
+
+  it('filters by office: eq for one, in for several, nothing for none', () => {
+    const one = recorder()
+    applyLeadsListFilters(one.q, { office: ['ludhiana'], includePool: true })
+    expect(one.calls).toEqual([['eq', 'office_territory', 'ludhiana']])
+
+    const many = recorder()
+    applyLeadsListFilters(many.q, { office: ['ludhiana', 'patiala'], includePool: true })
+    expect(many.calls).toEqual([['in', 'office_territory', ['ludhiana', 'patiala']]])
+
+    const none = recorder()
+    applyLeadsListFilters(none.q, { office: [], includePool: true })
+    expect(none.calls).toEqual([])
+  })
+
+  it('treats "Not set" office as a null filter, alone or mixed with real offices', () => {
+    const alone = recorder()
+    applyLeadsListFilters(alone.q, { office: [OFFICE_UNSET], includePool: true })
+    expect(alone.calls).toEqual([['is', 'office_territory', null]])
+
+    const mixed = recorder()
+    applyLeadsListFilters(mixed.q, { office: [OFFICE_UNSET, 'ludhiana', 'patiala'], includePool: true })
+    expect(mixed.calls).toEqual([['or', 'office_territory.is.null,office_territory.in.(ludhiana,patiala)']])
   })
 
   it('treats "Not set" site stage as a null filter and keeps pool leads only when asked', () => {

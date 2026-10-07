@@ -1835,7 +1835,7 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   display: grid;
   grid-template-columns:
     minmax(104px, 1.6fr) minmax(88px, 1.3fr) minmax(96px, 0.8fr)
-    116px 74px minmax(92px, 0.85fr) 76px 96px;
+    116px 74px minmax(92px, 0.85fr) 78px 76px 96px;
   gap: 10px;
   align-items: center;
 }
