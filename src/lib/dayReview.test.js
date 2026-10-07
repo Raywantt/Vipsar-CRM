@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel, buildSignificantEntries, priorStageMap, buildBdmDayRows, BDM_DAY_SUM_KEYS } from './dayReview'
+import { buildDayRows, buildDayTotals, buildDayKpis, buildDayTilePanel, buildDaySheetPanel, buildSignificantEntries, priorStageMap, buildBdmDayRows, BDM_DAY_SUM_KEYS } from './dayReview'
+import { todayISO } from './followupDates'
 import { shapeAccompaniedRow } from './accompaniedQueries'
 import { dayBounds, nextDayISO, prevDayISO } from './dayReviewQueries'
 import { parseTimestamp, formatClockTime } from './dbTime'
@@ -218,6 +219,126 @@ describe('buildDayKpis', () => {
     const past = buildDayKpis(withFollowUps, buildDayRows(EMPLOYEES, withFollowUps, true), true).find((k) => k.key === 'followups')
     expect(past.sub).toBe('2 were due')
     expect(past.missed).toBe(1)
+  })
+})
+
+describe('the New leads created / Deals won tiles and their popup', () => {
+  const stamp = (id, creator, over = {}) => ({
+    id,
+    created_by_employee_id: creator,
+    owner_employee_id: creator,
+    source_type: 'scanning',
+    current_stage: 'calling',
+    created_at: `2026-08-10T0${id % 10}:00:00`,
+    parties: { name: `Client ${id}` },
+    sites: null,
+    ...over,
+  })
+  const win = (id, owner, value, over = {}) => ({
+    id,
+    lead_id: 100 + id,
+    stage: 'won',
+    changed_by: owner,
+    changed_at: `2026-08-10T0${id % 10}:30:00`,
+    leads: { id: 100 + id, owner_employee_id: owner, order_value: value, quote_value: null, parties: { name: `Deal ${id}` } },
+    ...over,
+  })
+
+  const data = emptyData({
+    newLeads: [
+      stamp(1, 1, { quote_value: 200000 }),
+      stamp(2, 1, { quote_value: 400000, source_type: 'lixil_referral' }),
+      stamp(3, 1),
+      // Created by someone off the roster (a coordinator entering for a rep):
+      // in no exec's column, so in neither the tile's count nor its popup.
+      stamp(4, 99, { quote_value: 900000, owner_employee_id: 1 }),
+    ],
+    stageChanges: [win(1, 1, 1460000), win(2, 2, 500000), win(3, 1, null), { ...win(4, 1, 1), stage: 'presentation' }],
+  })
+  const rows = buildDayRows(EMPLOYEES, data, false)
+  const tile = (key) => buildDayKpis(data, rows, false).find((k) => k.key === key)
+  const panel = (key, over = {}) => buildDayTilePanel(key, { data, employees: EMPLOYEES, dateISO: '2026-08-10', ...over })
+
+  it('makes only these two tiles clickable, and only when asked to', () => {
+    expect(buildDayKpis(data, rows, false).some((k) => k.onClick)).toBe(false)
+    const opened = []
+    const kpis = buildDayKpis(data, rows, false, (key) => opened.push(key))
+    expect(kpis.filter((k) => k.onClick).map((k) => k.key)).toEqual(['new_leads', 'won'])
+    kpis.find((k) => k.key === 'new_leads').onClick()
+    kpis.find((k) => k.key === 'won').onClick()
+    expect(opened).toEqual(['new_leads', 'won'])
+  })
+
+  it('lists exactly the leads the tile counted, and quotes exactly what its sub-line quotes', () => {
+    const p = panel('new_leads')
+    expect(p.list.rows).toHaveLength(Number(tile('new_leads').value))
+    expect(p.value).toBe(tile('new_leads').value)
+    // 2 + 4 lakh — the coordinator-entered ₹9L lead is not in the count, so not in the quote either.
+    expect(tile('new_leads').sub).toBe('₹6.0L quoted')
+    expect(p.figures[0].value).toBe('₹6.0L')
+    expect(p.figures).toHaveLength(4)
+    expect(p.figures[3]).toMatchObject({ label: 'Not quoted yet', value: '1' })
+    expect(p.list.rows.map((r) => r.leadId).sort()).toEqual([1, 2, 3])
+  })
+
+  it('lists exactly the wins the tile counted, valued the way the tile values them', () => {
+    const p = panel('won')
+    expect(p.list.rows).toHaveLength(Number(tile('won').value))
+    expect(p.value).toBe('3')
+    expect(p.figures[0].value).toBe('₹19.6L')
+    expect(tile('won').sub).toContain('₹19.6L')
+  })
+
+  it('credits a new lead to its creator and a won deal to the lead owner', () => {
+    const leadsBy = Object.fromEntries(panel('new_leads').people.rows.map((r) => [r.name, r.count]))
+    expect(leadsBy).toEqual({ 'Rajan Sharma': 3 })
+    expect(panel('new_leads').people.idle).toEqual(['Preeti Bhalla'])
+    const wonBy = Object.fromEntries(panel('won').people.rows.map((r) => [r.name, r.count]))
+    expect(wonBy).toEqual({ 'Rajan Sharma': 2, 'Preeti Bhalla': 1 })
+    expect(panel('won').people.idle).toEqual([])
+  })
+
+  it('shows a deal with no value as a dash, counted as nothing, and says so', () => {
+    const p = panel('won')
+    const noValue = p.list.rows.find((r) => r.name === 'Deal 3')
+    expect(noValue.value).toBe('—')
+    expect(noValue.hasValue).toBe(false)
+    // Counted as nothing in the total, left out of the average (₹19.6L / 2).
+    expect(p.figures.find((s) => s.label === 'No value on file').value).toBe('1')
+    expect(p.figures.find((s) => s.label === 'Average deal').value).toBe('₹9.8L')
+    expect(p.figures).toHaveLength(4)
+  })
+
+  it('files a deal whose owner is not on the roster under "Someone else"', () => {
+    const away = emptyData({ stageChanges: [win(1, 77, 100000)] })
+    const p = buildDayTilePanel('won', { data: away, employees: EMPLOYEES, dateISO: '2026-08-10' })
+    expect(p.people.rows.map((r) => [r.name, r.id])).toEqual([['Someone else', null]])
+  })
+
+  it('is a plain message, not an empty frame, when the tile reads 0', () => {
+    const none = emptyData()
+    for (const key of ['new_leads', 'won']) {
+      const p = buildDayTilePanel(key, { data: none, employees: EMPLOYEES, dateISO: '2026-08-10' })
+      expect(p.value).toBe('0')
+      expect(p.figures).toEqual([])
+      expect(p.list.rows).toEqual([])
+      expect(p.list.empty).toBeTruthy()
+    }
+  })
+
+  it('hides the per-person breakdown for a one-person view and names that person', () => {
+    const p = panel('won', { employees: [RAJAN] })
+    expect(p.people.show).toBe(false)
+    expect(p.eyebrow).toBe('Rajan Sharma · Mon, 10 Aug')
+  })
+
+  it('says Today on today, and returns nothing for a key it does not know', () => {
+    expect(panel('won', { dateISO: todayISO() }).eyebrow).toBe('Your team · Today')
+    expect(panel('activities')).toBeNull()
+  })
+
+  it('puts the latest first', () => {
+    expect(panel('new_leads').list.rows.map((r) => r.leadId)).toEqual([3, 2, 1])
   })
 })
 

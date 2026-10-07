@@ -8,6 +8,7 @@ import { SOURCE_TYPE_LABELS } from './sourceTypeOptions'
 import { TONE_GOOD, TONE_BAD, TONE_NEUTRAL, TONE_WON } from './statusColors'
 import { leadDisplayName, leadNameTier, leadSiteLabel } from './leadName'
 import { roleLabel } from './roles'
+import { todayISO } from './followupDates'
 
 // Pure shaping for the Day Review — takes the raw rows fetched by
 // dayReviewQueries.js and produces the per-exec table rows, the team totals,
@@ -252,18 +253,42 @@ export function buildBdmDayRows(bdms, data, isPast) {
   })
 }
 
+// The leads the "New leads created" tile COUNTS: the ones created by someone on
+// the roster the table is drawn for (buildDayRows' own attribution —
+// created_by_employee_id, not whoever holds the lead now). A lead a coordinator
+// entered for a rep, or a BDM brought in, has a creator outside the roster and
+// is in no one's column. The tile's count, its "quoted" line and its popup all
+// read this one list, so they cannot total differently.
+function countedNewLeads(data, employeeIds) {
+  const ids = new Set(employeeIds)
+  return data.newLeads.filter((l) => ids.has(l.created_by_employee_id))
+}
+
+// Every stage_history 'won' row of the day that still has its lead — the tile
+// counts these as they come, not one per lead.
+function wonRowsOf(data) {
+  return data.stageChanges.filter((s) => s.stage === 'won' && s.leads)
+}
+
+const dealValueOf = (lead) => Number(lead?.order_value ?? lead?.quote_value ?? 0)
+
 // The four KPI tiles. These REPLACE the standing Dashboard KPIs for this
 // period rather than re-filtering them — pipeline totals and month attainment
 // are meaningless over eight hours.
-export function buildDayKpis(data, rows, isPast) {
+//
+// `onOpenTile(key)`, when given, makes "New leads created" and "Deals won"
+// buttons that open buildDayTilePanel's popup; without it every tile stays a
+// static figure (the exec's own surfaces, and the tests, pass nothing).
+export function buildDayKpis(data, rows, isPast, onOpenTile) {
   const totals = buildDayTotals(rows)
   const otherActivities = totals.total - totals.calls - totals.visits
 
-  const wonToday = data.stageChanges.filter((s) => s.stage === 'won' && s.leads)
-  const wonValue = wonToday.reduce((s, r) => s + Number(r.leads?.order_value ?? r.leads?.quote_value ?? 0), 0)
+  const wonToday = wonRowsOf(data)
+  const wonValue = wonToday.reduce((s, r) => s + dealValueOf(r.leads), 0)
   const wonNames = [...new Set(wonToday.map((r) => leadName(r.leads)))]
 
-  const newValue = data.newLeads.reduce((s, l) => s + Number(l.quote_value ?? 0), 0)
+  const newValue = countedNewLeads(data, rows.map((r) => r.employeeId)).reduce((s, l) => s + Number(l.quote_value ?? 0), 0)
+  const opens = (key) => (onOpenTile ? { onClick: () => onOpenTile(key) } : null)
 
   const followUpSub = isPast
     ? `${totals.done + totals.missed} were due`
@@ -295,6 +320,7 @@ export function buildDayKpis(data, rows, isPast) {
       label: 'New leads created',
       value: String(totals.newLeads),
       sub: newValue > 0 ? `${formatCurrencyCompact(newValue)} quoted` : 'no value quoted yet',
+      ...opens('new_leads'),
     },
     {
       key: 'won',
@@ -302,8 +328,213 @@ export function buildDayKpis(data, rows, isPast) {
       value: String(wonToday.length),
       color: TONE_WON,
       sub: wonToday.length ? `${formatCurrencyCompact(wonValue)} · ${wonNames.slice(0, 2).join(', ')}` : 'none closed',
+      ...opens('won'),
     },
   ]
+}
+
+// ---------------------------------------------------------------------------
+// The popup behind the "New leads created" and "Deals won" tiles. One day, the
+// one on screen. Built from the rows the page already holds — no network call —
+// out of the SAME lists the tiles count, so a popup cannot total differently
+// from the tile that opened it (dayReview.test.js pins that).
+//
+//   New leads — credited to whoever CREATED the lead (the Day Review's rule),
+//               so a lead since reassigned doesn't move to another exec's day.
+//   Deals won — credited to the lead's CURRENT owner, the attribution every
+//               booked-order figure uses, not whoever pressed Won.
+// ---------------------------------------------------------------------------
+
+function dayLabel(dateISO) {
+  if (dateISO === todayISO()) return 'Today'
+  const [y, m, d] = dateISO.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+// One row per person, busiest first, plus the names of everyone who had
+// nothing — "nobody brought in a lead" is a finding, so it is named rather than
+// dropped, but as one line rather than a row of zeros per exec.
+function groupByPerson(employees, items, ownerOf, valueOf) {
+  const byId = new Map(employees.map((e) => [e.id, e]))
+  const groups = new Map()
+  items.forEach((item) => {
+    const owner = ownerOf(item)
+    const key = byId.has(owner) ? owner : 'other'
+    const g = groups.get(key) ?? { count: 0, value: 0, valued: 0 }
+    g.count += 1
+    g.value += valueOf(item)
+    if (valueOf(item) > 0) g.valued += 1
+    groups.set(key, g)
+  })
+  const top = Math.max(1, ...[...groups.values()].map((g) => g.count))
+  const rows = [...groups.entries()]
+    .map(([key, g]) => {
+      const emp = key === 'other' ? null : byId.get(key)
+      return {
+        key: String(key),
+        id: emp?.id ?? null,
+        // A deal whose owner isn't on this roster (an owner or BDM holding it).
+        name: emp?.name ?? 'Someone else',
+        initials: emp ? getInitials(emp.name) : '·',
+        count: g.count,
+        value: g.value,
+        valued: g.valued,
+        pct: `${Math.round((g.count / top) * 100)}%`,
+      }
+    })
+    .sort((a, b) => b.count - a.count || b.value - a.value || a.name.localeCompare(b.name))
+  return { rows, idle: employees.filter((e) => !groups.has(e.id)).map((e) => e.name) }
+}
+
+function newLeadsPanel({ data, employees, eyebrow, isToday }) {
+  const byId = new Map(employees.map((e) => [e.id, e]))
+  const leads = countedNewLeads(data, employees.map((e) => e.id))
+  const quoteOf = (l) => Number(l.quote_value ?? 0)
+  const quoted = leads.filter((l) => quoteOf(l) > 0)
+  const quotedTotal = quoted.reduce((s, l) => s + quoteOf(l), 0)
+  const biggest = quoted.reduce((best, l) => (best && quoteOf(best) >= quoteOf(l) ? best : l), null)
+
+  const rows = leads
+    .map((l) => {
+      const stage = l.current_stage ?? 'calling'
+      const creator = byId.get(l.created_by_employee_id)
+      const owner = l.owner_employee_id != null && l.owner_employee_id !== l.created_by_employee_id ? byId.get(l.owner_employee_id) : null
+      const at = parseTimestamp(l.created_at)
+      return {
+        id: l.id,
+        leadId: l.id,
+        name: leadName(l),
+        bdmId: l.bdm_employee_id ?? null,
+        at,
+        time: formatClockTime(at),
+        stage: { label: stageLabel(stage), chipClass: stageChipClass(stage) },
+        personId: creator?.id ?? null,
+        personName: creator?.name ?? null,
+        meta: [SOURCE_TYPE_LABELS[l.source_type] ?? l.source_type, owner ? `now with ${owner.name}` : null].filter(Boolean).join(' · '),
+        value: quoteOf(l) > 0 ? formatCurrencyCompact(quoteOf(l)) : '—',
+        hasValue: quoteOf(l) > 0,
+      }
+    })
+    .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0))
+
+  const people = groupByPerson(employees, leads, (l) => l.created_by_employee_id, quoteOf)
+
+  return {
+    kind: 'dayTile',
+    eyebrow,
+    title: 'New leads created',
+    value: String(leads.length),
+    note: 'Counted by who created the lead, not who holds it now.',
+    figures: leads.length
+      ? [
+          { label: 'Quoted so far', value: quotedTotal > 0 ? formatCurrencyCompact(quotedTotal) : '—', sub: quoted.length ? `across ${plural(quoted.length, 'quote')}` : 'none quoted yet' },
+          {
+            label: 'Average quote',
+            value: quoted.length ? formatCurrencyCompact(quotedTotal / quoted.length) : '—',
+            sub: quoted.length ? 'per quoted lead' : 'none quoted yet',
+          },
+          { label: 'Biggest quote', value: biggest ? formatCurrencyCompact(quoteOf(biggest)) : '—', sub: biggest ? leadName(biggest) : 'none quoted yet' },
+          { label: 'Not quoted yet', value: String(leads.length - quoted.length), sub: leads.length === quoted.length ? 'every lead has one' : 'no quote on file' },
+        ]
+      : [],
+    people: {
+      show: employees.length > 1 && leads.length > 0,
+      title: 'Created by',
+      rows: people.rows.map((p) => ({ ...p, sub: p.value > 0 ? `${formatCurrencyCompact(p.value)} quoted` : 'none quoted' })),
+      idleLabel: 'No new leads from',
+      idle: people.idle,
+    },
+    list: {
+      title: 'New leads',
+      noun: 'leads',
+      verb: 'by',
+      rows,
+      empty: isToday ? 'No leads created yet today.' : 'No leads were created this day.',
+      noValueTitle: 'No quote on file yet',
+    },
+  }
+}
+
+function wonPanel({ data, employees, eyebrow, isToday }) {
+  const byId = new Map(employees.map((e) => [e.id, e]))
+  const wins = wonRowsOf(data)
+  const valued = wins.filter((s) => dealValueOf(s.leads) > 0)
+  const total = wins.reduce((s, r) => s + dealValueOf(r.leads), 0)
+  const biggest = valued.reduce((best, s) => (best && dealValueOf(best.leads) >= dealValueOf(s.leads) ? best : s), null)
+
+  const rows = wins
+    .map((s) => {
+      const owner = byId.get(s.leads.owner_employee_id)
+      const at = parseTimestamp(s.changed_at)
+      const v = dealValueOf(s.leads)
+      return {
+        id: s.id,
+        leadId: s.lead_id ?? s.leads.id,
+        name: leadName(s.leads),
+        bdmId: s.leads.bdm_employee_id ?? null,
+        at,
+        time: formatClockTime(at),
+        stage: null,
+        personId: owner?.id ?? null,
+        personName: owner?.name ?? null,
+        meta: '',
+        value: v > 0 ? formatCurrencyCompact(v) : '—',
+        hasValue: v > 0,
+      }
+    })
+    .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0))
+
+  const people = groupByPerson(employees, wins, (s) => s.leads.owner_employee_id, (s) => dealValueOf(s.leads))
+  const unpriced = wins.length - valued.length
+
+  return {
+    kind: 'dayTile',
+    eyebrow,
+    title: 'Deals won',
+    value: String(wins.length),
+    note: "Credited to the lead's current owner. Value is the order value, else the quote.",
+    figures: wins.length
+      ? [
+          { label: 'Order value', value: total > 0 ? formatCurrencyCompact(total) : '—', sub: plural(wins.length, 'deal') },
+          {
+            label: 'Average deal',
+            value: valued.length ? formatCurrencyCompact(total / valued.length) : '—',
+            sub: valued.length ? `per deal with a value` : 'no value on file',
+          },
+          { label: 'Biggest deal', value: biggest ? formatCurrencyCompact(dealValueOf(biggest.leads)) : '—', sub: biggest ? leadName(biggest.leads) : 'no value on file' },
+          // Counted as ₹0 in the total (as the tile does) and left out of the average.
+          { label: 'No value on file', value: String(unpriced), sub: unpriced > 0 ? 'counted as ₹0' : 'every deal has one' },
+        ]
+      : [],
+    people: {
+      show: employees.length > 1 && wins.length > 0,
+      title: 'Closed by',
+      rows: people.rows.map((p) => ({ ...p, sub: p.value > 0 ? formatCurrencyCompact(p.value) : 'no value on file' })),
+      idleLabel: 'Nothing closed by',
+      idle: people.idle,
+    },
+    list: {
+      title: 'Closed deals',
+      noun: 'deals',
+      verb: 'closed by',
+      rows,
+      empty: isToday ? 'No deals won yet today.' : 'No deals were won this day.',
+      noValueTitle: 'No order value or quote on file',
+    },
+  }
+}
+
+// `key` is the tile's key ('new_leads' | 'won'); anything else returns null.
+// `employees` is the roster the tiles were drawn for (one person on an exec's
+// own page), `data` is fetchDayReview's answer for `dateISO`.
+export function buildDayTilePanel(key, { data, employees, dateISO, scopeLabel }) {
+  const scope = scopeLabel ?? (employees.length === 1 ? employees[0].name : 'Your team')
+  const args = { data, employees, eyebrow: `${scope} · ${dayLabel(dateISO)}`, isToday: dateISO === todayISO() }
+  if (key === 'new_leads') return newLeadsPanel(args)
+  if (key === 'won') return wonPanel(args)
+  return null
 }
 
 // ---------------------------------------------------------------------------

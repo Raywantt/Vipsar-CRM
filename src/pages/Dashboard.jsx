@@ -25,7 +25,7 @@ import DayReviewCard from '../components/DayReviewCard'
 import { DayDateBar, DayKpiStrip } from '../components/DayReviewHeader'
 import { fetchDayReview, fetchChangeLogStart } from '../lib/dayReviewQueries'
 import { rescheduleFollowUp } from '../lib/followUpQueries'
-import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
+import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel, buildDayTilePanel } from '../lib/dayReview'
 import { formatClockTime } from '../lib/dbTime'
 import { RANGE_LABELS, rangeForPreset, rangeLabelFor, previousRangeFor } from '../lib/dateRanges'
 import { targetPeriodFor } from '../lib/targetPeriods'
@@ -720,7 +720,11 @@ function Dashboard() {
   const dayIsPast = dayDate < todayISO()
   const dayRows = dayData ? buildDayRows(dayEmployees, dayData, dayIsPast) : []
   const dayTotals = buildDayTotals(dayRows)
-  const dayKpis = dayData ? buildDayKpis(dayData, dayRows, dayIsPast) : []
+  const dayKpis = dayData
+    ? buildDayKpis(dayData, dayRows, dayIsPast, (key) =>
+        setPanel(buildDayTilePanel(key, { data: dayData, employees: dayEmployees, dateISO: dayDate, scopeLabel: seesOthersData ? 'Your team' : undefined }))
+      )
+    : []
 
   function openDaySheet(employeeId) {
     const target = dayEmployees.find((e) => e.id === employeeId)

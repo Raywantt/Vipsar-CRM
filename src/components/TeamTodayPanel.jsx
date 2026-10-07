@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { fetchDayReview } from '../lib/dayReviewQueries'
-import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
+import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel, buildDayTilePanel } from '../lib/dayReview'
 import { buildAgeingPanel } from '../lib/attention'
 import { useAttentionBuckets } from '../hooks/useAttentionBuckets'
 import { useCachedQuery } from '../hooks/useCachedQuery'
@@ -79,7 +79,11 @@ function TeamTodayPanel({
 
   const dayRows = dayData ? buildDayRows(execs, dayData, false) : []
   const dayTotals = buildDayTotals(dayRows)
-  const dayKpis = dayData ? buildDayKpis(dayData, dayRows, false) : []
+  const dayKpis = dayData
+    ? buildDayKpis(dayData, dayRows, false, (key) =>
+        setPanel(buildDayTilePanel(key, { data: dayData, employees: execs, dateISO: todayISO(), scopeLabel: 'Your team' }))
+      )
+    : []
 
   // RLS already scopes this to the supervisor's team, so the red-flags
   // queue needs no owner filter the way Home's personal one does — see

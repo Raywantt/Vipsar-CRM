@@ -635,6 +635,44 @@ Load-bearing:
   Biggest. A facet with a single choice hides itself; an exec with no new leads stays on
   By exec at the bottom.
 
+**The Today tiles' popup** (2026-10-07; "New leads created" and "Deals won" in the
+day KPI strip) is its own panel kind, `dayTile` (`buildDayTilePanel` in
+`dayReview.js` + `DayTileBody`). The strip is `buildDayKpis`'s, so **one change
+covers every surface that draws it**: the owner's Today, the coordinator's Today
+and the manager's "My team" tab (`TeamTodayPanel`), and Dashboard's Today range
+for every role that has one (an exec's is a one-person view). Each caller passes
+`buildDayKpis` a 4th argument, `onOpenTile(key)`; without it every tile stays
+static — which is why Home's own "Done today" strip (a different tile set) and
+the BDM screens are untouched, and why "Activities logged" / "Follow-ups" stay
+static (owner's choice, 2026-10-07). It follows the day on screen. Sections:
+four figures → **Created by / Closed by** (per person, busiest first; people with
+nothing named in one line) → the list (latest first, "+N more"). Load-bearing:
+- **A popup cannot total differently from its tile.** Both read `countedNewLeads`
+  / `wonRowsOf`; `dayReview.test.js` pins count, value and the "quoted" line.
+  **`countedNewLeads` is the leads created by someone ON THE ROSTER** — the count
+  was always that, but the tile's "₹X quoted" sub-line used to sum every lead
+  created that day, including ones a coordinator entered for a rep or a BDM
+  brought in (creator off the roster, in no one's column). It now sums the
+  counted set, so a figure can differ from before on such a day. Not a change of
+  what is counted.
+- **New leads are credited to who CREATED them** (the Day Review rule, so a later
+  reassignment doesn't move them); **deals to the lead's current owner**, the
+  attribution every booked figure uses. A deal whose owner isn't on the roster
+  is filed under "Someone else". One row per `stage_history` 'won' row, as the
+  tile counts them; a deal with no order value or quote shows "—", counts as ₹0
+  in the total and is left out of the average.
+- **Figures are drawn by the body (`panel.figures`), never as the panel's own
+  `stats`.** A root-level `.vip-dd-stats` is a flex child of the fixed-height
+  panel with `overflow: hidden`, so a long list below shrinks it to ~1px —
+  seen live on this popup at 13 rows, and **already true of the Lead data
+  completeness popup**. There are exactly 4 figures because the grid is 2
+  columns on a phone and 4 on desktop; 3 leaves a hole at both.
+- The eyebrow names the viewer's scope — "Your team" on the team screens even
+  when a coordinator's team is one exec, the person's own name on a one-person
+  view — and "Today" or the weekday and date.
+- A tile reading 0 is a button too: the popup says "No leads created yet today."
+  rather than draw an empty frame.
+
 ### Colour tokens
 
 **Never redeclare a hex constant locally.** Shared tone tokens
