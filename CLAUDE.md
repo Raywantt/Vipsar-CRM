@@ -183,7 +183,7 @@ src/
                 followupDates, dayReview, drilldownBuilders, selfAssignTest,
                 appUpdate, poolLeads, architectStats, bdmDashboard,
                 bdmLeadUpdates, architectNetwork, firmLabel,
-                bookedOrders, periodChange, leadExport, leadExportFile,
+                bookedOrders, leadSources, periodChange, leadExport, leadExportFile,
                 rfqDesk, rfqDeskReport,
                 queries: dashboardQueries, searchQueries, targetQueries,
                 partyQueries, employeeQueries, lookupQueries,
@@ -432,7 +432,7 @@ itself — a single element resized by media query (full-screen sheet below
 content.
 
 `src/lib/drilldownBuilders.js` holds one pure `build*Panel` per panel kind
-(`log`/`ageing`/`attain`/`activities`/`booked`/`pipeline`/`winrate`/`forecast`/
+(`log`/`ageing`/`attain`/`activities`/`booked`/`sources`/`pipeline`/`winrate`/`forecast`/
 `mix`/`loss`/`daySheet`/`followup`/`stageLeads`). Each shapes already-fetched state into
 props and makes **no network calls**; none produces a verdict/narrative
 field, and `DrilldownPanel` has no section that would render one.
@@ -574,6 +574,66 @@ BDM" line) → **Closed deals** (Latest/Biggest, "+N more"). Load-bearing:
 - `office_territory` was added to `BREAKDOWN_LEAD_COLUMNS` (the BDM Dashboard's
   fetch shares it; the column already existed live). `OwnerStageFilters` gained a
   `more` prop for extra chip facets; `changeVs` moved to `periodChange.js`.
+
+**The New leads by source popup** (2026-10-07; the card's "Details ›") is its own
+panel kind, `sources` (`buildSourcePanel` + `SourcesBody`; the pure data is
+`src/lib/leadSources.js`). It replaced the generic `mix` view (donut + 5 rows of
+count/share/all-time win rate) — `buildMixPanel` is deleted, `mix` stays for the
+Area / Site stage / Product cards. For every Dashboard role, scoped like the card.
+Sections: filters (Owner + **Source, Office, Status, Product** chips) → strip (New
+leads ▲/▼, Top source, Busiest day/week/month, Won so far) → **New leads per
+day/week/month** (stacked by source) → **By source** → **What became of them** →
+**By exec** → **Office and product** → the **New leads** list (Latest/Biggest).
+Load-bearing:
+- **Membership is the card's rule**: `created_at` in the range (`parseTimestamp` —
+  the column is a naive UTC TIMESTAMP), pool leads out, only the sources the viewer is
+  offered (an exec sees Scanning/Walk-in, so their own Lixil/referral leads are NOT
+  counted — verified on the test exec's 3 + 2 August leads: card 2, popup 2). A test
+  pins it. The previous period is the same rule over the previous range, read from
+  the same `breakdownLeads` — no fetch of its own.
+- **It opens by REQUEST** (`sourcesOpen`, derived in a memo with
+  `breakdownSettled` → `panel.ready`), like Orders booked: the card knows the count
+  at once, but names/owners/stages come from `breakdownLeads`, the slowest read on
+  the page. Until then it says "Loading the new leads…".
+- **A source (chip, By source row, What-became-of-them row) filters the whole popup
+  in place; pressing it again clears it** (owner's choice over a deeper panel or a
+  jump to All Leads). So do the exec / office / product rows. **A breakdown never
+  filters by its own dimension** (By source ignores source, By exec owner, What
+  became of them both source and status). Keys are strings (`String(ownerId)`).
+- **Status = where a lead stands NOW**, five buckets that partition every lead
+  (`leadStatus`): Won, Lost, On hold, **Quoted** (open + `quote_sent`, or at Quote
+  Submission/Negotiation), Open. On hold is its own bucket (paused, not closed) — the
+  owner's Open/Quoted/Won/Lost list gained it. "What became of them" is the cohort
+  that arrived in the period; **"Won so far" carries no ▲/▼** (an older cohort has
+  simply had longer to convert) and the old **all-time win rate (won ÷ every lead of
+  that source) stays beside each source** as the steadier figure.
+- **Import-dated leads are counted, tagged, and can be left out.** 843 of the 964
+  imported leads carry the sheet's own date (stamped `00:00:00`); the other **121**
+  carry the import moment (2–3 Sep, 18 Sep) and would draw two giant spikes that say
+  when a file was loaded. `hasImportDate` = `legacy-` provenance + a non-midnight
+  stamp. They count (the card does), get an "import date" tag, a footnote says how
+  many — **in the comparison period too**, since "▼ 82% vs last month" against a
+  month holding an import is arithmetic — and a **"Leave them out" switch** drops
+  them from every figure, the chart and the previous period alike. **Whether to
+  exclude them from the figure itself is still the owner's to decide.**
+- **The chart is HTML, not SVG**: each column is a `<button>` (the whole column is
+  the tap target; a tapped bar prints its mix and import count in the readout line),
+  its stack a PERCENTAGE of the track (no pixel figure in JS), segments sized by
+  `flex-grow` = count with a 1px gap, no axis or gridlines (the peak is printed). A
+  day per bar to 31 days, a week to ~6 months, a month beyond. Measured: equal counts
+  → equal heights, 5/7 of the peak → 5/7 of the track, nothing clipped, no sideways scroll.
+- **Source colours are tokens, by SOURCE** (`--vip-src-1…5`, section 48, with dark
+  values), the first five slots of the validated data-viz palette. The old
+  teal/slate/purple/olive/grey set failed the colour-blind check (adjacent pairs under
+  ΔE 8). Three light steps are under 3:1 on the surface, so a colour is only ever beside
+  a visible label and count. The card's donut uses the same `sourceColor()` — it used
+  to colour by position in the role's list, so an exec's Walk-in was a different
+  colour from the owner's. Status colours reuse the existing won/lost/warn/navy/neutral
+  tokens.
+- A lead with several products counts under each (footnote says so, shares add up to
+  more than 100%); an unquoted lead's value is `—`, never ₹0, and sorts last under
+  Biggest. A facet with a single choice hides itself; an exec with no new leads stays on
+  By exec at the bottom.
 
 ### Colour tokens
 
@@ -2093,7 +2153,8 @@ days ago with no quote. Thresholds are named constants at the top of
 * **New leads by source** — a sales exec sees only `SALES_EXEC_SOURCES`
   (Scanning/Walk-in); Lixil and referrals are distributed by the owner, not
   something a rep sources, so showing all 5 was mostly zeros. Donut + legend
-  at ≥1024px, bar rows below.
+  at ≥1024px, bar rows below. "Details ›" opens the `sources` popup (see Drill-down
+  plumbing).
 * **Closure forecast** — not-won/not-lost leads with `quote_sent` or a
   probability set, sorted by `estimated_close_date` ascending (nulls last).
   Deliberately **not** date-range-scoped: a snapshot of the current pipeline,

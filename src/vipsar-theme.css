@@ -3946,3 +3946,96 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
 }
 .vip-rfqdesk-rowbtn:hover { color: var(--vip-teal-dark); }
 .vip-rfqdesk-head-end { display: inline-flex; align-items: center; gap: 10px; }
+
+/* ===========================================================================
+   48. New leads by source popup (vip-sp-*, SourcesBody in DrilldownPanel.jsx,
+       2026-10-07)
+   ===========================================================================
+   Built almost entirely from section 36's rows and the drill-down's own
+   vocabulary; what it adds is the five SOURCE colours, a stacked bar per
+   day/week/month, a composition bar per source, and the press-to-filter row.
+
+   The five --vip-src-* are the first five slots of the data-viz categorical
+   palette, one per source, in SOURCE_TYPE_OPTIONS order (src/lib/leadSources.js
+   maps them). Validated for adjacent colour-blind separation (worst ΔE 9.1
+   light / 8.4 dark, normal-vision 19.6 / 19.3) — the teal/slate/purple/olive/grey
+   set they replace failed it. Three light steps sit under 3:1 on the surface, so
+   a colour here is only ever beside a visible label and count, never alone.
+   Declared after section 22, so its own dark values live here: the media query
+   covers the OS setting, [data-theme="dark"] the Profile toggle, and the
+   :not([data-theme="light"]) guard lets an explicit light stamp beat OS-dark. */
+:root {
+  --vip-src-1: #2a78d6;
+  --vip-src-2: #eb6834;
+  --vip-src-3: #1baf7a;
+  --vip-src-4: #eda100;
+  --vip-src-5: #e87ba4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --vip-src-1: #3987e5;
+    --vip-src-2: #d95926;
+    --vip-src-3: #199e70;
+    --vip-src-4: #c98500;
+    --vip-src-5: #d55181;
+  }
+}
+:root[data-theme="dark"] {
+  --vip-src-1: #3987e5;
+  --vip-src-2: #d95926;
+  --vip-src-3: #199e70;
+  --vip-src-4: #c98500;
+  --vip-src-5: #d55181;
+}
+
+/* The colour key beside a label. A 2px surface ring keeps it legible where it
+   sits on a filled chip or a tinted row. */
+.vip-sp-dot {
+  display: inline-block; flex: 0 0 auto; width: 9px; height: 9px; margin-right: 6px;
+  border-radius: 50%; vertical-align: baseline; box-shadow: 0 0 0 1.5px var(--vip-surface);
+}
+.vip-act-row-main > .vip-sp-dot { margin-right: 0; }
+
+/* A row that filters the popup when pressed. */
+.vip-sp-pick { cursor: pointer; border-radius: 6px; }
+.vip-sp-pick:hover { background: var(--vip-surface-soft); }
+.vip-sp-pick:focus-visible { outline: 2px solid var(--vip-teal); outline-offset: 1px; }
+
+/* ---- New leads per day: a stacked bar, a whole column is the tap target ----
+   The track is a fixed-height flex row; each column fills it and bottom-aligns
+   its stack, whose height is a PERCENTAGE of the track — JS knows no pixel
+   figure (UI-DESIGN 4.1). No axis, no gridlines: the peak is printed under it.
+   A segment is sized by flex-grow = its count, with a 1px surface gap — no border
+   drawn round a mark. No entry animation: a frozen first frame must not be an
+   invisible chart (UI-DESIGN 4.2). */
+.vip-sp-chart { display: flex; align-items: stretch; gap: 3px; height: 96px; }
+.vip-sp-col {
+  flex: 1 1 0; min-width: 0; padding: 0; border: 0; border-radius: 3px; background: none;
+  display: flex; align-items: flex-end; cursor: pointer;
+}
+.vip-sp-col:hover { background: var(--vip-surface-soft); }
+.vip-sp-col-on { background: var(--vip-track); }
+.vip-sp-col:focus-visible { outline: 2px solid var(--vip-teal); outline-offset: 1px; }
+.vip-sp-stack { width: 100%; display: flex; flex-direction: column-reverse; gap: 1px; border-radius: 2px 2px 0 0; overflow: hidden; }
+.vip-sp-seg { display: block; flex: 1 1 0; min-height: 0; }
+/* A period with nothing in it: a pale tick, so "none" is visible, not absent. */
+.vip-sp-none { display: block; width: 100%; height: 2px; background: var(--vip-line); border-radius: 1px; }
+
+/* What the tapped bar holds. Wraps; never clips. */
+.vip-sp-readout {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-height: 22px;
+  margin-top: 8px; font-size: 12px; color: var(--vip-body);
+}
+.vip-sp-readout-title { font-weight: 600; color: var(--vip-ink); }
+.vip-sp-readout-part { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ---- What became of them ---- */
+.vip-sp-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; color: var(--vip-muted); margin: 2px 0 4px; }
+.vip-sp-legend-item { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* One bar per source, always the full width — the SPLIT is the point, the count
+   is the number beside it. A segment is sized by flex-grow = its count. */
+.vip-sp-status {
+  flex: 0 0 96px; height: 10px; display: flex; gap: 1px; border-radius: 3px;
+  overflow: hidden; background: var(--vip-line-soft);
+}
+.vip-sp-seg-h { display: block; flex: 1 1 0; min-width: 0; }

@@ -32,6 +32,8 @@ import { ARCHITECT_MEETING_DAYS, lastMetLabel } from './architectStats'
 import { firmLabel } from './firmLabel'
 import { changeVs } from './periodChange'
 import { closedDeals, dealsIn, bookedFacets, computeBookedView } from './bookedOrders'
+import { leadRecords, leadsIn, leadFacets, computeSourceView } from './leadSources'
+import { SOURCE_TYPE_OPTIONS } from './sourceTypeOptions'
 
 const CLOSED_STAGES = ['won', 'lost']
 
@@ -1719,50 +1721,74 @@ export function buildForecastPanel({ forecast, scopeLabel = 'Company' }) {
   }
 }
 
-// ---------- mix: leads by source ----------
-export function buildMixPanel({ periodLeads, breakdownLeads, sourceOptions, rangeLabel, scopeLabel = 'Company' }) {
-  const total = periodLeads.length
-  const counts = sourceOptions.map((opt) => ({
-    label: opt.label,
-    value: opt.value,
-    count: periodLeads.filter((l) => l.source_type === opt.value).length,
-  }))
-  const palette = ['#0f6b6b', '#2f5878', '#5a4287', '#7a6413', '#9aa5a6']
-
-  const mixRows = counts.map((c, i) => {
-    const allTime = breakdownLeads.filter((l) => l.source_type === c.value)
-    const won = allTime.filter((l) => l.current_stage === 'won').length
-    const conv = allTime.length ? Math.round((won / allTime.length) * 100) : null
-    return {
-      label: c.label,
-      count: c.count,
-      share: total ? `${Math.round((c.count / total) * 100)}%` : '0%',
-      conv: conv != null ? `${conv}%` : '—',
-      color: palette[i % palette.length],
-      convColor: conv == null ? '#8a9698' : conv >= 45 ? '#1f6f4a' : conv >= 30 ? '#7a6413' : '#b4232a',
-    }
-  })
+// ---------- sources: the "New leads by source" popup ----------
+//
+// Its own panel kind rather than the generic `mix` one (donut + legend rows), for
+// the same reason the Activities and Orders booked popups are: it is a different
+// SHAPE — a filterable, multi-section read of the leads that arrived in the period
+// (how many, when, from where, who got them, and what became of them) instead of a
+// list of counts. Same architecture as those two: pure, returns
+// `viewFor(filters, sort)` and the body re-derives every section for a filter
+// combination on demand. Nothing is fetched — the period's leads, the previous
+// period's and the all-time figures all come out of `breakdownLeads`, which the
+// Dashboard already holds (src/lib/leadSources.js says how).
+//
+// `leadsReady` is false while that fetch is still in flight: the period's COUNT
+// is known from the card, but the leads' names, owners and stages are not, and a
+// popup drawn without them would print "Lead #1205" as though that were the
+// answer. The body says it is loading instead.
+export function buildSourcePanel({
+  breakdownLeads,
+  sourceOptions,
+  employees,
+  products = [],
+  range,
+  rangeLabel,
+  previous = null,
+  scopeLabel = 'Company',
+  // False for a single-person view (a sales exec, a manager's "My numbers"): no
+  // Owner filter and no "Who brought them in". Not derivable from `employees` — an
+  // exec's roster is the whole company, so trusting it listed every colleague at
+  // zero, which reads as "they got nothing" when the exec simply cannot see them.
+  compareExecs = true,
+  leadsReady = true,
+}) {
+  const all = leadRecords({ breakdownLeads, sourceOptions, employees, products })
+  const leads = leadsIn(all, range)
+  const previousLeads = previous ? leadsIn(all, previous.range) : null
+  const roster = compareExecs ? employees : []
+  const filters = leadFacets(leads, { sourceOptions, roster })
+  if (!compareExecs) filters.owners = []
+  const trimmed = sourceOptions.length < SOURCE_TYPE_OPTIONS.length
 
   return {
-    kind: 'mix',
+    kind: 'sources',
     eyebrow: `${scopeLabel} · lead source`,
     title: 'Where new leads come from',
-    value: String(total),
-    note: `${rangeLabel}. Conversion is all-time (won ÷ total) for that source, not scoped to this period.`,
-    mixTotal: String(total),
-    mixUnit: 'NEW',
-    mixRows,
+    value: String(leads.length),
+    delta: null,
+    note: `${rangeLabel}. Leads created in the period, by where they came from and where each stands now.${
+      trimmed ? ' Lixil and referral leads are handed out by the owner, so only your own sourcing is counted.' : ''
+    }`,
+    // The stat strip lives in the body — it follows the filters; the header
+    // above it, like every other filterable panel's, stays as it opened.
+    stats: null,
+    ready: leadsReady,
+    previousLabel: previous?.label ?? null,
+    filters,
+    viewFor: (chosen, sort) =>
+      computeSourceView({ leads, previousLeads, allTime: all, sourceOptions, roster, filters: chosen, sort, range, previousLabel: previous?.label ?? null }),
   }
 }
 
 const CATEGORY_PALETTE = ['#0f6b6b', '#2f5878', '#5a4287', '#7a6413', '#9aa5a6', '#0b5252', '#4a7a9e', '#8a6bab', '#a8853a', '#6f7c7e']
 
 // ---------- mix: generic category breakdown (Area / Site stage / Product) ----------
-// Reuses the exact same `mix` kind as buildMixPanel above — donut + legend
-// rows are a generic enough shape for "count of leads per bucket" that a
-// second kind isn't needed. Unlike source (which is date-range scoped),
-// these are pipeline snapshots off the same unbounded `breakdownLeads` the
-// compact card itself groups — same numbers, just the rows the card capped.
+// The generic `mix` kind — donut + legend rows are a generic enough shape for
+// "count of leads per bucket". (The New leads by source card used to open it
+// too; it has its own `sources` kind above now.) These are pipeline snapshots
+// off the same unbounded `breakdownLeads` the compact card itself groups —
+// same numbers, just the rows the card capped.
 export function buildCategoryMixPanel({ breakdownLeads, getCategory, eyebrow, title, unit }) {
   const counts = new Map()
   // getCategory may return several { category } entries for one lead (a

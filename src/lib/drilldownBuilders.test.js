@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   wonEventsInRange,
-  buildMixPanel,
   buildCategoryMixPanel,
   buildLossPanel,
   buildWinRatePanel,
@@ -61,34 +60,6 @@ describe('wonEventsInRange', () => {
       { lead_id: 'L3', changed_at: '2026-07-15T00:00:00Z', leads: { owner_employee_id: 'e1', order_value: 1000 } },
     ]
     expect(wonEventsInRange(wonStageHistory, range)).toHaveLength(0)
-  })
-})
-
-describe('buildMixPanel', () => {
-  const sourceOptions = [
-    { label: 'Scanning', value: 'scanning' },
-    { label: 'Lixil', value: 'lixil' },
-  ]
-
-  it('computes share of total and all-time conversion per source', () => {
-    const periodLeads = [{ source_type: 'scanning' }, { source_type: 'scanning' }, { source_type: 'lixil' }]
-    const breakdownLeads = [
-      { source_type: 'scanning', current_stage: 'won' },
-      { source_type: 'scanning', current_stage: 'negotiation' },
-      { source_type: 'lixil', current_stage: 'lost' },
-    ]
-    const panel = buildMixPanel({ periodLeads, breakdownLeads, sourceOptions, rangeLabel: 'This month' })
-    expect(panel.kind).toBe('mix')
-    expect(panel.value).toBe('3')
-    const scanning = panel.mixRows.find((r) => r.label === 'Scanning')
-    expect(scanning.count).toBe(2)
-    expect(scanning.share).toBe('67%')
-    expect(scanning.conv).toBe('50%') // 1 won / 2 all-time scanning leads
-  })
-
-  it('renders "—" conversion for a source with zero all-time leads', () => {
-    const panel = buildMixPanel({ periodLeads: [], breakdownLeads: [], sourceOptions, rangeLabel: 'This month' })
-    panel.mixRows.forEach((r) => expect(r.conv).toBe('—'))
   })
 })
 

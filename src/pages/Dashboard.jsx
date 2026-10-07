@@ -56,7 +56,7 @@ import {
   buildPipelinePanel,
   buildWinRatePanel,
   buildForecastPanel,
-  buildMixPanel,
+  buildSourcePanel,
   buildCategoryMixPanel,
   buildLossPanel,
   buildLogPanel,
@@ -480,6 +480,9 @@ function Dashboard() {
   // leads land. undefined = closed · null = everyone · an id = opened on one
   // exec (the heatmap cell).
   const [bookedFor, setBookedFor] = useState(undefined)
+  // The New leads by source popup is opened by request for the same reason: it is
+  // built from `breakdownLeads`. true = open.
+  const [sourcesOpen, setSourcesOpen] = useState(false)
 
   // ---- The sales manager's My / Team switch ----
   //
@@ -785,9 +788,39 @@ function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `range` is rebuilt every render; its two timestamps stand for it
     [bookedFor, employees, targets, wonStageHistory, breakdownLeads, breakdownSettled, rangeStartMs, rangeEndMs, rangeLabel, preset, offset, scopeLabel, isOwner, seesOthersData, productList]
   )
+  // SALES_EXEC_SOURCES trims this to Scanning/Walk-in for a rep, because Lixil
+  // and referral leads are distributed by the owner rather than self-sourced,
+  // so those rows are all zeros on a rep's own dashboard. That reasoning does
+  // not extend to a coordinator: their team genuinely holds Lixil and referral
+  // leads, so the trimmed list hid real data from the person supervising it.
+  const sourceOptionsForRole = seesOthersData
+    ? SOURCE_TYPE_OPTIONS
+    : SOURCE_TYPE_OPTIONS.filter((t) => SALES_EXEC_SOURCES.includes(t.value))
+
+  // Rebuilt whenever the data it reads changes, like bookedPanel above.
+  const sourcesPanel = useMemo(
+    () =>
+      !sourcesOpen || !range
+        ? null
+        : buildSourcePanel({
+            breakdownLeads,
+            sourceOptions: sourceOptionsForRole,
+            employees,
+            products: productList,
+            range,
+            rangeLabel,
+            previous: previousRangeFor(preset, range, offset),
+            scopeLabel,
+            compareExecs: seesOthersData,
+            leadsReady: breakdownSettled,
+          }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `range` is rebuilt every render; its two timestamps stand for it
+    [sourcesOpen, breakdownLeads, breakdownSettled, employees, productList, rangeStartMs, rangeEndMs, rangeLabel, preset, offset, scopeLabel, seesOthersData]
+  )
   function closePanel() {
     setPanel(null)
     setBookedFor(undefined)
+    setSourcesOpen(false)
   }
 
   // Fast path when the RPC answered; otherwise the original client-side
@@ -817,15 +850,6 @@ function Dashboard() {
   const winRatePct = decidedInRange.length
     ? Math.round((decidedInRange.filter((r) => r.stage === 'won').length / decidedInRange.length) * 100)
     : null
-  // SALES_EXEC_SOURCES trims this to Scanning/Walk-in for a rep, because Lixil
-  // and referral leads are distributed by the owner rather than self-sourced,
-  // so those rows are all zeros on a rep's own dashboard. That reasoning does
-  // not extend to a coordinator: their team genuinely holds Lixil and referral
-  // leads, so the trimmed list hid real data from the person supervising it.
-  const sourceOptionsForRole = seesOthersData
-    ? SOURCE_TYPE_OPTIONS
-    : SOURCE_TYPE_OPTIONS.filter((t) => SALES_EXEC_SOURCES.includes(t.value))
-
   async function handleOpenLog(employeeId, activityType) {
     const employee = employees.find((e) => e.id === employeeId)
     if (!employee || !range) return
@@ -937,7 +961,7 @@ function Dashboard() {
 
   return (
     <div className="vip-wide vip-pad-fab-overhang">
-      <DrilldownPanel panel={bookedPanel ?? panel} onClose={closePanel} onCancelTarget={handleCancelTarget} />
+      <DrilldownPanel panel={bookedPanel ?? sourcesPanel ?? panel} onClose={closePanel} onCancelTarget={handleCancelTarget} />
 
       {activeTab === 'reports' && (
         <>
@@ -1207,13 +1231,7 @@ function Dashboard() {
                   rangeLabel={rangeLabel}
                   onOpenPanel={range ? handleOpenActivities : undefined}
                 />
-                <LeadsBySourceCard
-                  leads={leads}
-                  showByEmployee={seesOthersData}
-                  onOpenPanel={() =>
-                    setPanel(buildMixPanel({ periodLeads: leads, breakdownLeads, sourceOptions: sourceOptionsForRole, rangeLabel, scopeLabel }))
-                  }
-                />
+                <LeadsBySourceCard leads={leads} showByEmployee={seesOthersData} onOpenPanel={() => setSourcesOpen(true)} />
               </>
             )}
 

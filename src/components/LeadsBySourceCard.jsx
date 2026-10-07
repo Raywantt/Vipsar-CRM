@@ -1,5 +1,6 @@
 import { SOURCE_TYPE_OPTIONS } from '../lib/sourceTypeOptions'
 import DonutChart from './DonutChart'
+import { sourceColor } from '../lib/leadSources'
 
 function emptyCounts(sourceOptions) {
   return Object.fromEntries(sourceOptions.map((t) => [t.value, 0]))
@@ -12,9 +13,9 @@ function emptyCounts(sourceOptions) {
 // subset instead of a second copy that could drift from it.
 export const SALES_EXEC_SOURCES = ['scanning', 'showroom_walkin']
 
-const DONUT_PALETTE = ['#0f6b6b', '#2f5878', '#5a4287', '#7a6413', '#9aa5a6']
-
-// onOpenPanel (optional) opens the `mix` drill-down (src/lib/drilldownBuilders.js).
+// onOpenPanel (optional) opens the `sources` popup (src/lib/drilldownBuilders.js).
+// Each source keeps one colour (sourceColor) here, in that popup's chart and in
+// every row of it — by source, not by its position in whatever list this role sees.
 // This card used to also render a "by exec" matrix (one column per
 // employee, no cap) — dropped so the card stays a fixed height regardless
 // of employee count; per-exec source detail isn't surfaced elsewhere yet.
@@ -30,7 +31,7 @@ function LeadsBySourceCard({ leads, showByEmployee, onOpenPanel }) {
   })
   const maxCount = Math.max(1, ...Object.values(totals))
 
-  const donutSegments = sourceOptions.map((t, i) => ({ count: totals[t.value], color: DONUT_PALETTE[i % DONUT_PALETTE.length] }))
+  const donutSegments = sourceOptions.map((t) => ({ count: totals[t.value], color: sourceColor(t.value) }))
 
   return (
     <div className="vip-card">
@@ -51,9 +52,9 @@ function LeadsBySourceCard({ leads, showByEmployee, onOpenPanel }) {
             <div className="vip-dd-mix-row">
               <DonutChart segments={donutSegments} size={104} centerValue={visibleLeads.length} centerLabel="NEW" />
               <div className="vip-dd-mix-legend">
-                {sourceOptions.map((t, i) => (
+                {sourceOptions.map((t) => (
                   <div key={t.value} className="vip-dd-mix-legend-row">
-                    <span className="vip-dd-legend-swatch" style={{ background: DONUT_PALETTE[i % DONUT_PALETTE.length] }} />
+                    <span className="vip-dd-legend-swatch" style={{ background: sourceColor(t.value) }} />
                     <span className="vip-dd-mix-legend-label">{t.label}</span>
                     <span className="vip-dd-mix-legend-count">{totals[t.value]}</span>
                   </div>

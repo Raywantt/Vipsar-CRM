@@ -11,6 +11,7 @@ import { todayISO, toISODate } from '../lib/followupDates'
 import ShowMoreRows from './ShowMoreRows'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { canOpenEmployeeProfiles } from '../lib/roles'
+import { sourceColor } from '../lib/leadSources'
 
 // Chunk size for ShowMoreRows in every drill-down body below that renders an
 // otherwise-unbounded list (a Needs Attention bucket, every lead at one
@@ -919,20 +920,47 @@ const BOOKED_SORTS = [
   { key: 'biggest', label: 'Biggest' },
 ]
 
-function BreakdownRows({ rows }) {
+// A row that filters the popup when pressed. A button to the keyboard and to a
+// screen reader without being a <button> — a row holds blocks, and the By exec
+// one holds a link. A key pressed on something INSIDE the row (that link) is the
+// link's, not the row's.
+function pickProps(onPick, key, active) {
+  if (!onPick) return {}
+  return {
+    role: 'button',
+    tabIndex: 0,
+    'aria-pressed': !!active,
+    onClick: () => onPick(key),
+    onKeyDown: (e) => {
+      if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
+      e.preventDefault()
+      onPick(key)
+    },
+  }
+}
+
+// `onPick` (optional) makes each row press-to-filter; a row with `color` gets
+// that swatch and bar colour (the source popup's rows).
+function BreakdownRows({ rows, onPick }) {
   return rows.map((r) => (
-    <div key={r.key} className={r.active ? 'vip-act-row vip-act-row-selected' : 'vip-act-row'}>
+    <div
+      key={r.key}
+      className={`${r.active ? 'vip-act-row vip-act-row-selected' : 'vip-act-row'}${onPick ? ' vip-sp-pick' : ''}`}
+      {...pickProps(onPick, r.key, r.active)}
+    >
       <div className="vip-act-row-main">
+        {r.color && <span className="vip-sp-dot" style={{ background: r.color }} />}
         <span className="vip-dd-contrib-label" style={r.active ? { fontWeight: 700 } : undefined}>
           {r.label}
         </span>
         <span className="vip-dd-contrib-track">
-          <span className="vip-dd-contrib-fill" style={{ width: r.pct }} />
+          <span className="vip-dd-contrib-fill" style={{ width: r.pct, ...(r.color ? { background: r.color } : null) }} />
         </span>
         <span className="vip-dd-contrib-value">{r.value}</span>
       </div>
       <div className="vip-act-row-sub">
         <span>{r.sub}</span>
+        <ChangeText change={r.change} />
       </div>
     </div>
   ))
@@ -1150,6 +1178,403 @@ function BookedBody({ panel }) {
               </div>
             ))}
             <ShowMoreRows shown={shown.length} total={view.rows.length} noun="deals" onShowMore={() => setVisible((v) => v + DEAL_CHUNK)} />
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// The New leads by source popup (buildSourcePanel in drilldownBuilders.js; the
+// data is src/lib/leadSources.js). Everything is read out of state the Dashboard
+// already holds, so it opens fully drawn once the leads have landed.
+//
+// A source (a chip, a By source row, a What-became-of-them row) filters the whole
+// popup in place; pressing it again clears it. As in the Orders booked popup a
+// breakdown never filters by its own dimension: By source ignores the source
+// filter, By exec the owner one, What became of them both the source and the
+// status ones, so picking a source doesn't reduce the list of sources to one row.
+const LEAD_CHUNK = 10
+const SOURCE_SORTS = [
+  { key: 'latest', label: 'Latest' },
+  { key: 'biggest', label: 'Biggest' },
+]
+
+function SourcesBody({ panel }) {
+  const { filters } = panel
+  const [owner, setOwner] = useState('')
+  const [source, setSource] = useState('')
+  const [office, setOffice] = useState('')
+  const [status, setStatus] = useState('')
+  const [product, setProduct] = useState('')
+  const [noImports, setNoImports] = useState(false)
+  const [sort, setSort] = useState('latest')
+  const [visible, setVisible] = useState(LEAD_CHUNK)
+  const [picked, setPicked] = useState(null)
+
+  useEffect(() => {
+    setOwner('')
+    setSource('')
+    setOffice('')
+    setStatus('')
+    setProduct('')
+    setNoImports(false)
+    setSort('latest')
+    setVisible(LEAD_CHUNK)
+    setPicked(null)
+  }, [panel])
+
+  // A choice the panel doesn't offer (the options are fixed per panel, so this
+  // only guards a stale value across panels) is treated as "All".
+  const offered = (options, value) => (options.some((o) => o.key === value) ? value : '')
+  const activeOwner = offered(filters.owners, owner)
+  const activeSource = offered(filters.sources, source)
+  const activeOffice = offered(filters.offices, office)
+  const activeStatus = offered(filters.statuses, status)
+  const activeProduct = offered(filters.products, product)
+  const chosen = [
+    filters.owners.find((o) => o.key === activeOwner)?.name,
+    filters.sources.find((s) => s.key === activeSource)?.label,
+    filters.offices.find((o) => o.key === activeOffice)?.label,
+    filters.statuses.find((s) => s.key === activeStatus)?.label,
+    filters.products.find((p) => p.key === activeProduct)?.label,
+    noImports ? 'without import dates' : null,
+  ].filter(Boolean)
+  const isFiltered = chosen.length > 0
+  const multiPerson = filters.owners.length > 0
+
+  const view = useMemo(
+    () =>
+      panel.viewFor(
+        { owner: activeOwner, source: activeSource, office: activeOffice, status: activeStatus, product: activeProduct, noImports },
+        sort
+      ),
+    [panel, activeOwner, activeSource, activeOffice, activeStatus, activeProduct, noImports, sort]
+  )
+
+  useEffect(() => {
+    setVisible(LEAD_CHUNK)
+    setPicked(null)
+  }, [activeOwner, activeSource, activeOffice, activeStatus, activeProduct, noImports, sort])
+
+  function clearFilters() {
+    setOwner('')
+    setSource('')
+    setOffice('')
+    setStatus('')
+    setProduct('')
+    setNoImports(false)
+  }
+
+  // Pressing the chosen one again clears it.
+  const toggle = (current, set) => (key) => set(current === key ? '' : key)
+  const pickSource = toggle(activeSource, setSource)
+  const pickOwner = toggle(activeOwner, setOwner)
+  const pickOffice = toggle(activeOffice, setOffice)
+  const pickProduct = toggle(activeProduct, setProduct)
+
+  const comparison = panel.previousLabel ? `vs ${panel.previousLabel}` : null
+  const shown = view.rows.slice(0, visible)
+  const { chart } = view
+  const bar = chart.bars.find((b) => b.key === picked) ?? null
+  const officeRows = view.byOffice.length > 1 ? view.byOffice : []
+  const hasWhere = officeRows.length > 0 || view.byProduct.length > 0 || view.viaBdm
+  // Each source chip carries its colour, so the filter row doubles as the legend.
+  // One span, because a chip is a grid and two children would stack.
+  const sourceChips = filters.sources.map((s) => ({
+    key: s.key,
+    label: (
+      <span>
+        <span className="vip-sp-dot" style={{ background: sourceColor(s.key) }} />
+        {s.label}
+      </span>
+    ),
+  }))
+
+  // The count is known from the moment the card is tapped, but whose lead each is
+  // — and what became of it — is not until the leads fetch lands. Saying so beats
+  // drawing "Lead #1205".
+  if (!panel.ready) return <p className="vip-empty">Loading the new leads…</p>
+
+  return (
+    <div className="vip-dd-section-stack">
+      <OwnerStageFilters
+        owners={filters.owners}
+        ownerValue={activeOwner}
+        onOwnerChange={setOwner}
+        allOwnersCount={filters.total}
+        stages={sourceChips}
+        stageValue={activeSource}
+        onStageChange={setSource}
+        stageLabel="Source"
+        more={[
+          { label: 'Office', options: filters.offices, value: activeOffice, onChange: setOffice },
+          { label: 'Status', options: filters.statuses, value: activeStatus, onChange: setStatus },
+          { label: 'Product', options: filters.products, value: activeProduct, onChange: setProduct },
+        ]}
+      />
+      {isFiltered && (
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-hint">
+            {view.total} of {filters.total} new leads · {chosen.join(' · ')}
+          </div>
+          <button type="button" className="vip-btn-link" onClick={clearFilters}>
+            Clear filters
+          </button>
+        </div>
+      )}
+
+      <StatsGrid stats={view.stats} />
+      {noImports ? (
+        <p className="vip-dd-hint">
+          Leaving out leads that carry an import date ({view.imported} here
+          {view.importedPrevious > 0 ? `, ${view.importedPrevious} in ${panel.previousLabel}` : ''}).{' '}
+          <button type="button" className="vip-btn-link" onClick={() => setNoImports(false)}>
+            Count them again
+          </button>
+        </p>
+      ) : (
+        (view.imported > 0 || view.importedPrevious > 0) && (
+          <p className="vip-act-silent">
+            {view.imported > 0
+              ? `${view.imported} of these carry an import date — the day a spreadsheet was loaded, not the day the lead arrived${
+                  view.importedPrevious > 0 ? `, and so do ${view.importedPrevious} in the period compared with (${panel.previousLabel})` : ''
+                }.`
+              : `${view.importedPrevious} lead${view.importedPrevious === 1 ? '' : 's'} in the period compared with (${panel.previousLabel}) carry an import date — the day a spreadsheet was loaded, not the day the lead arrived — so the ▲/▼ figures are inflated.`}{' '}
+            <button type="button" className="vip-btn-link" onClick={() => setNoImports(true)}>
+              Leave them out
+            </button>
+          </p>
+        )
+      )}
+
+      {/* ---- when they came in: stacked by source, a bar is a tap target ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">New leads per {chart.unit}</div>
+          <div className="vip-dd-hint">{chart.hint}</div>
+        </div>
+        {view.total === 0 ? (
+          <p className="vip-empty">{isFiltered ? 'No new leads for this filter.' : 'No new leads in this period yet.'}</p>
+        ) : (
+          <>
+            <div className="vip-sp-chart" role="group" aria-label={`New leads per ${chart.unit}`}>
+              {chart.bars.map((b) => (
+                <button
+                  key={b.key}
+                  type="button"
+                  className={picked === b.key ? 'vip-sp-col vip-sp-col-on' : 'vip-sp-col'}
+                  aria-pressed={picked === b.key}
+                  aria-label={b.tip}
+                  title={b.tip}
+                  onClick={() => setPicked(picked === b.key ? null : b.key)}
+                >
+                  {b.total === 0 ? (
+                    <span className="vip-sp-none" />
+                  ) : (
+                    <span className="vip-sp-stack" style={{ height: b.height }}>
+                      {b.parts.map((p) => (
+                        <span key={p.source} className="vip-sp-seg" style={{ flexGrow: p.count, background: p.color }} />
+                      ))}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="vip-dd-rhythm-range">
+              <span>{chart.from}</span>
+              <span>peak {chart.peak}</span>
+              <span>{chart.to}</span>
+            </div>
+            <div className="vip-sp-readout" aria-live="polite">
+              {bar ? (
+                <>
+                  <span className="vip-sp-readout-title">{bar.label}</span>
+                  <span>{bar.total ? `${bar.total} new` : 'none'}</span>
+                  {bar.parts.map((p) => (
+                    <span key={p.source} className="vip-sp-readout-part">
+                      <span className="vip-sp-dot" style={{ background: p.color }} />
+                      {p.label} {p.count}
+                    </span>
+                  ))}
+                  {bar.imported > 0 && (
+                    <span className="vip-role-tag" title="Imported from a spreadsheet — this date is the import day, not the day the lead arrived">
+                      {bar.imported} import date
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="vip-dd-hint">
+                  {chart.coverage} · tap a bar to see that {chart.unit}&apos;s mix.
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ---- where from: follows every filter except the source one ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">By source</div>
+          <div className="vip-dd-hint">{['tap one to filter', comparison].filter(Boolean).join(' · ')}</div>
+        </div>
+        <BreakdownRows rows={view.bySource} onPick={pickSource} />
+      </div>
+
+      {/* ---- what became of them: the cohort, where each stands today ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">What became of them</div>
+          <div className="vip-dd-hint">where each stands today</div>
+        </div>
+        <div className="vip-sp-legend">
+          {view.outcomeTotals.map((s) => (
+            <span key={s.key} className="vip-sp-legend-item">
+              <span className="vip-sp-dot" style={{ background: s.color }} />
+              {s.label} {s.count}
+            </span>
+          ))}
+        </div>
+        {view.outcomes.map((o) => (
+          <div key={o.key} className={`${o.active ? 'vip-act-row vip-act-row-selected' : 'vip-act-row'} vip-sp-pick`} {...pickProps(pickSource, o.key, o.active)}>
+            <div className="vip-act-row-main">
+              <span className="vip-sp-dot" style={{ background: o.color }} />
+              <span className="vip-dd-contrib-label" style={o.active ? { fontWeight: 700 } : undefined}>
+                {o.label}
+              </span>
+              <span className="vip-sp-status" role="img" aria-label={o.aria}>
+                {o.segments.map((x) => (
+                  <span key={x.key} className="vip-sp-seg-h" title={`${x.count} ${x.label.toLowerCase()}`} style={{ flexGrow: x.count, background: x.color }} />
+                ))}
+              </span>
+              <span className="vip-dd-contrib-value">{o.total}</span>
+            </div>
+            <div className="vip-act-row-sub">
+              <span>{o.text}</span>
+              {o.values && <span>{o.values}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ---- who holds them: follows every filter except the owner one ---- */}
+      {multiPerson && view.byExec.length > 0 && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-head">
+            <div className="vip-dd-section-title">By exec</div>
+            <div className="vip-dd-hint">{['current owner', comparison].filter(Boolean).join(' · ')}</div>
+          </div>
+          {view.byExec.map((e) => (
+            <div key={e.key} className={`${e.selected ? 'vip-act-row vip-act-row-selected' : 'vip-act-row'} vip-sp-pick`} {...pickProps(pickOwner, e.key, e.selected)}>
+              <div className="vip-act-row-main">
+                <span className="vip-dd-avatar vip-dd-avatar-sm">{e.initials}</span>
+                <EmployeeLink id={e.id} name={e.name} className="vip-dd-contrib-label" />
+                <span className="vip-dd-contrib-track">
+                  <span className="vip-dd-contrib-fill" style={{ width: e.pct }} />
+                </span>
+                <span className="vip-dd-contrib-value">{e.value}</span>
+              </div>
+              <div className="vip-act-row-sub">
+                <span>{e.sub}</span>
+                <ChangeText change={e.change} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ---- where they are ---- */}
+      {hasWhere && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-head">
+            <div className="vip-dd-section-title">Office and product</div>
+            <div className="vip-dd-hint">tap one to filter</div>
+          </div>
+          {officeRows.length > 0 && (
+            <div className="vip-stack-s" style={{ gap: 6 }}>
+              <div className="vip-fact-label">By office</div>
+              <BreakdownRows rows={officeRows} onPick={pickOffice} />
+            </div>
+          )}
+          {view.byProduct.length > 0 && (
+            <div className="vip-stack-s" style={{ gap: 6, marginTop: 12 }}>
+              <div className="vip-fact-label">By product</div>
+              <BreakdownRows rows={view.byProduct} onPick={pickProduct} />
+              {view.multiProduct && (
+                <p className="vip-dd-hint" style={{ margin: 0 }}>
+                  A lead with several products counts under each, so these add up to more than the leads.
+                </p>
+              )}
+            </div>
+          )}
+          {view.viaBdm && (
+            <p className="vip-dd-hint" style={{ marginTop: 12 }}>
+              Brought in by a BDM: {view.viaBdm.count} lead{view.viaBdm.count === 1 ? '' : 's'} · {view.viaBdm.share}% of these
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ---- the leads ---- */}
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">New leads</div>
+          <div className="vip-seg-mini" role="tablist" aria-label="Order the leads by">
+            {SOURCE_SORTS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                role="tab"
+                aria-selected={sort === s.key}
+                className={sort === s.key ? 'vip-seg-btn vip-active' : 'vip-seg-btn'}
+                onClick={() => setSort(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {view.rows.length === 0 ? (
+          <p className="vip-empty">{isFiltered ? 'No new leads for this filter.' : 'No new leads in this period yet.'}</p>
+        ) : (
+          <>
+            {shown.map((r) => (
+              <div key={r.leadId} className="vip-dd-log-row">
+                <div className="vip-dd-log-when">
+                  <span>{r.date}</span>
+                </div>
+                <div className="vip-dd-log-main">
+                  <div className="vip-dd-log-head">
+                    <Link to={`/leads/${r.leadId}`} className="vip-dd-log-party">
+                      {r.name}
+                    </Link>
+                    <BdmChip bdmEmployeeId={r.bdmId} />
+                    <span className={r.chipClass}>{r.stage}</span>
+                    {r.importDate && (
+                      <span className="vip-role-tag" title="Imported from a spreadsheet — this date is the import day, not the day the lead arrived">
+                        import date
+                      </span>
+                    )}
+                  </div>
+                  <div className="vip-dd-log-notes">
+                    <span className="vip-sp-dot" style={{ background: r.sourceColor }} />
+                    {r.sourceLabel}
+                    {r.office ? ` · ${r.office}` : ''}
+                    {multiPerson && (
+                      <>
+                        {' · '}
+                        <EmployeeLink id={r.ownerId} name={r.ownerName} />
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="vip-bk-deal-value" title={r.hasValue ? undefined : 'No quote or order value on file'}>
+                  {r.value}
+                </div>
+              </div>
+            ))}
+            <ShowMoreRows shown={shown.length} total={view.rows.length} noun="leads" onShowMore={() => setVisible((v) => v + LEAD_CHUNK)} />
           </>
         )}
       </div>
@@ -2599,6 +3024,7 @@ const BODIES = {
   attain: AttainBody,
   activities: ActivitiesBody,
   booked: BookedBody,
+  sources: SourcesBody,
   rfqBreakdown: RfqBreakdownBody,
   pipeline: PipelineBody,
   stageLeads: StageLeadsBody,
