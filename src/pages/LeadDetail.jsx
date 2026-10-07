@@ -37,7 +37,14 @@ import { linkPartiesAsSiteContacts } from '../lib/partyQueries'
 import { summariseRfqHistory } from '../lib/rfqKind'
 import { withSelfAssignTestOption } from '../lib/selfAssignTest'
 import { isPoolLead, sourcingArchitect } from '../lib/poolLeads'
-import { canLogActivity, canOpenArchitectProfiles, canOpenEmployeeProfiles, isBdm, isRfqDeskRole } from '../lib/roles'
+import {
+  canLogActivity,
+  canOpenArchitectProfiles,
+  canOpenEmployeeProfiles,
+  isBdm,
+  isRfqDeskRole,
+  seesManagerActivityOnLeads,
+} from '../lib/roles'
 import { lossReasonLabel } from '../lib/lossReasonOptions'
 
 // Was a fourth hand-rolled copy of the source labels, which had already
@@ -156,7 +163,14 @@ function LeadDetail() {
   const [opened, setOpened] = useState(() => ({ id, at: Date.now() }))
   if (opened.id !== id) setOpened({ id, at: Date.now() })
   const openedAt = opened.id === id ? opened.at : Date.now()
-  const detailQuery = useCachedQuery(['lead', id], () => fetchLeadDetail(id))
+  // The lead's exec and their coordinator also read what the exec's MANAGER
+  // logged on it (RLS hides those rows from both) — one extra read, asked only
+  // by the two roles it can return anything for. Constant per signed-in user,
+  // and the cache is already keyed per user, so it needs no place in the key.
+  // A plain boolean argument, not an options object: cachedQueryShape.test.js
+  // accepts a fetch that only calls a stamped function with arguments.
+  const withManagerActivity = seesManagerActivityOnLeads(employee?.role)
+  const detailQuery = useCachedQuery(['lead', id], () => fetchLeadDetail(id, withManagerActivity))
   const execsQuery = useCachedQuery(['dash', 'active-execs'], fetchActiveSalesExecs)
   const areasQuery = useCachedQuery(['lookup', 'areas'], fetchAreas)
   const productsQuery = useCachedQuery(['lookup', 'products'], fetchProducts)
@@ -398,11 +412,16 @@ function LeadDetail() {
   // lead they work themselves they're held forward-only, like a rep.
   const canMoveStageBackward = isOwner || isCoordinator || isMyPoolLead
 
-  // Log activity is "record work I personally did". A manager logs only
-  // their own work (the owner's ruling), so on a TEAM lead the link is
-  // withheld — without this it would open /activity?lead=<team lead>, whose
-  // preselect bypasses the picker's own owner scoping and would let a
-  // manager credit themselves with an activity on someone else's deal.
+  // Log activity is "record work I personally did". A manager may record
+  // theirs against a TEAM member's lead too (owner's ruling, 2026-10-07 — they
+  // step in on a visit or meeting when a rep needs help). It is still the
+  // manager's own activity, credited to them, never to the rep; Log Activity
+  // tags the lead with its owner and stands down the fields that would write
+  // onto a lead they can't edit (see loggingOnTeamLead there). It used to be
+  // withheld here, back when the picker's owner scoping was the only thing
+  // stopping a manager crediting themselves with someone else's deal — that
+  // scoping is now the point, not a hole. One flag, read by the desktop row
+  // and the mobile action bar alike.
   // A coordinator keeps it: entry-on-behalf is their job, and that screen
   // asks them whose it is.
   //
@@ -415,7 +434,7 @@ function LeadDetail() {
   // RFQ-desk roles got the link (none of the exclusions below names them) and
   // it bounced them to Today.
   const canLogActivityHere =
-    canLogActivity(employee?.role) && !isOwner && !isTeamLeadForManager && (!isBdmViewer || isMyLead)
+    canLogActivity(employee?.role) && !isOwner && (!isBdmViewer || isMyLead)
 
   const stage = lead.current_stage ?? 'calling'
   const isWon = stage === 'won'
@@ -448,6 +467,19 @@ function LeadDetail() {
   // neither activity nor a created_at can't honestly be called stale OR
   // active; it renders as unknown (TONE_NEUTRAL), not as either extreme.
   const hasTouch = touchDays != null
+  // Who made the last touch. It was always the lead's owner, because only the
+  // owner (or their coordinator, logging in the owner's name) could log on a
+  // lead. A manager's activity on a team lead breaks that: the newest activity
+  // can be someone else's, and "by {owner}" would credit the rep with the
+  // manager's visit. So name the logger — but only when that activity IS the
+  // latest touch (a later stage change still reads as the owner's, as before).
+  const newestActivity = activities.reduce((best, a) => (!best || a.created_at > best.created_at ? a : best), null)
+  const lastTouchByOther =
+    newestActivity != null &&
+    newestActivity.employee_id !== lead.owner_employee_id &&
+    lastActivityAt != null &&
+    newestActivity.created_at >= lastActivityAt
+  const lastTouchBy = (lastTouchByOther ? newestActivity.employees?.name : lead.employees?.name) ?? 'unassigned'
   // Staleness is only a meaningful question for a lead that's both open and
   // not paused. A decided deal (won/lost) isn't something to chase, and a
   // held lead was deliberately taken off the clock by On Hold's own flow —
@@ -613,7 +645,7 @@ function LeadDetail() {
       value: showTouchHealth && hasTouch ? `${touchDays}d` : '—',
       sub: showTouchHealth
         ? hasTouch
-          ? `ago · by ${(lead.employees?.name ?? 'unassigned').split(' ')[0]}`
+          ? `ago · by ${lastTouchBy.split(' ')[0]}`
           : 'no activity on record'
         : isDeskViewer
           ? 'not visible to the desk'
@@ -1268,8 +1300,8 @@ function LeadDetail() {
           {isTeamLeadForManager ? (
             <p className="vip-empty">
               This lead belongs to {lead.employees?.name ?? 'one of your sales executives'}, who reports to you — you
-              can change its stage, set follow-ups and reassign it above. Its client, site and quote details stay
-              theirs to edit.
+              can change its stage, set follow-ups, log your own activity and reassign it above. Its client, site
+              and quote details stay theirs to edit.
             </p>
           ) : (
             <p className="vip-empty">

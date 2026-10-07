@@ -924,10 +924,11 @@ coordinator test is the bare role with no team check beside it, deliberately:
 `leads` SELECT only reaches a coordinator through `coordinator_team_select`,
 so a lead they can load is by definition their team's. A `sales_manager` on a
 team lead gets `canQuickAct` but **not** `canEdit`, mirroring the database
-lock. `canLogActivityHere` withholds "Log activity" from a manager on a team
-lead — without it, `/activity?lead=<id>` preselects the lead and bypasses the
-picker's own owner scoping, letting a manager credit themselves with a rep's
-work.
+lock. **`canLogActivityHere` gives a manager "Log activity" on a team lead too**
+(owner's ruling, 2026-10-07 — it used to withhold it). They step in on a visit
+or meeting when a rep needs help, and the activity is the **manager's own**:
+see ActivityLog → "A manager on a team member's lead". One flag, read by the
+desktop row and the mobile bar alike.
 
 **Both mounts of `LeadQuickActions` spread one `quickActionsProps` object.**
 They used to build props separately — the same drift shape that cost a
@@ -1775,6 +1776,90 @@ link, since they still can't open that lead.
   Review row, no Sales Exec Profile). The tag still shows on the lead's own
   timeline ("with {name}").
 
+#### A manager on a team member's lead (2026-10-07)
+
+A sales manager sometimes makes the visit or meeting in place of the exec who
+reports to them. They can now record their own activity against **any lead in
+their team** — Lead Detail's "Log activity" (both widths, one flag) and Log
+Activity's picker, which searches their own leads and the team's in one list,
+each team lead tagged "{owner}'s lead" (`LeadSearchSelect`'s `showOwner`; RLS
+hands a manager exactly own + team, so `allLeads` is that list). The owner's
+four rulings:
+
+* **It is the MANAGER'S activity** — `employee_id` is theirs, it counts toward
+  their numbers, targets and Day Review. **Not** entry on behalf (no "Who is
+  this for?", the rep is never credited). It needed no new write policy:
+  `own_data_or_owner_role_insert` only checks `employee_id`.
+* **The lead's exec sees it, and it counts as a touch** — a lead their manager
+  visited yesterday must not read "14 days silent" on the exec's own Today. It
+  **never counts toward the exec's own numbers**, which is why it is NOT an RLS
+  policy: that would put the row into every query the exec runs, and several
+  count whatever RLS returns (Activity counts, the KPI sparkline, the
+  Activities logged popup). `activities` RLS is untouched. The only path is
+  `manager_activity_on_team_leads()` (`migration_manager_team_activity.sql`,
+  SECURITY DEFINER, re-applying `hide_test_accounts`): rows logged by **the lead
+  owner's manager** (`employees.manager_id`), handed to the lead's exec and to
+  that exec's coordinator — nobody else. **Both** `last_activity_per_lead()` and
+  `leads_needing_attention()` UNION it in (they stay INVOKER), so every stale
+  colour, All Leads' recency, the Needs Attention queue and the silent-quote
+  rule follow with no client change. `fetchLeadDetail(id, withManagerActivity)`
+  merges it into the lead's `activities` for `seesManagerActivityOnLeads` roles
+  only (`shapeManagerActivityRow` / `mergeManagerActivity`, tagged `viaManager`),
+  so the timeline, Last touch and the RFQ summary read it with no special case.
+  It follows the **reporting line**, not the date: an exec moved to another
+  manager stops being handed the old one's rows (same "follows the person" rule
+  as a coordinator's team view). **A fetch of the shape
+  `useCachedQuery(key, () => fetchLeadDetail(id, flag))` must keep its extra
+  argument a plain boolean** — `cachedQueryShape.test.js` rejects an object.
+* **`loggingOnTeamLead` (ActivityLog) is the ONE flag** for "a manager, on a lead
+  that isn't theirs". Everything that would write onto the lead stands down,
+  because `enforce_manager_lock()` permits only stage / follow-up / order value /
+  owner and `sites` UPDATE is creator-or-owner: **Site stage is hidden** (Site
+  Visit) and not written; **RFQ Raised's products are still asked** (the desk
+  needs them) but saved **on the RFQ only** (`activities.rfq_product_ids`) — the
+  lead's own product list stays the rep's, and the field says so; with the desk
+  off the lead's `rfq_raised`/`rfq_raised_at`/stage are not written (a warning
+  says so — one refused column would sink the whole UPDATE). **Booking Update's
+  order value is still written** — it is on the lock's allowed list.
+* **The "Next follow-up" reminder goes to the lead's OWNER**, not the manager —
+  the rule `LeadQuickActions`' "Set follow-up" already follows (the rep carries
+  the relationship; it is their device the push should reach). `createdBy` stays
+  the manager, so the row reads "Assigned by". The field's hint says so.
+  `?followup=` still closes a reminder only if it is assigned to the credited
+  employee, so a manager can't close a rep's reminder by logging.
+
+**Verified (2026-10-07):** the database half as real sessions —
+`Schema/verify_manager_team_activity.sql` T1–T10 all PASS (manager inserts and
+reads back; the exec and coordinator still read 0 activity rows through RLS;
+both are handed the row by the function; a 30-day-stale lead stops being stale
+for both; an exec moved off that manager is handed nothing). The manager's
+screens were driven in the browser (Lead Detail's button at 375 and 1280px, the
+picker, the three form variants, no horizontal scroll).
+**A real submit, as the test manager `sm` on the test exec's lead #443** (Site
+Visit + notes + Next follow-up): activity 4479 landed with `employee_id` = sm
+(not the exec) and no warnings; follow-up 1554 was `assigned_to` the exec,
+`created_by` sm; the lead's derived `next_followup_date` followed; **the site's
+stage stayed "Plaster"** (the hidden field wrote nothing). The manager's and the
+owner's Lead Detail both show the row in the timeline, the health pill went
+"Needs attention · 47d" → "Active · 0d", and the owner still gets no "Log
+activity" on a lead.
+**Lead Detail's "Last touch … by {name}" used to print the lead OWNER's name
+whoever made the touch** — true while only the owner (or a coordinator logging in
+their name) could log on a lead; the manager's visit read "by exec". It now names
+the latest activity's logger when that activity IS the latest touch
+(`lastTouchBy`); a later stage change, and a coordinator's on-behalf entry
+(`employee_id` = the exec), still read as the owner's.
+**The exec's and the coordinator's own screens, as real sessions (2026-10-07):**
+RLS returned 0 activity rows on the lead while `manager_activity_on_team_leads()`
+returned the manager's; each lead page showed the row in the timeline, "Last touch
+0d · by sm" and an "Active" pill (it had read "Needs attention · 47d"); the lead
+left the stale list on both Todays. **Whose count goes up: the manager's, and
+only the manager's.** `sm`'s Today read Activities 1 ("0 calls · 1 visits"),
+Leads touched 1; the exec still read 9 rows over 60 days, all their own; the
+coordinator's team panel read the exec at 0 and the team total at 0. The test
+rows were deleted afterwards from an owner session (switch on, then off) and lead
+#443 read back exactly as before (follow-up date null, site stage "Plaster").
+
 #### Rules that hold across every type
 
 * **Switching activity type clears every type-specific field group**, and so
@@ -2591,6 +2676,7 @@ two of them listing only two roles. Use it; don't write another copy.
 Log link and FAB row, both routing to a page they couldn't reach. Adding the
 BDM found ~120 role checks that would have treated a fifth role as an exec by
 default. `roles.js` exports `canCreateLead`, `canLogActivity`,
+`logsActivityOnTeamLeads`, `seesManagerActivityOnLeads`,
 `canSeeTeamDirectory`, `canOpenEmployeeProfiles`, `canSeeMyArchitects`,
 `canSeeArchitectNetwork`, `canSeeBdmFollowUps`, `canOpenArchitectProfiles`,
 `canExportLeads`, `canSeeSalesDashboard`, `canSearch`, `canOpenLeads`,
@@ -2678,7 +2764,7 @@ neither supervisor can see into the other's supervision.
 | own leads/targets | none | yes |
 | edits team lead details | freely | **stage / follow-up / order value / owner only** |
 | stage direction | any | **forward only**, like an exec |
-| entry on behalf | yes | **never** — logs only their own work |
+| entry on behalf | yes | **never** — logs only their own work, which may be **against a team member's lead** (2026-10-07; still credited to the manager) |
 | edits an exec's activities | yes (unlocked ones) | never (SELECT only) |
 | loss reasons | cannot see | can, for their team |
 | reassign | within their team | **any active exec, plus onto themselves** |
@@ -3332,6 +3418,13 @@ with no error. The layered order is:
    push_subscriptions). Re-running any earlier file that touches those
    tables puts the slow per-row versions back — re-run this one after it.
    `rollback_rls_per_row_fixes.sql` restores exactly what was live before.
+10. `migration_manager_team_activity.sql` (2026-10-07) — **a full re-creation
+   of `leads_needing_attention()` and `last_activity_per_lead()`** (it defines
+   no policy, so it doesn't disturb step 9). It sits after every file that
+   defines either — `migration_rfq_desk_reporting.sql` and
+   `migration_rls_per_row_fixes.sql` — and **must be re-run straight after any
+   re-run of them**, or a manager's visit stops counting as a touch for the
+   lead's exec and coordinator. See Outstanding migrations.
 
 **The BDM migrations re-install functions other files also define.**
 Re-running `migration_coordinator_can_manage_manager.sql`,
@@ -3406,6 +3499,22 @@ it leaves orphaned Auth logins to clean up by hand; scripting that risks
 removing your own login.
 
 ### Outstanding migrations
+
+* **`migration_manager_team_activity.sql`** (2026-10-07, **run and verified
+  live the same day** — `verify_manager_team_activity.sql`: T1–T10 all PASS, 0
+  FAIL, as real test sessions; safe before or after the deploy, every caller
+  fails soft) — a sales manager can
+  log their own activity on a team member's lead (see ActivityLog → "A manager
+  on a team member's lead"). Adds `manager_activity_on_team_leads(p_lead_id)`
+  and re-creates `last_activity_per_lead()` and `leads_needing_attention()` so
+  the manager's visit counts as a touch for the lead's exec and coordinator.
+  Changes no policy and no table. **`leads_needing_attention()` is a full
+  re-creation from `migration_rfq_desk_reporting.sql`'s body** (RFQ-back rule,
+  BDM pool rule, import clamp, hold exclusion all kept — the CHECKS block at
+  the foot of the file confirms it); re-run it after any older file that
+  defines that function. Verify as real sessions with
+  `Schema/verify_manager_team_activity.sql` (rolls itself back; needs test
+  logins for a manager, an exec and a coordinator).
 
 * **`migration_lead_products.sql`** (2026-10-06, **run and verified live** —
   `verify_lead_products.sql` 9 PASS, 0 FAIL; live trial on test data. Was: run BEFORE

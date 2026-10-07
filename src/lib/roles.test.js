@@ -5,6 +5,9 @@ import {
   canHaveCoordinator,
   canHaveManager,
   canLogActivity,
+  logsActivityOnBehalf,
+  logsActivityOnTeamLeads,
+  seesManagerActivityOnLeads,
   canOpenEmployeeProfiles,
   canSeeTeamDirectory,
   canOpenArchitectProfiles,
@@ -87,6 +90,19 @@ describe('capabilities for the four existing roles are unchanged', () => {
     expect(canCreateLead('mystery_role')).toBe(false)
     expect(canLogActivity('mystery_role')).toBe(false)
     expect(canOpenEmployeeProfiles(undefined)).toBe(false)
+  })
+})
+
+describe('a manager logging on a team member\'s lead', () => {
+  it('is the manager alone, and never entry on behalf', () => {
+    expect(rolesWith(logsActivityOnTeamLeads)).toEqual(['sales_manager'])
+    expect(logsActivityOnBehalf(ROLES.SALES_MANAGER)).toBe(false)
+  })
+
+  it('is read back by the lead\'s exec and coordinator only', () => {
+    expect(rolesWith(seesManagerActivityOnLeads).sort()).toEqual(['sales_coordinator', 'sales_executive'])
+    expect(seesManagerActivityOnLeads(ROLES.SALES_MANAGER)).toBe(false)
+    expect(seesManagerActivityOnLeads('mystery_role')).toBe(false)
   })
 })
 

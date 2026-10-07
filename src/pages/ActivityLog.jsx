@@ -15,7 +15,7 @@ import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLo
 import { formatTimeRange } from '../lib/format'
 import { todayISO } from '../lib/followupDates'
 import { createFollowUp, markFollowUpDone } from '../lib/followUpQueries'
-import { logsActivityOnBehalf, isBdm } from '../lib/roles'
+import { logsActivityOnBehalf, logsActivityOnTeamLeads, isBdm } from '../lib/roles'
 import { fetchMyTeamExecs } from '../lib/employeeQueries'
 import { materializePartyDraft, setPartyFirm } from '../lib/partyQueries'
 import { fetchArchitect } from '../lib/architectQueries'
@@ -97,6 +97,9 @@ function deskApprovalNote(isFresh, leadBeforeRfq) {
 function ActivityLog() {
   const { employee } = useAuth()
   const isCoordinator = logsActivityOnBehalf(employee?.role)
+  // A manager can log their own work against a team member's lead too — see
+  // loggingOnTeamLead below. Not entry on behalf: the activity stays theirs.
+  const isManagerUser = logsActivityOnTeamLeads(employee?.role)
   const isBdmUser = isBdm(employee?.role)
   const [searchParams] = useSearchParams()
   const preselectedLeadId = searchParams.get('lead')
@@ -435,6 +438,19 @@ function ActivityLog() {
   // entering it on their behalf, otherwise the logged-in employee. Drives
   // activities.employee_id, the lead search scope, and party attribution.
   const actingForId = isCoordinator ? forExec?.id ?? null : employee?.id ?? null
+  // A manager stepping in on a team member's lead (owner's ruling, 2026-10-07).
+  // The activity is still THE MANAGER'S — employee_id is theirs and it counts
+  // toward their numbers, like anything else they log — but the lead is not
+  // theirs, so everything below that would write onto the lead or its site
+  // stands down: enforce_manager_lock() permits only stage / follow-up / order
+  // value / owner on a team lead, and sites UPDATE is creator-or-owner only.
+  // One flag, read by every field and write that differs, so what the form
+  // shows and what it saves can't drift.
+  const loggingOnTeamLead =
+    isManagerUser && selectedLead?.owner_employee_id != null && selectedLead.owner_employee_id !== employee?.id
+  // Whose lead it is, for the lines that name them. The owner's name comes
+  // from the lead embed both ways the lead can arrive (picker or ?lead=).
+  const teamLeadOwnerName = loggingOnTeamLead ? selectedLead.employees?.name ?? 'the lead’s owner' : null
   // The reminder this screen was opened from (?followup=) is closed only by an
   // activity on the lead or architect it was about. logActivityPathFor always
   // sends one of ?lead= / ?party= with it. Switching lead, architect or to a
@@ -602,7 +618,10 @@ function ActivityLog() {
       const { data: settingsNow } = await fetchRfqDeskSettings()
       sendsToDesk = settingsNow ? isDeskLive(settingsNow) : deskLive
       willAdvanceToRfq =
-        !sendsToDesk && finalRfqKind === FRESH_RFQ && shouldAdvanceToRfq(selectedLead.current_stage ?? 'calling')
+        !sendsToDesk &&
+        !loggingOnTeamLead &&
+        finalRfqKind === FRESH_RFQ &&
+        shouldAdvanceToRfq(selectedLead.current_stage ?? 'calling')
     }
     // What the success card says about the approval — the same words the
     // hint used (deskApprovalNote), decided from the values actually written.
@@ -703,7 +722,13 @@ function ActivityLog() {
 
       // With the desk on, the approval stamps these (rfqs_after_write() in
       // SQL) — an RFQ only counts as raised once it passes the technical check.
-      if (activityType === 'rfq_raised' && !sendsToDesk) {
+      // A manager on a team lead never writes these: the lock refuses
+      // rfq_raised / rfq_raised_at outright, and one refused column would sink
+      // the whole UPDATE. Only reachable with the desk switched off.
+      if (activityType === 'rfq_raised' && !sendsToDesk && loggingOnTeamLead) {
+        warnings.push(`The lead's own RFQ dates weren't updated — it belongs to ${teamLeadOwnerName}.`)
+      }
+      if (activityType === 'rfq_raised' && !sendsToDesk && !loggingOnTeamLead) {
         leadUpdates.rfq_raised = true
         leadUpdates.rfq_raised_at = todayISO()
         // The owner's request: recording a fresh RFQ also moves the lead to
@@ -719,8 +744,10 @@ function ActivityLog() {
       }
       // The RFQ's products ARE the lead's products: picking them here sets the
       // lead's list (owner's ruling) — only when they changed, so an untouched
-      // picker never rewrites the lead.
-      if (activityType === 'rfq_raised') {
+      // picker never rewrites the lead. Not on a team member's lead: a manager
+      // can't edit its product list, so there the picked products live on the
+      // RFQ alone (activities.rfq_product_ids) and the lead's list stays theirs.
+      if (activityType === 'rfq_raised' && !loggingOnTeamLead) {
         const before = leadProductIds(selectedLead).map(Number)
         const changed = before.length !== rfqProductIds.length || before.some((id, i) => id !== Number(rfqProductIds[i]))
         if (changed) leadUpdates.product_ids = rfqProductIds
@@ -763,7 +790,9 @@ function ActivityLog() {
         }
       }
 
-      if (isSiteVisit && selectedLead.sites?.id) {
+      // Never on a team member's lead — sites UPDATE is creator-or-owner, and
+      // the field isn't shown there, so there is nothing the manager chose.
+      if (isSiteVisit && selectedLead.sites?.id && !loggingOnTeamLead) {
         const resolvedSiteStage = siteStage || null
         if (resolvedSiteStage !== (selectedLead.sites.site_stage ?? null)) {
           const { error: siteUpdateError } = await supabase
@@ -838,9 +867,14 @@ function ActivityLog() {
     // rfq_raised and order_value are type-guarded above: selectActivityType
     // clears these fields on a type change, but the guard is what makes it
     // impossible for a date to be written by a form that never showed it.
+    //
+    // On a team member's lead the reminder goes to the lead's OWNER, not the
+    // manager who stepped in — the same rule LeadQuickActions' "Set follow-up"
+    // follows: the rep carries the relationship, and it is their device the push
+    // should reach. createdBy stays the manager, so the row reads "Assigned by".
     if (needsAnchor && selectedLead && nextFollowupDate) {
       const { error: followUpError } = await createFollowUp({
-        assignedTo: actingForId,
+        assignedTo: loggingOnTeamLead ? selectedLead.owner_employee_id : actingForId,
         createdBy: employee?.id,
         partyId: selectedLead.party_id ?? null,
         leadId: selectedLead.id,
@@ -875,6 +909,7 @@ function ActivityLog() {
               <div className="vip-fact-label">Lead</div>
               <div className="vip-fact-value">
                 <Link to={`/leads/${selectedLead.id}`}>#{selectedLead.id}</Link>
+                {loggingOnTeamLead ? ` · ${teamLeadOwnerName}’s lead` : ''}
               </div>
             </div>
           )}
@@ -977,7 +1012,10 @@ function ActivityLog() {
   const nextStepBlock = (
     <div className="vip-next-step vip-stack-s">
       <label className="vip-field">
-        Next follow-up <span className="vip-field-hint">optional</span>
+        Next follow-up{' '}
+        <span className="vip-field-hint">
+          {loggingOnTeamLead ? `optional · the reminder goes to ${teamLeadOwnerName}` : 'optional'}
+        </span>
         <input
           className="vip-input"
           type="date"
@@ -1101,6 +1139,7 @@ function ActivityLog() {
             <div className="vip-row">
               <div className="vip-row-main">
                 <div className="vip-row-title">{leadLabel(selectedLead)}</div>
+                {loggingOnTeamLead && <div className="vip-row-sub">{teamLeadOwnerName}’s lead</div>}
               </div>
               <button type="button" className="vip-btn-link" onClick={() => setChangingLead(true)}>
                 Change
@@ -1109,7 +1148,15 @@ function ActivityLog() {
           ) : isCoordinator && !forExec ? (
             <p className="vip-form-note">Select who this is for above, to search their leads.</p>
           ) : (
-            <LeadSearchSelect onSelect={setSelectedLead} employeeId={actingForId} />
+            // A manager searches their own leads and their team's in one list
+            // (allLeads is "everything RLS lets you read", which for a manager
+            // is exactly that), each team lead tagged with its owner.
+            <LeadSearchSelect
+              onSelect={setSelectedLead}
+              employeeId={actingForId}
+              allLeads={isManagerUser}
+              showOwner={isManagerUser}
+            />
           )}
         </>
       )}
@@ -1184,7 +1231,8 @@ function ActivityLog() {
               every branch reads the same way; Accompanied by in particular
               used to sit BELOW the follow-up, which put a fact about the past
               after a question about the future. */}
-          {selectedLead?.sites?.id && (
+          {/* Not on a team member's lead: a manager can't edit its site. */}
+          {selectedLead?.sites?.id && !loggingOnTeamLead && (
             <label className="vip-field">
               Site stage <span className="vip-field-hint">optional</span>
               <select className="vip-select" value={siteStage} onChange={(e) => setSiteStage(e.target.value)}>
@@ -1341,7 +1389,11 @@ function ActivityLog() {
                     products={productsQuery.result && !productsQuery.result.error ? productsQuery.result.data : null}
                     label="Products"
                     required
-                    hint="The lead's products — change them here and the lead changes too."
+                    hint={
+                      loggingOnTeamLead
+                        ? `Saved on this RFQ only — ${teamLeadOwnerName} keeps the lead's own product list.`
+                        : "The lead's products — change them here and the lead changes too."
+                    }
                   />
                 </>
               )}

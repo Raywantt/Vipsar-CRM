@@ -52,7 +52,47 @@ export async function fetchLeadAfterRfqMove(leadId) {
   return { data: { lead: leadRes.data, stageHistory: historyRes.error ? null : historyRes.data }, error: null }
 }
 
-export async function fetchLeadDetail(id) {
+// One manager_activity_on_team_leads() row → the shape the lead's own activity
+// fetch below returns, so the timeline, the last-touch figure and the RFQ
+// summary read it with no special case. `employees` is the manager who logged
+// it, which is how the timeline names them. `viaManager` is the one extra
+// field, there for a surface that wants to say so.
+export function shapeManagerActivityRow(row) {
+  return {
+    id: row.id,
+    activity_type: row.activity_type,
+    rfq_kind: row.rfq_kind ?? null,
+    notes: row.notes ?? null,
+    created_at: row.created_at,
+    employee_id: row.employee_id,
+    employees: { name: row.employee_name ?? null },
+    accompanied_by_employee: row.accompanied_by_name ? { name: row.accompanied_by_name } : null,
+    logged_by_employee_id: null,
+    logged_by: null,
+    viaManager: true,
+  }
+}
+
+// What the lead's exec (and their coordinator) can't read through RLS: the
+// activities the exec's own MANAGER logged on this lead. Fails soft — the
+// function may not exist yet, and a missing answer only means the timeline
+// shows what it always did.
+async function fetchManagerActivityOnLead(leadId) {
+  const { data, error } = await supabase.rpc('manager_activity_on_team_leads', { p_lead_id: leadId })
+  if (error) return []
+  return (data ?? []).map(shapeManagerActivityRow)
+}
+
+// Newest first, the order the lead's own fetch returns. Merged by id so a row
+// RLS already returned is never listed twice.
+export function mergeManagerActivity(activities, managerRows) {
+  if (!managerRows.length) return activities
+  const seen = new Set(activities.map((a) => a.id))
+  const extra = managerRows.filter((r) => !seen.has(r.id))
+  return [...activities, ...extra].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+}
+
+export async function fetchLeadDetail(id, withManagerActivity = false) {
   const { data: lead, error } = await supabase.from('leads').select(LEAD_SELECT).eq('id', id).single()
   if (error) return { data: null, error }
 
@@ -67,6 +107,7 @@ export async function fetchLeadDetail(id) {
     ownerHistoryRes,
     followUpsRes,
     rfqsRes,
+    managerActivity,
   ] =
     await Promise.all([
       lead.party_id ? supabase.from('parties').select('*').eq('id', lead.party_id).single() : Promise.resolve(NONE),
@@ -102,6 +143,7 @@ export async function fetchLeadDetail(id) {
       // The lead's desk RFQs (RFQ-DESK.md), for the RFQ card and Sales
       // progress's quote-value lock. Empty on a lead that never had one.
       fetchRfqsForLead(lead.id),
+      withManagerActivity ? fetchManagerActivityOnLead(lead.id) : Promise.resolve([]),
     ])
 
   // .firm is resolved separately, not embedded — see attachFirms. The
@@ -119,7 +161,7 @@ export async function fetchLeadDetail(id) {
       site: siteRes.data ?? null,
       siteContacts: contactsRes.data ?? [],
       stageHistory: stageHistoryRes.data ?? [],
-      activities: activitiesRes.data ?? [],
+      activities: mergeManagerActivity(activitiesRes.data ?? [], managerActivity),
       ownerHistory: ownerHistoryRes.data ?? [],
       followUps: followUpsRes.data ?? [],
       rfqs: rfqsRes.data ?? [],

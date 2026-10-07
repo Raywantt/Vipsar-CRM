@@ -21,8 +21,11 @@ const DEBOUNCE_MS = 350
 const LOOKUP_CAP = 150
 const RESULT_CAP = 25
 
+// owner_employee_id + the owner's name ride along so Log Activity can tell a
+// manager's own lead from a team member's (a team lead writes less onto the
+// lead — see ActivityLog's loggingOnTeamLead) and tag it with whose it is.
 const LEAD_COLUMNS =
-  'id, current_stage, source_type, party_id, product_ids, parties!party_id(name, party_type), sites(id, nickname, locality, house_no, site_stage)'
+  'id, current_stage, source_type, party_id, product_ids, owner_employee_id, parties!party_id(name, party_type), sites(id, nickname, locality, house_no, site_stage), employees!owner_employee_id(id, name)'
 
 // The lead's own name (src/lib/leadName.js) plus whatever site descriptor the
 // name didn't already use, so a lead identified by its address doesn't read
@@ -94,11 +97,22 @@ async function searchLeads({ term, employeeId, allLeads }) {
 // the whole pipeline, so restricting them to leads they personally carry made
 // the picker come back empty on a real database.
 //
+// `showOwner` tags a result that isn't the viewer's own with whose lead it is.
+// Log Activity turns it on, with `allLeads`, for a sales manager: RLS hands a
+// manager exactly their own leads plus their team's, so `allLeads` IS "mine and
+// my team's" for that role, searched in one list.
+//
 // `party_id` is selected (not just the embedded party name) because
 // FollowUpForm stores it on the follow-up row alongside lead_id.
-function LeadSearchSelect({ onSelect, employeeId, allLeads = false }) {
+function LeadSearchSelect({ onSelect, employeeId, allLeads = false, showOwner = false }) {
   const { employee } = useAuth()
   const scopedEmployeeId = employeeId ?? employee?.id
+  // "Ravi Kumar's lead" under a lead that belongs to someone else; nothing for
+  // the viewer's own, so a manager's own leads read exactly as they always did.
+  const ownerNote = (lead) =>
+    showOwner && lead.owner_employee_id != null && lead.owner_employee_id !== employee?.id
+      ? `${lead.employees?.name ?? 'A team member'}'s lead`
+      : null
 
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
@@ -181,6 +195,7 @@ function LeadSearchSelect({ onSelect, employeeId, allLeads = false }) {
       <div className="vip-row">
         <div className="vip-row-main">
           <div className="vip-row-title">{leadLabel(selected)}</div>
+          {ownerNote(selected) && <div className="vip-row-sub">{ownerNote(selected)}</div>}
         </div>
         <button type="button" className="vip-btn-link" onClick={changeSelection}>
           Change
@@ -200,7 +215,7 @@ function LeadSearchSelect({ onSelect, employeeId, allLeads = false }) {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search your leads by client or site…"
+          placeholder={showOwner ? 'Search your leads and your team’s…' : 'Search your leads by client or site…'}
         />
       </label>
 
@@ -223,6 +238,7 @@ function LeadSearchSelect({ onSelect, employeeId, allLeads = false }) {
             <button key={lead.id} type="button" className="vip-row vip-clickable" onClick={() => selectExisting(lead)}>
               <div className="vip-row-main">
                 <div className="vip-row-title">{leadLabel(lead)}</div>
+                {ownerNote(lead) && <div className="vip-row-sub">{ownerNote(lead)}</div>}
               </div>
             </button>
           ))}

@@ -166,6 +166,25 @@ export function logsActivityOnBehalf(role) {
   return role === ROLES.SALES_COORDINATOR
 }
 
+// A manager's own work can be recorded against a TEAM member's lead (owner's
+// ruling, 2026-10-07): they step in on a visit or meeting when a rep needs
+// help. It is still the manager's activity — employee_id is theirs, it counts
+// toward their numbers — so this is NOT entry on behalf. ONE flag: Lead
+// Detail's "Log activity" link and Log Activity's lead picker both read it.
+export function logsActivityOnTeamLeads(role) {
+  return role === ROLES.SALES_MANAGER
+}
+
+// Who reads a manager's activity on a lead that is not theirs: the lead's own
+// exec, and that exec's coordinator. RLS on `activities` hides it from both (an
+// exec reads only their own rows, a coordinator only their team's), so it comes
+// through manager_activity_on_team_leads() instead — shown on the lead's
+// timeline and counted as a touch, never counted toward their own numbers.
+// The manager and the owner already read these rows through ordinary RLS.
+export function seesManagerActivityOnLeads(role) {
+  return role === ROLES.SALES_EXECUTIVE || role === ROLES.SALES_COORDINATOR
+}
+
 // /team — the owner's whole roster, or a manager's own reports.
 export function canSeeTeamDirectory(role) {
   return role === ROLES.OWNER || role === ROLES.SALES_MANAGER
