@@ -104,6 +104,11 @@
      --vip-lost on bad-soft 4.2:1 in dark — both under 4.5 for 12px text. */
   --vip-status-warn-ink:     #8a5a12;
   --vip-status-bad-ink:      #b4232a;
+  /* The olive "caution" ink of the drill-down stat strips (Median age,
+     Busiest, Top reason…). Its own token rather than --vip-status-warn-ink
+     (#8a5a12, more orange): the strips shipped in this olive and it must
+     not shift. */
+  --vip-status-olive:        #7a6413;
   --vip-status-neutral:      #5f6a6c;
   --vip-status-neutral-soft: #eef0f0;
 
@@ -1043,10 +1048,16 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
 }
 .vip-dd-back:hover { text-decoration: underline; }
 
+/* flex-shrink: 0 is load-bearing. The strip is a direct flex item of
+   .vip-dd-panel (a column with overflow-y: auto), and its overflow: hidden
+   gives it a min-height of 0 — so once a popup's body ran taller than the
+   window, flex shrank the strip to its 1px borders and the figures vanished
+   (measured 1.6px at 1280px, 2px at 375px, on every long popup). Short
+   popups never showed it. */
 .vip-dd-stats {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px;
   background: var(--vip-line-soft); border: 1px solid var(--vip-line-soft); border-radius: var(--vip-r-field);
-  overflow: hidden;
+  overflow: hidden; flex-shrink: 0;
 }
 .vip-dd-stat { background: var(--vip-surface); padding: 11px 12px; display: flex; flex-direction: column; gap: 3px; }
 .vip-dd-stat-label { font-size: 9px; letter-spacing: .09em; text-transform: uppercase; color: var(--vip-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2028,6 +2039,7 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
   --vip-status-bad-soft:     #3a1c1e;
   --vip-status-warn-ink:     #d9a53f;
   --vip-status-bad-ink:      #ef7b7b;
+  --vip-status-olive:        #c9b458;
   --vip-status-neutral:      #9aa4a5;
   --vip-status-neutral-soft: #2a3134;
 
@@ -2102,6 +2114,7 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
     --vip-status-bad-soft:     #3a1c1e;
     --vip-status-warn-ink:     #d9a53f;
     --vip-status-bad-ink:      #ef7b7b;
+    --vip-status-olive:        #c9b458;
     --vip-status-neutral:      #9aa4a5;
     --vip-status-neutral-soft: #2a3134;
 

@@ -1,4 +1,4 @@
-import { stageChipClass } from './statusColors'
+import { stageChipClass, TONE_BAD_INK, TONE_INK, TONE_OLIVE } from './statusColors'
 import { stageLabel } from './leadStageOptions'
 import { formatCurrencyCompact } from './format'
 import { getInitials } from './initials'
@@ -723,10 +723,10 @@ export function buildAgeingPanel(
     allowLogCall,
     viewerEmployeeId,
     stats: [
-      { label: 'Value involved', value: formatCurrencyCompact(totalValue), sub: `across ${bucket.count} lead${bucket.count === 1 ? '' : 's'}`, color: '#b4232a' },
-      { label: 'Oldest', value: ages.length ? `${ages[ages.length - 1]}d` : '—', sub: 'longest waiting', color: '#b4232a' },
-      { label: 'Median age', value: ages.length ? `${ages[Math.floor(ages.length / 2)]}d` : '—', sub: 'typical wait', color: '#7a6413' },
-      { label: 'Owners involved', value: String(ownerRows.length), sub: 'sales execs', color: '#101617' },
+      { label: 'Value involved', value: formatCurrencyCompact(totalValue), sub: `across ${bucket.count} lead${bucket.count === 1 ? '' : 's'}`, color: TONE_BAD_INK },
+      { label: 'Oldest', value: ages.length ? `${ages[ages.length - 1]}d` : '—', sub: 'longest waiting', color: TONE_BAD_INK },
+      { label: 'Median age', value: ages.length ? `${ages[Math.floor(ages.length / 2)]}d` : '—', sub: 'typical wait', color: TONE_OLIVE },
+      { label: 'Owners involved', value: String(ownerRows.length), sub: 'sales execs', color: TONE_INK },
     ],
     ownerTitle: 'Whose leads these are',
     showListFilters,

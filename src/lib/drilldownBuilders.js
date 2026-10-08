@@ -8,7 +8,7 @@ import { ACTIVITY_TYPES, ACTIVITY_LABELS } from './activityTypes'
 import { ACTIVITY_METRIC_OPTIONS } from './targetMetrics'
 import { LEAD_STAGE_OPTIONS, stageLabel } from './leadStageOptions'
 import { LOSS_REASON_OPTIONS } from './lossReasonOptions'
-import { stageChipClass, stageFg, TONE_NEUTRAL } from './statusColors'
+import { stageChipClass, stageFg, TONE_BAD_INK, TONE_BODY, TONE_GOOD, TONE_INK, TONE_NEUTRAL, TONE_OLIVE, TONE_WON } from './statusColors'
 import { formatCurrencyCompact, formatTimeRange } from './format'
 import { parseTimestamp } from './dbTime'
 import {
@@ -155,10 +155,10 @@ export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory
     delta: target != null ? `of ${formatCurrencyCompact(target)} target` : null,
     note: `${rangeLabel}. Order value is the only rupee target this dashboard tracks — everything else on the grid is activity volume.`,
     stats: [
-      { label: 'Booked', value: formatCurrencyCompact(actual), sub: rangeLabel, color: '#101617' },
-      { label: 'Target', value: target != null ? formatCurrencyCompact(target) : '—', sub: 'for this period', color: '#485456' },
-      { label: 'Gap', value: target != null ? formatCurrencyCompact(Math.max(0, target - actual)) : '—', sub: 'to target', color: '#b4232a' },
-      { label: 'Won leads', value: String(events.length), sub: rangeLabel, color: '#101617' },
+      { label: 'Booked', value: formatCurrencyCompact(actual), sub: rangeLabel, color: TONE_INK },
+      { label: 'Target', value: target != null ? formatCurrencyCompact(target) : '—', sub: 'for this period', color: TONE_BODY },
+      { label: 'Gap', value: target != null ? formatCurrencyCompact(Math.max(0, target - actual)) : '—', sub: 'to target', color: TONE_BAD_INK },
+      { label: 'Won leads', value: String(events.length), sub: rangeLabel, color: TONE_INK },
     ],
     pace,
     contribTitle: 'Contribution by exec',
@@ -284,9 +284,9 @@ export function buildScanningLeadsAttainPanel({ employees, targets, breakdownLea
     delta: target != null ? `of ${Math.round(target)} target` : null,
     note: `${rangeLabel}. New leads captured with Scanning as the source, counted by lead owner.`,
     stats: [
-      { label: 'Leads', value: String(actual), sub: rangeLabel, color: '#101617' },
-      { label: 'Target', value: target != null ? String(Math.round(target)) : '—', sub: 'for this period', color: '#485456' },
-      { label: 'Gap', value: target != null ? String(Math.max(0, Math.round(target) - actual)) : '—', sub: 'to target', color: '#b4232a' },
+      { label: 'Leads', value: String(actual), sub: rangeLabel, color: TONE_INK },
+      { label: 'Target', value: target != null ? String(Math.round(target)) : '—', sub: 'for this period', color: TONE_BODY },
+      { label: 'Gap', value: target != null ? String(Math.max(0, Math.round(target) - actual)) : '—', sub: 'to target', color: TONE_BAD_INK },
     ],
     pace,
     contribTitle: 'Contribution by exec',
@@ -458,25 +458,25 @@ function computeActivitiesView({ activities, previous, ownerKey, type, range, ta
         label: 'Total logged',
         value: String(total),
         sub: changeVs(total, prevRows ? prevRows.length : null, previousLabel)?.text ?? (target != null ? `of ${target} target` : 'this period'),
-        color: '#101617',
+        color: TONE_INK,
       },
       {
         label: 'Leads touched',
         value: String(perLead.size),
         sub: perLead.size ? `${(onALead / perLead.size).toFixed(1)} activities per lead` : 'none anchored on a lead',
-        color: '#101617',
+        color: TONE_INK,
       },
       {
         label: 'Per active day',
         value: activeDays ? (total / activeDays).toFixed(1) : '—',
         sub: `${activeDays} active day${activeDays === 1 ? '' : 's'} of ${elapsed.length}`,
-        color: '#101617',
+        color: TONE_INK,
       },
       {
         label: 'Busiest day',
         value: busiestIdx >= 0 ? String(maxDay) : '—',
         sub: busiestIdx >= 0 ? dayLabel(elapsed[busiestIdx]) : 'nothing logged',
-        color: '#101617',
+        color: TONE_INK,
       },
     ],
     pace: buildPaceChart(daily, target),
@@ -623,8 +623,8 @@ export function buildOverallAttainPanel({ employee, targets, activities, rfqCoun
     value: overallPct != null ? `${overallPct}%` : '—',
     note: `${rangeLabel}. Average of whichever of the ${metrics.length} metrics have a target set for ${employee.name.split(' ')[0]}, each capped at 100% so overperforming on one metric can't inflate the blend.`,
     stats: [
-      { label: 'Overall', value: overallPct != null ? `${overallPct}%` : '—', sub: `${withTarget.length} of ${metrics.length} have targets`, color: '#101617' },
-      { label: 'Order value', value: formatCurrencyCompact(orderActual), sub: rows.find((r) => r.label === 'Order value')?.target != null ? `of ${formatCurrencyCompact(rows.find((r) => r.label === 'Order value').target)}` : 'no target set', color: '#101617' },
+      { label: 'Overall', value: overallPct != null ? `${overallPct}%` : '—', sub: `${withTarget.length} of ${metrics.length} have targets`, color: TONE_INK },
+      { label: 'Order value', value: formatCurrencyCompact(orderActual), sub: rows.find((r) => r.label === 'Order value')?.target != null ? `of ${formatCurrencyCompact(rows.find((r) => r.label === 'Order value').target)}` : 'no target set', color: TONE_INK },
     ],
     contribTitle: 'Line by line',
     // pct above is computed from the raw (possibly fractional) target for
@@ -710,10 +710,10 @@ export function buildLogPanel({ employee, activityType, targets, range, rangeLab
       ? `${rangeLabel}. An RFQ counts toward the target once it passes the technical check — once per lead. Every row below is an RFQ ${employee.name.split(' ')[0]} logged.`
       : `${rangeLabel}. Every row below is a real entry ${employee.name.split(' ')[0]} logged in the Activity log.`,
     stats: [
-      { label: isDeskRfq ? 'Counted' : 'Logged', value: String(quotaCount), sub: isDeskRfq ? 'toward the target' : rangeLabel, color: '#101617' },
-      { label: 'Target', value: target != null ? String(target) : '—', sub: 'for this period', color: '#485456' },
-      { label: 'Last 20 working days', value: String(counts.reduce((s, c) => s + c, 0)), sub: 'entries logged', color: '#101617' },
-      { label: 'Silent days', value: String(silentDays), sub: 'of last 20', color: silentDays > 6 ? '#b4232a' : silentDays > 3 ? '#7a6413' : '#1f6f4a' },
+      { label: isDeskRfq ? 'Counted' : 'Logged', value: String(quotaCount), sub: isDeskRfq ? 'toward the target' : rangeLabel, color: TONE_INK },
+      { label: 'Target', value: target != null ? String(target) : '—', sub: 'for this period', color: TONE_BODY },
+      { label: 'Last 20 working days', value: String(counts.reduce((s, c) => s + c, 0)), sub: 'entries logged', color: TONE_INK },
+      { label: 'Silent days', value: String(silentDays), sub: 'of last 20', color: silentDays > 6 ? TONE_BAD_INK : silentDays > 3 ? TONE_OLIVE : TONE_WON },
     ],
     rhythm,
     rhythmFrom: rhythmDays[0]?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
@@ -791,9 +791,9 @@ export function buildStageLeadsPanel({ breakdownLeads, stage, scopeLabel = 'Comp
     value: formatCurrencyCompact(total),
     note: `${stageLeads.length} lead${stageLeads.length === 1 ? '' : 's'} sitting at this stage right now.`,
     stats: [
-      { label: 'Leads', value: String(stageLeads.length), sub: 'at this stage', color: '#101617' },
-      { label: 'Value', value: formatCurrencyCompact(total), sub: 'combined', color: '#101617' },
-      { label: 'Owners', value: String(owners.length), sub: 'with a lead here', color: '#485456' },
+      { label: 'Leads', value: String(stageLeads.length), sub: 'at this stage', color: TONE_INK },
+      { label: 'Value', value: formatCurrencyCompact(total), sub: 'combined', color: TONE_INK },
+      { label: 'Owners', value: String(owners.length), sub: 'with a lead here', color: TONE_BODY },
     ],
     owners,
     leadRows: [...stageLeads]
@@ -890,7 +890,7 @@ function computePipelineScope(leads, stages, breakdownLeads, scopeLabel, noteSuf
   return {
     value: formatCurrencyCompact(total),
     note: `${leads.length} ${noteSuffix}`,
-    statsOpen: { label: 'Open value', value: formatCurrencyCompact(total), sub: `${leads.length} leads`, color: '#101617' },
+    statsOpen: { label: 'Open value', value: formatCurrencyCompact(total), sub: `${leads.length} leads`, color: TONE_INK },
     stageRows: stageRows.map((r) => ({ ...r, pct: `${Math.round((r.count / maxStage) * 100)}%` })),
     topLeads,
     topLeadsTotal: leads.length,
@@ -1112,10 +1112,10 @@ export function buildPipelinePanel({
             ? `All ${activeCount} of your active leads, ranked by value.`
             : `Top ${topN} of ${activeCount} active leads (top 10%) hold ${pct}% of active pipeline value.`,
           stats: [
-            { label: 'Leads counted', value: String(topN), sub: isSinglePersonScope ? 'all active leads' : `of ${activeCount} active`, color: '#101617' },
-            { label: 'Value held', value: formatCurrencyCompact(topValue), sub: 'combined', color: '#101617' },
-            { label: 'Rest of pipeline', value: formatCurrencyCompact(restValue), sub: `${restCount} leads · ${100 - pct}%`, color: '#485456' },
-            { label: 'Active pipeline total', value: formatCurrencyCompact(activeTotal), sub: `${activeCount} leads`, color: '#101617' },
+            { label: 'Leads counted', value: String(topN), sub: isSinglePersonScope ? 'all active leads' : `of ${activeCount} active`, color: TONE_INK },
+            { label: 'Value held', value: formatCurrencyCompact(topValue), sub: 'combined', color: TONE_INK },
+            { label: 'Rest of pipeline', value: formatCurrencyCompact(restValue), sub: `${restCount} leads · ${100 - pct}%`, color: TONE_BODY },
+            { label: 'Active pipeline total', value: formatCurrencyCompact(activeTotal), sub: `${activeCount} leads`, color: TONE_INK },
           ],
         }
       })()
@@ -1132,9 +1132,9 @@ export function buildPipelinePanel({
     note: concentrationHeader?.note ?? scopeViews.all.note,
     stats: concentrationHeader?.stats ?? [
       scopeViews.all.statsOpen,
-      { label: 'Reached Calling', value: String(funnel[0]?.reached ?? 0), sub: 'all-time', color: '#101617' },
-      { label: 'Reached Won', value: String(funnel.find((f) => f.stage === 'won')?.reached ?? 0), sub: 'all-time', color: '#1f6f4a' },
-      { label: 'Reached Lost', value: String(funnel.find((f) => f.stage === 'lost')?.reached ?? 0), sub: 'all-time', color: '#b4232a' },
+      { label: 'Reached Calling', value: String(funnel[0]?.reached ?? 0), sub: 'all-time', color: TONE_INK },
+      { label: 'Reached Won', value: String(funnel.find((f) => f.stage === 'won')?.reached ?? 0), sub: 'all-time', color: TONE_WON },
+      { label: 'Reached Lost', value: String(funnel.find((f) => f.stage === 'lost')?.reached ?? 0), sub: 'all-time', color: TONE_BAD_INK },
     ],
     stageRows: scopeViews.all.stageRows,
     convRows,
@@ -1228,10 +1228,10 @@ export function buildFollowupGapPanel(rows, scopeLabel = 'Company', isSinglePers
     allowLogCall: false,
     viewerEmployeeId: null,
     stats: [
-      { label: 'Value involved', value: formatCurrencyCompact(totalValue), sub: `across ${ageRows.length} lead${ageRows.length === 1 ? '' : 's'}`, color: '#7a6413' },
-      { label: 'Oldest', value: ages.length ? `${ages[ages.length - 1]}d` : '—', sub: 'longest since touch', color: '#7a6413' },
-      { label: 'Median age', value: ages.length ? `${ages[Math.floor(ages.length / 2)]}d` : '—', sub: 'typical', color: '#7a6413' },
-      { label: 'Owners involved', value: String(ownerList.length), sub: 'sales execs', color: '#101617' },
+      { label: 'Value involved', value: formatCurrencyCompact(totalValue), sub: `across ${ageRows.length} lead${ageRows.length === 1 ? '' : 's'}`, color: TONE_OLIVE },
+      { label: 'Oldest', value: ages.length ? `${ages[ages.length - 1]}d` : '—', sub: 'longest since touch', color: TONE_OLIVE },
+      { label: 'Median age', value: ages.length ? `${ages[Math.floor(ages.length / 2)]}d` : '—', sub: 'typical', color: TONE_OLIVE },
+      { label: 'Owners involved', value: String(ownerList.length), sub: 'sales execs', color: TONE_INK },
     ],
     ownerTitle: 'Whose leads these are',
     // Empty in single-person scope (per the role-matrix rule — one owner
@@ -1364,10 +1364,10 @@ export function buildOnHoldInsightsPanel(rows, scopeLabel = 'Company', isSingleP
       ? `${shaped.length} lead${shaped.length === 1 ? '' : 's'} on hold, averaging ${avgDays}d parked.`
       : 'Nothing is currently on hold.',
     stats: [
-      { label: 'Value on hold', value: formatCurrencyCompact(totalValue), sub: `across ${shaped.length} lead${shaped.length === 1 ? '' : 's'}`, color: '#485456' },
-      { label: 'Avg. days parked', value: shaped.length ? `${avgDays}d` : '—', sub: 'mean', color: '#485456' },
-      { label: 'Oldest hold', value: shaped.length ? `${oldestDays}d` : '—', sub: 'longest parked', color: '#485456' },
-      { label: 'Owners involved', value: String(ownerList.length), sub: 'sales execs', color: '#101617' },
+      { label: 'Value on hold', value: formatCurrencyCompact(totalValue), sub: `across ${shaped.length} lead${shaped.length === 1 ? '' : 's'}`, color: TONE_BODY },
+      { label: 'Avg. days parked', value: shaped.length ? `${avgDays}d` : '—', sub: 'mean', color: TONE_BODY },
+      { label: 'Oldest hold', value: shaped.length ? `${oldestDays}d` : '—', sub: 'longest parked', color: TONE_BODY },
+      { label: 'Owners involved', value: String(ownerList.length), sub: 'sales execs', color: TONE_INK },
     ],
     // Display-only breakdown (not a filter, unlike panel 3's stage chips) —
     // the brief lists duration buckets and the owner dropdown/sort toggle
@@ -1461,10 +1461,10 @@ export function buildWorkloadPanel(rows, scopeLabel = 'Company') {
             ? `${shaped.length} employees are evenly loaded, ${shaped[0].count} open lead${shaped[0].count === 1 ? '' : 's'} each.`
             : 'No one currently holds an open lead.',
     stats: [
-      { label: 'Employees', value: String(shaped.length), sub: 'with open leads', color: '#101617' },
-      { label: 'Avg. per person', value: shaped.length ? String(avgCount) : '—', sub: 'open leads', color: '#485456' },
-      { label: 'Busiest', value: busiest ? String(busiest.count) : '—', sub: busiest ? busiest.name : '—', color: '#7a6413' },
-      { label: 'Total pipeline', value: formatCurrencyCompact(totalValue), sub: `${totalLeads} lead${totalLeads === 1 ? '' : 's'}`, color: '#101617' },
+      { label: 'Employees', value: String(shaped.length), sub: 'with open leads', color: TONE_INK },
+      { label: 'Avg. per person', value: shaped.length ? String(avgCount) : '—', sub: 'open leads', color: TONE_BODY },
+      { label: 'Busiest', value: busiest ? String(busiest.count) : '—', sub: busiest ? busiest.name : '—', color: TONE_OLIVE },
+      { label: 'Total pipeline', value: formatCurrencyCompact(totalValue), sub: `${totalLeads} lead${totalLeads === 1 ? '' : 's'}`, color: TONE_INK },
     ],
     // Sorted by count desc by default (matches leads_workload_by_owner()'s
     // own ORDER BY) — the Body's toggle re-sorts client-side from this same
@@ -1575,10 +1575,10 @@ export function buildCompletenessPanel(rows, scopeLabel = 'Company', isSinglePer
         }`
       : 'No open leads to check right now.',
     stats: [
-      { label: 'Leads checked', value: String(total), sub: 'currently open', color: '#101617' },
-      { label: 'Avg. completeness', value: blendedPct != null ? `${blendedPct}%` : '—', sub: 'across 6 fields', color: '#485456' },
-      { label: 'Fully complete', value: String(fullyComplete), sub: 'all 6 fields set', color: '#1f6f4a' },
-      { label: 'Worst field', value: worstField && worstField.missing > 0 ? worstField.label : '—', sub: worstField && worstField.missing > 0 ? `${worstField.missing} missing` : 'none missing', color: '#b4232a' },
+      { label: 'Leads checked', value: String(total), sub: 'currently open', color: TONE_INK },
+      { label: 'Avg. completeness', value: blendedPct != null ? `${blendedPct}%` : '—', sub: 'across 6 fields', color: TONE_BODY },
+      { label: 'Fully complete', value: String(fullyComplete), sub: 'all 6 fields set', color: TONE_WON },
+      { label: 'Worst field', value: worstField && worstField.missing > 0 ? worstField.label : '—', sub: worstField && worstField.missing > 0 ? `${worstField.missing} missing` : 'none missing', color: TONE_BAD_INK },
     ],
     fieldStats,
     ownerTitle: 'Average completeness by owner',
@@ -1644,10 +1644,10 @@ export function buildWinRatePanel({ decidedStageHistory, employees, range, range
     value: winRate != null ? `${winRate}%` : '—',
     note: `${rangeLabel}. Measured on decided leads only (won or lost) — a lead still open isn't counted either way.`,
     stats: [
-      { label: 'Won', value: String(won.length), sub: rangeLabel, color: '#1f6f4a' },
-      { label: 'Lost', value: String(lost.length), sub: rangeLabel, color: '#b4232a' },
-      { label: 'Win rate', value: winRate != null ? `${winRate}%` : '—', sub: 'of decided leads', color: '#101617' },
-      { label: 'Decided', value: String(inRange.length), sub: rangeLabel, color: '#101617' },
+      { label: 'Won', value: String(won.length), sub: rangeLabel, color: TONE_WON },
+      { label: 'Lost', value: String(lost.length), sub: rangeLabel, color: TONE_BAD_INK },
+      { label: 'Win rate', value: winRate != null ? `${winRate}%` : '—', sub: 'of decided leads', color: TONE_INK },
+      { label: 'Decided', value: String(inRange.length), sub: rangeLabel, color: TONE_INK },
     ],
     execRows: [...byExec.entries()]
       .map(([id, v]) => ({
@@ -1684,10 +1684,10 @@ export function buildForecastPanel({ forecast, scopeLabel = 'Company' }) {
     value: formatCurrencyCompact(weighted),
     note: `${total} leads with a quote sent or a closure probability set. Weighted = quote value × closure probability.`,
     stats: [
-      { label: 'Weighted total', value: formatCurrencyCompact(weighted), sub: `${total} leads`, color: '#0f6b6b' },
-      { label: 'Gross', value: formatCurrencyCompact(gross), sub: 'unadjusted', color: '#485456' },
-      { label: 'High confidence', value: formatCurrencyCompact(forecast.filter((l) => (l.closure_probability ?? 0) >= 70).reduce((s, l) => s + Number(l.quote_value ?? 0), 0)), sub: '70%+ probability', color: '#1f6f4a' },
-      { label: 'At risk', value: formatCurrencyCompact(forecast.filter((l) => (l.closure_probability ?? 0) < 40).reduce((s, l) => s + Number(l.quote_value ?? 0), 0)), sub: 'below 40%', color: '#b4232a' },
+      { label: 'Weighted total', value: formatCurrencyCompact(weighted), sub: `${total} leads`, color: TONE_GOOD },
+      { label: 'Gross', value: formatCurrencyCompact(gross), sub: 'unadjusted', color: TONE_BODY },
+      { label: 'High confidence', value: formatCurrencyCompact(forecast.filter((l) => (l.closure_probability ?? 0) >= 70).reduce((s, l) => s + Number(l.quote_value ?? 0), 0)), sub: '70%+ probability', color: TONE_WON },
+      { label: 'At risk', value: formatCurrencyCompact(forecast.filter((l) => (l.closure_probability ?? 0) < 40).reduce((s, l) => s + Number(l.quote_value ?? 0), 0)), sub: 'below 40%', color: TONE_BAD_INK },
     ],
     fcBuckets: [...buckets.entries()].map(([label, b]) => ({
       label,
@@ -1880,10 +1880,10 @@ export function buildLossPanel({ lossReasons }) {
     value: String(total),
     note: `${formatCurrencyCompact(totalValue)} of value across every lead marked lost. Reasons are captured at the point of marking a lead lost.`,
     stats: [
-      { label: 'Lost', value: String(total), sub: 'all-time', color: '#b4232a' },
-      { label: 'Value lost', value: formatCurrencyCompact(totalValue), sub: 'gross', color: '#b4232a' },
-      { label: 'Named competitors', value: String(competitorCounts.size), sub: 'distinct', color: '#101617' },
-      { label: 'Top reason', value: [...reasonCounts.entries()].sort((a, b) => b[1].count - a[1].count)[0]?.[0] ?? '—', sub: 'most common', color: '#7a6413' },
+      { label: 'Lost', value: String(total), sub: 'all-time', color: TONE_BAD_INK },
+      { label: 'Value lost', value: formatCurrencyCompact(totalValue), sub: 'gross', color: TONE_BAD_INK },
+      { label: 'Named competitors', value: String(competitorCounts.size), sub: 'distinct', color: TONE_INK },
+      { label: 'Top reason', value: [...reasonCounts.entries()].sort((a, b) => b[1].count - a[1].count)[0]?.[0] ?? '—', sub: 'most common', color: TONE_OLIVE },
     ],
     lossRows: [...reasonCounts.entries()].map(([label, r]) => ({
       label,

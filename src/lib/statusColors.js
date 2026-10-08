@@ -62,6 +62,16 @@ export const TONE_NEUTRAL_SOFT = 'var(--vip-status-neutral-soft)'
 // TONE_WARN on TONE_WARN_SOFT measured 3.1:1 in light mode, under the 4.5
 // that 12px text needs. Its own token so dark mode keeps its own value.
 export const TONE_WARN_INK = 'var(--vip-status-warn-ink)'
+// The drill-down popups' stat strips (StatsGrid) used literal hex for every
+// figure — #101617, #485456, #b4232a, #1f6f4a, #7a6413 — which dark mode
+// cannot reach: near-black ink on the dark surface measured 1.19:1. These are
+// the same colours as tokens, identical in light mode. BAD_INK rather than
+// TONE_BAD because --vip-lost is 4.2:1 on the dark surface (the 16px figures
+// need 4.5); both are #b4232a in light mode. OLIVE is the strips' caution ink.
+export const TONE_INK = 'var(--vip-ink)'
+export const TONE_BODY = 'var(--vip-body)'
+export const TONE_BAD_INK = 'var(--vip-status-bad-ink)'
+export const TONE_OLIVE = 'var(--vip-status-olive)'
 
 // Attainment scale — "how complete is this metric against its target", a
 // 6-step red-to-green gradient (see vipsar-theme.css's --vip-attain-1..6).

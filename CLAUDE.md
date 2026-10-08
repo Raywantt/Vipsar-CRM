@@ -302,6 +302,13 @@ different bugs, so do both**.
   scrollbar.** A row hover tint inset with `margin: 0 -8px` produced a real
   8px horizontal scroll. Use padding on both the row and its header instead,
   so the grids stay column-aligned.
+- **A flex item with `overflow: hidden` shrinks to its border when its column
+  overflows.** `.vip-dd-stats` is a direct child of `.vip-dd-panel` (a
+  scrolling flex column); `overflow: hidden` gives it `min-height: 0`, so any
+  popup taller than the window squashed the 4-figure strip to 1.6px (2px on a
+  phone) and hid every figure — short popups never showed it. `flex-shrink: 0`
+  on it is load-bearing; a new overflow-hidden direct child of that panel
+  needs the same.
 - **Section 22 is dark mode** and only redefines `:root` tokens and
   `.vip-chip-*`, never layout, so a later section can't beat it — **provided
   that section styles itself out of tokens rather than hardcoding a colour.**
@@ -646,6 +653,16 @@ place a health/status pill or deal-stat colour comes from. `LeadDetail.jsx`
 and `DrilldownPanel.jsx` were converted; **`EmployeeProfile.jsx` and
 `MyTeam.jsx` still carry the old pattern** (locally redeclared, and formerly
 mutually disagreeing, traffic-light constants) — a known follow-up.
+
+**A drill-down stat strip's `color` is a token, never a hex** — `TONE_INK`,
+`TONE_BODY`, `TONE_BAD_INK`, `TONE_WON`, `TONE_GOOD` or `TONE_OLIVE`
+(`statusColors.js`; identical to the old hex in light mode). Near-black ink
+measured 1.19:1 on the dark surface. `TONE_BAD_INK`, not `TONE_BAD`, for these
+16px figures: `--vip-lost` is 4.2:1 in dark, `--vip-status-bad-ink` 5.7:1.
+**Known gap, left on purpose:** other literal hex remains in
+`drilldownBuilders.js` (conversion rows, owner-rollup bars, `probColor` — pinned
+by a test — `CATEGORY_PALETTE`, `convColor`) and in `attention.js` (bucket tile
+colours, owner-rollup bars); none is a stat strip.
 
 ### Dark mode (`src/lib/theme.js`, section 22)
 
