@@ -168,7 +168,8 @@ src/
   hooks/        useOnlineStatus.js, useIsMobile.js (the 1024px breakpoint as
                 a JS boolean), useBdmPeriodRows.js, useBdmRoster.js,
                 usePeriodOffset.js, useCanExportLeads.js,
-                useCachedQuery.js (+ useSyncState), useAttentionBuckets.js
+                useCachedQuery.js (+ useSyncState), useAttentionBuckets.js,
+                useOfficeDirectory.js
   lib/          supabaseClient.js, supabaseFetch.js, queryCache.js,
                 queryClient.js,
                 fetchAllRows.js, sanitizeForIlike.js, errorMessage.js,
@@ -184,7 +185,7 @@ src/
                 appUpdate, poolLeads, architectStats, bdmDashboard,
                 bdmLeadUpdates, architectNetwork, firmLabel,
                 bookedOrders, leadSources, periodChange, leadExport, leadExportFile,
-                rfqDesk, rfqDeskReport,
+                rfqDesk, rfqDeskReport, officeScope,
                 queries: dashboardQueries, searchQueries, targetQueries,
                 partyQueries, employeeQueries, lookupQueries,
                 leadOwnerHistory, dayReviewQueries, followUpQueries,
@@ -679,6 +680,76 @@ nothing named in one line) → the list (latest first, "+N more"). Load-bearing:
   view — and "Today" or the weekday and date.
 - A tile reading 0 is a button too: the popup says "No leads created yet today."
   rather than draw an empty frame.
+
+**The Office filter on popups** (2026-10-08; `src/lib/officeScope.js`,
+`useOfficeDirectory`, `DrilldownPanel`'s `OfficeFilter`). Every popup built from
+leads carries Office chips (All · Ludhiana · Amritsar · Jalandhar · Patiala ·
+Others · Not set) above its stat tiles, on every screen that opens one — the
+Sales Dashboard for all four roles, the BDM Dashboard, and the Today screens'
+Needs Attention / Stale / Today-tile popups. **Picking an office rebuilds the
+WHOLE popup** (header, tiles, charts, breakdowns, lists, every deeper level),
+not just its list (owner's choice). Load-bearing:
+- **One mechanism, no screen touched.** A builder is exported through
+  `officeAware(build, { leadIds, narrow })`, which leaves `panel.office =
+  { leadIds, rebuild(scope), hidesTargets }`. `DrilldownPanel` draws the chips,
+  and on a pick runs `rebuild` — the SAME builder over inputs cut down to that
+  office — so a screen opening a popup (`setPanel(buildX(…))`) is unchanged.
+  The adapters live beside each builder (`drilldownBuilders.js`, plus
+  `attention.js`'s `buildAgeingPanel` and `dayReview.js`'s `buildDayTilePanel`).
+  **A new filterable popup = wrap its builder; a new lead-bearing input = add it
+  to that builder's `narrow`.** `officeScope.test.js` pins each popup against
+  the one built from that office's rows alone.
+- **The office of a row comes from a directory, not from the row.** Stage
+  history, activities, loss rows and RPC detail rows know their lead's id and
+  nothing else, so `fetchLeadOffices()` (`id, office_territory`, two columns,
+  `['office','directory']`) is read **only while a filterable popup is open** —
+  a Today screen pays nothing until then — and remembered like any other read.
+  A lead the directory has never seen counts as "Not set"; a row with **no lead**
+  (an Office Day, an architect meeting) belongs to no office and is dropped the
+  moment one is chosen, never filed under "Not set".
+- **Chips are offered from the UNFILTERED popup's own leads** (the period's
+  deals for Orders booked, the open leads for pipeline, the day's created/won
+  leads for a Today tile) so an office with nothing in it is not a chip, and
+  picking one never shrinks the row. One choice hides the row (an exec with one
+  office), unless an office is already picked.
+- **The pick belongs to one popup**, keyed on `kind|eyebrow|title`, not on the
+  panel object — a screen refreshing its data rebuilds the same popup and must
+  not drop the office chosen; a different popup opens at "All". A deeper panel
+  (a stage's lead list) is rebuilt with its parent, and the chips are drawn on
+  the root only.
+- **Targets don't survive an office** (`hidesTargets`). A target is set per
+  person across every office, so "12 of 40" for one office would compare a slice
+  with a whole: Orders booked, Activities logged, the activity-log cell popups
+  and Scanning leads attainment pass `targets: []` (and the log popup a no-desk
+  `rfqCounting`) while an office is chosen, and the popup says so under the chips.
+- **The Activities logged popup's "Latest entries" are filtered in the QUERY**
+  (`fetchActivityEntries({ office })`: the lead embed becomes `leads!inner` only
+  while it is on, like All Leads' Site stage — a plain embed with a filter keeps
+  the activity and nulls the lead). The previous period is cut by lead like the
+  rest. `fetchActivityLogForExec` now selects `lead_id` for the same reason.
+- **Workload re-derives its rows from the leads** (`workloadRowsFromLeads`:
+  open = not won/lost, on hold included, valued at `quote_value` — the SQL
+  function's own definition), because `leads_workload_by_owner()` returns
+  already-grouped owner rows with no lead to place. Dashboard passes
+  `breakdownLeads` as the third argument; a caller that doesn't gets no chips.
+- **Overrides go through the builder, not over its result.** BdmDashboard used
+  to spread `{ ...buildFollowupGapPanel(…), queueActions: false }`; a rebuild
+  would have lost it, so that is now a builder option. Do the same for any
+  per-screen tweak to a wrapped builder.
+- **Left out on purpose**: the heatmap's Overall popup (`buildOverallAttainPanel`
+  — a blended attainment against per-person targets), Architects to meet
+  (architects, not leads), the Day sheet (one person's day, with Reschedule
+  buttons that mutate state a rebuild would not see), Home's follow-up reminder
+  lists (editable work lists), and the New leads by source and RFQ popups, which
+  already carry their own Office chips.
+- **Verified 2026-10-08** as the owner at 375/590px and 1280px (Pipeline, On-hold,
+  Stale, Data completeness, Follow-up gap, Workload, Concentration, the five Needs
+  Attention rows, Orders booked, Activities logged, Win rate, Forecast, area/site
+  stage/product, Why we lose, a heatmap call cell, New leads created) against an
+  independent query of `leads` — Ludhiana read 388 open leads, ₹20.28 Cr, 320
+  active, a top-32 at 83% and Vishal Kumar's 140, all matching — and as the test
+  coordinator, exec and manager (My team). **Not driven: the BDM** (no session on
+  its port), nor a real phone.
 
 ### Colour tokens
 

@@ -34,6 +34,7 @@ import { changeVs } from './periodChange'
 import { closedDeals, dealsIn, bookedFacets, computeBookedView } from './bookedOrders'
 import { leadRecords, leadsIn, leadFacets, computeSourceView } from './leadSources'
 import { SOURCE_TYPE_OPTIONS } from './sourceTypeOptions'
+import { officeAware } from './officeScope'
 
 const CLOSED_STAGES = ['won', 'lost']
 
@@ -191,7 +192,7 @@ export function buildOrderValueAttainPanel({ employees, targets, wonStageHistory
 // combination. Nothing is fetched — every deal, and the previous period's, is
 // read out of `wonStageHistory` (all time) and `breakdownLeads`, both already on
 // the Dashboard. `employeeId` opens it on one exec (the heatmap cell).
-export function buildBookedPanel({
+function buildBookedPanelCore({
   employees,
   targets,
   wonStageHistory,
@@ -254,7 +255,7 @@ function scanningLeadEventsInRange(breakdownLeads, range) {
 }
 
 // ---------- attain: scanning leads (company-wide or one exec) ----------
-export function buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads, range, employeeId, rangeLabel, scopeLabel = 'Company', canCancelTarget = false }) {
+function buildScanningLeadsAttainPanelCore({ employees, targets, breakdownLeads, range, employeeId, rangeLabel, scopeLabel = 'Company', canCancelTarget = false }) {
   const employee = employeeId ? employees.find((e) => e.id === employeeId) : null
   const isCompanyScope = !employee && scopeLabel === 'Company'
   const actualsByEmployee = computeScanningLeadsActuals(breakdownLeads, range, true)
@@ -493,7 +494,7 @@ function computeActivitiesView({ activities, previous, ownerKey, type, range, ta
   }
 }
 
-export function buildActivitiesPanel({
+function buildActivitiesPanelCore({
   activities,
   targets,
   employees,
@@ -655,7 +656,7 @@ function lastNWeekdays(n) {
   return days
 }
 
-export function buildLogPanel({ employee, activityType, targets, range, rangeLabel, logRows, canCancelTarget = false, rfqCounting = NO_RFQ_DESK }) {
+function buildLogPanelCore({ employee, activityType, targets, range, rangeLabel, logRows, canCancelTarget = false, rfqCounting = NO_RFQ_DESK }) {
   const label = ACTIVITY_LABELS[activityType]
   // The row (for its id, so "Cancel this target" can delete it), not just
   // targetFor's plain value.
@@ -976,7 +977,7 @@ function buildPipelineFilters({ scopeLeads, scopeStages, breakdownLeads, scopeLa
 // leads are "top"); in single-person scope there is no meaningful "top 10%
 // of 6" framing, so it drops the cutoff entirely and lists every one of
 // that scope's own active leads, ranked, per the brief's own instruction.
-export function buildPipelinePanel({
+function buildPipelinePanelCore({
   breakdownLeads,
   funnelStageHistory,
   scopeLabel = 'Company',
@@ -1186,7 +1187,7 @@ export function buildPipelinePanel({
 // are already excluded at the SQL layer (per FOLLOWUPS.md Rule 8.2 — they
 // always carry a mandatory hold-review reminder, so they can't genuinely be
 // gapped), so nothing here needs to re-check that.
-export function buildFollowupGapPanel(rows, scopeLabel = 'Company', isSinglePersonScope = false) {
+function buildFollowupGapPanelCore(rows, scopeLabel = 'Company', isSinglePersonScope = false, { queueActions = true } = {}) {
   const ageRows = rows
     .map((r) => {
       const age = daysSince(r.last_activity_at)
@@ -1224,7 +1225,7 @@ export function buildFollowupGapPanel(rows, scopeLabel = 'Company', isSinglePers
     title: 'Leads with no follow-up set',
     value: String(ageRows.length),
     note: 'Currently-open leads (excluding on-hold) with no open follow-up reminder at all.',
-    queueActions: true,
+    queueActions,
     allowLogCall: false,
     viewerEmployeeId: null,
     stats: [
@@ -1306,7 +1307,7 @@ function onHoldBucketFor(days) {
 // `rows` are leads_on_hold_detail()'s raw rows (lead_id, party, owner_id,
 // owner_name, value, on_hold_reason, on_hold_since, days_on_hold,
 // resume_date) — see Schema/migration_time_independent_dashboard_metrics.sql.
-export function buildOnHoldInsightsPanel(rows, scopeLabel = 'Company', isSinglePersonScope = false) {
+function buildOnHoldInsightsPanelCore(rows, scopeLabel = 'Company', isSinglePersonScope = false) {
   const shaped = rows.map((r) => {
     const days = r.days_on_hold ?? 0
     const bucket = onHoldBucketFor(days)
@@ -1426,7 +1427,7 @@ export function buildOnHoldInsightsPanel(rows, scopeLabel = 'Company', isSingleP
 // prop hides the chip entirely there (a lone employee has nothing to
 // compare their own workload against), so unlike every other builder in
 // this file there is no `isSinglePersonScope` param to gate a section on.
-export function buildWorkloadPanel(rows, scopeLabel = 'Company') {
+function buildWorkloadPanelCore(rows, scopeLabel = 'Company') {
   const shaped = rows.map((r) => ({
     id: r.owner_id ?? null,
     name: r.owner_name ?? 'Unassigned',
@@ -1512,7 +1513,7 @@ const COMPLETENESS_FIELDS = [
 // has_pincode, has_site_stage, has_product, missing_fields, completeness_pct)
 // — one row per currently-open lead, already scoped by the caller's RLS/
 // p_owner_ids.
-export function buildCompletenessPanel(rows, scopeLabel = 'Company', isSinglePersonScope = false) {
+function buildCompletenessPanelCore(rows, scopeLabel = 'Company', isSinglePersonScope = false) {
   const shaped = rows.map((r) => ({
     leadId: r.lead_id,
     // The RPC's own generic fallback chain lands on the literal string
@@ -1617,7 +1618,7 @@ export function buildCompletenessPanel(rows, scopeLabel = 'Company', isSinglePer
 }
 
 // ---------- win rate (its own minimal kind — a real per-exec breakdown, not a forced reuse of `pipeline`) ----------
-export function buildWinRatePanel({ decidedStageHistory, employees, range, rangeLabel, scopeLabel = 'Company' }) {
+function buildWinRatePanelCore({ decidedStageHistory, employees, range, rangeLabel, scopeLabel = 'Company' }) {
   const inRange = decidedStageHistory.filter((row) => row.leads && new Date(row.changed_at) >= range.start && new Date(row.changed_at) <= range.end)
   const won = inRange.filter((r) => r.stage === 'won')
   const lost = inRange.filter((r) => r.stage === 'lost')
@@ -1662,7 +1663,7 @@ export function buildWinRatePanel({ decidedStageHistory, employees, range, range
 }
 
 // ---------- forecast ----------
-export function buildForecastPanel({ forecast, scopeLabel = 'Company' }) {
+function buildForecastPanelCore({ forecast, scopeLabel = 'Company' }) {
   const total = forecast.length
   const gross = forecast.reduce((s, l) => s + Number(l.quote_value ?? 0), 0)
   const weighted = forecast.reduce((s, l) => s + (Number(l.quote_value ?? 0) * (l.closure_probability ?? 0)) / 100, 0)
@@ -1789,7 +1790,7 @@ const CATEGORY_PALETTE = ['#0f6b6b', '#2f5878', '#5a4287', '#7a6413', '#9aa5a6',
 // too; it has its own `sources` kind above now.) These are pipeline snapshots
 // off the same unbounded `breakdownLeads` the compact card itself groups —
 // same numbers, just the rows the card capped.
-export function buildCategoryMixPanel({ breakdownLeads, getCategory, eyebrow, title, unit }) {
+function buildCategoryMixPanelCore({ breakdownLeads, getCategory, eyebrow, title, unit }) {
   const counts = new Map()
   // getCategory may return several { category } entries for one lead (a
   // lead's products) — it then counts under each, like the card.
@@ -1836,7 +1837,7 @@ export function buildCategoryMixPanel({ breakdownLeads, getCategory, eyebrow, ti
 }
 
 // ---------- loss ----------
-export function buildLossPanel({ lossReasons }) {
+function buildLossPanelCore({ lossReasons }) {
   const reasonCounts = new Map(LOSS_REASON_OPTIONS.map((r) => [r, { count: 0, value: 0 }]))
   const competitorCounts = new Map()
   const total = lossReasons.length
@@ -1917,3 +1918,173 @@ export function buildArchitectsToMeetPanel(rows, scopeLabel = 'Company') {
     })),
   }
 }
+
+// ---------------------------------------------------------------------------
+// The Office filter (src/lib/officeScope.js). Every popup below is exported
+// through `officeAware`, which hands DrilldownPanel a way to build the SAME
+// popup again from rows narrowed to one office — so picking an office changes
+// every figure in it, not just its list. Each adapter says two things: which
+// lead ids the popup is made of (they decide the chips offered) and how to cut
+// each lead-bearing input down to an office. Nothing here fetches.
+//
+// Left out on purpose, each because an office can't honestly slice it:
+//   - buildOverallAttainPanel — a blended attainment against per-person
+//     targets, which are set across every office;
+//   - buildArchitectsToMeetPanel — architects, not leads;
+//   - buildSourcePanel (and the RFQ popups) — they carry their own Office chips.
+// Where a popup compares against a target, the adapter drops the target while
+// an office is chosen (`hidesTargets`) — "12 of 40" for one office would
+// compare a slice with a whole.
+// ---------------------------------------------------------------------------
+const leadIdOf = (r) => r.lead_id
+const idsOf = (rows, idOf = leadIdOf) => (rows ?? []).map(idOf)
+
+export const buildBookedPanel = officeAware(buildBookedPanelCore, {
+  hidesTargets: true,
+  // The period's closed deals — the offices that actually booked something.
+  leadIds: (a) => dealsIn(closedDeals(a), a.range).map((d) => d.leadId),
+  narrow: (scope, a) => [
+    {
+      ...a,
+      wonStageHistory: scope.rows(a.wonStageHistory, leadIdOf),
+      breakdownLeads: scope.leads(a.breakdownLeads),
+      targets: scope.active ? [] : a.targets,
+    },
+  ],
+})
+
+export const buildScanningLeadsAttainPanel = officeAware(buildScanningLeadsAttainPanelCore, {
+  hidesTargets: true,
+  leadIds: (a) =>
+    (a.breakdownLeads ?? [])
+      .filter((l) => l.source_type === 'scanning' && l.created_at && new Date(l.created_at) >= a.range.start && new Date(l.created_at) <= a.range.end)
+      .map((l) => l.id),
+  narrow: (scope, a) => [{ ...a, breakdownLeads: scope.leads(a.breakdownLeads), targets: scope.active ? [] : a.targets }],
+})
+
+export const buildActivitiesPanel = officeAware(buildActivitiesPanelCore, {
+  hidesTargets: true,
+  leadIds: (a) => idsOf(a.activities),
+  narrow: (scope, a) => {
+    const { loaders = {} } = a
+    return [
+      {
+        ...a,
+        activities: scope.rows(a.activities, leadIdOf),
+        targets: scope.active ? [] : a.targets,
+        // The popup fills three things in after it opens. Each must answer for
+        // the same office as the rows above it: the previous period is cut by
+        // lead like everything else; the latest entries are filtered in the
+        // query (so a narrow office still gets its own latest rows); the
+        // most-worked leads' names don't depend on the office.
+        loaders: scope.active
+          ? {
+              ...loaders,
+              loadPrevious: loaders.loadPrevious && (async () => scope.rows(await loaders.loadPrevious(), leadIdOf)),
+              loadEntries: loaders.loadEntries && ((filter) => loaders.loadEntries({ ...filter, office: scope.key })),
+            }
+          : loaders,
+      },
+    ]
+  },
+})
+
+export const buildLogPanel = officeAware(buildLogPanelCore, {
+  hidesTargets: true,
+  leadIds: (a) => idsOf(a.logRows),
+  narrow: (scope, a) => [
+    {
+      ...a,
+      logRows: scope.rows(a.logRows, leadIdOf),
+      targets: scope.active ? [] : a.targets,
+      // Desk approvals are counted per exec across every office; they have no
+      // lead here to place, so an office view counts the logged entries only.
+      rfqCounting: scope.active ? NO_RFQ_DESK : a.rfqCounting,
+    },
+  ],
+})
+
+export const buildPipelinePanel = officeAware(buildPipelinePanelCore, {
+  // Open leads only — the popup is about them, so an office whose every lead is
+  // already won or lost is not offered.
+  leadIds: (a) => (a.breakdownLeads ?? []).filter((l) => !CLOSED_STAGES.includes(l.current_stage ?? 'calling')).map((l) => l.id),
+  narrow: (scope, a) => [
+    {
+      ...a,
+      breakdownLeads: scope.leads(a.breakdownLeads),
+      funnelStageHistory: scope.rows(a.funnelStageHistory, leadIdOf),
+    },
+  ],
+})
+
+// The three RPC-backed lists hand over `lead_id` on every row.
+export const buildFollowupGapPanel = officeAware(buildFollowupGapPanelCore, {
+  leadIds: (rows) => idsOf(rows),
+  narrow: (scope, rows, ...rest) => [scope.rows(rows, leadIdOf), ...rest],
+})
+
+export const buildOnHoldInsightsPanel = officeAware(buildOnHoldInsightsPanelCore, {
+  leadIds: (rows) => idsOf(rows),
+  narrow: (scope, rows, ...rest) => [scope.rows(rows, leadIdOf), ...rest],
+})
+
+export const buildCompletenessPanel = officeAware(buildCompletenessPanelCore, {
+  leadIds: (rows) => idsOf(rows),
+  narrow: (scope, rows, ...rest) => [scope.rows(rows, leadIdOf), ...rest],
+})
+
+// leads_workload_by_owner() returns one already-grouped row per owner — no lead
+// to place. For an office the same rows are re-derived from the leads (open =
+// not won/lost, on hold included, valued at quote_value alone: the function's
+// own definition), so the caller passes its leads as a third argument; without
+// them there is no office view.
+export function workloadRowsFromLeads(leads) {
+  const byOwner = new Map()
+  ;(leads ?? []).forEach((l) => {
+    if (CLOSED_STAGES.includes(l.current_stage ?? 'calling')) return
+    const key = l.owner_employee_id ?? 'unassigned'
+    if (!byOwner.has(key)) {
+      byOwner.set(key, {
+        owner_id: l.owner_employee_id ?? null,
+        owner_name: l.employees?.name ?? 'Unassigned',
+        open_lead_count: 0,
+        open_pipeline_value: 0,
+      })
+    }
+    const row = byOwner.get(key)
+    row.open_lead_count += 1
+    row.open_pipeline_value += Number(l.quote_value ?? 0)
+  })
+  return [...byOwner.values()].sort((a, b) => b.open_lead_count - a.open_lead_count)
+}
+
+export const buildWorkloadPanel = officeAware(buildWorkloadPanelCore, {
+  available: (rows, scopeLabel, leads) => Array.isArray(leads),
+  leadIds: (rows, scopeLabel, leads) =>
+    leads.filter((l) => !CLOSED_STAGES.includes(l.current_stage ?? 'calling')).map((l) => l.id),
+  narrow: (scope, rows, scopeLabel, leads) => [scope.active ? workloadRowsFromLeads(scope.leads(leads)) : rows, scopeLabel, leads],
+})
+
+export const buildWinRatePanel = officeAware(buildWinRatePanelCore, {
+  // Decided inside the period — the offices that actually won or lost something.
+  leadIds: (a) =>
+    (a.decidedStageHistory ?? [])
+      .filter((r) => r.leads && new Date(r.changed_at) >= a.range.start && new Date(r.changed_at) <= a.range.end)
+      .map(leadIdOf),
+  narrow: (scope, a) => [{ ...a, decidedStageHistory: scope.rows(a.decidedStageHistory, leadIdOf) }],
+})
+
+export const buildForecastPanel = officeAware(buildForecastPanelCore, {
+  leadIds: (a) => (a.forecast ?? []).map((l) => l.id),
+  narrow: (scope, a) => [{ ...a, forecast: scope.leads(a.forecast) }],
+})
+
+export const buildCategoryMixPanel = officeAware(buildCategoryMixPanelCore, {
+  leadIds: (a) => (a.breakdownLeads ?? []).map((l) => l.id),
+  narrow: (scope, a) => [{ ...a, breakdownLeads: scope.leads(a.breakdownLeads) }],
+})
+
+export const buildLossPanel = officeAware(buildLossPanelCore, {
+  leadIds: (a) => idsOf(a.lossReasons),
+  narrow: (scope, a) => [{ ...a, lossReasons: scope.rows(a.lossReasons, leadIdOf) }],
+})

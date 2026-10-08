@@ -9,6 +9,7 @@ import { TONE_GOOD, TONE_BAD, TONE_NEUTRAL, TONE_WON } from './statusColors'
 import { leadDisplayName, leadNameTier, leadSiteLabel } from './leadName'
 import { roleLabel } from './roles'
 import { todayISO } from './followupDates'
+import { officeAware } from './officeScope'
 
 // Pure shaping for the Day Review — takes the raw rows fetched by
 // dayReviewQueries.js and produces the per-exec table rows, the team totals,
@@ -529,13 +530,35 @@ function wonPanel({ data, employees, eyebrow, isToday }) {
 // `key` is the tile's key ('new_leads' | 'won'); anything else returns null.
 // `employees` is the roster the tiles were drawn for (one person on an exec's
 // own page), `data` is fetchDayReview's answer for `dateISO`.
-export function buildDayTilePanel(key, { data, employees, dateISO, scopeLabel }) {
+function buildDayTilePanelCore(key, { data, employees, dateISO, scopeLabel }) {
   const scope = scopeLabel ?? (employees.length === 1 ? employees[0].name : 'Your team')
   const args = { data, employees, eyebrow: `${scope} · ${dayLabel(dateISO)}`, isToday: dateISO === todayISO() }
   if (key === 'new_leads') return newLeadsPanel(args)
   if (key === 'won') return wonPanel(args)
   return null
 }
+
+// The Office filter (src/lib/officeScope.js). The popup's two lists are the
+// day's new leads and the day's won stage changes; both are cut down by the
+// lead's office, and everything the popup prints (counts, values, who created
+// or closed what) is derived from them, so it follows.
+export const buildDayTilePanel = officeAware(buildDayTilePanelCore, {
+  leadIds: (key, { data, employees }) =>
+    key === 'won'
+      ? wonRowsOf(data).map((s) => s.lead_id)
+      : countedNewLeads(data, employees.map((e) => e.id)).map((l) => l.id),
+  narrow: (scope, key, args) => [
+    key,
+    {
+      ...args,
+      data: {
+        ...args.data,
+        newLeads: scope.leads(args.data.newLeads),
+        stageChanges: scope.rows(args.data.stageChanges, (s) => s.lead_id),
+      },
+    },
+  ],
+})
 
 // ---------------------------------------------------------------------------
 // The day sheet — one exec, one day. Opened from a table row (or from the

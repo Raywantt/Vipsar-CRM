@@ -62,11 +62,19 @@ export function fetchActivityCounts(range) {
 // gets its own latest entries instead of whatever few survived out of a
 // company-wide page. Not cached: it is fired per filter change and the rows
 // are small.
-export function fetchActivityEntries(range, { employeeId = null, employeeIds = null, activityType = null, limit = 30 } = {}) {
+//
+// `office` (an office_territory value, or 'none' for a lead with no office)
+// narrows the list to entries on leads in that office — the popup's Office
+// filter. The embed turns into `leads!inner` only while it's on, exactly like
+// All Leads' Site stage filter: a plain embed with a filter on it keeps the
+// activity and merely nulls the lead, filtering nothing. It also drops the
+// lead-less entries (an Office Day), which belong to no office.
+export function fetchActivityEntries(range, { employeeId = null, employeeIds = null, activityType = null, office = null, limit = 30 } = {}) {
+  const leadEmbed = `leads${office ? '!inner' : ''}(id, current_stage, parties!party_id(name), sites(nickname, locality, house_no))`
   let query = supabase
     .from('activities')
     .select(
-      'id, activity_type, created_at, notes, lead_id, employee_id, start_time, end_time, employees!employee_id(name), leads(id, current_stage, parties!party_id(name), sites(nickname, locality, house_no)), parties!party_id(name)'
+      `id, activity_type, created_at, notes, lead_id, employee_id, start_time, end_time, employees!employee_id(name), ${leadEmbed}, parties!party_id(name)`
     )
     .gte('created_at', range.start.toISOString())
     .lte('created_at', range.end.toISOString())
@@ -75,7 +83,21 @@ export function fetchActivityEntries(range, { employeeId = null, employeeIds = n
   if (employeeId != null) query = query.eq('employee_id', employeeId)
   else if (employeeIds) query = query.in('employee_id', employeeIds)
   if (activityType) query = query.eq('activity_type', activityType)
+  if (office === 'none') query = query.is('leads.office_territory', null)
+  else if (office) query = query.eq('leads.office_territory', office)
   return query
+}
+
+// Every lead's office, and nothing else — the lookup behind the popups' Office
+// filter (src/lib/officeScope.js). Two narrow columns, read only when a popup
+// that can be filtered is opened (useOfficeDirectory), so a Today screen pays
+// nothing for it until then. RLS scopes it exactly as it scopes every other
+// lead read, and pool leads are deliberately NOT excluded: this is a lookup by
+// id, not a figure, and a row about a lead must find its office either way.
+export function fetchLeadOffices() {
+  return cachedQuery('leads:offices', () =>
+    fetchAllRows(() => supabase.from('leads').select('id, office_territory', { count: 'exact' }))
+  )
 }
 
 // Names + stages for a handful of leads (the popup's most-worked leads),
@@ -430,7 +452,8 @@ export function fetchActivityLogForExec(employeeId, activityType, rangeStart) {
     supabase
       .from('activities')
       .select(
-        'id, notes, created_at, leads_generated, start_time, end_time, accompanied_by, rfq_kind, leads(current_stage, parties!party_id(name)), parties!party_id(name), employees!accompanied_by(name)',
+        // `lead_id` is what the popup's Office filter places an entry by.
+        'id, lead_id, notes, created_at, leads_generated, start_time, end_time, accompanied_by, rfq_kind, leads(current_stage, parties!party_id(name)), parties!party_id(name), employees!accompanied_by(name)',
         { count: 'exact' }
       )
       .eq('employee_id', employeeId)

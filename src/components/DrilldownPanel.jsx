@@ -12,6 +12,8 @@ import ShowMoreRows from './ShowMoreRows'
 import { LEAD_STAGE_OPTIONS, stageLabel } from '../lib/leadStageOptions'
 import { canOpenEmployeeProfiles } from '../lib/roles'
 import { sourceColor } from '../lib/leadSources'
+import { useOfficeDirectory } from '../hooks/useOfficeDirectory'
+import { createOfficeScope, officeChoices, OFFICE_ALL } from '../lib/officeScope'
 
 // Chunk size for ShowMoreRows in every drill-down body below that renders an
 // otherwise-unbounded list (a Needs Attention bucket, every lead at one
@@ -3199,6 +3201,35 @@ function CancelTargetControl({ cancelTarget, onCancelTarget }) {
   )
 }
 
+// The Office chips every filterable popup carries, drawn once here rather than
+// by each body (see src/lib/officeScope.js). It sits above the stat tiles
+// because it governs them: picking an office rebuilds the whole popup. While
+// the lookup is on its way it holds the row's place with a muted line, so the
+// popup doesn't jump when the chips arrive; if the lookup failed there are no
+// chips at all (`options` stays null) rather than a filter that can't work.
+// One choice is no filter, so it hides — unless an office is already picked,
+// when "All" must stay reachable.
+function OfficeFilter({ loading, options, value, hidesTargets, onChange }) {
+  if (!options) {
+    if (!loading) return null
+    return (
+      <div className="vip-dd-section">
+        <div className="vip-fact-label">Office</div>
+        <div className="vip-dd-hint">Loading offices…</div>
+      </div>
+    )
+  }
+  if (options.length < 2 && !value) return null
+  return (
+    <div className="vip-dd-section">
+      <ChipFacet label="Office" options={options} value={value} onChange={onChange} />
+      {value && hidesTargets && (
+        <div className="vip-dd-hint">Targets are set across every office, so they aren't shown for a single one.</div>
+      )}
+    </div>
+  )
+}
+
 // `panel` (the prop) is always the root of the drill-down; `stack` holds any
 // deeper panels a body pushed via onDrill — PipelineBody's stage rows → that
 // stage's lead list, and DaySheetBody's "+N more" lines → the full list for
@@ -3207,14 +3238,41 @@ function CancelTargetControl({ cancelTarget, onCancelTarget }) {
 // different root panel.
 function DrilldownPanel({ panel, onClose, onCancelTarget }) {
   const [stack, setStack] = useState([])
+  const [officePick, setOfficePick] = useState({ popup: '', key: OFFICE_ALL })
 
+  // The Office filter. A builder that can be narrowed to one office leaves
+  // `panel.office` (src/lib/officeScope.js); everything below is the shell's
+  // half of it. The lookup it needs (lead id → office) is fetched only while
+  // such a popup is open.
+  const officeSpec = panel?.office ?? null
+  const { directory, loading: officeLoading } = useOfficeDirectory(Boolean(officeSpec))
+  // The pick belongs to ONE popup: a different popup opening starts at "All".
+  // Keyed on what names it, not on the panel object — a screen that refreshes
+  // its data rebuilds the same popup, and that must not drop the office chosen.
+  const popupId = panel ? `${panel.kind}|${panel.eyebrow}|${panel.title}` : ''
+  const officeKey = officePick.popup === popupId ? officePick.key : OFFICE_ALL
+
+  // The panel as the chosen office sees it: the SAME builder run again over
+  // that office's rows, so every figure follows, not only the list.
+  const scoped = useMemo(() => {
+    if (!panel || !officeSpec || officeKey === OFFICE_ALL || !directory) return panel
+    return officeSpec.rebuild(createOfficeScope(officeKey, directory)) ?? panel
+  }, [panel, officeSpec, officeKey, directory])
+  // Offered from the UNFILTERED popup, so picking an office never shrinks the
+  // chips underneath it.
+  const officeOptions = useMemo(
+    () => (officeSpec && directory ? officeChoices(officeSpec.leadIds(), directory) : null),
+    [officeSpec, directory]
+  )
+
+  // A deeper panel was built from the previous office's rows; drop it.
   useEffect(() => {
     setStack([])
-  }, [panel])
+  }, [scoped])
 
   if (!panel) return null
 
-  const current = stack.length ? stack[stack.length - 1] : panel
+  const current = stack.length ? stack[stack.length - 1] : scoped
   const Body = BODIES[current.kind]
 
   return (
@@ -3245,6 +3303,16 @@ function DrilldownPanel({ panel, onClose, onCancelTarget }) {
             ✕
           </button>
         </div>
+
+        {stack.length === 0 && officeSpec && (
+          <OfficeFilter
+            loading={officeLoading}
+            options={officeOptions}
+            value={officeKey}
+            hidesTargets={officeSpec.hidesTargets}
+            onChange={(key) => setOfficePick({ popup: popupId, key })}
+          />
+        )}
 
         <StatsGrid stats={current.stats} />
 

@@ -889,11 +889,12 @@ function Dashboard() {
             if (previousError) throw previousError
             return (data ?? []).filter((r) => inScope(r.employee_id))
           },
-          loadEntries: async ({ ownerId, type }) => {
+          loadEntries: async ({ ownerId, type, office }) => {
             const { data, error: entriesError } = await fetchActivityEntries(range, {
               employeeId: ownerId,
               employeeIds: snapshotOwnerIds,
               activityType: type,
+              office,
             })
             if (entriesError) throw entriesError
             return (data ?? []).map(shapeActivityEntry)
@@ -951,7 +952,9 @@ function Dashboard() {
   async function handleOpenWorkload() {
     const { data, error: workloadError } = await fetchWorkloadByOwner(snapshotOwnerIds)
     if (workloadError) return
-    setPanel(buildWorkloadPanel(data ?? [], scopeLabel))
+    // The leads ride along as a third argument so the popup can re-derive its
+    // per-owner rows for one office (the RPC's rows are already grouped).
+    setPanel(buildWorkloadPanel(data ?? [], scopeLabel, breakdownLeads))
   }
 
   // Lead data completeness — Milestone 6 panel 6, the final panel of this

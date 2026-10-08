@@ -7,6 +7,7 @@ import { todayISO } from './followupDates'
 import { daysSince } from './dateMath'
 import { leadDisplayName } from './leadName'
 import { rfqBackWithExec } from './rfqDesk'
+import { officeAware } from './officeScope'
 
 const CLOSED_STAGES = ['won', 'lost']
 
@@ -691,7 +692,7 @@ export function countDistinctLeads(buckets) {
 // people's data" flag, so a viewer of one person's leads never gets an owner
 // filter with nothing to choose between. Dashboard's Stale Leads tile and its
 // five Needs Attention rows pass it (2026-09-19); Today's own popups do not.
-export function buildAgeingPanel(
+function buildAgeingPanelCore(
   bucket,
   scopeLabel = 'Company',
   viewerEmployeeId = null,
@@ -764,3 +765,15 @@ export function buildAgeingPanel(
     })),
   }
 }
+
+// The Office filter (src/lib/officeScope.js): every Needs Attention row, the
+// Stale-leads tile and Today's work queues open this popup, and each can be
+// rebuilt for one office. The bucket's rows all carry `leadId`; the count the
+// header prints is the bucket's row count, so it is re-derived with them.
+export const buildAgeingPanel = officeAware(buildAgeingPanelCore, {
+  leadIds: (bucket) => bucket.rows.map((r) => r.leadId),
+  narrow: (scope, bucket, ...rest) => {
+    const rows = scope.rows(bucket.rows, (r) => r.leadId)
+    return [{ ...bucket, rows, count: rows.length }, ...rest]
+  },
+})

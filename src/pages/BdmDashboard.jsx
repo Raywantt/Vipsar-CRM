@@ -234,7 +234,9 @@ function BdmDashboard() {
     setPanelError(null)
     const { data, error } = await fetchFollowupGapDetail(null)
     if (error) return setPanelError(errorMessage(error))
-    setPanel({ ...buildFollowupGapPanel(labelPoolOwnerRows(data), scopeLabel, false), queueActions: false })
+    // Passed to the builder, not spread over its result: the popup's Office
+    // filter builds it again, and an override laid on top would be lost then.
+    setPanel(buildFollowupGapPanel(labelPoolOwnerRows(data), scopeLabel, false, { queueActions: false }))
   }
 
   return (
