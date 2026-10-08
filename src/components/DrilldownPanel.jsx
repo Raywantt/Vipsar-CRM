@@ -2938,6 +2938,79 @@ function DayTileBody({ panel }) {
   )
 }
 
+// The `records` kind (src/lib/bdmPopups.js): a header, four figures and one or
+// more dated lists — the popups behind the business development manager's target
+// rows and tiles. A row is { key, when, whenSub?, name, to?, chip?, meta, value }:
+// the date it is about on the left, the thing's name (a link when `to` is set)
+// with its stage chip and a quiet line, and a figure on the right. Same row
+// markup as the Today tiles' list (DayTileBody), so the two read as one family.
+// The figures are drawn here, not as the panel's own `stats`, for the reason
+// DayTileBody gives: a root-level stats grid shrinks to ~1px under a long list.
+function RecordsBody({ panel }) {
+  const [visible, setVisible] = useState({})
+
+  useEffect(() => {
+    setVisible({})
+  }, [panel])
+
+  const allEmpty = panel.sections.every((s) => s.rows.length === 0)
+
+  return (
+    <div className="vip-dd-section-stack">
+      <StatsGrid stats={panel.figures} />
+
+      {allEmpty ? (
+        <p className="vip-empty">{panel.empty}</p>
+      ) : (
+        panel.sections.map((section) => {
+          const count = visible[section.key] ?? DEAL_CHUNK
+          const shown = section.rows.slice(0, count)
+          return (
+            <div key={section.key} className="vip-dd-section">
+              <div className="vip-dd-section-head">
+                <div className="vip-dd-section-title">
+                  {section.title}
+                  {panel.sections.length > 1 ? ` · ${section.rows.length}` : ''}
+                </div>
+                {section.hint && <div className="vip-dd-hint">{section.hint}</div>}
+              </div>
+              {section.rows.length === 0 && <p className="vip-dd-hint">{section.empty}</p>}
+              {shown.map((r) => (
+                <div key={r.key} className="vip-dd-log-row">
+                  <div className="vip-dd-log-when">
+                    <span>{r.when}</span>
+                    {r.whenSub && <span>{r.whenSub}</span>}
+                  </div>
+                  <div className="vip-dd-log-main">
+                    <div className="vip-dd-log-head">
+                      {r.to ? (
+                        <Link to={r.to} className="vip-dd-log-party">
+                          {r.name}
+                        </Link>
+                      ) : (
+                        <span className="vip-dd-log-party">{r.name}</span>
+                      )}
+                      {r.chip && <span className={r.chip.chipClass}>{r.chip.label}</span>}
+                    </div>
+                    {r.meta && <div className="vip-dd-log-notes">{r.meta}</div>}
+                  </div>
+                  {r.value != null && <div className="vip-bk-deal-value">{r.value}</div>}
+                </div>
+              ))}
+              <ShowMoreRows
+                shown={shown.length}
+                total={section.rows.length}
+                noun={section.noun}
+                onShowMore={() => setVisible((v) => ({ ...v, [section.key]: count + DEAL_CHUNK }))}
+              />
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+}
+
 // Genuinely new kind (buildCompletenessPanel in drilldownBuilders.js) — the
 // final panel of this feature. Reuses PRIMITIVES from two different existing
 // kinds rather than either one's whole identity: the field bars below reuse
@@ -3119,6 +3192,7 @@ const BODIES = {
   daySheet: DaySheetBody,
   dayItems: DayItemsBody,
   dayTile: DayTileBody,
+  records: RecordsBody,
   attain: AttainBody,
   activities: ActivitiesBody,
   booked: BookedBody,

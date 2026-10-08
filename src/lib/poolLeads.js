@@ -100,3 +100,19 @@ export function waitingLabel(createdAt, now = new Date()) {
   if (hours < 48) return `${hours}h`
   return `${Math.floor(hours / 24)}d`
 }
+
+// The only ownerless leads a BDM's screens can show are pool leads, which read
+// "Awaiting assignment" everywhere they appear (My Leads, Lead Detail) rather
+// than the shared drill-downs' generic "Unassigned". Display only: applied to
+// the rows a popup is built from, never to anything written back. Shared by the
+// BDM's own Dashboard and the owner's Architect Network, so a pool lead is
+// called the same thing on both.
+export const AWAITING_ASSIGNMENT = 'Awaiting assignment'
+
+export function labelPoolOwnerRows(rows) {
+  return (rows ?? []).map((r) => (r.owner_id == null ? { ...r, owner_name: AWAITING_ASSIGNMENT } : r))
+}
+
+export function labelPoolOwnerLeads(leads) {
+  return (leads ?? []).map((l) => (l.owner_employee_id == null ? { ...l, employees: { name: AWAITING_ASSIGNMENT } } : l))
+}

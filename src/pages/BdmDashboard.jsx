@@ -20,6 +20,7 @@ import { BdmHandedOverCard, BdmClosedCard, BdmPipelineClosedCard } from '../comp
 import { useClosedRows } from '../hooks/useBdmPeriodRows'
 import { markBdmUpdatesSeen } from '../lib/notificationQueries'
 import { canSeeMyArchitects } from '../lib/roles'
+import { labelPoolOwnerLeads, labelPoolOwnerRows } from '../lib/poolLeads'
 import { RANGE_LABELS, rangeForPreset, rangeLabelFor } from '../lib/dateRanges'
 import { targetPeriodFor } from '../lib/targetPeriods'
 import { todayISO } from '../lib/followupDates'
@@ -34,6 +35,8 @@ import {
 } from '../lib/dashboardQueries'
 import { fetchTargetsForPeriod } from '../lib/targetQueries'
 import { architectsToMeet, lastMeetingByArchitect } from '../lib/architectStats'
+import { targetFor } from '../components/TargetsVsActualsCard'
+import { buildBdmTargetPanel } from '../lib/bdmPopups'
 import { computeBdmTargetActuals, topArchitects } from '../lib/bdmDashboard'
 import { countOpenPipelineLeads, stageRowsFromLeads, sumOpenPipelineValue } from '../lib/pipelineValue'
 import {
@@ -50,20 +53,8 @@ function numOrNull(v) {
   return v == null ? null : Number(v)
 }
 
-// The only ownerless leads a BDM can see are their own pool leads, which read
-// "Awaiting assignment" everywhere else they appear (My Leads, Lead Detail) —
-// not the shared drill-downs' generic "Unassigned". Display only: applied to
-// the rows a panel is built from, never to anything written back.
-const AWAITING = 'Awaiting assignment'
-
 // "Nothing yet", shared so props keep one identity across renders. Never mutated.
 const NO_ROWS = []
-function labelPoolOwnerRows(rows) {
-  return (rows ?? []).map((r) => (r.owner_id == null ? { ...r, owner_name: AWAITING } : r))
-}
-function labelPoolOwnerLeads(leads) {
-  return (leads ?? []).map((l) => (l.owner_employee_id == null ? { ...l, employees: { name: AWAITING } } : l))
-}
 
 // The business development manager's `/dashboard` (picked by DashboardRoute).
 //
@@ -219,6 +210,23 @@ function BdmDashboard() {
     )
   }
 
+  // A target row opens the list its figure counts. This screen's own BDM is the
+  // one the rows are about; `targets` is already their rows for the period.
+  function openTargetMetric(metric) {
+    if (!leads || !meetings || !range) return
+    setPanel(
+      buildBdmTargetPanel({
+        metric,
+        bdm: { id: bdmId, name: employee?.name ?? 'You' },
+        leads,
+        meetings,
+        range,
+        rangeLabel,
+        target: targetFor(targets ?? [], null, metric),
+      })
+    )
+  }
+
   async function openCompleteness() {
     setPanelError(null)
     const { data, error } = await fetchCompletenessDetail(null)
@@ -308,7 +316,13 @@ function BdmDashboard() {
                     Pipeline closed takes the whole row rather than leaving
                     half of it empty. */}
                 {targetPeriod && (
-                  <BdmTargetsCard targets={targets ?? []} actuals={actuals} rangeLabel={rangeLabel} loading={!targets || !leads || !meetings} />
+                  <BdmTargetsCard
+                    targets={targets ?? []}
+                    actuals={actuals}
+                    rangeLabel={rangeLabel}
+                    loading={!targets || !leads || !meetings}
+                    onOpenMetric={openTargetMetric}
+                  />
                 )}
                 {/* The card itself is the grid item (no wrapper), so it
                     stretches to its partner's height when paired. */}

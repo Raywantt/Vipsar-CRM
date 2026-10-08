@@ -4052,3 +4052,19 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
   overflow: hidden; background: var(--vip-line-soft);
 }
 .vip-sp-seg-h { display: block; flex: 1 1 0; min-width: 0; }
+
+/* ---- the business development manager's popups (src/lib/bdmPopups.js) ----
+   A target row that opens one is a real button wrapped round the row's own two
+   lines (label + figure, then the bar): reset to look like the row it was, with
+   a chevron by the figure and the same soft hover the Architect Network tiles
+   have. Tokens only, so dark mode repaints it. */
+.vip-target-row-btn {
+  display: flex; flex-direction: column; gap: 5px; width: 100%;
+  margin: 0; padding: 4px 0; border: 0; border-radius: var(--vip-r-control);
+  background: none; font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.vip-target-row-btn:hover { background: var(--vip-surface-soft); }
+.vip-target-row-btn:focus-visible { outline: 2px solid var(--vip-teal); outline-offset: 1px; }
+.vip-target-row-chevron { margin-left: 4px; color: var(--vip-faint); }
+/* The time under a record's date in a records popup. */
+.vip-dd-log-when span + span { font: 400 10px var(--vip-mono); color: var(--vip-faint); }

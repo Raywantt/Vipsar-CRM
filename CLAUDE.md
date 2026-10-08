@@ -185,7 +185,7 @@ src/
                 appUpdate, poolLeads, architectStats, bdmDashboard,
                 bdmLeadUpdates, architectNetwork, firmLabel,
                 bookedOrders, leadSources, periodChange, leadExport, leadExportFile,
-                rfqDesk, rfqDeskReport, officeScope,
+                rfqDesk, rfqDeskReport, officeScope, bdmPopups,
                 queries: dashboardQueries, searchQueries, targetQueries,
                 partyQueries, employeeQueries, lookupQueries,
                 leadOwnerHistory, dayReviewQueries, followUpQueries,
@@ -750,6 +750,49 @@ not just its list (owner's choice). Load-bearing:
   active, a top-32 at 83% and Vishal Kumar's 140, all matching — and as the test
   coordinator, exec and manager (My team). **Not driven: the BDM** (no session on
   its port), nor a real phone.
+
+**The business development manager's popups** (2026-10-08; `src/lib/bdmPopups.js`,
+`RecordsBody` in `DrilldownPanel.jsx`). Every figure on the owner's Architect
+Network BDM card opens the list behind it: the three **target rows** (Architect
+meetings, Joineries received, Leads generated) and the tiles **Open pipeline,
+Waiting in pool, Handed over, Won, Win rate**. The same three target rows on the
+BDM's own Dashboard (`BdmTargetsCard`'s `onOpenMetric`) open the same popups.
+A tile is a button once its own source has loaded (`ready`), with a `›` when
+there is something behind it; a target row is a button through `TargetRow`'s
+`onOpen` (a real `<button>` of spans, so its markup stays valid). Load-bearing:
+- **A popup is the list its figure counts**, so they can't disagree: targets
+  reduce through `computeBdmTargetActuals`' own rule (`inRange`, the frozen BDM
+  tag, `joinery_received`), Won/Win rate through `buildClosedRows` →
+  `summariseClosedRows` (the Closed card's rows), Handed over through
+  `buildHandedOverRows`. `bdmPopups.test.js` pins each against that rule.
+  Nothing is fetched except below.
+- **Won and Win rate open ONE popup** (owner's choice) — won and lost leads for
+  the period with the win rate worked out; `focus` only decides which figure
+  heads it. `buildClosedRows` says "You" for a lead the BDM worked themselves,
+  right on their own Dashboard and wrong on the owner's, so the owner's call
+  passes `selfLabel` (the BDM's name).
+- **Open pipeline reuses the pipeline popup** (stage bars, biggest leads, Owner /
+  Stage / Office filters) over that BDM's leads, pool leads labelled "Awaiting
+  assignment" (`labelPoolOwnerLeads`, now shared from `poolLeads.js` with
+  BdmDashboard). Its lifetime-funnel figures need stage history, and an owner's
+  `fetchStageHistoryForFunnel` would download the whole company's, so
+  `fetchBdmStageHistory(bdmId)` pushes the tag filter into the query
+  (`leads!inner` + `.eq('leads.bdm_employee_id')`). This is the only fetch.
+- **Office chips** (see above) are on every lead-based one — pool, handed over,
+  closed, joineries, leads generated — wrapped in `officeAware`; the
+  architect-meetings popup is about architects, not leads, and has none. The two
+  target popups drop their target while an office is chosen, as every popup
+  that compares against one does.
+- **Figures use the tone tokens** (`TONE_INK` / `TONE_BAD_INK` / `TONE_WON`),
+  never a hex: the first version used `#101617` and printed near-black on the dark
+  surface (caught only because the popup was looked at in dark mode).
+- **Not driven against live data** — see Verified below.
+- **Verified 2026-10-08** with the real components over a stubbed Supabase client
+  (a throwaway harness, deleted) at phone width, desktop width, dark and light:
+  every popup's figures, sections and rows, the chips, no horizontal overflow, the
+  tile grid (3×2 at desktop, 2×3 on a phone) and the target rows. **Not run as a
+  signed-in owner or BDM** — neither session was available — so the real rows
+  behind it, and the Open pipeline fetch, are untested live.
 
 ### Colour tokens
 

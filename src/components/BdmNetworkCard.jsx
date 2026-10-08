@@ -20,7 +20,12 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
 // Two halves side by side from 1024px (targets | figures), stacked on a phone.
 // "Right now" figures and period figures sit in one grid, so each tile's sub
 // line names which it is.
-function BdmNetworkCard({ bdm, summary, targets, targetPeriod, rangeLabel, onOpenArchitects, onTargetsSaved }) {
+//
+// Every figure opens the list behind it. `onOpen(key)` is told which: a tile's
+// key ('open' | 'pool' | 'handed' | 'won' | 'winrate') or a target row's metric
+// (src/lib/targetMetrics.js). A tile is a button once its own source has loaded
+// (`ready`); until then it is the plain figure with its "…".
+function BdmNetworkCard({ bdm, summary, targets, targetPeriod, rangeLabel, onOpenArchitects, onOpen, onTargetsSaved }) {
   const [formOpen, setFormOpen] = useState(false)
   const s = summary
   const loading = '…'
@@ -32,24 +37,32 @@ function BdmNetworkCard({ bdm, summary, targets, targetPeriod, rangeLabel, onOpe
       label: 'Open pipeline',
       value: s.openValue == null ? loading : s.openValue ? formatCurrencyCompact(s.openValue) : '—',
       sub: s.openCount == null ? 'right now' : `${plural(s.openCount, 'open lead', 'open leads')} · now`,
+      ready: s.openCount != null,
+      more: s.openCount > 0,
     },
     {
       key: 'pool',
       label: 'Waiting in pool',
       value: s.waitingCount == null ? loading : String(s.waitingCount),
       sub: 'not yet assigned · now',
+      ready: s.waitingCount != null,
+      more: s.waitingCount > 0,
     },
     {
       key: 'handed',
       label: 'Handed over',
       value: s.handedOverCount == null ? loading : String(s.handedOverCount),
       sub: `assigned ${rangeLabel}`,
+      ready: s.handedOverCount != null,
+      more: s.handedOverCount > 0,
     },
     {
       key: 'won',
       label: 'Won',
       value: closed == null ? loading : closed.wonCount ? formatCurrencyCompact(closed.wonValue) : '—',
       sub: closed == null ? rangeLabel : `${plural(closed.wonCount, 'lead', 'leads')} ${rangeLabel}`,
+      ready: closed != null,
+      more: closed != null && closed.wonCount + closed.lostCount > 0,
     },
     {
       key: 'winrate',
@@ -61,6 +74,9 @@ function BdmNetworkCard({ bdm, summary, targets, targetPeriod, rangeLabel, onOpe
           : closed.winRate == null
             ? `nothing closed ${rangeLabel}`
             : `${closed.wonCount} won · ${closed.lostCount} lost`,
+      // Same closed leads as Won — both tiles open the one popup.
+      ready: closed != null,
+      more: closed != null && closed.wonCount + closed.lostCount > 0,
     },
   ]
 
@@ -86,6 +102,7 @@ function BdmNetworkCard({ bdm, summary, targets, targetPeriod, rangeLabel, onOpe
                 <TargetRow
                   key={m.value}
                   showActualWithoutTarget
+                  onOpen={onOpen ? () => onOpen(m.value) : null}
                   row={{ label: m.label, actual: s.actuals[m.value] ?? 0, target: targetFor(targets, bdm.id, m.value), metric: m.value }}
                 />
               ))
@@ -112,15 +129,26 @@ function BdmNetworkCard({ bdm, summary, targets, targetPeriod, rangeLabel, onOpe
         </div>
 
         <div className="vip-dd-stats vip-net-bdm-stats">
-          {tiles.map((t) => (
-            <div key={t.key} className="vip-dd-stat">
-              <span className="vip-dd-stat-label">{t.label}</span>
-              <span className="vip-dd-stat-value">{t.value}</span>
-              <span className="vip-dd-stat-sub">{t.sub}</span>
-            </div>
-          ))}
-          {/* The one tile with a list behind it — the same "Architects to meet"
-              panel the BDM's own Dashboard tile opens. */}
+          {tiles.map((t) =>
+            onOpen && t.ready ? (
+              <button key={t.key} type="button" className="vip-dd-stat vip-net-stat-btn" onClick={() => onOpen(t.key)}>
+                <span className="vip-dd-stat-label">{t.label}</span>
+                <span className="vip-dd-stat-value">{t.value}</span>
+                <span className="vip-dd-stat-sub">
+                  {t.sub}
+                  {t.more ? ' ›' : ''}
+                </span>
+              </button>
+            ) : (
+              <div key={t.key} className="vip-dd-stat">
+                <span className="vip-dd-stat-label">{t.label}</span>
+                <span className="vip-dd-stat-value">{t.value}</span>
+                <span className="vip-dd-stat-sub">{t.sub}</span>
+              </div>
+            )
+          )}
+          {/* The "Architects to meet" tile — the same panel the BDM's own
+              Dashboard tile opens. */}
           <button
             type="button"
             className="vip-dd-stat vip-net-stat-btn"

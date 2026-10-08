@@ -231,3 +231,24 @@ export async function fetchClosedRows(range, { taggedOnly = false } = {}) {
   // "Lost", just without the why.
   return { data: { stageRows: stageRows ?? [], lossRows: lossError ? [] : lossRows ?? [] }, error: null }
 }
+
+// Every stage change on this BDM's leads, oldest first — the lifetime funnel
+// behind the pipeline popup (Reached Calling / Won / Lost, stage-to-stage
+// conversion) when the OWNER opens a BDM's Open pipeline on Architect Network.
+// The BDM's own Dashboard reads fetchStageHistoryForFunnel instead, which their
+// RLS already narrows to their leads; an owner's would return the whole company,
+// and downloading that to drop all but one BDM's rows is what PERFORMANCE.md
+// forbids — so the `!inner` embed pushes the tag filter into Postgres. Shaped
+// like fetchStageHistoryForFunnel's rows, so buildPipelinePanel reads it as-is.
+export function fetchBdmStageHistory(bdmId) {
+  if (!bdmId) return Promise.resolve({ data: [], error: null })
+  return cachedQuery(`stage_history:bdm:${bdmId}`, () =>
+    fetchAllRows(() =>
+      supabase
+        .from('stage_history')
+        .select('lead_id, stage, changed_at, leads!inner(owner_employee_id, bdm_employee_id)', { count: 'exact' })
+        .eq('leads.bdm_employee_id', bdmId)
+        .order('changed_at', { ascending: true })
+    )
+  )
+}

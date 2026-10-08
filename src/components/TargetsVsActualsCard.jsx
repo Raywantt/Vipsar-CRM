@@ -446,34 +446,50 @@ export function blendedAttainmentFor(employeeId, actuals, targets) {
 // Off everywhere a person reads their own card (unchanged behaviour); on for
 // the owner's Architect Network, where a BDM with no targets yet would
 // otherwise show three rows and not one number.
-export function TargetRow({ row, showActualWithoutTarget = false }) {
+// onOpen: when given, the whole row is a button opening the popup behind its
+// figure (the BDM cards — src/lib/bdmPopups.js). The row's own markup is the same
+// either way; as a button it is spans with block display, since a button may
+// hold only phrasing content.
+export function TargetRow({ row, showActualWithoutTarget = false, onOpen = null }) {
+  const Outer = onOpen ? 'button' : 'div'
+  const Part = onOpen ? 'span' : 'div'
+  const outerProps = onOpen ? { type: 'button', className: 'vip-target-row-btn', onClick: onOpen } : { style: { display: 'flex', flexDirection: 'column', gap: 5 } }
+  const chevron = onOpen ? <span className="vip-target-row-chevron">›</span> : null
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--vip-ink)' }}>{row.label}</div>
+    <Outer {...outerProps}>
+      <Part style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+        <Part style={{ fontSize: 13, fontWeight: 500, color: 'var(--vip-ink)' }}>{row.label}</Part>
         {row.target != null ? (
-          <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
+          <Part className="vip-bar-value" style={{ flex: '0 0 auto' }}>
             {formatValue(row.metric, row.actual)} / {formatValue(row.metric, row.target)}
-          </div>
+            {chevron}
+          </Part>
         ) : showActualWithoutTarget && row.actual != null ? (
-          <div className="vip-bar-value" style={{ flex: '0 0 auto' }}>
+          <Part className="vip-bar-value" style={{ flex: '0 0 auto' }}>
             {formatValue(row.metric, row.actual)}
-          </div>
+            {chevron}
+          </Part>
         ) : null}
-      </div>
+      </Part>
       {row.target == null ? (
-        <p className="vip-empty" style={{ margin: 0, padding: 0 }}>
-          no target set
-        </p>
+        onOpen ? (
+          <span className="vip-empty" style={{ display: 'block', margin: 0, padding: 0 }}>
+            no target set{row.actual != null && !showActualWithoutTarget ? chevron : null}
+          </span>
+        ) : (
+          <p className="vip-empty" style={{ margin: 0, padding: 0 }}>
+            no target set
+          </p>
+        )
       ) : (
-        <div className="vip-bar-track vip-thick">
-          <div
+        <Part className="vip-bar-track vip-thick" style={onOpen ? { display: 'block' } : undefined}>
+          <Part
             className={row.actual >= row.target ? 'vip-bar-fill vip-won' : 'vip-bar-fill'}
-            style={{ width: `${Math.min(100, (row.actual / row.target) * 100)}%` }}
+            style={{ width: `${Math.min(100, (row.actual / row.target) * 100)}%`, ...(onOpen ? { display: 'block' } : {}) }}
           />
-        </div>
+        </Part>
       )}
-    </div>
+    </Outer>
   )
 }
 

@@ -11,7 +11,11 @@ import { BDM_METRIC_OPTIONS } from '../lib/targetMetrics'
 //
 // `targets` is already this BDM's rows for the period on screen; `actuals`
 // is computeBdmTargetActuals(...) (src/lib/bdmDashboard.js).
-function BdmTargetsCard({ targets, actuals, rangeLabel, loading }) {
+//
+// `onOpenMetric(metric)` makes each row a button opening the list its figure
+// counts (src/lib/bdmPopups.js) — the same popups the owner's Architect Network
+// card opens for this BDM.
+function BdmTargetsCard({ targets, actuals, rangeLabel, loading, onOpenMetric = null }) {
   const noneSet = !loading && BDM_METRIC_OPTIONS.every((m) => targetFor(targets, null, m.value) == null)
 
   return (
@@ -24,6 +28,7 @@ function BdmTargetsCard({ targets, actuals, rangeLabel, loading }) {
           {BDM_METRIC_OPTIONS.map((m) => (
             <TargetRow
               key={m.value}
+              onOpen={onOpenMetric ? () => onOpenMetric(m.value) : null}
               row={{ label: m.label, actual: actuals[m.value] ?? 0, target: targetFor(targets, null, m.value), metric: m.value }}
             />
           ))}

@@ -12,13 +12,16 @@ import { rangeForPreset, rangeLabelFor } from '../lib/dateRanges'
 import { targetPeriodFor } from '../lib/targetPeriods'
 import { todayISO } from '../lib/followupDates'
 import { errorMessage } from '../lib/errorMessage'
-import { fetchActiveBdms, fetchAllBdmLeads } from '../lib/bdmQueries'
+import { fetchActiveBdms, fetchAllBdmLeads, fetchBdmStageHistory } from '../lib/bdmQueries'
 import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchNetworkPortfolio, fetchNetworkPeriod, fetchArchitectDirectoryData } from '../lib/screenQueries'
 import { fetchTargetsForPeriod } from '../lib/targetQueries'
 import { buildDirectoryRows, buildFirmRows, summariseBdm } from '../lib/architectNetwork'
 import { topArchitects } from '../lib/bdmDashboard'
-import { buildArchitectsToMeetPanel } from '../lib/drilldownBuilders'
+import { buildArchitectsToMeetPanel, buildPipelinePanel } from '../lib/drilldownBuilders'
+import { buildBdmClosedPanel, buildBdmHandedOverPanel, buildBdmPoolPanel, buildBdmTargetPanel } from '../lib/bdmPopups'
+import { labelPoolOwnerLeads } from '../lib/poolLeads'
+import { targetFor } from '../components/TargetsVsActualsCard'
 import DayReviewCard, { BDM_DAY_COLUMNS, BDM_DAY_GROUPS, bdmMobileStats, bdmMobileTotals } from '../components/DayReviewCard'
 import { DayDateBar } from '../components/DayReviewHeader'
 import { fetchDayReview } from '../lib/dayReviewQueries'
@@ -76,6 +79,8 @@ function ArchitectNetwork() {
   const targetPeriod = useMemo(() => targetPeriodFor(preset, offset), [preset, offset])
 
   const [panel, setPanel] = useState(null)
+  // A popup whose data had to be fetched first (Open pipeline) and couldn't be.
+  const [popupError, setPopupError] = useState(null)
 
   // ---- BDMs tab: what each BDM did on one day ----
   // The same fetchDayReview (and cache key) as every Today screen and the
@@ -179,6 +184,35 @@ function ArchitectNetwork() {
     return `on ${new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
   })()
 
+  // Every figure on a BDM's card opens the list behind it (src/lib/bdmPopups.js),
+  // built from what this screen already holds — the one exception is Open
+  // pipeline, whose lifetime-funnel stats need that BDM's stage history, read
+  // with the tag filter in the query rather than the whole company's.
+  async function openBdmFigure(bdm, key) {
+    setPopupError(null)
+    const bdmLeads = leads ?? []
+    if (key === 'open') {
+      const { data, error } = await fetchBdmStageHistory(bdm.id)
+      if (error) return setPopupError(errorMessage(error))
+      return setPanel(
+        buildPipelinePanel({
+          breakdownLeads: labelPoolOwnerLeads(bdmLeads.filter((l) => l.bdm_employee_id === bdm.id)),
+          funnelStageHistory: data ?? [],
+          scopeLabel: bdm.name,
+          showListFilters: true,
+        })
+      )
+    }
+    if (key === 'pool') return setPanel(buildBdmPoolPanel({ bdm, leads: bdmLeads }))
+    if (key === 'handed') return setPanel(buildBdmHandedOverPanel({ bdm, handedOverData: period.handedOver, rangeLabel }))
+    if (key === 'won' || key === 'winrate') {
+      return setPanel(buildBdmClosedPanel({ bdm, closedData: period.closed, rangeLabel, focus: key, selfLabel: bdm.name }))
+    }
+    // Anything else is a target row's metric.
+    const target = targetPeriod && targets ? targetFor(targets, bdm.id, key) : null
+    return setPanel(buildBdmTargetPanel({ metric: key, bdm, leads: bdmLeads, meetings: period.meetings, range, rangeLabel, target }))
+  }
+
   const top =
     range && leads && period.meetings ? topArchitects({ leads, meetings: period.meetings, range, bdmIds }) : null
 
@@ -267,9 +301,9 @@ function ArchitectNetwork() {
             onOffsetChange={setOffset}
           />
 
-          {(snapshotError || period.error) && (
+          {(snapshotError || period.error || popupError) && (
             <p className="vip-error" role="alert">
-              {snapshotError ?? period.error}
+              {snapshotError ?? period.error ?? popupError}
             </p>
           )}
 
@@ -306,6 +340,7 @@ function ArchitectNetwork() {
                     targetPeriod={targetPeriod}
                     rangeLabel={rangeLabel}
                     onOpenArchitects={() => setPanel(buildArchitectsToMeetPanel(summary.toMeet ?? [], b.name))}
+                    onOpen={(key) => openBdmFigure(b, key)}
                     // A save is a write, and every write refreshes what's on
                     // screen (supabaseFetch.js) — targets included.
                     onTargetsSaved={() => {}}
