@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
 import { fetchDayReview } from '../lib/dayReviewQueries'
-import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel } from '../lib/dayReview'
+import { buildDayRows, buildDayTotals, buildDayKpis, buildDaySheetPanel, buildDayTilePanel } from '../lib/dayReview'
 import { buildAgeingPanel } from '../lib/attention'
 import { useAttentionBuckets } from '../hooks/useAttentionBuckets'
 import { useCachedQuery } from '../hooks/useCachedQuery'
@@ -82,7 +82,11 @@ function OwnerToday() {
 
   const dayRows = dayData ? buildDayRows(employees, dayData, false) : []
   const dayTotals = buildDayTotals(dayRows)
-  const dayKpis = dayData ? buildDayKpis(dayData, dayRows, false) : []
+  const dayKpis = dayData
+    ? buildDayKpis(dayData, dayRows, false, (key) =>
+        setPanel(buildDayTilePanel(key, { data: dayData, employees, dateISO: todayISO(), scopeLabel: 'Your team' }))
+      )
+    : []
 
   // Org-wide under the owner's RLS — see useAttentionBuckets.
   const attentionBuckets = useAttentionBuckets(employee?.id)

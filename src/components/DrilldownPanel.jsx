@@ -2841,6 +2841,101 @@ function DaySheetBody({ panel, onDrill }) {
   )
 }
 
+// The popup behind Today's "New leads created" and "Deals won" tiles
+// (buildDayTilePanel in dayReview.js). Both tiles share this one body: a person
+// breakdown, then one row per lead or deal, in the same row shape the Orders
+// booked popup uses. Everything is already in `panel`, so it opens fully drawn.
+function DayTileBody({ panel }) {
+  const [visible, setVisible] = useState(DEAL_CHUNK)
+
+  useEffect(() => {
+    setVisible(DEAL_CHUNK)
+  }, [panel])
+
+  const { people, list } = panel
+  const shown = list.rows.slice(0, visible)
+
+  // A tile with 0 on it is clickable too — say so plainly rather than draw an
+  // empty frame.
+  if (list.rows.length === 0) return <p className="vip-empty">{list.empty}</p>
+
+  return (
+    <div className="vip-dd-section-stack">
+      {/* Drawn here, not as the panel's own `stats`: a root-level stats grid
+          is a flex child of the fixed-height panel with overflow hidden, so a
+          long list below squashes it to ~1px (it does, today, on the Lead data
+          completeness popup). Inside the body it can't shrink. */}
+      <StatsGrid stats={panel.figures} />
+
+      {people.show && (
+        <div className="vip-dd-section">
+          <div className="vip-dd-section-head">
+            <div className="vip-dd-section-title">{people.title}</div>
+          </div>
+          {people.rows.map((p) => (
+            <div key={p.key} className="vip-act-row">
+              <div className="vip-act-row-main">
+                <span className="vip-dd-avatar vip-dd-avatar-sm">{p.initials}</span>
+                <EmployeeLink id={p.id} name={p.name} className="vip-dd-contrib-label" />
+                <span className="vip-dd-contrib-track">
+                  <span className="vip-dd-contrib-fill" style={{ width: p.pct }} />
+                </span>
+                <span className="vip-dd-contrib-value">{p.count}</span>
+              </div>
+              <div className="vip-act-row-sub">
+                <span>{p.sub}</span>
+              </div>
+            </div>
+          ))}
+          {people.idle.length > 0 && (
+            <p className="vip-dd-hint" style={{ marginTop: 8 }}>
+              {people.idleLabel}: {people.idle.join(', ')}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="vip-dd-section">
+        <div className="vip-dd-section-head">
+          <div className="vip-dd-section-title">{list.title}</div>
+        </div>
+        {shown.map((r) => (
+          <div key={r.id} className="vip-dd-log-row">
+            <div className="vip-dd-log-when">
+              <span>{r.time}</span>
+            </div>
+            <div className="vip-dd-log-main">
+              <div className="vip-dd-log-head">
+                <Link to={`/leads/${r.leadId}`} className="vip-dd-log-party">
+                  {r.name}
+                </Link>
+                <BdmChip bdmEmployeeId={r.bdmId} />
+                {r.stage && (
+                  <span className={r.stage.chipClass} title="Where the lead stands now">
+                    {r.stage.label}
+                  </span>
+                )}
+              </div>
+              <div className="vip-dd-log-notes">
+                {people.show && r.personName && (
+                  <>
+                    {list.verb} <EmployeeLink id={r.personId} name={r.personName} />
+                  </>
+                )}
+                {r.meta && `${people.show && r.personName ? ' · ' : ''}${r.meta}`}
+              </div>
+            </div>
+            <div className="vip-bk-deal-value" title={r.hasValue ? undefined : list.noValueTitle}>
+              {r.value}
+            </div>
+          </div>
+        ))}
+        <ShowMoreRows shown={shown.length} total={list.rows.length} noun={list.noun} onShowMore={() => setVisible((v) => v + DEAL_CHUNK)} />
+      </div>
+    </div>
+  )
+}
+
 // Genuinely new kind (buildCompletenessPanel in drilldownBuilders.js) — the
 // final panel of this feature. Reuses PRIMITIVES from two different existing
 // kinds rather than either one's whole identity: the field bars below reuse
@@ -3021,6 +3116,7 @@ const BODIES = {
   followup: FollowUpBody,
   daySheet: DaySheetBody,
   dayItems: DayItemsBody,
+  dayTile: DayTileBody,
   attain: AttainBody,
   activities: ActivitiesBody,
   booked: BookedBody,
