@@ -244,6 +244,22 @@ export function canFilterLeadsByBdm(role) {
   return [ROLES.OWNER, ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER].includes(role)
 }
 
+// Typing a lead's quote value by hand. The RFQ desk records it per product from
+// Lixil's quote (owner's ruling, 2026-10-06), so for most roles it is read-only;
+// on 2026-10-09 the owner reopened it for the owner and sales managers — a
+// manager on their own leads AND their team's (enforce_manager_lock permits the
+// column; migration_manager_quote_value.sql). Once the desk has recorded a Lixil
+// quote, only the owner may replace its figure (canOverrideDeskQuote).
+// ONE flag per capability: Sales progress (owner, a manager's own lead) and the
+// manager's quote card on a team lead both read these through quoteControl().
+export function canSetQuoteValue(role) {
+  return role === ROLES.OWNER || role === ROLES.SALES_MANAGER
+}
+
+export function canOverrideDeskQuote(role) {
+  return role === ROLES.OWNER
+}
+
 // /architects/:id — every role (owner's ruling at Step 4: architects are
 // visible company-wide, so the page is too; each role sees only the leads and
 // meetings its own RLS returns). Listed explicitly, like every list here.

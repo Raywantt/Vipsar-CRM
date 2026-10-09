@@ -1154,7 +1154,9 @@ coordinator test is the bare role with no team check beside it, deliberately:
 `leads` SELECT only reaches a coordinator through `coordinator_team_select`,
 so a lead they can load is by definition their team's. A `sales_manager` on a
 team lead gets `canQuickAct` but **not** `canEdit`, mirroring the database
-lock. **`canLogActivityHere` gives a manager "Log activity" on a team lead too**
+lock — plus, since 2026-10-09, a stand-alone **Quote value** card
+(`QuoteValueCard`, see Sales progress) because quote value is the one detail the
+lock now lets them set. **`canLogActivityHere` gives a manager "Log activity" on a team lead too**
 (owner's ruling, 2026-10-07 — it used to withhold it). They step in on a visit
 or meeting when a rep needs help, and the activity is the **manager's own**:
 see ActivityLog → "A manager on a team member's lead". One flag, read by the
@@ -1329,12 +1331,36 @@ Closing** (Probability, Estimated close), separated by `.vip-section-split`
 hairlines and deliberately **without** group headings — four labels cost more
 height than they buy on a phone, where this opens as a full-screen panel.
 
-* **Save `quote_value` whenever it's non-empty, independent of the "Quote
-  sent" checkbox.** It used to be nulled on every save where the box wasn't
-  ticked, even though the field sits above the box and is always editable, so
-  a typed value was silently lost. `rfq_raised_at`/`quote_sent_at` don't have
-  this problem — those inputs only render once their own box is ticked, so
-  visibility already matches the save condition.
+* **Quote value is typed only by an owner or a sales manager** (owner's
+  ruling, 2026-10-09 — it reopens a field the 2026-10-06 ruling had closed:
+  everyone else still reads it, the RFQ desk's quote, read-only). One rule file,
+  `src/lib/quoteValue.js`, read by Sales progress and by `QuoteValueCard`:
+  `quoteControl(role, deskQuote)` → `edit` / `locked` / `none`, built on the two
+  `roles.js` flags `canSetQuoteValue` (owner + manager) and `canOverrideDeskQuote`
+  (owner). **A manager can type only while NO Lixil quote is on file** — once the
+  desk has recorded one the row is `locked` ("only an owner can change it"); an
+  **owner can override it**, and the override writes `quote_value` AND clears
+  `quote_lines` (the per-product split no longer adds up; the by-product figures
+  then say "Not split yet"). Load-bearing:
+  - **The write goes out only when the figure changed** (`quoteValuePatch`
+    returns no patch otherwise), so saving Sales progress never rewrites a quote
+    nobody touched and never clears a desk split by accident. A blank box clears a
+    typed value but **cannot clear a desk quote** (it would just show the desk's
+    figure again).
+  - **A manager on a TEAM lead has no Sales progress card** (`canEdit` stays
+    false for them), so `LeadDetail` renders the stand-alone `QuoteValueCard` —
+    the quote value and nothing else — above the read-only note, at both widths.
+    `enforce_manager_lock()` allows `quote_value`/`quote_lines` and refuses them
+    once a desk quote is on file, on a manager's own lead too
+    (`migration_manager_quote_value.sql`); the UI lock is the mirror.
+  - **After an owner override the lead's figure and the Lixil quote differ.** The
+    read-only row then says "· Lixil quote LX-… is ₹X" instead of "from Lixil
+    quote", and the RFQ card still shows Lixil's own number as the record of what
+    Lixil quoted. The next desk quote overwrites the lead's figure as ever.
+  - Not driven against live data: verified with the real components over a
+    stubbed Supabase client (payloads, both widths, dark mode, the phone keypad);
+    **no signed-in owner or manager session was available**, so the real write
+    under RLS and the trigger is untested.
 * **There is no Order value field here, and don't re-add one.** It existed
   briefly and was removed at the owner's ruling: the `won`-stage prompt
   demands the figure at the one moment it becomes a fact, and keeping the
@@ -2951,7 +2977,8 @@ default. `roles.js` exports `canCreateLead`, `canLogActivity`,
 `logsActivityOnTeamLeads`, `seesManagerActivityOnLeads`,
 `canSeeTeamDirectory`, `canOpenEmployeeProfiles`, `canSeeMyArchitects`,
 `canSeeArchitectNetwork`, `canSeeBdmFollowUps`, `canOpenArchitectProfiles`,
-`canExportLeads`, `canFilterLeadsByBdm`, `canSeeSalesDashboard`, `canSearch`, `canOpenLeads`,
+`canExportLeads`, `canFilterLeadsByBdm`, `canSetQuoteValue`, `canOverrideDeskQuote`,
+`canSeeSalesDashboard`, `canSearch`, `canOpenLeads`,
 `canReviewRfqs`, `canEstimateRfqs`, `canSeeRfqDesk`, `isBdm`,
 `isRfqDeskRole` and `rolesWith(capability)`; `BottomNav` and `App.jsx` both read them.
 **These are ONE flag per capability — do not re-split them.**
@@ -3034,7 +3061,7 @@ neither supervisor can see into the other's supervision.
 | | coordinator | manager |
 |---|---|---|
 | own leads/targets | none | yes |
-| edits team lead details | freely | **stage / follow-up / order value / owner only** |
+| edits team lead details | freely | **stage / follow-up / order value / quote value / owner only** (quote value only while no Lixil quote is on file — 2026-10-09) |
 | stage direction | any | **forward only**, like an exec |
 | entry on behalf | yes | **never** — logs only their own work, which may be **against a team member's lead** (2026-10-07; still credited to the manager) |
 | edits an exec's activities | yes (unlocked ones) | never (SELECT only) |
@@ -3414,8 +3441,9 @@ on the lead's list and saving sets it; the RFQ keeps a frozen copy
 (`rfqs.product_ids`, shown by `rfqProductsLabel`). The Estimation Executive's
 Quote received takes **one value per product** (all required,
 `rfq_record_quote_lines`); their sum is the quote value, the split is
-`quote_lines` on the RFQ and the lead. **Nobody types a quote value any more**
-— Sales progress shows it read-only with the split. Every by-product figure
+`quote_lines` on the RFQ and the lead. **Only an owner or a sales manager types a
+quote value** (2026-10-09, see Sales progress; a manager only while no desk quote
+is on file) — for everyone else Sales progress shows it read-only with the split. Every by-product figure
 reads `productShares.js` (`leads_category_breakdown()` is the same rule): one
 product → the whole value; several → each its quote line scaled to the deal
 value (a won deal's order split in the quote's proportions); what can't be
@@ -3826,8 +3854,9 @@ removing your own login.
 
 ### Outstanding migrations
 
-* **`migration_rfq_fresh_after_send_back.sql`** (2026-10-09, **not yet run**;
-  safe before or after the deploy — the app's label reads the RFQ's kind, so a
+* **`migration_rfq_fresh_after_send_back.sql`** (2026-10-09, **run by the
+  owner the same day, reported fine**; its CHECKS block was not read back; safe
+  before or after the deploy — the app's label reads the RFQ's kind, so a
   Fresh RFQ never shows "R1" either way) — function body only: re-creates
   `rfq_from_activity()` so `rfqs.revision` counts only the earlier RFQs that
   stood (not ones the technical check sent back). See ActivityLog → RFQ Raised.
@@ -3839,11 +3868,27 @@ removing your own login.
   re-tags the RFQs already logged as Revised that were really the corrected
   version of a technical send-back (activity kind, desk kind, revision), leaving
   status, `counts_toward_target` and notifications alone; it skips a lead that is
-  now Won/Lost and refuses if an affected lead has a price revision. **Neither
-  has been run, and the behaviour is not yet driven live** — it needs a test exec
+  now Won/Lost and refuses if an affected lead has a price revision. **The
+  one-off has not been run, and the behaviour is not yet driven live** — it needs a test exec
   and an owner (or the test Production Executive) signed in: raise an RFQ on a
   test lead, send it back, raise it again, and read the hint ("Fresh") and the
   desk label.
+
+* **`migration_manager_quote_value.sql`** (2026-10-09, **not yet run**; safe
+  before or after the deploy — until it runs, only a manager's quote write on a
+  TEAM lead is refused, with the lock's own message; owner and own-lead writes work
+  at once) — a sales manager may set `quote_value` on a team lead, and no manager
+  may change a figure the RFQ desk recorded. Function body only: a **full
+  re-creation of `enforce_manager_lock()`** from
+  `migration_manager_reassign_fix.sql`'s body (reachability check and the four
+  original columns kept) with `quote_value` + `quote_lines` allowed and a guard
+  that refuses a manager's change to either when the lead has a recorded Lixil
+  quote (`rfqs.status = 'quoted'`), own lead included. **Re-running
+  `migration_sales_manager.sql` or `migration_manager_reassign_fix.sql` puts the
+  four-column body back — re-run this file straight after.** Verify as real
+  sessions (never the SQL Editor): the Q1 check at the foot of the file, then a
+  test manager (`sm`) setting a quote on the test exec's lead and being refused
+  on one that has a desk quote. Each change lands in `lead_change_log`.
 
 * **`migration_manager_team_activity.sql`** (2026-10-07, **run and verified
   live the same day** — `verify_manager_team_activity.sql`: T1–T10 all PASS, 0

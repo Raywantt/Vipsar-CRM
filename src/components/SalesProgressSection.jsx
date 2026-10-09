@@ -3,8 +3,10 @@ import { supabase } from '../lib/supabaseClient'
 import { errorMessage } from '../lib/errorMessage'
 import NumPadInput from './NumPadInput'
 import ProductPicker from './ProductPicker'
-import { formatCurrency, formatCurrencyCompact, formatDateShort } from '../lib/format'
+import QuoteValueField, { QuoteValueRow } from './QuoteValueField'
+import { formatCurrencyCompact, formatDateShort } from '../lib/format'
 import { leadProductIds, productsById } from '../lib/productShares'
+import { quoteValuePatch, shownQuoteValue } from '../lib/quoteValue'
 
 // `rfq` is summariseRfqHistory()'s output (src/lib/rfqKind.js) — read-only.
 // The RFQ raised checkbox and its date input were removed 2026-09-09: an RFQ
@@ -17,15 +19,26 @@ import { leadProductIds, productsById } from '../lib/productShares'
 // payload below.
 //
 // `deskQuote` is the latest quote the RFQ desk recorded on this lead (null if
-// none). QUOTE VALUE IS NEVER TYPED HERE (owner's ruling, 2026-10-06): it comes
-// only from the RFQ desk, quoted per product, so this card shows it read-only
-// with the split. An older value (the legacy imports, or one typed before the
-// ruling) still shows, read-only.
+// none). Quote value comes from the RFQ desk, quoted per product (owner's
+// ruling, 2026-10-06), so for most roles this card shows it read-only with the
+// split. The owner reopened typing it for the OWNER and sales MANAGERS
+// (2026-10-09): `quoteControl` (src/lib/quoteValue.js) says whether this viewer
+// gets the field — `edit`, or `edit` with `overrides` when it would replace a
+// desk quote's figure (owner only), or `locked`/`none` for the read-only row.
+// An older value (the legacy imports) still shows read-only for everyone else.
 //
 // Products are the lead's list (leads.product_ids), edited with THE product
 // picker the RFQ Raised form also uses (ProductPicker) — one column.
-function SalesProgressSection({ lead, products, rfq, deskQuote = null, onSaved }) {
+function SalesProgressSection({
+  lead,
+  products,
+  rfq,
+  deskQuote = null,
+  quoteControl = { mode: 'none', overrides: false },
+  onSaved,
+}) {
   const [productIds, setProductIds] = useState(() => leadProductIds(lead))
+  const [quoteInput, setQuoteInput] = useState(() => shownQuoteValue(lead, deskQuote) ?? '')
   const [quoteSent, setQuoteSent] = useState(lead.quote_sent ?? false)
   const [quoteSentAt, setQuoteSentAt] = useState(lead.quote_sent_at ?? '')
   const [closureProbability, setClosureProbability] = useState(lead.closure_probability ?? '')
@@ -45,10 +58,26 @@ function SalesProgressSection({ lead, products, rfq, deskQuote = null, onSaved }
     const opened = leadProductIds(lead).map(Number)
     const productsChanged = opened.length !== productIds.length || opened.some((id, i) => id !== Number(productIds[i]))
 
+    // The quote value goes out only when it differs from the lead's current
+    // figure (quoteValuePatch returns no patch otherwise), for the same reason
+    // as the products: saving this card must not rewrite a figure — or clear a
+    // desk quote's per-product split — that nobody touched.
+    let quotePatch = {}
+    if (quoteControl.mode === 'edit') {
+      const q = quoteValuePatch(quoteInput, { lead, deskQuote })
+      if (q.error) {
+        setSaving(false)
+        setError(q.error)
+        return
+      }
+      quotePatch = q.patch ?? {}
+    }
+
     const { data, error } = await supabase
       .from('leads')
       .update({
         ...(productsChanged ? { product_ids: productIds } : {}),
+        ...quotePatch,
         quote_sent: quoteSent,
         quote_sent_at: quoteSent ? quoteSentAt || null : null,
         closure_probability: closureProbability !== '' ? Number(closureProbability) : null,
@@ -84,6 +113,8 @@ function SalesProgressSection({ lead, products, rfq, deskQuote = null, onSaved }
           .map((l) => `${byId.get(Number(l.product_id))?.name ?? 'Product'} ${formatCurrencyCompact(Number(l.value))}`)
           .join(' · ')
       : null
+
+  const shownQuote = shownQuoteValue(lead, deskQuote)
 
   const freshLabel = formatDateShort(rfq?.freshAt)
   const revisedLabel = formatDateShort(rfq?.revisedAt)
@@ -133,17 +164,23 @@ function SalesProgressSection({ lead, products, rfq, deskQuote = null, onSaved }
       <div className="vip-section-split vip-stack-s">{rfqSummary}</div>
 
       <div className="vip-section-split vip-stack-s">
-        <div className="vip-kv-row">
-          <span>Quote value</span>
-          <b>
-            {lead.quote_value != null || deskQuote ? formatCurrency(lead.quote_value ?? deskQuote.quote_value) : '—'}
-            {deskQuote && <span className="vip-field-hint"> · from Lixil quote {deskQuote.quote_ref}</span>}
-          </b>
-        </div>
+        {quoteControl.mode === 'edit' ? (
+          <QuoteValueField
+            value={quoteInput}
+            onChange={setQuoteInput}
+            overrides={quoteControl.overrides}
+            deskQuote={deskQuote}
+          />
+        ) : (
+          <QuoteValueRow lead={lead} deskQuote={deskQuote} />
+        )}
         {quoteSplit && (
           <div className="vip-field-hint">{quoteSplit}</div>
         )}
-        {!deskQuote && lead.quote_value == null && (
+        {quoteControl.mode === 'locked' && (
+          <span className="vip-field-hint">Set by the RFQ desk from Lixil's quote — only an owner can change it.</span>
+        )}
+        {quoteControl.mode === 'none' && shownQuote == null && (
           <span className="vip-field-hint">Comes from the RFQ desk once Lixil's quote is in.</span>
         )}
 

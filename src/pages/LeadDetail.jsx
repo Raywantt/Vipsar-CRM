@@ -7,6 +7,7 @@ import SiteDetailsSection from '../components/SiteDetailsSection'
 import ClientDetailsSection from '../components/ClientDetailsSection'
 import AdditionalContactsSection from '../components/AdditionalContactsSection'
 import SalesProgressSection from '../components/SalesProgressSection'
+import QuoteValueCard from '../components/QuoteValueCard'
 import LeadQuickActions from '../components/LeadQuickActions'
 import LeadActivityTimeline from '../components/LeadActivityTimeline'
 import LeadRemarks from '../components/LeadRemarks'
@@ -19,6 +20,7 @@ import { fetchRfqsForLead } from '../lib/rfqQueries'
 import LeadFollowUpsCard from '../components/LeadFollowUpsCard'
 import LeadRfqCard from '../components/LeadRfqCard'
 import { latestDeskQuote } from '../lib/rfqDesk'
+import { quoteControl } from '../lib/quoteValue'
 import { leadProductIds, productNames, productShares, productsById, productsOf } from '../lib/productShares'
 import BdmChip from '../components/BdmChip'
 import { isWonImportLead } from '../lib/wonImport'
@@ -381,9 +383,11 @@ function LeadDetail() {
   // detail sections, so `canEdit` above deliberately stays false for them.
   // The database draws the same line one level down — enforce_manager_lock()
   // (Schema/migration_sales_manager.sql STEP 7) permits exactly
-  // current_stage / next_followup_date / order_value / owner_employee_id on
-  // a team lead and refuses every other column — so this is the UI mirror of
-  // a real boundary, not the boundary itself.
+  // current_stage / next_followup_date / order_value / owner_employee_id — plus
+  // quote_value / quote_lines since 2026-10-09 (migration_manager_quote_value.sql)
+  // — on a team lead and refuses every other column — so this is the UI mirror
+  // of a real boundary, not the boundary itself. The quote value is the one
+  // detail they set without Sales progress: QuoteValueCard, below.
   //
   // `isManager` with no team check beside it is the same shortcut the
   // coordinator test above documents, and it is sound for the same reason:
@@ -1285,11 +1289,34 @@ function LeadDetail() {
     )
   }
 
+  // The latest Lixil quote the RFQ desk recorded, and what THIS viewer may do to
+  // the quote value because of it (src/lib/quoteValue.js — owners and managers
+  // may type one; once a desk quote is on file only the owner may replace it).
+  // Read by Sales progress below and by the manager's card on a team lead —
+  // one answer for both.
+  const deskQuote = latestDeskQuote(rfqs)
+  const quoteCtl = quoteControl(employee?.role, deskQuote)
+
   if (!canEdit) {
     return (
       <>
         <div className="vip-narrow vip-pad-sticky-footer">
           {mainContent}
+          {/* A manager sets the quote value on a team lead here — the Sales
+              progress card where an owner types it is a rep's, and they never
+              get it (see QuoteValueCard). Same lock as every other write on
+              this page while a remembered copy is refreshing. */}
+          {isTeamLeadForManager && quoteCtl.mode !== 'none' && (
+            <fieldset className="vip-lock" disabled={editsLocked}>
+              <QuoteValueCard
+                key={`quote-${seed.version}`}
+                lead={lead}
+                deskQuote={deskQuote}
+                control={quoteCtl}
+                onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
+              />
+            </fieldset>
+          )}
           {/* Two different read-only states share this branch, and telling
               them apart matters: a plain rep looking at a colleague's lead
               really can change nothing, but a MANAGER looking at one of
@@ -1300,8 +1327,9 @@ function LeadDetail() {
           {isTeamLeadForManager ? (
             <p className="vip-empty">
               This lead belongs to {lead.employees?.name ?? 'one of your sales executives'}, who reports to you — you
-              can change its stage, set follow-ups, log your own activity and reassign it above. Its client, site
-              and quote details stay theirs to edit.
+              can change its stage, set follow-ups, log your own activity and reassign it above
+              {quoteCtl.mode === 'edit' ? ', and set its quote value above' : ''}. Its client and site details stay
+              theirs to edit.
             </p>
           ) : (
             <p className="vip-empty">
@@ -1327,7 +1355,8 @@ function LeadDetail() {
       lead={lead}
       products={products}
       rfq={rfqSummary}
-      deskQuote={latestDeskQuote(rfqs)}
+      deskQuote={deskQuote}
+      quoteControl={quoteCtl}
       onSaved={(updated) => setLead((prev) => ({ ...prev, ...updated }))}
     />
   )
