@@ -303,6 +303,20 @@ Exec logs "RFQ Raised" (+ windows, segment)
   recorded on Lead Detail re-reads the lead and refreshes Sales progress, so
   its Quote value lock shows the new figure.
 
+### After-launch ruling (2026-10-09): a sent-back Fresh RFQ, re-raised, is Fresh
+- **When the Production Executive sends a Fresh RFQ back from the technical
+  check and the exec raises the corrected version, that RFQ is Fresh — not a
+  revision ("R1").** It stays Fresh through repeated send-backs, until one
+  passes the technical check. Only a **Production** send-back resets it: an RFQ
+  Estimation sent back had passed (its correction is a revision), and an RFQ the
+  exec withdrew still counts as an earlier RFQ.
+- **Lead Detail's Fresh RFQ date is the corrected RFQ's** (the one in play), not
+  the first attempt's. If every fresh one was sent back, the latest attempt.
+- **RFQs already logged** that fit are re-tagged by a one-off
+  (`Schema/one_off_rfq_fresh_after_send_back.sql`), not left as they are.
+- The RFQ target is unchanged: it already credited "the fresh one it corrects"
+  when the corrected RFQ passes (Step 6).
+
 ### Step 6 rulings (2026-10-06)
 - **An RFQ counts toward the exec's RFQ Raised target once per lead, on the
   day it passes the technical check**, credited to whoever raised it. A fresh

@@ -12,6 +12,11 @@ import { stageRank } from './stageProgress'
 // retroactive classification — activities logged before this shipped keep
 // rfq_kind = null (see Schema/migration_rfq_kind.sql).
 //
+// One exception, the owner's ruling 2026-10-09: an RFQ the Production
+// Executive SENT BACK from the technical check is set aside — it never
+// passed, so the exec's corrected version is the lead's fresh RFQ, not a
+// revision of it. See isSetAsideRfq / hasStandingPriorRfq below.
+//
 // Originally implemented by checking the lead's funnel stage (a lead already
 // at "RFQ Raised" or later must have had one before) instead of its actual
 // RFQ activity history — changed 2026-09-10 after that proxy produced a
@@ -46,11 +51,12 @@ const REVISED_FROM_STAGE = 'rfq'
 // never happened.
 //
 // The rule now asks the more direct question — has an rfq_raised activity
-// actually been logged for this lead before? — via `hasPriorRfqActivity`,
-// which the caller resolves with a real query (this file stays pure, no
-// network calls of its own). Untagged/legacy activities count as "prior"
-// same as tagged ones; only their EXISTENCE matters here.
-export function rfqKindForLead(stage, hasPriorRfqActivity) {
+// actually been logged for this lead before, and does it still stand? — via
+// `hasPriorRfq` (hasStandingPriorRfq below), which the caller resolves with a
+// real query (this file stays pure, no network calls of its own).
+// Untagged/legacy activities count as "prior" same as tagged ones; only their
+// EXISTENCE matters here — except one the technical check sent back.
+export function rfqKindForLead(stage, hasPriorRfq) {
   // A decided deal (won/lost) is treated as past RFQ in every real case —
   // reaching either implies a quotation was already put in front of the
   // client, even on the rare lead where that was never logged as its own
@@ -59,7 +65,31 @@ export function rfqKindForLead(stage, hasPriorRfqActivity) {
   // progress on an already-decided deal" — no.
   if (stage === 'won' || stage === 'lost') return REVISED_RFQ
 
-  return hasPriorRfqActivity ? REVISED_RFQ : FRESH_RFQ
+  return hasPriorRfq ? REVISED_RFQ : FRESH_RFQ
+}
+
+// An RFQ the technical check sent back never passed, so it does not count as
+// "the lead already has an RFQ": the exec's corrected version is the lead's
+// fresh RFQ (owner's ruling, 2026-10-09). Only the TECHNICAL send-back — one
+// Estimation bounced had passed, the lead has moved on, and its correction is
+// a genuine revision; a withdrawn RFQ likewise still counts as prior. Takes a
+// desk row (rfqs: status, sent_back_from).
+export function isSetAsideRfq(deskRfq) {
+  return deskRfq?.status === 'sent_back' && deskRfq?.sent_back_from === 'technical'
+}
+
+// Whether any earlier RFQ Raised activity on the lead still stands — the
+// `hasPriorRfq` rfqKindForLead wants. `priorActivityIds` is every RFQ Raised
+// activity the lead has; `deskRfqs` the lead's desk rows. An activity with no
+// desk row (logged before the desk was live, or while it was off) always
+// stands, as does one still waiting, approved, quoted or withdrawn — so
+// "sent back, sent back again, raised a third time" stays fresh until one
+// passes, and everything else is classed exactly as before.
+export function hasStandingPriorRfq(priorActivityIds, deskRfqs) {
+  const setAside = new Set(
+    (deskRfqs ?? []).filter((r) => r.activity_id != null && isSetAsideRfq(r)).map((r) => r.activity_id)
+  )
+  return (priorActivityIds ?? []).some((id) => !setAside.has(id))
 }
 
 // Whether logging a FRESH RFQ should also auto-advance the lead's stage to
@@ -105,6 +135,13 @@ export function shouldAdvanceToRfq(currentStage) {
 //     classification, the same rule migration_rfq_kind.sql
 //     applies to the data itself. A lead with three old untagged RFQs
 //     therefore shows one date, not a guessed revision.
+//   * A fresh RFQ the technical check sent back is set aside (isSetAsideRfq):
+//     when the exec's corrected version is also fresh, the FRESH date is the
+//     corrected one's — the RFQ actually in play — not the first attempt's.
+//     Only if every fresh one was sent back does it show the latest attempt.
+//     Needs the lead's desk rows (`deskRfqs`); without them nothing is set
+//     aside and the earliest wins, exactly as above — which is also what a
+//     legacy lead with no desk RFQ gets.
 //   * With no RFQ activity at all, fall back to the lead's own stored
 //     rfq_raised_at / rfq_raised. The legacy imports wrote those columns
 //     directly on hundreds of leads whose RFQ was never logged as an
@@ -117,7 +154,7 @@ export function shouldAdvanceToRfq(currentStage) {
 // formats them (an activity's created_at is a naive TIMESTAMP needing
 // parseTimestamp, the lead's rfq_raised_at is a plain DATE that must not go
 // near a Date at all — see dbTime.js).
-export function summariseRfqHistory(activities, lead) {
+export function summariseRfqHistory(activities, lead, deskRfqs = []) {
   const rfqs = (activities ?? [])
     .filter((a) => a.activity_type === 'rfq_raised')
     .slice()
@@ -144,7 +181,13 @@ export function summariseRfqHistory(activities, lead) {
   // Not rfqs[0] — see the FRESH rule above. Anything not tagged 'revised'
   // counts, which is what keeps untagged legacy rows working, and what
   // makes the fresh date immovable however many revisions arrive later.
-  const fresh = rfqs.find((a) => a.rfq_kind !== REVISED_RFQ)
+  const freshOnes = rfqs.filter((a) => a.rfq_kind !== REVISED_RFQ)
+  const setAsideIds = new Set(
+    (deskRfqs ?? []).filter((r) => r.activity_id != null && isSetAsideRfq(r)).map((r) => r.activity_id)
+  )
+  // The earliest fresh one that wasn't sent back; failing that, the latest
+  // attempt (every fresh one was sent back — show where it got to).
+  const fresh = freshOnes.find((a) => !setAsideIds.has(a.id)) ?? freshOnes[freshOnes.length - 1]
 
   return {
     raised: true,

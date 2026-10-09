@@ -31,6 +31,32 @@ export function fetchRfqsForLead(leadId) {
   )
 }
 
+// What Log Activity needs to class a new RFQ Raised as Fresh or Revised
+// (rfqKind.js's hasStandingPriorRfq): the ids of the lead's earlier RFQ Raised
+// activities, and its desk rows (just enough to tell which the technical check
+// sent back). Two plain reads rather than an activities→rfqs embed — see
+// searchQueries.js on fragile PostgREST syntax. Each fails soft in the
+// direction the old single count did: no activities → nothing prior (fresh);
+// no desk rows → every earlier activity stands (revised, as before the desk).
+export async function fetchPriorRfqsForKind(leadId) {
+  const [activitiesRes, deskRes] = await Promise.all([
+    fetchAllRows(() =>
+      supabase
+        .from('activities')
+        .select('id', { count: 'exact' })
+        .eq('lead_id', leadId)
+        .eq('activity_type', 'rfq_raised')
+    ),
+    fetchAllRows(() =>
+      supabase.from('rfqs').select('activity_id, status, sent_back_from', { count: 'exact' }).eq('lead_id', leadId)
+    ),
+  ])
+  return {
+    activityIds: (activitiesRes.data ?? []).map((a) => a.id),
+    deskRfqs: deskRes.data ?? [],
+  }
+}
+
 // The launch switch (rfq_desk_settings, one row). Readable by every active
 // employee. Log Activity asks it whether an RFQ Raised now goes to the desk
 // (and so stops moving the lead itself) — see isDeskLive in rfqDesk.js.

@@ -1931,6 +1931,26 @@ reopening of the old rule.
   at, not the literal `on_hold`, which has no funnel rank.
   **No retroactive classification** — everything logged before this keeps
   `rfq_kind = NULL`.
+  **A Fresh RFQ the Production Executive sent back is set aside — its
+  corrected version is Fresh again, not "R1"** (owner's ruling, 2026-10-09).
+  The question is not "has an RFQ been logged before" but "does an earlier
+  one still STAND": `hasStandingPriorRfq` (`rfqKind.js`) skips an earlier RFQ
+  whose desk row is `sent_back` **from `technical`**, and `ActivityLog` feeds it
+  from `fetchPriorRfqsForKind` (two plain reads — the lead's RFQ Raised
+  activity ids + its `rfqs` rows). So it stays Fresh through a second and third
+  send-back, until one passes. **Deliberately only a Production send-back:** one
+  Estimation bounced had already passed (the lead has moved on, so its
+  correction is a real revision), and an RFQ the exec withdrew still counts as
+  prior. An earlier RFQ with no desk row (pre-desk, or logged while the switch
+  was off) always stands. The rest follows from the kind with no extra rule:
+  the desk label reads `kind` first (`revisionLabel` — a fresh RFQ is never
+  "R1"), `rfqs.revision` counts only the earlier RFQs that stood
+  (`rfq_from_activity()`, `migration_rfq_fresh_after_send_back.sql`, so the
+  first real revision after the corrected one is R1), and Lead Detail's
+  **Fresh RFQ date is the corrected one's** (`summariseRfqHistory` takes the
+  lead's desk rows; if every fresh one was sent back it shows the latest
+  attempt). The RFQ target was already right — approval credits "the fresh
+  one it corrects" — and is unchanged.
   **A fresh RFQ auto-advances the lead to RFQ Raised**, writing a real
   `stage_history` row alongside the `leads` update (`changed_by` the real
   actor, which matters when a coordinator logs on an exec's behalf). It
@@ -3805,6 +3825,25 @@ it leaves orphaned Auth logins to clean up by hand; scripting that risks
 removing your own login.
 
 ### Outstanding migrations
+
+* **`migration_rfq_fresh_after_send_back.sql`** (2026-10-09, **not yet run**;
+  safe before or after the deploy — the app's label reads the RFQ's kind, so a
+  Fresh RFQ never shows "R1" either way) — function body only: re-creates
+  `rfq_from_activity()` so `rfqs.revision` counts only the earlier RFQs that
+  stood (not ones the technical check sent back). See ActivityLog → RFQ Raised.
+  **A full re-creation of `migration_lead_products.sql`'s version (product_ids
+  included): re-running `migration_rfq_desk.sql` or `migration_lead_products.sql`
+  puts the old counting back — re-run this file straight after.** Its
+  companion **`Schema/one_off_rfq_fresh_after_send_back.sql`** is NOT a
+  migration (never in a run-everything list): a preview, then a fix that
+  re-tags the RFQs already logged as Revised that were really the corrected
+  version of a technical send-back (activity kind, desk kind, revision), leaving
+  status, `counts_toward_target` and notifications alone; it skips a lead that is
+  now Won/Lost and refuses if an affected lead has a price revision. **Neither
+  has been run, and the behaviour is not yet driven live** — it needs a test exec
+  and an owner (or the test Production Executive) signed in: raise an RFQ on a
+  test lead, send it back, raise it again, and read the hint ("Fresh") and the
+  desk label.
 
 * **`migration_manager_team_activity.sql`** (2026-10-07, **run and verified
   live the same day** — `verify_manager_team_activity.sql`: T1–T10 all PASS, 0

@@ -72,6 +72,13 @@ describe('revisionLabel', () => {
     expect(revisionLabel({ kind: 'revised', revision: 2 })).toBe('R2')
   })
 
+  it('calls a fresh RFQ Fresh even when earlier attempts were sent back (the corrected version)', () => {
+    // The trigger counted the sent-back one into `revision` before 2026-10-09;
+    // the label must read the kind, so that row never reads "R1".
+    expect(revisionLabel({ kind: 'fresh', revision: 1 })).toBe('Fresh')
+    expect(revisionLabel({ kind: 'fresh', revision: 2 })).toBe('Fresh')
+  })
+
   it('names a price revision and the number it re-quotes', () => {
     expect(revisionLabel({ kind: 'price_revision', revision: 1 })).toBe('R1 price revision')
     expect(revisionLabel({ kind: 'price_revision', revision: 0 })).toBe('Price revision')

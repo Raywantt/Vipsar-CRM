@@ -1316,8 +1316,10 @@ function LeadDetail() {
   }
 
   // The lead's RFQ standing, off the same activities already fetched for the
-  // timeline — no separate query. See summariseRfqHistory for the rules.
-  const rfqSummary = summariseRfqHistory(activities, lead)
+  // timeline — no separate query. See summariseRfqHistory for the rules. The
+  // desk rows (already loaded for the RFQ card) tell it which fresh RFQs the
+  // technical check sent back, so the Fresh date is the corrected one's.
+  const rfqSummary = summariseRfqHistory(activities, lead, rfqs)
 
   const salesProgressEditor = (
     <SalesProgressSection

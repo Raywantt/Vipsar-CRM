@@ -97,11 +97,14 @@ export function isRfqOpen(rfq) {
 
 // "Fresh", "R1", "R2"… — the RFQ's identity on its lead (RFQ-DESK.md §3: no
 // RFQ number; lead + revision identifies it). `revision` counts the lead's
-// earlier RFQ Raised activities, so R1 is the first revision. A price
-// revision repeats the number it re-quotes and says so.
+// earlier RFQ Raised activities that stood (not ones the technical check sent
+// back), so R1 is the first revision. A price revision repeats the number it
+// re-quotes and says so. A fresh RFQ is "Fresh" whatever its revision says —
+// the corrected version of a sent-back one (owner's ruling, 2026-10-09).
 export function revisionLabel(rfq) {
   if (!rfq) return ''
   if (rfq.kind === 'price_revision') return rfq.revision > 0 ? `R${rfq.revision} price revision` : 'Price revision'
+  if (rfq.kind === 'fresh') return 'Fresh'
   return rfq.revision > 0 ? `R${rfq.revision}` : 'Fresh'
 }
 

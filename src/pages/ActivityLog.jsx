@@ -8,7 +8,7 @@ import PartySearchOrCreate from '../components/PartySearchOrCreate'
 import NumPadInput from '../components/NumPadInput'
 import { LOGGABLE_ACTIVITY_TYPES, ACTIVITY_LABELS, ACCOMPANIABLE_ACTIVITY_TYPES } from '../lib/activityTypes'
 import { PICKABLE_MEETING, meetingTypeForStage } from '../lib/meetingBucket'
-import { FRESH_RFQ, RFQ_KIND_LABELS, rfqKindForLead, shouldAdvanceToRfq } from '../lib/rfqKind'
+import { FRESH_RFQ, RFQ_KIND_LABELS, hasStandingPriorRfq, rfqKindForLead, shouldAdvanceToRfq } from '../lib/rfqKind'
 import { stageLabel } from '../lib/leadStageOptions'
 import { SITE_STAGE_OPTIONS } from '../lib/siteStageOptions'
 import { MEETING_LOCATION_OPTIONS, meetingLocationLabel } from '../lib/meetingLocationOptions'
@@ -26,7 +26,7 @@ import ProductPicker from '../components/ProductPicker'
 import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchProducts } from '../lib/lookupQueries'
 import { leadProductIds, productNames, productsById } from '../lib/productShares'
-import { fetchRfqDeskSettings } from '../lib/rfqQueries'
+import { fetchPriorRfqsForKind, fetchRfqDeskSettings } from '../lib/rfqQueries'
 import { requestAssignmentPush } from '../lib/notificationQueries'
 
 // The two free-text boxes on this form answer opposite questions, and reps
@@ -52,7 +52,7 @@ function leadLabel(lead) {
 // lead: the most recent stage it was at before pausing, falling back to
 // 'calling' when there's no stage_history at all. rfqKindForLead only
 // consults this resolved stage for its won/lost override — the fresh/
-// revised call itself comes from hasPriorRfqActivity below, not from where
+// revised call itself comes from hasStandingPriorRfq below, not from where
 // in the funnel a paused lead sits.
 async function resolvePausedAtStage(leadId) {
   const { data } = await supabase
@@ -66,17 +66,15 @@ async function resolvePausedAtStage(leadId) {
   return data?.stage ?? 'calling'
 }
 
-// Whether this lead already has a real rfq_raised activity on file — the
-// signal rfqKindForLead uses instead of current_stage (see that function's
-// own comment for why: stage alone can't be trusted as evidence an RFQ
-// already happened). A cheap existence check, not a row fetch.
+// Whether this lead already has a real rfq_raised activity on file that still
+// stands — the signal rfqKindForLead uses instead of current_stage (see that
+// function's own comment for why: stage alone can't be trusted as evidence an
+// RFQ already happened). An RFQ the Production Executive sent back from the
+// technical check doesn't stand: the corrected one is the lead's fresh RFQ
+// (owner's ruling, 2026-10-09). Two small reads, resolved by rfqKind.js.
 async function hasPriorRfqActivity(leadId) {
-  const { count } = await supabase
-    .from('activities')
-    .select('id', { count: 'exact', head: true })
-    .eq('lead_id', leadId)
-    .eq('activity_type', 'rfq_raised')
-  return (count ?? 0) > 0
+  const { activityIds, deskRfqs } = await fetchPriorRfqsForKind(leadId)
+  return hasStandingPriorRfq(activityIds, deskRfqs)
 }
 
 // What an RFQ Raised promises about its approval, once the RFQ desk is on —
@@ -84,7 +82,9 @@ async function hasPriorRfqActivity(leadId) {
 // the same thing. Only a FRESH RFQ counts toward the target (RFQ-DESK.md §3) —
 // once per lead, on the day the lead's first RFQ passes (Step 6,
 // rfqs.counts_toward_target). A revision only counts when it is the
-// correction of a fresh one that never passed, which this form can't see
+// correction of a fresh one that never passed — and the correction of one the
+// technical check SENT BACK is itself Fresh now (hasStandingPriorRfq), so what
+// is left is a revision of one still waiting, which this form can't see
 // cheaply, so a revision still promises nothing. Any kind moves a lead still
 // before RFQ Raised.
 function deskApprovalNote(isFresh, leadBeforeRfq) {

@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { rfqKindForLead, shouldAdvanceToRfq, summariseRfqHistory, FRESH_RFQ, REVISED_RFQ } from './rfqKind'
+import {
+  hasStandingPriorRfq,
+  isSetAsideRfq,
+  rfqKindForLead,
+  shouldAdvanceToRfq,
+  summariseRfqHistory,
+  FRESH_RFQ,
+  REVISED_RFQ,
+} from './rfqKind'
 
 describe('rfqKindForLead', () => {
   it('is fresh with no prior RFQ activity, whatever the stage', () => {
@@ -33,6 +41,66 @@ describe('rfqKindForLead', () => {
     // logged the next day a revision. hasPriorRfqActivity is the correct
     // signal precisely because it doesn't care how the stage got there.
     expect(rfqKindForLead('rfq', false)).toBe(FRESH_RFQ)
+  })
+})
+
+// Owner's ruling, 2026-10-09: an RFQ the Production Executive sent back from
+// the technical check never passed, so the exec's corrected version is the
+// lead's FRESH RFQ — not a revision of it.
+describe('hasStandingPriorRfq', () => {
+  const desk = (activity_id, status, sent_back_from = null) => ({ activity_id, status, sent_back_from })
+
+  it('is false for a lead with no RFQ Raised activity at all', () => {
+    expect(hasStandingPriorRfq([], [])).toBe(false)
+    expect(hasStandingPriorRfq(null, null)).toBe(false)
+  })
+
+  it('is true for an earlier RFQ with no desk row (logged before the desk, or while it was off)', () => {
+    expect(hasStandingPriorRfq([11], [])).toBe(true)
+    expect(hasStandingPriorRfq([11], [desk(99, 'sent_back', 'technical')])).toBe(true)
+  })
+
+  it('is false when the only earlier RFQ was sent back from the technical check', () => {
+    expect(hasStandingPriorRfq([11], [desk(11, 'sent_back', 'technical')])).toBe(false)
+    // …so the corrected one is classed fresh.
+    expect(rfqKindForLead('calling', hasStandingPriorRfq([11], [desk(11, 'sent_back', 'technical')]))).toBe(FRESH_RFQ)
+  })
+
+  it('stays false through a second and third send-back — fresh until one passes', () => {
+    const rows = [desk(11, 'sent_back', 'technical'), desk(12, 'sent_back', 'technical')]
+    expect(hasStandingPriorRfq([11, 12], rows)).toBe(false)
+  })
+
+  it('is true once the corrected RFQ is waiting, approved, quoted or withdrawn', () => {
+    const first = desk(11, 'sent_back', 'technical')
+    for (const status of ['with_technical', 'with_estimation', 'with_lixil', 'quoted', 'withdrawn']) {
+      expect(hasStandingPriorRfq([11, 12], [first, desk(12, status)])).toBe(true)
+    }
+  })
+
+  it('is true for an RFQ Estimation sent back — it had passed, so its correction is a revision', () => {
+    expect(hasStandingPriorRfq([11], [desk(11, 'sent_back', 'estimation')])).toBe(true)
+  })
+
+  it('is true for an RFQ the exec withdrew (only a Production send-back resets it)', () => {
+    expect(hasStandingPriorRfq([11], [desk(11, 'withdrawn')])).toBe(true)
+  })
+
+  it('is true when an old, desk-less RFQ sits beside a sent-back one', () => {
+    expect(hasStandingPriorRfq([10, 11], [desk(11, 'sent_back', 'technical')])).toBe(true)
+  })
+
+  it('does not let a price revision (no activity) set anything aside', () => {
+    expect(hasStandingPriorRfq([11], [desk(null, 'sent_back', 'technical')])).toBe(true)
+  })
+})
+
+describe('isSetAsideRfq', () => {
+  it('is only a technical send-back', () => {
+    expect(isSetAsideRfq({ status: 'sent_back', sent_back_from: 'technical' })).toBe(true)
+    expect(isSetAsideRfq({ status: 'sent_back', sent_back_from: 'estimation' })).toBe(false)
+    expect(isSetAsideRfq({ status: 'with_technical', sent_back_from: null })).toBe(false)
+    expect(isSetAsideRfq(null)).toBe(false)
   })
 })
 
@@ -154,5 +222,45 @@ describe('summariseRfqHistory', () => {
 
   it('survives a null activities list', () => {
     expect(summariseRfqHistory(null, null).raised).toBe(false)
+  })
+
+  describe('a fresh RFQ the technical check sent back', () => {
+    const sentBack = { activity_id: 1, status: 'sent_back', sent_back_from: 'technical' }
+    const withTechnical = { activity_id: 2, status: 'with_technical', sent_back_from: null }
+    const fresh1 = { ...rfq('2026-10-07T09:00:00', 'fresh'), id: 1 }
+    const fresh2 = { ...rfq('2026-10-08T09:00:00', 'fresh'), id: 2 }
+
+    it('hands the Fresh date to the corrected one, whatever order the activities arrive in', () => {
+      for (const history of [[fresh1, fresh2], [fresh2, fresh1]]) {
+        const s = summariseRfqHistory(history, {}, [sentBack, withTechnical])
+        expect(s.freshAt).toBe('2026-10-08T09:00:00')
+        expect(s.revisedAt).toBeNull()
+        expect(s.revisedCount).toBe(0)
+      }
+    })
+
+    it('shows the latest attempt when every fresh one was sent back', () => {
+      const secondBack = { activity_id: 2, status: 'sent_back', sent_back_from: 'technical' }
+      const s = summariseRfqHistory([fresh1, fresh2], {}, [sentBack, secondBack])
+      expect(s.freshAt).toBe('2026-10-08T09:00:00')
+    })
+
+    it('shows the one lone attempt when it was sent back and nothing was re-raised', () => {
+      expect(summariseRfqHistory([fresh1], {}, [sentBack]).freshAt).toBe('2026-10-07T09:00:00')
+    })
+
+    it('does not move once the corrected one is approved and revisions follow', () => {
+      const approved = { activity_id: 2, status: 'with_estimation', sent_back_from: null }
+      const rev = { ...rfq('2026-10-09T09:00:00', 'revised'), id: 3 }
+      const s = summariseRfqHistory([rev, fresh2, fresh1], {}, [sentBack, approved])
+      expect(s.freshAt).toBe('2026-10-08T09:00:00')
+      expect(s.revisedAt).toBe('2026-10-09T09:00:00')
+    })
+
+    it('leaves a lead with no desk rows exactly as before — the earliest untagged one wins', () => {
+      const old = [{ ...rfq('2026-05-06T09:00:00'), id: 7 }, { ...rfq('2026-06-10T09:00:00'), id: 8 }]
+      expect(summariseRfqHistory(old, {}).freshAt).toBe('2026-05-06T09:00:00')
+      expect(summariseRfqHistory(old, {}, []).freshAt).toBe('2026-05-06T09:00:00')
+    })
   })
 })
