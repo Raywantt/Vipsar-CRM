@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { usePersistedFilterState } from '../hooks/usePersistedFilterState'
 import { useCachedQuery } from '../hooks/useCachedQuery'
-import { fetchLastActivityPerLead, LEADS_PAGE_SIZE, OFFICE_UNSET, SITE_STAGE_UNSET } from '../lib/dashboardQueries'
+import { BDM_NONE, fetchLastActivityPerLead, LEADS_PAGE_SIZE, OFFICE_UNSET, SITE_STAGE_UNSET } from '../lib/dashboardQueries'
+import { fetchActiveBdms } from '../lib/bdmQueries'
 import { fetchLeadsListPage } from '../lib/screenQueries'
 import { stageChipClass } from '../lib/statusColors'
 import { STALE_DAYS, staleGateDays } from '../lib/attention'
@@ -20,7 +21,7 @@ import { isPoolLead } from '../lib/poolLeads'
 import { errorMessage } from '../lib/errorMessage'
 import { leadDisplayName, leadSiteLabel } from '../lib/leadName'
 import { MIN_QUERY_LENGTH } from '../lib/searchQueries'
-import { ROLES } from '../lib/roles'
+import { canFilterLeadsByBdm, ROLES } from '../lib/roles'
 import { useCanExportLeads } from '../hooks/useCanExportLeads'
 import { useAuth } from '../contexts/AuthContext'
 import LeadExportPanel from './LeadExportPanel'
@@ -125,6 +126,9 @@ const officeWord = (o) => (o === OFFICE_UNSET ? 'Not set' : territoryLabel(o))
 
 // "No leads yet", shared so it keeps one identity across renders. Never mutated.
 const NO_LEADS = []
+// "No BDM filter", shared for the same reason — a fresh [] each render would
+// change filtersKey's inputs and listParams' memo on every pass.
+const NO_BDM_FILTER = []
 
 // includePoolLeads: only a BDM's My Leads passes true — a lead they sent to
 // the owner is still theirs to see, while for everyone else a lead waiting in
@@ -135,6 +139,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const [siteStageFilterRaw, setSiteStageFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'siteStageFilter', [])
   const [sourceFilterRaw, setSourceFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'sourceFilter', [])
   const [officeFilterRaw, setOfficeFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'officeFilter', [])
+  const [bdmFilterRaw, setBdmFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'bdmFilter', [])
   const [statusFilter, setStatusFilter] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'statusFilter', '')
   const [minValueInput, setMinValueInput] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'minValueInput', '')
   const [maxValueInput, setMaxValueInput] = usePersistedFilterState(FILTERS_STORAGE_KEY, 'maxValueInput', '')
@@ -148,6 +153,31 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   const siteStageFilter = useMemo(() => asList(siteStageFilterRaw), [siteStageFilterRaw])
   const sourceFilter = useMemo(() => asList(sourceFilterRaw), [sourceFilterRaw])
   const officeFilter = useMemo(() => asList(officeFilterRaw), [officeFilterRaw])
+
+  // The BDM facet. `canFilterBdm` is the ONE flag for it (roles.js): the field
+  // below and every use of the saved pick read it, so a role without the
+  // control can never be filtered by a pick it has no way to see or clear — the
+  // saved filters live in sessionStorage, which a second sign-in in the same
+  // tab inherits. The roster is the same remembered query Architect Network
+  // and the Follow-ups page read, so it paints at once.
+  const { employee } = useAuth()
+  const canFilterBdm = canFilterLeadsByBdm(employee?.role)
+  const bdmFilterSaved = useMemo(() => asList(bdmFilterRaw), [bdmFilterRaw])
+  const bdmFilter = canFilterBdm ? bdmFilterSaved : NO_BDM_FILTER
+  const bdmRosterQuery = useCachedQuery(['bdm', 'active-bdms'], fetchActiveBdms, { enabled: canFilterBdm })
+  const bdmRoster = bdmRosterQuery.result?.data
+  // Each active BDM by name, then "No BDM" last (as "Not set" sits last in the
+  // Office and Site stage lists).
+  const bdmOptions = useMemo(
+    () => [...(bdmRoster ?? NO_LEADS).map((b) => ({ value: String(b.id), label: b.name })), { value: BDM_NONE, label: 'No BDM' }],
+    [bdmRoster]
+  )
+  // The picks in words. An id the roster no longer knows (a BDM deactivated
+  // since it was saved) simply has no name here.
+  const bdmNames = useMemo(
+    () => bdmFilter.map((id) => bdmOptions.find((o) => o.value === id)?.label).filter(Boolean),
+    [bdmFilter, bdmOptions]
+  )
 
   // Not persisted — derived from `search` (which is) via the debounce effect
   // below. Seeded from search's own restored value so a POP-navigation
@@ -221,6 +251,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     siteStageFilter,
     sourceFilter,
     officeFilter,
+    bdmFilter,
     statusFilter,
     minValue,
     maxValue,
@@ -245,6 +276,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
       siteStage: siteStageFilter,
       source: sourceFilter,
       office: officeFilter,
+      bdm: bdmFilter,
       status: statusFilter || null,
       minValue: minValue !== '' ? Number(minValue) : null,
       maxValue: maxValue !== '' ? Number(maxValue) : null,
@@ -252,7 +284,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
       includePool: includePoolLeads,
       page: effectivePage,
     }),
-    [effectiveEmployeeId, effectiveEmployeeIds, stageFilter, siteStageFilter, sourceFilter, officeFilter, statusFilter, minValue, maxValue, debouncedSearch, includePoolLeads, effectivePage]
+    [effectiveEmployeeId, effectiveEmployeeIds, stageFilter, siteStageFilter, sourceFilter, officeFilter, bdmFilter, statusFilter, minValue, maxValue, debouncedSearch, includePoolLeads, effectivePage]
   )
   // Remembered on the device (instant open): reopening All Leads with the same
   // filters paints the last page at once and refreshes it. A typed search is
@@ -276,7 +308,6 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
   // widths. It exports with `listParams` itself, the object this page was
   // fetched with, so the file holds exactly the leads the count line promises —
   // for a manager that means "Mine" or "Team", whichever the switch is on.
-  const { employee } = useAuth()
   const canExport = useCanExportLeads()
   const isOwnerViewer = employee?.role === ROLES.OWNER
   const [exportOpen, setExportOpen] = useState(false)
@@ -334,6 +365,16 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
       active: offices.length > 0,
       fileLabel: `Office ${listWords(offices)}`,
     })
+    // Only for a role that has the filter, like Owner above — otherwise the
+    // About sheet would carry a row about a control that role never saw.
+    if (canFilterBdm) {
+      summary.push({
+        label: 'BDM',
+        value: bdmFilter.length ? (bdmNames.length ? bdmNames.join(', ') : 'Selected') : 'All leads',
+        active: bdmFilter.length > 0,
+        fileLabel: bdmNames.length === 1 && bdmNames[0] === 'No BDM' ? 'No BDM' : `BDM ${listWords(bdmNames)}`,
+      })
+    }
     const value = formatValueChip(minValue, maxValue)
     summary.push({ label: 'Quote value', value: value ?? 'Any', active: !!value, fileLabel: `Quote ${value}` })
     const term = debouncedSearch.trim()
@@ -353,6 +394,9 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     siteStageFilter,
     sourceFilter,
     officeFilter,
+    canFilterBdm,
+    bdmFilter,
+    bdmNames,
     minValue,
     maxValue,
     debouncedSearch,
@@ -387,6 +431,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     setSiteStageFilter([])
     setSourceFilter([])
     setOfficeFilter([])
+    setBdmFilter([])
     setMinValueInput('')
     setMaxValueInput('')
   }
@@ -429,6 +474,12 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
         onRemove: () => setOfficeFilter([]),
       })
     }
+    if (bdmFilter.length) {
+      // First names, as the Owner chip does — but "No BDM" stays whole.
+      const words = bdmNames.map((n) => (n === 'No BDM' ? n : n.split(' ')[0]))
+      const label = words.length === 1 && words[0] === 'No BDM' ? 'No BDM' : `BDM: ${words.length ? listWords(words) : 'selected'}`
+      chips.push({ key: 'bdm', label, onRemove: () => setBdmFilter([]) })
+    }
     const valueLabel = formatValueChip(minValueInput, maxValueInput)
     if (valueLabel) {
       chips.push({
@@ -451,6 +502,8 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     siteStageFilter,
     sourceFilter,
     officeFilter,
+    bdmFilter,
+    bdmNames,
     minValueInput,
     maxValueInput,
     setEmployeeFilter,
@@ -458,6 +511,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     setSiteStageFilter,
     setSourceFilter,
     setOfficeFilter,
+    setBdmFilter,
     setMinValueInput,
     setMaxValueInput,
   ])
@@ -561,6 +615,23 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
     </div>
   )
 
+  // Which business development manager brought the lead in — the BdmChip's
+  // question, asked as a filter. Hidden while the company has no BDM to pick
+  // (then "No BDM" would be every lead), unless a saved pick is still applied,
+  // which must stay reachable to clear.
+  const bdmField = canFilterBdm && (bdmOptions.length > 1 || bdmFilter.length > 0) && (
+    <div className="vip-filter-field">
+      <span className="vip-fact-label">BDM</span>
+      <MultiSelectFilter
+        label="BDM"
+        allLabel="All leads"
+        options={bdmOptions}
+        selected={bdmFilter}
+        onChange={setBdmFilter}
+      />
+    </div>
+  )
+
   const officeField = (
     <div className="vip-filter-field">
       <span className="vip-fact-label">Office</span>
@@ -632,6 +703,7 @@ function LeadsListCard({ showOwnerFilter, employees, title, ownerScopeIds, manag
       {stageField}
       {siteStageField}
       {sourceField}
+      {bdmField}
       {officeField}
       {valueField}
     </>

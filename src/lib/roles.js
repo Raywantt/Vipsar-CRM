@@ -234,6 +234,16 @@ export function canExportLeads(role, granted = false) {
   return role === ROLES.OWNER || granted === true
 }
 
+// All Leads' "BDM" filter — which business development manager brought a lead
+// in. Every sales role except the BDM: the BdmChip already shows on their rows,
+// so the filter matches what they can see. A BDM's own My Leads is nothing but
+// their tagged leads, so a filter there would only ever answer "all of them".
+// ONE flag, read by the desktop filter bar and the mobile panel alike (they
+// render the same field), and by the card to ignore a stale saved pick.
+export function canFilterLeadsByBdm(role) {
+  return [ROLES.OWNER, ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER].includes(role)
+}
+
 // /architects/:id — every role (owner's ruling at Step 4: architects are
 // visible company-wide, so the page is too; each role sees only the leads and
 // meetings its own RLS returns). Listed explicitly, like every list here.

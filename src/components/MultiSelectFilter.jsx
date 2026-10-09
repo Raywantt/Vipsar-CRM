@@ -68,7 +68,8 @@ function MultiSelectFilter({ label, options, selected, onChange, allLabel }) {
           ))}
           {chosen.length > 0 && (
             <button type="button" className="vip-action-close vip-multi-clear" onClick={() => onChange([])}>
-              Clear {label.toLowerCase()}
+              {/* "Clear owner", but "Clear BDM" — an acronym stays as written. */}
+              Clear {/^[A-Z]{2,}$/.test(label) ? label : label.toLowerCase()}
             </button>
           )}
         </div>

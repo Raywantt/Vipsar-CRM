@@ -17,7 +17,7 @@ import {
   toCell,
 } from './leadExport'
 import { buildLeadExportBlob, columnLetters } from './leadExportFile'
-import { applyLeadsListFilters, leadsListSitesEmbed, OFFICE_UNSET, SITE_STAGE_UNSET } from './dashboardQueries'
+import { applyLeadsListFilters, BDM_NONE, leadsListSitesEmbed, OFFICE_UNSET, SITE_STAGE_UNSET } from './dashboardQueries'
 import { canExportLeads, rolesWith } from './roles'
 
 const client = { id: 1, name: 'Sukhjinder Singh', mobile: '9876543210', party_type: 'client' }
@@ -424,6 +424,36 @@ describe('applyLeadsListFilters', () => {
     const mixed = recorder()
     applyLeadsListFilters(mixed.q, { office: [OFFICE_UNSET, 'ludhiana', 'patiala'], includePool: true })
     expect(mixed.calls).toEqual([['or', 'office_territory.is.null,office_territory.in.(ludhiana,patiala)']])
+  })
+
+  it('filters by the BDM who brought a lead in: eq for one, in for several, nothing for none', () => {
+    const one = recorder()
+    applyLeadsListFilters(one.q, { bdm: ['12'], includePool: true })
+    expect(one.calls).toEqual([['eq', 'bdm_employee_id', '12']])
+
+    const many = recorder()
+    applyLeadsListFilters(many.q, { bdm: ['12', '15'], includePool: true })
+    expect(many.calls).toEqual([['in', 'bdm_employee_id', ['12', '15']]])
+
+    const none = recorder()
+    applyLeadsListFilters(none.q, { bdm: [], includePool: true })
+    expect(none.calls).toEqual([])
+  })
+
+  it('treats "No BDM" as a null filter, alone or mixed with real BDMs', () => {
+    const alone = recorder()
+    applyLeadsListFilters(alone.q, { bdm: [BDM_NONE], includePool: true })
+    expect(alone.calls).toEqual([['is', 'bdm_employee_id', null]])
+
+    const mixed = recorder()
+    applyLeadsListFilters(mixed.q, { bdm: ['12', BDM_NONE, '15'], includePool: true })
+    expect(mixed.calls).toEqual([['or', 'bdm_employee_id.is.null,bdm_employee_id.in.(12,15)']])
+  })
+
+  it('lets only digits into the OR string the "No BDM" mix builds', () => {
+    const { q, calls } = recorder()
+    applyLeadsListFilters(q, { bdm: ['12', 'x),owner_employee_id.not.is.null,(y', BDM_NONE], includePool: true })
+    expect(calls).toEqual([['or', 'bdm_employee_id.is.null,bdm_employee_id.in.(12)']])
   })
 
   it('treats "Not set" site stage as a null filter and keeps pool leads only when asked', () => {

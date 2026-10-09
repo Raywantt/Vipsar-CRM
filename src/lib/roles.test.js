@@ -18,6 +18,7 @@ import {
   canSearch,
   canOpenLeads,
   canExportLeads,
+  canFilterLeadsByBdm,
   canReviewRfqs,
   canEstimateRfqs,
   canSeeRfqDesk,
@@ -127,6 +128,21 @@ describe('architect screens', () => {
   it('lets every sales role open an architect profile, and no unknown role', () => {
     expect(rolesWith(canOpenArchitectProfiles)).toHaveLength(5)
     expect(canOpenArchitectProfiles('someone_new')).toBe(false)
+  })
+})
+
+describe('All Leads\' BDM filter', () => {
+  it('goes to every sales role except the BDM, whose My Leads is already only their own', () => {
+    expect(rolesWith(canFilterLeadsByBdm).sort()).toEqual(
+      [ROLES.OWNER, ROLES.SALES_EXECUTIVE, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER].sort()
+    )
+    expect(canFilterLeadsByBdm(ROLES.BDM)).toBe(false)
+  })
+
+  it('goes to nobody on the RFQ desk, and nobody unknown', () => {
+    expect(canFilterLeadsByBdm(ROLES.PRODUCTION_EXECUTIVE)).toBe(false)
+    expect(canFilterLeadsByBdm(ROLES.ESTIMATION_EXECUTIVE)).toBe(false)
+    expect(canFilterLeadsByBdm(undefined)).toBe(false)
   })
 })
 

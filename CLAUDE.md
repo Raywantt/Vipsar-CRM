@@ -2581,6 +2581,27 @@ phone.
   was denied the facet. The card's title is likewise passed in as `title`
   rather than derived from the same flag, so the card and `AppNav`'s header
   can't disagree about whose leads are on screen.
+* **The BDM facet** (2026-10-09) answers `BdmChip`'s question as a filter: a
+  multi-select of every active BDM by name plus **"No BDM"** (`BDM_NONE`,
+  `bdm_employee_id IS NULL` — 1,361 of 1,385 leads on the day it shipped), sitting
+  after Source. Every sales role **except the BDM** (`canFilterLeadsByBdm` in
+  `roles.js`, the one flag for the field AND for whether a saved pick is applied —
+  filters persist in sessionStorage, and a BDM has no control to clear a pick
+  inherited from a previous sign-in). It is `applyBdmFacet` inside
+  `applyLeadsListFilters`, so the Excel export filters identically and its "About"
+  sheet and file name name the BDM pick. The roster is the shared remembered
+  `['bdm','active-bdms']` query; the field hides while there is no active BDM to
+  pick (a lone "No BDM" would be every lead) unless a saved pick must stay
+  clearable. A BDM since deactivated cannot be picked (the roster is active-only,
+  like the chip). Verified as the owner at 919px (phone layout) and 1280px against
+  independent counts (Raghav Dhingra 24 · No BDM 1,361 · both 1,385), then as the
+  test coordinator, exec and manager (Mine and Team) at 919px and 1280px against
+  each session's own RLS-visible leads, and as the test BDM (no field; a BDM pick
+  planted in sessionStorage and restored by Back reached no request). Those test
+  teams hold 5 leads, none BDM-brought, so the positive case (a BDM's leads
+  appearing) is verified only as the owner. At 1280px the manager's Team scope is
+  the widest bar (Whose leads + Owner + 5 more): Office drops to the second row
+  beside Quote value.
 * **Mobile is a flat list**, one `.vip-lead-row` per lead carrying stage chip
   and site-stage tag in `.vip-lead-row-meta` with `site · source` beside them.
   **The two stages are tags rather than text for a measured reason**: folded
@@ -2909,7 +2930,7 @@ default. `roles.js` exports `canCreateLead`, `canLogActivity`,
 `logsActivityOnTeamLeads`, `seesManagerActivityOnLeads`,
 `canSeeTeamDirectory`, `canOpenEmployeeProfiles`, `canSeeMyArchitects`,
 `canSeeArchitectNetwork`, `canSeeBdmFollowUps`, `canOpenArchitectProfiles`,
-`canExportLeads`, `canSeeSalesDashboard`, `canSearch`, `canOpenLeads`,
+`canExportLeads`, `canFilterLeadsByBdm`, `canSeeSalesDashboard`, `canSearch`, `canOpenLeads`,
 `canReviewRfqs`, `canEstimateRfqs`, `canSeeRfqDesk`, `isBdm`,
 `isRfqDeskRole` and `rolesWith(capability)`; `BottomNav` and `App.jsx` both read them.
 **These are ONE flag per capability — do not re-split them.**

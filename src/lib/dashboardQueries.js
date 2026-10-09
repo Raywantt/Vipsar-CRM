@@ -282,13 +282,32 @@ function applyOfficeFacet(query, value) {
   return query.or(`office_territory.is.null,office_territory.in.(${offices.join(',')})`)
 }
 
+// Sentinel for the BDM facet's "No BDM" option — a lead nobody from business
+// development brought in (bdm_employee_id IS NULL), which is most of them.
+// Never a value the column can hold: stored values are employee ids.
+export const BDM_NONE = '__none__'
+
+// bdm_employee_id is a plain column on leads (no embed). Like Office it can mix
+// real values (BDM ids) with "No BDM" (a NULL), which no single eq/in can say,
+// so that mix is an OR. The ids go into a filter string, so only digits are let
+// through there (the roster only ever offers employee ids).
+function applyBdmFacet(query, value) {
+  const list = facetList(value)
+  const wantsNone = list.includes(BDM_NONE)
+  const bdms = list.filter((b) => b !== BDM_NONE)
+  if (!wantsNone) return applyFacet(query, 'bdm_employee_id', bdms)
+  const safe = bdms.map(String).filter((b) => /^\d+$/.test(b))
+  if (safe.length === 0) return query.is('bdm_employee_id', null)
+  return query.or(`bdm_employee_id.is.null,bdm_employee_id.in.(${safe.join(',')})`)
+}
+
 // All Leads' filters, applied to a leads query. ONE definition, read by both
 // the on-screen list (fetchLeadsList below) and the Excel export
 // (leadExportQueries.js), so the file can never hold a different set of leads
 // from the screen it was downloaded from. A query that filters on Site stage
 // must embed sites through leadsListSitesEmbed(), or that filter does nothing.
 export function applyLeadsListFilters(query, filters = {}) {
-  const { employeeId, employeeIds, stage, siteStage, source, office, status, minValue, maxValue, searchOr, includePool = false } = filters
+  const { employeeId, employeeIds, stage, siteStage, source, office, bdm, status, minValue, maxValue, searchOr, includePool = false } = filters
 
   // employeeId (exact) wins over employeeIds (a scope, e.g. a sales
   // manager's team) whenever both are supplied — a specific pick inside a
@@ -304,6 +323,7 @@ export function applyLeadsListFilters(query, filters = {}) {
   query = applySiteStageFacet(query, siteStage)
   query = applyFacet(query, 'source_type', source)
   query = applyOfficeFacet(query, office)
+  query = applyBdmFacet(query, bdm)
   // "Active" mirrors fetchClosureForecast's own not-won-not-lost filter;
   // "Inactive" is literally the complement (won or lost) — a lead has no
   // third state.
