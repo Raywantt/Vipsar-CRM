@@ -155,14 +155,14 @@ src/
                 BDM: BdmPoolCard, BdmUpdatesLine, BdmLeadUpdateCards,
                 BdmRightNow, BdmTargetsCard, BdmTopArchitectsCard,
                 BdmNetworkCard, BdmTargetsForm, ArchitectDirectory,
-                ArchitectFollowUpsCard, NewArchitectForm)
+                FirmDirectory, ArchitectFollowUpsCard, NewArchitectForm)
   pages/        Login, Today (the role switch for `/`), Home
                 (sales_executive's own `/`; takes an `embedded` prop),
                 OwnerToday, CoordinatorToday, ManagerToday, BdmToday, Profile,
                 Search, DashboardRoute (→ Dashboard | BdmDashboard), NewRoute
                 (→ LeadQuickCapture | BdmNew), LeadDetail, EmployeeProfile,
                 MyTeam, ActivityLog, MyArchitects, ArchitectProfile,
-                ArchitectNetwork, RfqDesk, NotFound
+                ArchitectNetwork, FirmProfile, RfqDesk, NotFound
   contexts/     AuthContext (session + employee lookup);
                 HeaderContext (dynamic {title, sub} override for AppNav)
   hooks/        useOnlineStatus.js, useIsMobile.js (the 1024px breakpoint as
@@ -183,7 +183,7 @@ src/
                 meetingBucket, rfqKind, dateRanges, dateMath, targetPeriods,
                 followupDates, dayReview, drilldownBuilders, selfAssignTest,
                 appUpdate, poolLeads, architectStats, bdmDashboard,
-                bdmLeadUpdates, architectNetwork, firmLabel,
+                bdmLeadUpdates, architectNetwork, firmLabel, firmProfile,
                 bookedOrders, leadSources, periodChange, leadExport, leadExportFile,
                 rfqDesk, rfqDeskReport, officeScope, bdmPopups,
                 queries: dashboardQueries, searchQueries, targetQueries,
@@ -213,7 +213,8 @@ changes the invoke URL and would silently break the configured cron.
 **sales** role only — `canSeeSalesDashboard`),
 `/leads/new`, `/employees/:id` (**not the BDM**), `/activity` (**not owner**),
 `/team` (**owner + sales_manager**), `/architects/:id` (every role),
-`/architects` (**BDM only**), `/network` and `/rfq-desk` (**owner only**). There is no
+`/architects` (**BDM only**), `/network`, `/firms/:id`, `/firms/by-name` and
+`/rfq-desk` (**owner only**). There is no
 `/settings` or `/account` route; both merged into `/profile`.
 
 **Every `allowedRoles` is derived from a `roles.js` capability** —
@@ -3175,7 +3176,61 @@ locked decisions; **don't reverse one without asking.**
   company-wide; **Architects** (`ArchitectDirectory`: search, With BDM / Not
   with a BDM filter, sortable, all-time figures, pool leads excluded). The owner
   moves an architect between portfolios **one at a time** from the profile's
-  "Change" control, which restarts the 14-day clock.
+  "Change" control, which restarts the 14-day clock. **Firms** (`FirmDirectory`,
+  one row per firm, every row a link — see the firm page below).
+* **The firm page (`/firms/:id`, `/firms/by-name?name=`, `FirmProfile.jsx`,
+  2026-10-09)** — every Firms-tab row opens it, owner only (the tab's own gate,
+  `canSeeArchitectNetwork`; not linked from anywhere else, the owner's choice).
+  Read-only. Sections: two 4-tile strips (Leads sent / Open pipeline / Won value /
+  Win rate, then Architects / Meetings / Latest lead / First lead) → **Where the
+  leads stand** + **Leads over time** → **Who handles this firm** → **Architects
+  at this firm** → **Meetings | Referred leads**. Load-bearing:
+  - **A firm has no figures of its own.** Everything is the pooled answer for the
+    architects AT the firm, from the reducers the Firms tab and architect pages
+    already run (`summariseArchitectLeads`, `buildDirectoryRows`), so a tile can't
+    read differently from the row that opened the page; `firmProfile.test.js` pins
+    it against `buildFirmRows`. Pure rules live in `src/lib/firmProfile.js`.
+  - **Two routes because a firm is two things.** A saved firm record is
+    `/firms/<party id>`; one that exists only as text typed on its architects
+    (`firm_name`, no `firm_party_id` — 23 of the 62 firms on 2026-10-09) is
+    `/firms/by-name?name=…`, **in the query string, never the path**, since typed
+    text can hold a "/". `firmPath(row)` builds both. The name match mirrors the
+    Firms tab's grouping key exactly (lower-cased, **not trimmed**):
+    `fetchArchitectsAtFirm` does an escaped `ilike` and re-checks in JS.
+  - **Who handles the firm** (owner's brief: the BDM, and the execs and managers
+    "associated with, visited, or with clients who have architects from" the firm)
+    is `buildFirmPeople`, one row per person: **BDM** by portfolio (architects
+    tagged to them) and leads brought in; **execs/managers** by leads they now own
+    (with open/won value), **site visits and client meetings (either bucket) they
+    logged on those leads**, and **meetings with the firm's architects**. A person
+    shows only if some figure is above zero; BDMs first. **Calls are not a visit
+    and are not counted.** Visits come from `fetchActivitiesOnLeads` (the leads'
+    ids, chunked at 200).
+  - **Stages show only the ones holding a lead** (a firm averages 1–2 leads;
+    twelve zero rows say nothing), bars are an honest share of the firm's leads
+    (measured: 6.2px per lead on every row). **Leads over time is a 12-month strip
+    of counts, tinted none / one / several — not a bar chart**, because the real
+    data (most firms 0–2 leads, the biggest 13) would draw identical bars.
+    **Import-dated leads are counted and named in a footnote** (`hasImportDate`,
+    the rule the New-leads-by-source popup tags), not hidden.
+  - **`FIRM_QUIET_DAYS` (90) is a number chosen here, not ruled by the owner** —
+    the "gone quiet" mark on Latest lead. Tune it in `firmProfile.js`.
+  - `fetchLeadsForArchitects` now also selects `external_reference_id` and the
+    owner's `role`, and `fetchArchitectMeetings` the logger's `role` — shared with
+    the architect profile, which ignores them.
+  - **Known data issue, left for the owner:** the Firms tab can list one firm
+    twice — "Living Space" (a saved record) and "LIVING SPACE" (typed text on other
+    architects) — and 23 firms are typed names that are really people's names. A
+    firm merge doesn't exist.
+  - **Verified 2026-10-09 as the owner:** against firm 1084 ("malwa builder", 13
+    leads) an independent query returned the same 13 leads, the same visits (3) and
+    client meetings (1 new + 5 old = 6) per person, the 8 calls excluded, and both
+    architect meetings; the typed-name route on "ARC SAMRIDH"; Habitat (9
+    architects) and Living Space (BDM + manager + exec). 375px, 1024px and 1076px
+    (no horizontal scroll, no clipped header — "CLIENT MTGS" had 0px of slack at
+    1024px before the grid was tightened) and dark mode (contrast measured: filled
+    month cell 4.69:1). **Not driven:** the other roles (the routes use the same
+    gate as `/network`, so a non-owner is bounced), a real phone.
 * **Which BDM brought a lead in is visible everywhere that lead is**, not
   just on BDM/owner screens — see `BdmChip` under Design system's Universal
   linking. Every role sees it; the owner's ruling was that a lead's rep,

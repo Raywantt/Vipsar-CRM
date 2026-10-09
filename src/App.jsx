@@ -23,6 +23,7 @@ import NotFound from './pages/NotFound'
 import MyArchitects from './pages/MyArchitects'
 import ArchitectProfile from './pages/ArchitectProfile'
 import ArchitectNetwork from './pages/ArchitectNetwork'
+import FirmProfile from './pages/FirmProfile'
 import RfqDesk from './pages/RfqDesk'
 import {
   canCreateLead,
@@ -184,6 +185,26 @@ function App() {
               // Architect Network — owner only (canSeeArchitectNetwork, BDM.md Step 6).
               <ProtectedRoute allowedRoles={rolesWith(canSeeArchitectNetwork)}>
                 <ArchitectNetwork />
+              </ProtectedRoute>
+            }
+          />
+          {/* One firm — reached from a row of Architect Network's Firms tab, so it
+              takes that tab's gate (canSeeArchitectNetwork). A firm that is a saved
+              record is /firms/:id; one that exists only as text typed on its
+              architects is /firms/by-name?name=. */}
+          <Route
+            path="/firms/:id"
+            element={
+              <ProtectedRoute allowedRoles={rolesWith(canSeeArchitectNetwork)}>
+                <FirmProfile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/firms/by-name"
+            element={
+              <ProtectedRoute allowedRoles={rolesWith(canSeeArchitectNetwork)}>
+                <FirmProfile />
               </ProtectedRoute>
             }
           />

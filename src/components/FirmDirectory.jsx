@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import ShowMoreRows from './ShowMoreRows'
 import { DEFAULT_FIRM_SORT, FIRM_SORTS, filterFirmRows, sortFirmRows } from '../lib/architectNetwork'
 import { lastMetLabel } from '../lib/architectStats'
+import { firmPath } from '../lib/firmProfile'
 import { formatCurrencyCompact } from '../lib/format'
 
 const PAGE = 50
@@ -22,9 +24,8 @@ const COLUMNS = [
 // architect at it (src/lib/architectNetwork.js's buildFirmRows). No portfolio
 // filter here: a BDM's portfolio tags architects, not firms.
 //
-// Rows aren't links — there's no /firms/:id page anywhere in this app (the
-// same "read-only, no detail route" shape Search's Site results already
-// follow), so a firm here is a rollup to read, not a page to open.
+// Every row opens that firm's own page (FirmProfile.jsx) — all of them, the 23
+// that exist only as typed text on their architects included (firmPath).
 //
 // The sort dropdown shows at every width, same as ArchitectDirectory's —
 // below 1024px it's the only way to sort (the header row is hidden); at
@@ -101,7 +102,7 @@ function FirmDirectory({ rows, loading, error }) {
           </div>
 
           {visible.slice(0, shown).map((r) => (
-            <div key={r.key} className="vip-net-dir-row vip-net-firm-row" role="row">
+            <Link key={r.key} to={firmPath(r)} className="vip-net-dir-row vip-net-firm-row" role="row">
               <span role="cell" className="vip-net-dir-name">
                 {r.name}
               </span>
@@ -128,7 +129,7 @@ function FirmDirectory({ rows, loading, error }) {
               <span role="cell" className="vip-net-dir-met">
                 {lastMetLabel(r.lastMetDays)}
               </span>
-            </div>
+            </Link>
           ))}
           <ShowMoreRows shown={Math.min(shown, visible.length)} total={visible.length} noun="firms" onShowMore={() => setShown((n) => n + PAGE)} />
         </div>

@@ -4068,3 +4068,60 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
 .vip-target-row-chevron { margin-left: 4px; color: var(--vip-faint); }
 /* The time under a record's date in a records popup. */
 .vip-dd-log-when span + span { font: 400 10px var(--vip-mono); color: var(--vip-faint); }
+
+/* ===========================================================================
+   49. A firm's page (/firms/:id, /firms/by-name — FirmProfile.jsx)
+   ===========================================================================
+   Reached from a row of Architect Network's Firms tab. It reuses the architect
+   profile's band, the .vip-arch-stats strips (2 columns on a phone, 4 from
+   1024px — exactly 4 tiles each, or a column is left empty), section 5's bar
+   rows, the .vip-bdm-list rows and section 33's directory row classes. New here:
+   the two table grids, the 12-month strip, the lead line. Tokens only, so
+   section 22 repaints all of it for dark mode. */
+
+/* ---- Who handles this firm / Architects at this firm ----
+   Below 1024px these are the directory's wrapping rows (name line, then the
+   figures with their unit words); from 1024px a grid with a header row. The
+   2-class selector beats .vip-net-dir-row's own 7-column template. */
+@media (min-width: 1024px) {
+  /* Nine columns: at exactly 1024px the tightest header ("CLIENT MTGS") needs
+     ~71px, so the person column and the gaps give way before the figures do. */
+  .vip-net-dir-row.vip-net-people-row {
+    grid-template-columns: minmax(150px, 1.3fr) repeat(8, minmax(60px, 1fr));
+    column-gap: 8px;
+  }
+  .vip-net-dir-row.vip-net-firmarch-row {
+    grid-template-columns: minmax(160px, 1.4fr) 150px 120px 70px 90px 90px;
+  }
+}
+.vip-firm-people-note { margin: 10px 0 0; }
+
+/* ---- Where the leads stand ---- the label has to hold "Joinery follow up" on a phone */
+.vip-firm-stage-row .vip-bar-label { flex-basis: 118px; }
+
+/* ---- Leads over time ----
+   Twelve equal cells, one per calendar month, the count in each. A TINT says
+   none / one / several (a threshold, UI-DESIGN.md §5) and the number carries the
+   rest: a firm sends one or two leads in a good quarter, so bars would all be
+   the same height. Equal-width columns, no JS pixel figure. */
+.vip-firm-months { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; }
+.vip-firm-month {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  min-width: 0; padding: 6px 0 3px; border-radius: 6px;
+  background: var(--vip-surface-soft); color: var(--vip-muted);
+  font-variant-numeric: tabular-nums;
+}
+.vip-firm-month-n { font-family: var(--vip-display); font-weight: 600; font-size: 14px; line-height: 1.2; color: var(--vip-faint); }
+.vip-firm-month-l { font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }
+/* The year marker is the strip's only year cue, so it takes --vip-muted (~4:1 or
+   better in both themes), not the --vip-faint the empty-month dot can afford. */
+.vip-firm-month-y { min-height: 10px; font: 500 9px var(--vip-mono); color: var(--vip-muted); }
+.vip-firm-month-1 { background: var(--vip-teal-soft); }
+.vip-firm-month-1 .vip-firm-month-n { color: var(--vip-ink); }
+/* Knockout text on a themed fill takes a token that flips (UI-DESIGN.md 4.6). */
+.vip-firm-month-2 { background: var(--vip-teal); color: var(--vip-surface); }
+.vip-firm-month-2 .vip-firm-month-n,
+.vip-firm-month-2 .vip-firm-month-y { color: var(--vip-surface); }
+
+/* ---- Referred leads: the name and the BDM chip on one line ---- */
+.vip-firm-lead-line { display: flex; align-items: baseline; gap: 6px; min-width: 0; }

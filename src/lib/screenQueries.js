@@ -35,7 +35,10 @@ import {
   fetchAllArchitects,
   fetchAllArchitectMeetings,
   fetchAllArchitectLeads,
+  fetchArchitectsAtFirm,
+  fetchActivitiesOnLeads,
 } from './architectQueries'
+import { architectIdForLead } from './architectStats'
 import { countUnseenBdmUpdates } from './notificationQueries'
 import { fetchRecentParties, searchParties, fetchLeadsForParties } from './partyQueries'
 import { periodForPreset } from './targetPeriods'
@@ -173,6 +176,45 @@ export async function fetchArchitectProfileBundle(architectId, includePool) {
       meetings: meetingsRes.data ?? [],
       leads: leadsRes.data ?? [],
       partialError: meetingsRes.error ?? leadsRes.error ?? null,
+    },
+    error: null,
+  }
+}
+
+// One firm's page (owner — Architect Network's Firms tab): the firm itself (a
+// real `parties` row, or none for a firm that exists only as typed text), its
+// architects, their meetings, every lead credited to one of them, and the
+// visits and client meetings logged on those leads. `firmId` XOR `firmName`;
+// both plain values so the remembered-query key can carry them. A failed half
+// is reported as `partialError` and the rest still shows.
+export async function fetchFirmBundle(firmId, firmName) {
+  let firm = null
+  if (firmId != null) {
+    const res = await fetchArchitect(firmId)
+    if (res.error) return { data: null, error: res.error }
+    firm = res.data
+    if (!firm || firm.party_type !== 'firm') {
+      return { data: { firm, architects: [], meetings: [], leads: [], activities: [], partialError: null }, error: null }
+    }
+  }
+  const { data: architects, error } = await fetchArchitectsAtFirm(firmId, firmName)
+  if (error) return { data: null, error }
+  const ids = architects.map((a) => a.id)
+  const [meetingsRes, leadsRes] = await Promise.all([fetchArchitectMeetings(ids), fetchLeadsForArchitects(ids, false)])
+  // The query matches either slot; keep the leads one of THESE architects is
+  // credited for (a lead naming two architects counts for the referrer), and
+  // only ask for activity on those.
+  const idSet = new Set(ids)
+  const leads = (leadsRes.data ?? []).filter((l) => idSet.has(architectIdForLead(l)))
+  const activitiesRes = await fetchActivitiesOnLeads(leads.map((l) => l.id))
+  return {
+    data: {
+      firm,
+      architects,
+      meetings: meetingsRes.data ?? [],
+      leads,
+      activities: activitiesRes.data ?? [],
+      partialError: meetingsRes.error ?? leadsRes.error ?? activitiesRes.error ?? null,
     },
     error: null,
   }

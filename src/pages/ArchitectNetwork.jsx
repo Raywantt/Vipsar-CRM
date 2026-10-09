@@ -47,6 +47,8 @@ import { ROLES } from '../lib/roles'
 //   ?tab=firms — every FIRM in the company, all-time, rolled up from the same
 //                architects/meetings/leads the Architects tab already fetched
 //                (buildFirmRows in architectNetwork.js) — no separate query.
+//                Every row opens that firm's own page (FirmProfile.jsx,
+//                /firms/:id or /firms/by-name?name=), which does its own read.
 //
 // Nothing here computes a BDM figure its own way: summariseBdm and topArchitects
 // run the BDM Dashboard's own rules, so the owner and the BDM agree.

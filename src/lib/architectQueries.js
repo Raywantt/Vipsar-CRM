@@ -2,6 +2,8 @@ import { supabase } from './supabaseClient'
 import { fetchAllRows } from './fetchAllRows'
 import { PARTY_COLUMNS, attachFirms } from './partyQueries'
 import { applyPoolExclusion } from './poolLeads'
+import { firmLabel } from './firmLabel'
+import { OLD_MEETING, NEW_MEETING, PICKABLE_MEETING } from './meetingBucket'
 
 // Reads behind the architect screens (BDM.md Step 4): My Architects, the
 // architect profile and the BDM's Today. Shaping lives in architectStats.js.
@@ -138,7 +140,7 @@ export function fetchArchitectMeetings(architectIds) {
     () =>
       supabase
         .from('activities')
-        .select('id, party_id, employee_id, notes, created_at, employees!employee_id(name)', { count: 'exact' })
+        .select('id, party_id, employee_id, notes, created_at, employees!employee_id(name, role)', { count: 'exact' })
         .eq('activity_type', 'architect_meeting')
         .in('party_id', ids)
         .order('created_at', { ascending: false }),
@@ -160,7 +162,7 @@ export function fetchLeadsForArchitects(architectIds, includePool = false) {
         supabase
           .from('leads')
           .select(
-            'id, created_at, current_stage, quote_value, order_value, owner_employee_id, bdm_employee_id, referred_by_party_id, other_party_id, parties!party_id(name), sites(nickname, locality, house_no), employees!owner_employee_id(name), referrer:parties!referred_by_party_id(id, party_type), other:parties!other_party_id(id, party_type)',
+            'id, created_at, external_reference_id, current_stage, quote_value, order_value, owner_employee_id, bdm_employee_id, referred_by_party_id, other_party_id, parties!party_id(name), sites(nickname, locality, house_no), employees!owner_employee_id(name, role), referrer:parties!referred_by_party_id(id, party_type), other:parties!other_party_id(id, party_type)',
             { count: 'exact' }
           )
           .or(`referred_by_party_id.in.(${list}),other_party_id.in.(${list})`)
@@ -169,4 +171,67 @@ export function fetchLeadsForArchitects(architectIds, includePool = false) {
       ),
     { ascending: false }
   )
+}
+
+// ---- A firm's own page (/firms/:id, /firms/by-name/:name) ----
+
+// The architects at one firm. A firm that is a real `parties` row is matched on
+// firm_party_id; a firm that exists only as typed text on its architects
+// (firm_name, no link — 23 of the 62 on the day this shipped) is matched on that
+// text, case-insensitively, the way groupArchitectsByFirm keys it. The ilike is
+// an equality in disguise, so its wildcard characters are escaped — and the
+// result is re-checked in JS, because the SQL side can only ever be as exact as
+// that escaping.
+export async function fetchArchitectsAtFirm(firmId, firmName) {
+  // Not trimmed: the Firms tab groups on `label.toLowerCase()` as stored, so a
+  // page reached from one of its rows has to match the very same string.
+  const wanted = firmId == null ? String(firmName ?? '').toLowerCase() : null
+  if (firmId == null && !wanted.trim()) return { data: [], error: null }
+  const { data, error } = await fetchAllRows(() => {
+    const q = supabase.from('parties').select(ARCHITECT_COLUMNS, { count: 'exact' }).eq('party_type', 'architect')
+    return (
+      firmId != null
+        ? q.eq('firm_party_id', firmId)
+        : q.is('firm_party_id', null).ilike('firm_name', wanted.replace(/[\\%_]/g, (c) => `\\${c}`))
+    ).order('name')
+  })
+  if (error) return { data: [], error }
+  const withFirm = await attachFirms(data ?? [])
+  return {
+    data: firmId != null ? withFirm : withFirm.filter((a) => (firmLabel(a) ?? '').toLowerCase() === wanted),
+    error: null,
+  }
+}
+
+// Who went to the firm's leads: site visits and client meetings (either
+// bucket, and the legacy combined value some imported rows still carry), with
+// the person's name and role. Calls are left out on purpose — a call is not a
+// visit. The owner's screen, so RLS returns every employee's rows; test
+// accounts stay hidden by their own policy. Ids go in chunks, the way the
+// Excel export's extras do, so a firm with hundreds of leads can't build an
+// oversized URL.
+const VISIT_TYPES = ['site_visit', OLD_MEETING, NEW_MEETING, PICKABLE_MEETING]
+const LEAD_ID_CHUNK = 200
+
+export async function fetchActivitiesOnLeads(leadIds) {
+  const ids = [...new Set(leadIds ?? [])]
+  if (!ids.length) return { data: [], error: null }
+  const chunks = []
+  for (let i = 0; i < ids.length; i += LEAD_ID_CHUNK) chunks.push(ids.slice(i, i + LEAD_ID_CHUNK))
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      fetchAllRows(
+        () =>
+          supabase
+            .from('activities')
+            .select('id, lead_id, employee_id, activity_type, created_at, employees!employee_id(name, role)', { count: 'exact' })
+            .in('activity_type', VISIT_TYPES)
+            .in('lead_id', chunk)
+            .order('created_at', { ascending: false }),
+        { ascending: false }
+      )
+    )
+  )
+  const failed = results.find((r) => r.error)
+  return { data: results.flatMap((r) => r.data ?? []), error: failed?.error ?? null }
 }

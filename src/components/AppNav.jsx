@@ -32,6 +32,7 @@ function routeHeader(pathname) {
   if (pathname.startsWith('/leads/')) return { title: 'Lead' }
   if (pathname.startsWith('/employees/')) return { title: 'Sales Exec' }
   if (pathname.startsWith('/architects/')) return { title: 'Architect' }
+  if (pathname.startsWith('/firms/')) return { title: 'Firm' }
   return { title: 'VIPSAR CRM' }
 }
 
