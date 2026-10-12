@@ -22,6 +22,7 @@ const ROUTE_HEADERS = {
   '/leads/new': { title: 'New lead', sub: 'Required fields are marked *' },
   '/activity': { title: 'Log activity' },
   '/team': { title: 'My Team', sub: 'Your sales team' },
+  '/team-report': { title: 'Team Report', sub: 'By week, month, quarter or year' },
   '/architects': { title: 'My Architects', sub: 'Your architect portfolio' },
   '/network': { title: 'Architect Network', sub: 'BDMs and every architect' },
   '/rfq-desk': { title: 'RFQ Desk', sub: 'Technical check, estimation and Lixil' },

@@ -4125,3 +4125,139 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
 
 /* ---- Referred leads: the name and the BDM chip on one line ---- */
 .vip-firm-lead-line { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+
+/* ===========================================================================
+   50. Team Report (/team-report — TeamReport.jsx, 2026-10-12)
+   ===========================================================================
+   Owner, coordinator, manager. One card of choices (period type, the periods
+   as toggle chips, People and Measures opening in place), then two tables —
+   the Summary and one person's period-by-period sheet. Both tables scroll
+   sideways INSIDE their card on a phone with the name column pinned; the page
+   never does. Tokens only, so section 22 repaints all of it for dark mode. */
+
+.vip-trep-setup { gap: 14px; }
+.vip-trep-block { display: flex; flex-direction: column; gap: 8px; }
+.vip-trep-label {
+  font-family: var(--vip-display); font-size: 11px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--vip-muted);
+}
+@media (min-width: 1024px) {
+  .vip-trep-seg { max-width: 420px; }
+}
+
+/* Toggle chips: pressed = teal fill + a tick, so the state isn't colour alone.
+   --vip-teal-dark on --vip-teal-soft lifts contrast in both themes
+   (UI-DESIGN.md 4.6). */
+.vip-trep-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.vip-chip-select.vip-trep-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 36px; padding: 0 12px; font-size: 13px;
+}
+.vip-chip-select.vip-trep-chip[aria-pressed='true'] {
+  background: var(--vip-teal-soft); border-color: var(--vip-teal); color: var(--vip-teal-dark);
+}
+.vip-trep-tick { font-size: 12px; line-height: 1; }
+.vip-trep-chip-note { font-size: 11px; font-weight: 500; color: var(--vip-muted); }
+/* On a ticked chip the note takes the chip's own ink: --vip-muted on
+   --vip-teal-soft measured 3.7:1 in light mode. */
+.vip-chip-select.vip-trep-chip[aria-pressed='true'] .vip-trep-chip-note { color: inherit; }
+.vip-trep-older { min-height: 36px; }
+.vip-trep-quick { display: flex; gap: 2px; }
+.vip-trep-quick .vip-btn-link { min-height: 30px; padding: 0 8px; }
+.vip-trep-quick .vip-btn-link:first-child { padding-left: 0; }
+.vip-trep-quick .vip-btn-link:disabled { opacity: .5; cursor: default; }
+
+/* People / Measures: one tappable line that opens the chips in place. */
+.vip-trep-expander {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  width: 100%; min-height: 40px; padding: 10px 0 0;
+  border: 0; border-top: 1px solid var(--vip-line-soft); background: none;
+  font: inherit; text-align: left; cursor: pointer; color: var(--vip-ink);
+}
+.vip-trep-expander-sum { flex: 1 1 auto; font-size: 13px; color: var(--vip-body); }
+.vip-trep-expander-cue { font-size: 13px; font-weight: 600; color: var(--vip-teal); }
+.vip-trep-expander-body { display: flex; flex-direction: column; gap: 10px; padding-bottom: 2px; }
+.vip-trep-subgroup { display: flex; flex-direction: column; gap: 6px; }
+.vip-trep-sublabel { font-size: 12px; font-weight: 600; color: var(--vip-muted); }
+
+.vip-trep-actions {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px;
+  border-top: 1px solid var(--vip-line-soft); padding-top: 12px;
+}
+.vip-trep-choice { font-size: 13px; color: var(--vip-body); }
+.vip-export-btn:disabled { opacity: .55; cursor: default; }
+.vip-trep-hint { margin: -4px 0 0; font-size: 12px; color: var(--vip-body); }
+
+/* ---- The tables ----
+   border-collapse: separate so the pinned name column keeps its own
+   background and rule while the rest slides under it. */
+.vip-trep-table-wrap { overflow-x: auto; }
+.vip-trep-table {
+  width: 100%; border-collapse: separate; border-spacing: 0;
+  font-size: 13px; color: var(--vip-ink);
+}
+.vip-trep-table th, .vip-trep-table td {
+  padding: 8px 8px; border-top: 1px solid var(--vip-line-soft); vertical-align: top;
+  background: var(--vip-surface);
+}
+.vip-trep-table thead th {
+  border-top: 0; font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--vip-muted); white-space: nowrap; vertical-align: bottom;
+}
+.vip-trep-table thead tr:last-child th { border-bottom: 1px solid var(--vip-line); }
+.vip-trep-table thead th.vip-trep-group {
+  text-align: center; white-space: normal; color: var(--vip-body);
+  border-bottom: 1px solid var(--vip-line-soft); padding-bottom: 4px;
+}
+.vip-trep-table td, .vip-trep-table thead th:not(.vip-trep-namecol) {
+  text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 58px;
+}
+.vip-trep-table thead th.vip-trep-group { text-align: center; }
+.vip-trep-table .vip-trep-namecol {
+  position: sticky; left: 0; z-index: 1;
+  text-align: left; padding-left: 0; min-width: 132px; max-width: 200px;
+  white-space: normal; font-weight: 600;
+  box-shadow: 1px 0 0 var(--vip-line-soft);
+}
+.vip-trep-table thead .vip-trep-namecol { font-weight: 600; }
+.vip-trep-table td:last-child, .vip-trep-table th:last-child { padding-right: 0; }
+.vip-trep-zero { color: var(--vip-dash); }
+/* --vip-body, not --vip-muted: muted measured 4.3:1 on white at this size. */
+.vip-trep-cellsub { display: block; margin-top: 1px; font-size: 11px; font-weight: 400; color: var(--vip-body); }
+
+/* Name (and its tags) on the left, the › pinned to the first line on the right
+   — so a name that wraps on a phone never strands the chevron on a line of
+   its own. */
+.vip-trep-namecell { display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; }
+.vip-trep-name { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0 2px; min-width: 0; }
+.vip-trep-name a { color: inherit; }
+.vip-trep-you { margin-left: 5px; font-size: 11px; font-weight: 400; color: var(--vip-muted); }
+.vip-trep-rowbtn {
+  flex: 0 0 auto; padding: 0 2px; border: 0; background: none; cursor: pointer;
+  font: inherit; font-weight: 600; line-height: inherit; color: var(--vip-faint);
+}
+.vip-trep-click { cursor: pointer; }
+.vip-trep-click:hover > th, .vip-trep-click:hover > td { background: var(--vip-surface-soft); }
+.vip-trep-picked > th, .vip-trep-picked > td { background: var(--vip-surface-soft); }
+.vip-trep-picked .vip-trep-rowbtn { color: var(--vip-teal); }
+.vip-trep-total > th, .vip-trep-total > td { border-top-color: var(--vip-line); font-weight: 700; }
+.vip-trep-section > th {
+  padding-top: 14px; padding-left: 0; font-family: var(--vip-display); font-size: 11px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--vip-muted); text-align: left;
+}
+.vip-trep-section-label { display: inline-block; position: sticky; left: 0; }
+
+/* ---- One person's sheet ---- */
+.vip-trep-person-head { flex-wrap: wrap; }
+.vip-trep-person-select { width: auto; min-height: 40px; padding: 6px 10px; max-width: 100%; }
+@media (min-width: 1024px) {
+  .vip-trep-person-select { font-size: 14px; }
+}
+.vip-trep-person-name {
+  display: flex; align-items: center; margin-top: -4px;
+  font-family: var(--vip-display); font-size: 18px; font-weight: 700; color: var(--vip-ink);
+}
+.vip-trep-table-person .vip-trep-namecol { font-weight: 500; }
+
+.vip-trep-notes ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.vip-trep-notes li { font-size: 12px; line-height: 1.5; color: var(--vip-body); }

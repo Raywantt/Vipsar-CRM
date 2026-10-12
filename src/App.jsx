@@ -25,6 +25,7 @@ import ArchitectProfile from './pages/ArchitectProfile'
 import ArchitectNetwork from './pages/ArchitectNetwork'
 import FirmProfile from './pages/FirmProfile'
 import RfqDesk from './pages/RfqDesk'
+import TeamReport from './pages/TeamReport'
 import {
   canCreateLead,
   canLogActivity,
@@ -37,6 +38,7 @@ import {
   canSeeMyArchitects,
   canSeeSalesDashboard,
   canSeeTeamDirectory,
+  canSeeTeamReport,
   rolesWith,
 } from './lib/roles'
 import './App.css'
@@ -119,6 +121,16 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={rolesWith(canSeeTeamDirectory)}>
                 <MyTeam />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/team-report"
+            element={
+              // The Team Report — owner, coordinator, manager (canSeeTeamReport).
+              // Whose figures each sees is TeamReport.jsx's roster plus RLS.
+              <ProtectedRoute allowedRoles={rolesWith(canSeeTeamReport)}>
+                <TeamReport />
               </ProtectedRoute>
             }
           />

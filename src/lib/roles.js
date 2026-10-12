@@ -190,6 +190,16 @@ export function canSeeTeamDirectory(role) {
   return role === ROLES.OWNER || role === ROLES.SALES_MANAGER
 }
 
+// /team-report — the Team Report (2026-10-12): the numbers of the people who
+// work for the viewer, by week / month / quarter / year, on screen and as an
+// Excel download. The three supervising roles, each over their own people
+// (TeamReport.jsx scopes the roster; RLS scopes the rows): the owner everyone,
+// a coordinator their team, a manager themselves plus their reports. ONE flag:
+// the route, the sidebar link and the Dashboard's phone tile all read it.
+export function canSeeTeamReport(role) {
+  return role === ROLES.OWNER || role === ROLES.SALES_COORDINATOR || role === ROLES.SALES_MANAGER
+}
+
 // /employees/:id (the Sales Exec Profile). Everyone but a BDM: the page is
 // exec-shaped (targets, rank, site visits), none of which applies to them —
 // the owner's ruling, 2026-09-15. EmployeeProfile itself still decides whose

@@ -69,6 +69,12 @@ export function dealSizeBand(value) {
 // app-created lead that happens to be won at noon on the 3rd is never tagged.
 const IMPORT_STAMP = /^2026-09-0[1-6]T12:00:00(?:\.0+)?(?:Z|\+00:00)?$/
 
+// The test itself, for anything else that reads won rows (the Team Report's
+// footnote, src/lib/teamReport.js) — one definition of "an import-dated win".
+export function hasImportWinDate(lead, changedAt) {
+  return isImportedLead(lead) && IMPORT_STAMP.test(String(changedAt))
+}
+
 function formatDealDate(raw) {
   const d = parseTimestamp(raw)
   const sameYear = d.getFullYear() === new Date().getFullYear()
@@ -93,7 +99,6 @@ export function closedDeals({ wonStageHistory, breakdownLeads, employees = [], p
     const lead = leadById.get(row.lead_id) ?? null
     const ownerId = row.leads.owner_employee_id ?? null
     const value = Number(row.leads.order_value ?? 0)
-    const imported = isImportedLead(lead)
     // Membership timestamp — see the header. Deliberately NOT parseTimestamp:
     // computeOrderValueActuals reads it this way, and a different parse would
     // put a deal near a period boundary in one figure and not the other.
@@ -115,7 +120,7 @@ export function closedDeals({ wonStageHistory, breakdownLeads, employees = [], p
       // has no product; 'Not split yet' carries what the split can't place.
       products: lead ? productParts(lead, value, productById) : [],
       bdmId: lead?.bdm_employee_id ?? row.leads.bdm_employee_id ?? null,
-      importDate: imported && IMPORT_STAMP.test(String(row.changed_at)),
+      importDate: hasImportWinDate(lead, row.changed_at),
     }
   })
 }

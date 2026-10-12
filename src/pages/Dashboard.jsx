@@ -98,6 +98,7 @@ import {
   canSeeRfqDesk as canSeeRfqDeskFor,
   canSeeBdmFollowUps,
   canSeeTeamDirectory as canSeeTeamDirectoryFor,
+  canSeeTeamReport as canSeeTeamReportFor,
 } from '../lib/roles'
 import { errorMessage } from '../lib/errorMessage'
 
@@ -149,6 +150,9 @@ function Dashboard() {
   const isManager = employee?.role === 'sales_manager'
   // Same function BottomNav's sidebar link and App.jsx's /team route read.
   const canSeeTeamDirectory = canSeeTeamDirectoryFor(employee?.role)
+  // The Team Report's mobile path — the same function as its sidebar link and
+  // App.jsx's /team-report route.
+  const canSeeTeamReport = canSeeTeamReportFor(employee?.role)
   // Architect Network's only mobile path — BottomNav's sidebar link reads the
   // same function (BDM.md Step 6).
   const canSeeArchitectNetwork = canSeeArchitectNetworkFor(employee?.role)
@@ -1029,6 +1033,15 @@ function Dashboard() {
               <div>
                 <div className="vip-tile-label">My Team</div>
                 <div className="vip-tile-desc">{isManager ? 'Browse your reporting execs' : 'Browse your sales team'}</div>
+              </div>
+              <div className="vip-tile-chevron" aria-hidden="true">›</div>
+            </Link>
+          )}
+          {canSeeTeamReport && (
+            <Link to="/team-report" className="vip-tile vip-only-mobile" style={{ textDecoration: 'none' }}>
+              <div>
+                <div className="vip-tile-label">Team Report</div>
+                <div className="vip-tile-desc">Your team's numbers by period, and as Excel</div>
               </div>
               <div className="vip-tile-chevron" aria-hidden="true">›</div>
             </Link>

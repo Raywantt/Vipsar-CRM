@@ -162,7 +162,7 @@ src/
                 Search, DashboardRoute (→ Dashboard | BdmDashboard), NewRoute
                 (→ LeadQuickCapture | BdmNew), LeadDetail, EmployeeProfile,
                 MyTeam, ActivityLog, MyArchitects, ArchitectProfile,
-                ArchitectNetwork, FirmProfile, RfqDesk, NotFound
+                ArchitectNetwork, FirmProfile, RfqDesk, TeamReport, NotFound
   contexts/     AuthContext (session + employee lookup);
                 HeaderContext (dynamic {title, sub} override for AppNav)
   hooks/        useOnlineStatus.js, useIsMobile.js (the 1024px breakpoint as
@@ -186,6 +186,7 @@ src/
                 bdmLeadUpdates, architectNetwork, firmLabel, firmProfile,
                 bookedOrders, leadSources, periodChange, leadExport, leadExportFile,
                 rfqDesk, rfqDeskReport, officeScope, bdmPopups,
+                teamReport, teamReportFile,
                 queries: dashboardQueries, searchQueries, targetQueries,
                 partyQueries, employeeQueries, lookupQueries,
                 leadOwnerHistory, dayReviewQueries, followUpQueries,
@@ -193,7 +194,7 @@ src/
                 bdmQueries, architectQueries, accompaniedQueries,
                 leadDetailQueries, screenQueries (every combined fetch a
                 remembered screen makes — see Instant open),
-                leadExportQueries
+                leadExportQueries, teamReportQueries
   assets/       images, icons
   sw.js         the service worker source (push handlers only)
   vipsar-theme.css   the app's one design-system stylesheet
@@ -212,7 +213,8 @@ changes the invoke URL and would silently break the configured cron.
 `/dashboard` (every
 **sales** role only — `canSeeSalesDashboard`),
 `/leads/new`, `/employees/:id` (**not the BDM**), `/activity` (**not owner**),
-`/team` (**owner + sales_manager**), `/architects/:id` (every role),
+`/team` (**owner + sales_manager**), `/team-report` (**owner + sales_coordinator +
+sales_manager** — `canSeeTeamReport`), `/architects/:id` (every role),
 `/architects` (**BDM only**), `/network`, `/firms/:id`, `/firms/by-name` and
 `/rfq-desk` (**owner only**). There is no
 `/settings` or `/account` route; both merged into `/profile`.
@@ -1658,6 +1660,81 @@ Dashboard (its only mobile path since Home's tile grid was removed).
 * Each card is a `<Link>` to that employee's profile — no `EmployeeLink`
   needed, the whole card is the one click target.
 
+### Team Report (`/team-report`, 2026-10-12)
+
+**Owner, sales coordinator, sales manager** (`canSeeTeamReport` — the route, the
+sidebar link after My Team and a phone tile on the Dashboard all read it). The
+numbers of the people who work for the viewer, for the periods they tick, as a
+briefing on screen and an Excel download. Pure rules: `src/lib/teamReport.js`;
+the workbook: `teamReportFile.js`; reads: `teamReportQueries.js`
+(`fetchTeamReportData`). The owner's rulings:
+
+* **Periods are TICKED FROM A LIST** (Week / Month / Quarter / Year, newest
+  first, gaps allowed, "Show older" adds more). Not a from–to range. The data
+  read covers every LISTED period, so ticking never fetches. Ticks are not
+  remembered (they're relative to today); the period type, the measures and the
+  people UNticked are (localStorage `vip-team-report`, so a new team member
+  arrives ticked).
+* **Eleven measures**: Scanning / Referral / Architect leads, Calls, Site
+  visits, New / Old meetings, Architect meetings, Fresh / Revised RFQs, Order
+  value booked. "Other meetings" was dropped at the owner's word; Site visits is
+  its own measure.
+* **Every figure is an existing rule** — so the report can't disagree with the
+  Targets card: calls, both meeting buckets and Fresh RFQs through
+  `computeActivityActuals` (Fresh = the RFQ target's rule: once per lead on
+  approval, by logging day before the desk), leads through
+  `computeSourceLeadsActuals` (current owner, day created — Scanning Leads'
+  rule; `computeScanningLeadsActuals` now delegates to it), order value through
+  `computeOrderValueActuals` (current owner, day won). Revised RFQs, Site visits
+  and Architect meetings are plain tallies by logging day. `teamReport.test.js`
+  pins each against its source. **A new measure must reuse a rule, not write one.**
+* **Who's on it is the Dashboard's own scoping** (`reportPeople`): the owner
+  every exec and manager, plus the BDMs **in a section of their own**, credited
+  by "brought in by" (`keyOf` = `bdm_employee_id`, pool leads included) and
+  **left out of the team total** (a lead a BDM brought in also counts for the
+  exec who owns it). A coordinator their team; a manager themselves first, then
+  their reports. Active employees only. Names link to `/employees/:id` only
+  where that page would open (owner; a manager's own reports) — plain text for a
+  coordinator and for BDMs.
+* **Targets sit under the actual** wherever one was set for that person and
+  period (`targets` rows for every listed period in one `.in()` read). A total
+  target appears only when EVERY ticked period has one — "65 calls of a 40
+  target" would set three weeks against one week's target. A Year has no target
+  period. A BDM's Architect meetings reads `bdm_architect_meetings`. Retired
+  metrics (a `site_visit` target) are not shown, as on the Dashboard.
+* **The screen**: a choices card (period type, the period chips, People and
+  Measures opening in place, Download Excel), the **Summary** table (everyone ×
+  measures, totals over the ticked periods; zero is an em-dash except in total
+  rows), one person's **period-by-period sheet** (picked by tapping a row or the
+  dropdown; "of 40 · 88%" under a targeted figure), and "How these are
+  counted". Both tables scroll sideways **inside their card** on a phone with the
+  name column pinned (`position: sticky`, `border-collapse: separate`); the
+  section labels stick through an inner span, since a row-spanning cell scrolls
+  away with the row. Theme section 50, tokens only.
+* **The file** (owner's pick of sheets): **Summary**, **one sheet per person**
+  (measures down, periods across, a "Target" and "% of target" line under a
+  measure only where a target exists), and **About this report** (periods,
+  exporter, the notes). Sheet names are made legal and unique (`sheetNamesFor`).
+  write-excel-file is imported dynamically, as for All Leads' export. Names and
+  counts only — no client phone numbers — so it isn't gated like that export.
+* **The notes** say what a figure can't: a still-running period is "so far";
+  before September 2026 most of the team wasn't logging in the CRM yet (activity
+  exists from April for a few people, so no single start date is claimed);
+  import-dated leads and wins are counted and footnoted (`hasImportDate`,
+  `hasImportWinDate` — the popups' own tests), never hidden.
+* **Verified 2026-10-12** as the owner (desktop and 375px, light), the test
+  coordinator (375px dark, 1280px) and the test manager (375px, 1211px):
+  Vishal Kumar's 209 calls / 18 site visits / 13 old meetings / 4 revised RFQs /
+  6 scanning leads over 21 Sep–18 Oct, the BDM's 14 architect meetings, and
+  October's Fresh RFQs and order value per exec all matched independent queries;
+  the test exec read the same through the coordinator's and the manager's RLS;
+  week 37–38 targets showed (calls 155 of 250 = 62%). The workbook was written
+  by write-excel-file/node from the real modules and read back with openpyxl
+  (frozen header + name column, ₹ format, target lines). **Not observed:** a
+  real download in a browser, nor the file opened in Excel itself.
+* **Known data issue, left for the owner:** lead #1499 is won at an order value
+  of ₹1 (the BDM's own lead) — the BDM row reads ₹1.
+
 ### Follow-ups (personal + owner-assigned reminders, with push)
 
 > ⚠️ **SUPERSEDED by `FOLLOWUPS.md` (repo root).** Read that file before
@@ -2977,7 +3054,7 @@ default. `roles.js` exports `canCreateLead`, `canLogActivity`,
 `logsActivityOnTeamLeads`, `seesManagerActivityOnLeads`,
 `canSeeTeamDirectory`, `canOpenEmployeeProfiles`, `canSeeMyArchitects`,
 `canSeeArchitectNetwork`, `canSeeBdmFollowUps`, `canOpenArchitectProfiles`,
-`canExportLeads`, `canFilterLeadsByBdm`, `canSetQuoteValue`, `canOverrideDeskQuote`,
+`canExportLeads`, `canFilterLeadsByBdm`, `canSeeTeamReport`, `canSetQuoteValue`, `canOverrideDeskQuote`,
 `canSeeSalesDashboard`, `canSearch`, `canOpenLeads`,
 `canReviewRfqs`, `canEstimateRfqs`, `canSeeRfqDesk`, `isBdm`,
 `isRfqDeskRole` and `rolesWith(capability)`; `BottomNav` and `App.jsx` both read them.

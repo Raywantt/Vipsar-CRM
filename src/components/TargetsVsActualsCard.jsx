@@ -100,7 +100,11 @@ export function computeActivityActuals(activities, showByEmployee, rfqCounting =
 // transition. Rows with leads: null are ones RLS hid (not this user's lead)
 // and are skipped. Exported so Dashboard's KPI band can reuse the exact same
 // "won value in range" definition instead of a second, possibly-drifting one.
-export function computeOrderValueActuals(wonStageHistory, range, showByEmployee) {
+//
+// `keyOf` says who a deal is credited to when showByEmployee — the lead's
+// current owner, everywhere but the Team Report's BDM rows, which pass the BDM
+// who brought the lead in (src/lib/teamReport.js). Same rule, another key.
+export function computeOrderValueActuals(wonStageHistory, range, showByEmployee, keyOf = ownerOfWonRow) {
   const latestByLead = new Map()
   wonStageHistory.forEach((row) => {
     if (!row.leads) return
@@ -122,10 +126,14 @@ export function computeOrderValueActuals(wonStageHistory, range, showByEmployee)
   latestByLead.forEach((row) => {
     const changedAt = new Date(row.changed_at)
     if (changedAt < range.start || changedAt > range.end) return
-    const key = row.leads.owner_employee_id ?? 'unassigned'
+    const key = keyOf(row) ?? 'unassigned'
     map.set(key, (map.get(key) ?? 0) + Number(row.leads.order_value ?? 0))
   })
   return map
+}
+
+function ownerOfWonRow(row) {
+  return row.leads.owner_employee_id
 }
 
 // "Scanning Leads" actual — new leads (not activities) whose source is
@@ -133,8 +141,16 @@ export function computeOrderValueActuals(wonStageHistory, range, showByEmployee)
 // breakdownLeads array and same "own row" shape as computeQuoteSentActuals
 // just below — no second query.
 export function computeScanningLeadsActuals(breakdownLeads, range, showByEmployee) {
-  const inRange = breakdownLeads.filter((l) => {
-    if (l.source_type !== 'scanning') return false
+  return computeSourceLeadsActuals(breakdownLeads, 'scanning', range, showByEmployee)
+}
+
+// The same count for any one lead source — the Team Report's Referral and
+// Architect leads use it alongside Scanning, so all three are dated and
+// credited by one rule (the Scanning Leads target's). `keyOf` as in
+// computeOrderValueActuals: the owner, or the BDM on the report's BDM rows.
+export function computeSourceLeadsActuals(leads, sourceType, range, showByEmployee, keyOf = ownerOfLead) {
+  const inRange = leads.filter((l) => {
+    if (l.source_type !== sourceType) return false
     if (!l.created_at) return false
     const createdAt = new Date(l.created_at)
     return createdAt >= range.start && createdAt <= range.end
@@ -144,10 +160,14 @@ export function computeScanningLeadsActuals(breakdownLeads, range, showByEmploye
 
   const map = new Map()
   inRange.forEach((l) => {
-    const key = l.owner_employee_id ?? 'unassigned'
+    const key = keyOf(l) ?? 'unassigned'
     map.set(key, (map.get(key) ?? 0) + 1)
   })
   return map
+}
+
+function ownerOfLead(lead) {
+  return lead.owner_employee_id
 }
 
 // "Offers sent" actual — leads has no per-quote log, just a single

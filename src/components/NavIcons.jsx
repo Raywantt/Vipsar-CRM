@@ -112,6 +112,18 @@ export function IconRfqDesk({ className = 'vip-nav-icon', ...rest }) {
   )
 }
 
+// Team Report (owner, coordinator, manager) — a sheet with a small bar chart
+// on it: figures you take away, distinct from the Dashboard's grid of tiles.
+export function IconReport({ className = 'vip-nav-icon', ...rest }) {
+  return (
+    <svg {...baseProps(className)} {...rest}>
+      <path d="M5.5 2.5h6.5l3 3v11a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1Z" />
+      <path d="M11.5 2.5v3.5h3.5" />
+      <path d="M7.5 15v-3M10 15v-5.5M12.5 15v-2" />
+    </svg>
+  )
+}
+
 // My Architects (BDM only) — a drafting compass: an architect's tool, and
 // nothing else in the sidebar reads like it.
 export function IconArchitect({ className = 'vip-nav-icon', ...rest }) {

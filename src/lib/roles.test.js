@@ -10,6 +10,7 @@ import {
   seesManagerActivityOnLeads,
   canOpenEmployeeProfiles,
   canSeeTeamDirectory,
+  canSeeTeamReport,
   canOpenArchitectProfiles,
   canSeeMyArchitects,
   canSeeArchitectNetwork,
@@ -245,5 +246,19 @@ describe('RFQ-desk roles', () => {
 
   it('give the RFQ Desk screen to the owner only', () => {
     expect(rolesWith(canSeeRfqDesk)).toEqual([ROLES.OWNER])
+  })
+})
+
+// The Team Report (2026-10-12): the three roles people work for — the owner,
+// a sales coordinator, a sales manager. Not an exec (nobody reports to them),
+// not a BDM, not the RFQ desk.
+describe('canSeeTeamReport', () => {
+  it('opens to the owner, coordinators and managers only', () => {
+    expect(rolesWith(canSeeTeamReport).sort()).toEqual([ROLES.OWNER, ROLES.SALES_COORDINATOR, ROLES.SALES_MANAGER].sort())
+  })
+  it('is closed to everyone else, including an unknown role', () => {
+    for (const role of [ROLES.SALES_EXECUTIVE, ROLES.BDM, ROLES.PRODUCTION_EXECUTIVE, ROLES.ESTIMATION_EXECUTIVE, 'mystery_role', undefined]) {
+      expect(canSeeTeamReport(role)).toBe(false)
+    }
   })
 })

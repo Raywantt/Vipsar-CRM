@@ -6,6 +6,7 @@ import {
   canCreateLead as canCreateLeadFor,
   canLogActivity as canLogActivityFor,
   canSeeTeamDirectory as canSeeTeamDirectoryFor,
+  canSeeTeamReport as canSeeTeamReportFor,
   canSeeMyArchitects as canSeeMyArchitectsFor,
   canSeeArchitectNetwork as canSeeArchitectNetworkFor,
   canSeeRfqDesk as canSeeRfqDeskFor,
@@ -15,7 +16,19 @@ import {
   isBdm,
   roleLabel,
 } from '../lib/roles'
-import { IconActivity, IconArchitect, IconBell, IconGrid, IconHome, IconList, IconPlus, IconRfqDesk, IconSearch, IconTeam } from './NavIcons'
+import {
+  IconActivity,
+  IconArchitect,
+  IconBell,
+  IconGrid,
+  IconHome,
+  IconList,
+  IconPlus,
+  IconReport,
+  IconRfqDesk,
+  IconSearch,
+  IconTeam,
+} from './NavIcons'
 import FabSheet from './FabSheet'
 
 function tabClass({ isActive }) {
@@ -81,6 +94,9 @@ function BottomNav() {
   // coordinator two core actions on an entire breakpoint started as exactly
   // this kind of second, separately-computed opinion.
   const canSeeTeamDirectory = canSeeTeamDirectoryFor(employee?.role)
+  // The Team Report (owner, coordinator, manager). Its mobile path is a tile
+  // on the Dashboard, which reads the same function.
+  const canSeeTeamReport = canSeeTeamReportFor(employee?.role)
   // My Architects (BDM only). Its mobile path is the tile at the top of the
   // BDM's Dashboard, which reads the same function.
   const canSeeMyArchitects = canSeeMyArchitectsFor(employee?.role)
@@ -217,6 +233,12 @@ function BottomNav() {
           <NavLink to="/team" className={extraTabClass} title="My Team">
             <IconTeam />
             <span className="vip-nav-label">My Team</span>
+          </NavLink>
+        )}
+        {canSeeTeamReport && (
+          <NavLink to="/team-report" className={extraTabClass} title="Team Report">
+            <IconReport />
+            <span className="vip-nav-label">Team Report</span>
           </NavLink>
         )}
         {canSeeArchitectNetwork && (
