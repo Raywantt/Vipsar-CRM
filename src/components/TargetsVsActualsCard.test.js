@@ -9,7 +9,11 @@ import {
   targetFor,
   targetRowFor,
   mergeTargetRow,
+  computeTargetActuals,
+  computeSourceLeadsActuals,
+  actualFor,
 } from './TargetsVsActualsCard'
+import { METRIC_OPTIONS, METRIC_GROUPS, metricsForPeriod } from '../lib/targetMetrics'
 
 const range = { start: new Date(2026, 7, 1), end: new Date(2026, 7, 31, 23, 59, 59) }
 
@@ -365,5 +369,108 @@ describe('mergeTargetRow', () => {
     const state = [stored(101, 26, 'call', 4)]
     expect(mergeTargetRow(state, stored(202, 26, 'call', 9), null)).toEqual(state)
     expect(mergeTargetRow(state, null, thisWeek)).toEqual(state)
+  })
+})
+
+// ---------- the target metrics (owner, 2026-10-19) ----------
+// The H2 targets workbook's per-person plan; the CRM tracked six. Orders won was
+// taken out again the same day, and Order value is not a weekly target.
+// Every metric has a column and a rule, and the rule is ALWAYS the function
+// the metric's own screen already uses — so a target can't read a different
+// figure from the Sales Exec Profile, the Team Report or the popups.
+describe('target metrics', () => {
+  const metric = (v) => METRIC_OPTIONS.find((m) => m.value === v)
+
+  it('are the eleven, grouped Results / Activity / Leads in that order', () => {
+    expect(METRIC_OPTIONS.map((m) => m.value)).toEqual([
+      'order_value', 'quote_sent', 'rfq_raised',
+      'client_meeting_new', 'client_meeting_old', 'site_visit', 'architect_meeting', 'call',
+      'scanning_leads', 'architect_leads', 'referral_leads',
+    ])
+    expect(METRIC_GROUPS.map((g) => g.key)).toEqual(['results', 'activity', 'leads'])
+    // Grouped contiguously, so the heatmap's group headings can span columns.
+    const groups = METRIC_OPTIONS.map((m) => m.group)
+    expect(groups).toEqual([...groups].sort((a, b) => METRIC_GROUPS.findIndex((g) => g.key === a) - METRIC_GROUPS.findIndex((g) => g.key === b)))
+    expect(METRIC_OPTIONS.every((m) => m.short && m.label && m.kind)).toBe(true)
+  })
+
+  it('keep the keys the Sales Exec Profile tiles already read', () => {
+    for (const key of ['order_value', 'site_visit', 'call', 'rfq_raised', 'quote_sent']) expect(metric(key)).toBeTruthy()
+  })
+
+  it('never offer Orders won, for any period', () => {
+    for (const t of ['week', 'month', 'quarter']) expect(metricsForPeriod(t).some((m) => m.value === 'won_count')).toBe(false)
+  })
+
+  it('leave Order value out of a week only', () => {
+    expect(metricsForPeriod('week').map((m) => m.value)).not.toContain('order_value')
+    expect(metricsForPeriod('week')).toHaveLength(METRIC_OPTIONS.length - 1)
+    expect(metricsForPeriod('month')).toBe(METRIC_OPTIONS)
+    expect(metricsForPeriod('quarter')).toBe(METRIC_OPTIONS)
+  })
+
+  const inputs = {
+    activities: [
+      { employee_id: 'e1', activity_type: 'site_visit' },
+      { employee_id: 'e1', activity_type: 'site_visit' },
+      { employee_id: 'e1', activity_type: 'architect_meeting' },
+      { employee_id: 'e2', activity_type: 'site_visit' },
+      { employee_id: 'e1', activity_type: 'rfq_raised', rfq_kind: 'revised' }, // a revision never counts
+    ],
+    wonStageHistory: [
+      wonRow('L1', '2026-08-10T00:00:00Z', 'e1', 50000),
+      wonRow('L2', '2026-08-12T00:00:00Z', 'e1', 20000),
+      wonRow('L3', '2026-07-01T00:00:00Z', 'e1', 99999), // before the range
+    ],
+    breakdownLeads: [
+      { id: 1, owner_employee_id: 'e1', source_type: 'referral_architect', created_at: '2026-08-03T05:00:00Z' },
+      { id: 2, owner_employee_id: 'e1', source_type: 'referral_architect', created_at: '2026-08-04T05:00:00Z', quote_sent_at: '2026-08-20' },
+      { id: 3, owner_employee_id: 'e1', source_type: 'referral_other', created_at: '2026-08-05T05:00:00Z', quote_sent_at: '2026-07-20' },
+      { id: 4, owner_employee_id: 'e2', source_type: 'referral_other', created_at: '2026-08-06T05:00:00Z' },
+      { id: 5, owner_employee_id: 'e1', source_type: 'scanning', created_at: '2026-08-07T05:00:00Z', quote_sent_at: '2026-08-21' },
+    ],
+    range,
+  }
+
+  it('count every metric by the function its own screen uses', () => {
+    const a = computeTargetActuals(inputs, true)
+    expect(actualFor(metric('quote_sent'), a, 'e1')).toBe(computeQuoteSentActuals(inputs.breakdownLeads, range, true).get('e1'))
+    expect(actualFor(metric('quote_sent'), a, 'e1')).toBe(2)
+    expect(actualFor(metric('architect_leads'), a, 'e1')).toBe(computeSourceLeadsActuals(inputs.breakdownLeads, 'referral_architect', range, true).get('e1'))
+    expect(actualFor(metric('architect_leads'), a, 'e1')).toBe(2)
+    expect(actualFor(metric('referral_leads'), a, 'e1')).toBe(1)
+    expect(actualFor(metric('referral_leads'), a, 'e2')).toBe(1)
+    expect(actualFor(metric('scanning_leads'), a, 'e1')).toBe(1)
+    expect(actualFor(metric('site_visit'), a, 'e1')).toBe(2)
+    expect(actualFor(metric('architect_meeting'), a, 'e1')).toBe(1)
+    expect(actualFor(metric('rfq_raised'), a, 'e1')).toBe(0)
+    expect(actualFor(metric('order_value'), a, 'e1')).toBe(70000)
+  })
+
+  it('read the same as one total for a one-person view', () => {
+    const one = { ...inputs, activities: inputs.activities.filter((x) => x.employee_id === 'e1') }
+    const byPerson = computeTargetActuals(one, true)
+    const total = computeTargetActuals(one, false)
+    for (const m of METRIC_OPTIONS.filter((x) => x.kind === 'activity')) expect(actualFor(m, total, null)).toBe(actualFor(m, byPerson, 'e1'))
+  })
+
+  it('count a site-visit and a quotes target into Overall, capped like the rest', () => {
+    const a = computeTargetActuals(inputs, true)
+    const targets = [
+      { employee_id: 'e1', metric_name: 'site_visit', target_value: 4 }, // 2/4 = 50%
+      { employee_id: 'e1', metric_name: 'quote_sent', target_value: 1 }, // 2/1 → capped at 100%
+    ]
+    expect(blendedAttainmentFor('e1', a, targets)).toBeCloseTo((0.5 + 1) / 2, 10)
+  })
+
+  it('leave a stray weekly order-value or orders target out of a week’s Overall', () => {
+    const a = computeTargetActuals(inputs, true)
+    const targets = [
+      { employee_id: 'e1', metric_name: 'site_visit', target_value: 4 }, // 50%
+      { employee_id: 'e1', metric_name: 'order_value', target_value: 7000000 }, // 1% — a month counts it
+      { employee_id: 'e1', metric_name: 'won_count', target_value: 1 }, // no longer a metric anywhere
+    ]
+    expect(blendedAttainmentFor('e1', a, targets, metricsForPeriod('week'))).toBeCloseTo(0.5, 10)
+    expect(blendedAttainmentFor('e1', a, targets, metricsForPeriod('month'))).toBeCloseTo((0.5 + 0.01) / 2, 10)
   })
 })

@@ -150,10 +150,10 @@ export function periodCountLabel(type, n) {
 // salesperson's target is kept under; `bdmTarget` a BDM's (targetMetrics.js).
 export const REPORT_MEASURES = [
   { key: 'scanning_leads', label: 'Scanning leads', short: 'Scanning', group: 'leads', target: 'scanning_leads' },
-  { key: 'referral_leads', label: 'Referral leads', short: 'Referral', group: 'leads' },
-  { key: 'architect_leads', label: 'Architect leads', short: 'Architect', group: 'leads' },
+  { key: 'referral_leads', label: 'Referral leads', short: 'Referral', group: 'leads', target: 'referral_leads' },
+  { key: 'architect_leads', label: 'Architect leads', short: 'Architect', group: 'leads', target: 'architect_leads' },
   { key: 'calls', label: 'Calls', short: 'Calls', group: 'work', target: 'call' },
-  { key: 'site_visits', label: 'Site visits', short: 'Site visits', group: 'work' },
+  { key: 'site_visits', label: 'Site visits', short: 'Site visits', group: 'work', target: 'site_visit' },
   { key: 'new_meetings', label: 'New meetings', short: 'New mtgs', group: 'work', target: NEW_MEETING },
   { key: 'old_meetings', label: 'Old meetings', short: 'Old mtgs', group: 'work', target: OLD_MEETING },
   {
@@ -161,6 +161,7 @@ export const REPORT_MEASURES = [
     label: 'Architect meetings',
     short: 'Arch. mtgs',
     group: 'work',
+    target: 'architect_meeting',
     bdmTarget: 'bdm_architect_meetings',
   },
   { key: 'fresh_rfqs', label: 'Fresh RFQs', short: 'Fresh RFQs', group: 'rfqs', target: 'rfq_raised' },

@@ -30,8 +30,10 @@ describe('BDM target metrics', () => {
     ])
     const exec = new Set(METRIC_OPTIONS.map((m) => m.value))
     expect(BDM_METRIC_OPTIONS.some((m) => exec.has(m.value))).toBe(false)
-    // An exec must never get Architect Meeting back (removed 2026-09-08).
-    expect(exec.has('architect_meeting')).toBe(false)
+    // An exec's Architect Meeting target (back since 2026-10-19) and a BDM's
+    // are two names, so neither can ever be read as the other's.
+    expect(exec.has('architect_meeting')).toBe(true)
+    expect(exec.has('bdm_architect_meetings')).toBe(false)
   })
 })
 

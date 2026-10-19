@@ -1,17 +1,14 @@
 import { useState } from 'react'
-import { METRIC_OPTIONS } from '../lib/targetMetrics'
+import { METRIC_OPTIONS, METRIC_GROUPS, ACTIVITY_METRIC_OPTIONS, SOURCE_METRIC_OPTIONS, metricsForPeriod } from '../lib/targetMetrics'
 import { formatCurrencyCompact } from '../lib/format'
 import SetTargetForm from './SetTargetForm'
 import DashboardHeatmap from './DashboardHeatmap'
 import { loggedWhileDeskLive } from '../lib/rfqDesk'
 
-// order_value/scanning_leads are computed by their own dedicated functions
-// below (not tallied from activities), so they're excluded from the
-// activity-type tally's zero-init.
-const NON_ACTIVITY_METRICS = ['order_value', 'scanning_leads']
-
+// Only the activity-type metrics are tallied from activities; the rest have
+// their own functions below, so they're left out of this zero-init.
 function emptyMetricCounts() {
-  return Object.fromEntries(METRIC_OPTIONS.filter((m) => !NON_ACTIVITY_METRICS.includes(m.value)).map((m) => [m.value, 0]))
+  return Object.fromEntries(ACTIVITY_METRIC_OPTIONS.map((m) => [m.value, 0]))
 }
 
 // A revised RFQ is still real work, but not toward the RFQ-raised quota —
@@ -226,6 +223,24 @@ export function computeWonCountActuals(wonStageHistory, range, showByEmployee) {
   return map
 }
 
+// Every target metric's actual for one period, in one object — the ONE call
+// the targets card, the heatmap and its Overall popup all make, so no two of
+// them can count a metric differently. With showByEmployee each figure is a
+// Map of employee id → count (or rupees); without, a single number.
+// `inputs` is { activities, rfqCounting, wonStageHistory, breakdownLeads, range }.
+export function computeTargetActuals({ activities, rfqCounting = NO_RFQ_DESK, wonStageHistory, breakdownLeads, range }, showByEmployee) {
+  const leads = breakdownLeads ?? []
+  return {
+    activityActuals: computeActivityActuals(activities, showByEmployee, rfqCounting),
+    orderValueActuals: computeOrderValueActuals(wonStageHistory, range, showByEmployee),
+    scanningLeadsActuals: computeScanningLeadsActuals(leads, range, showByEmployee),
+    quoteSentActuals: computeQuoteSentActuals(leads, range, showByEmployee),
+    sourceLeadsActuals: Object.fromEntries(
+      SOURCE_METRIC_OPTIONS.filter((m) => m.value !== 'scanning_leads').map((m) => [m.value, computeSourceLeadsActuals(leads, m.source, range, showByEmployee)])
+    ),
+  }
+}
+
 // Exported so the drill-down builders (src/lib/drilldownBuilders.js) look up
 // a target the exact same way this card does, instead of a second lookup
 // that could drift from it.
@@ -340,6 +355,9 @@ function TargetsVsActualsCard({
   // sales exec (showByEmployee false) keeps the plain bar-list view at every
   // width, same as before this redesign.
   const showHeatmap = showByEmployee && onOpenLog && onOpenPanel && onOpenBooked
+  // The targets for the kind of period on screen — a week has no order value
+  // target (targetMetrics.js). Every view below reads this one list.
+  const metrics = metricsForPeriod(displayPeriod?.periodType)
 
   return (
     <div className="vip-card">
@@ -360,6 +378,7 @@ function TargetsVsActualsCard({
             onOpenPanel={onOpenPanel}
             onOpenBooked={onOpenBooked}
             canCancelTarget={canCancelTarget}
+            metrics={metrics}
           />
         </div>
       )}
@@ -393,6 +412,7 @@ function TargetsVsActualsCard({
           range={range}
           employees={visibleEmployees}
           showByEmployee={showByEmployee}
+          metrics={metrics}
         />
       </div>
 
@@ -414,16 +434,24 @@ function TargetsVsActualsCard({
   )
 }
 
-function actualFor(m, { activityActuals, orderValueActuals, scanningLeadsActuals }, employeeId) {
-  if (m.value === 'order_value') return employeeId == null ? orderValueActuals : orderValueActuals.get(employeeId) ?? 0
-  if (m.value === 'scanning_leads') return employeeId == null ? scanningLeadsActuals : scanningLeadsActuals.get(employeeId) ?? 0
-  return employeeId == null ? activityActuals[m.value] : activityActuals.get(employeeId)?.[m.value] ?? 0
+// One metric's actual out of computeTargetActuals' object — a number, for one
+// employee or (employeeId null) the single-person total. A figure the object
+// doesn't carry reads 0; that only happens for a metric nobody passed in.
+export function actualFor(m, actuals, employeeId) {
+  const pick = (v) => (employeeId == null ? v ?? 0 : v?.get(employeeId) ?? 0)
+  switch (m.kind) {
+    case 'order_value': return pick(actuals.orderValueActuals)
+    case 'quotes': return pick(actuals.quoteSentActuals)
+    case 'source': return pick(m.value === 'scanning_leads' ? actuals.scanningLeadsActuals : actuals.sourceLeadsActuals?.[m.value])
+    default:
+      return employeeId == null ? actuals.activityActuals?.[m.value] ?? 0 : actuals.activityActuals?.get(employeeId)?.[m.value] ?? 0
+  }
 }
 
 // Same "mean of the metric ratios, each capped at 100%" definition
 // EmployeeProfile.jsx's rank pill uses (blendedAttainment there) — scoped
-// here to all 6 METRIC_OPTIONS rather than that page's own 6 tiles (a
-// different 6, see targetMetrics.js), and skipping any metric with no target
+// here to every METRIC_OPTIONS entry rather than that page's own 6 tiles (a
+// different list, see targetMetrics.js), and skipping any metric with no target
 // set for this employee (same as each metric row's own "no target set"
 // fallback below) rather than treating a missing target as a zero, which
 // would unfairly drag the average down.
@@ -449,9 +477,12 @@ const ATTAINMENT_CAP = 1.0
 // sites now import this instead of re-deriving it, so "Overall" can no
 // longer mean two different numbers depending on where you're looking at
 // it from.
-export function blendedAttainmentFor(employeeId, actuals, targets) {
+// `metrics` is the list for the period on screen (metricsForPeriod) — a week
+// leaves Order value out, so a stray weekly order-value target can't move a
+// week's Overall. Defaults to every metric.
+export function blendedAttainmentFor(employeeId, actuals, targets, metrics = METRIC_OPTIONS) {
   const ratios = []
-  METRIC_OPTIONS.forEach((m) => {
+  metrics.forEach((m) => {
     const target = targetFor(targets, employeeId, m.value)
     if (!target) return
     ratios.push(Math.min(actualFor(m, actuals, employeeId) / target, ATTAINMENT_CAP))
@@ -514,15 +545,15 @@ export function TargetRow({ row, showActualWithoutTarget = false, onOpen = null 
 }
 
 // One collapsed row per exec (name · blended attainment · a single bar),
-// expanding to that person's 6 METRIC_OPTIONS rows on tap — replaces what
-// used to be employees.length × 6 flat rows shown unconditionally (see
+// expanding to that person's METRIC_OPTIONS rows, grouped, on tap — replaces
+// what used to be employees.length × every-metric flat rows shown unconditionally (see
 // TargetsTable below: this only ever mounts on mobile now, paired with
 // DashboardHeatmap on desktop). Reuses .vip-detail-row, the same tap-to-
 // expand summary row Lead Detail's mobile collapsed sections already use,
 // rather than inventing a second collapsible-row style.
-function ExecAttainmentRow({ employee, actuals, targets }) {
+function ExecAttainmentRow({ employee, actuals, targets, metrics }) {
   const [open, setOpen] = useState(false)
-  const blended = blendedAttainmentFor(employee.id, actuals, targets)
+  const blended = blendedAttainmentFor(employee.id, actuals, targets, metrics)
 
   return (
     <div>
@@ -541,51 +572,45 @@ function ExecAttainmentRow({ employee, actuals, targets }) {
         </div>
       )}
       {open && (
-        <div className="vip-stack-s" style={{ paddingBottom: 10 }}>
-          {METRIC_OPTIONS.map((m) => (
-            <TargetRow
-              key={m.value}
-              row={{
-                label: m.label,
-                actual: actualFor(m, actuals, employee.id),
-                target: targetFor(targets, employee.id, m.value),
-                metric: m.value,
-              }}
-            />
-          ))}
+        <div style={{ paddingBottom: 10 }}>
+          <GroupedTargetRows actuals={actuals} targets={targets} employeeId={employee.id} metrics={metrics} />
         </div>
       )}
     </div>
   )
 }
 
-function TargetsTable({ activities, rfqCounting, wonStageHistory, breakdownLeads, targets, range, employees, showByEmployee }) {
-  const actuals = {
-    activityActuals: computeActivityActuals(activities, showByEmployee, rfqCounting),
-    orderValueActuals: computeOrderValueActuals(wonStageHistory, range, showByEmployee),
-    scanningLeadsActuals: computeScanningLeadsActuals(breakdownLeads ?? [], range, showByEmployee),
-  }
+// Every metric as a TargetRow, under the same Results / Activity / Leads
+// headings as the desktop heatmap's column groups. employeeId null = the
+// single-person view (an exec's own card), whose actuals are plain numbers.
+function GroupedTargetRows({ actuals, targets, employeeId, metrics }) {
+  return (
+    <div className="vip-stack-s">
+      {METRIC_GROUPS.map((g) => (
+        <div key={g.key} className="vip-stack-s">
+          <div className="vip-target-group-head">{g.label}</div>
+          {metrics.filter((m) => m.group === g.key).map((m) => (
+            <TargetRow
+              key={m.value}
+              row={{ label: m.label, actual: actualFor(m, actuals, employeeId), target: targetFor(targets, employeeId, m.value), metric: m.value }}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
 
-  if (!showByEmployee) {
-    const rows = METRIC_OPTIONS.map((m) => ({
-      label: m.label,
-      actual: actualFor(m, actuals, null),
-      target: targetFor(targets, null, m.value),
-      metric: m.value,
-    }))
-    return (
-      <div className="vip-stack-s">
-        {rows.map((row) => (
-          <TargetRow key={row.metric} row={row} />
-        ))}
-      </div>
-    )
-  }
+function TargetsTable({ activities, rfqCounting, wonStageHistory, breakdownLeads, targets, range, employees, showByEmployee, metrics }) {
+  const actuals = computeTargetActuals({ activities, rfqCounting, wonStageHistory, breakdownLeads, range }, showByEmployee)
+
+  if (!showByEmployee) return <GroupedTargetRows actuals={actuals} targets={targets} employeeId={null} metrics={metrics} />
+
 
   return (
     <div className="vip-stack-s">
       {employees.map((emp) => (
-        <ExecAttainmentRow key={emp.id} employee={emp} actuals={actuals} targets={targets} />
+        <ExecAttainmentRow key={emp.id} employee={emp} actuals={actuals} targets={targets} metrics={metrics} />
       ))}
     </div>
   )

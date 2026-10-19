@@ -13,10 +13,13 @@ import {
   buildOrderValueAttainPanel,
   buildBookedPanel,
   buildScanningLeadsAttainPanel,
+  buildLeadCountAttainPanel,
+  isLeadCountMetric,
   buildArchitectsToMeetPanel,
 } from './drilldownBuilders'
 import { TONE_NEUTRAL } from './statusColors'
-import { computeActivityActuals } from '../components/TargetsVsActualsCard'
+import { metricsForPeriod } from './targetMetrics'
+import { computeActivityActuals, computeSourceLeadsActuals, computeQuoteSentActuals } from '../components/TargetsVsActualsCard'
 
 describe('buildArchitectsToMeetPanel', () => {
   it("lists architectsToMeet's rows in order, each with firm and last meeting", () => {
@@ -626,7 +629,7 @@ describe('buildActivitiesPanel', () => {
     const panel = build({ targets })
     expect(panel.delta).toBe('of 16 target') // the header, as the popup opened
     expect(panel.viewFor('1', '', null).target).toBe(10)
-    expect(panel.viewFor('', 'site_visit', null).target).toBeNull() // Site Visit isn't targetable
+    expect(panel.viewFor('', 'site_visit', null).target).toBeNull() // nobody has a Site Visit target here
   })
 
   describe('shapeActivityEntry', () => {
@@ -679,5 +682,82 @@ describe('buildActivitiesPanel', () => {
       })
       expect(e.party).toBe('Ar. Bedi')
     })
+  })
+})
+// The heatmap's lead-count cells (2026-10-19): Scanning, Architect referral and
+// Client referral leads, and New quotes sent all open one popup. Its headline
+// must be the cell's own figure — the same function counts both.
+describe('buildLeadCountAttainPanel', () => {
+  const employees = [{ id: 'e1', name: 'Asha Rani' }, { id: 'e2', name: 'Bela' }]
+  const breakdownLeads = [
+    { id: 1, owner_employee_id: 'e1', source_type: 'referral_architect', created_at: '2026-08-03T05:00:00Z' },
+    { id: 2, owner_employee_id: 'e1', source_type: 'referral_architect', created_at: '2026-08-09T05:00:00Z', quote_sent_at: '2026-08-20' },
+    { id: 3, owner_employee_id: 'e2', source_type: 'referral_architect', created_at: '2026-08-04T05:00:00Z', quote_sent_at: '2026-08-22' },
+    { id: 4, owner_employee_id: 'e1', source_type: 'referral_other', created_at: '2026-07-30T05:00:00Z', quote_sent_at: '2026-08-21' },
+  ]
+  const targets = [
+    { id: 71, employee_id: 'e1', metric_name: 'architect_leads', target_value: 4 },
+    { id: 72, employee_id: 'e1', metric_name: 'quote_sent', target_value: 5 },
+  ]
+
+  it('opens on the cell figure for an architect-referral target', () => {
+    const panel = buildLeadCountAttainPanel({ metric: 'architect_leads', employees, targets, breakdownLeads, range, employeeId: 'e1', rangeLabel: 'August', canCancelTarget: true })
+    expect(panel.value).toBe(String(computeSourceLeadsActuals(breakdownLeads, 'referral_architect', range, true).get('e1')))
+    expect(panel.value).toBe('2')
+    expect(panel.delta).toBe('of 4 target')
+    expect(panel.eyebrow).toBe('Asha Rani · architect referral leads')
+    expect(panel.cancelTarget).toEqual({ id: 71 })
+  })
+
+  it('counts quotes by the quote-sent day, not the lead’s creation day', () => {
+    const panel = buildLeadCountAttainPanel({ metric: 'quote_sent', employees, targets, breakdownLeads, range, employeeId: 'e1', rangeLabel: 'August' })
+    expect(panel.value).toBe(String(computeQuoteSentActuals(breakdownLeads, range, true).get('e1')))
+    expect(panel.value).toBe('2') // lead 4 was created in July but quoted in August
+    expect(panel.stats[0].label).toBe('Quotes')
+  })
+
+  it('totals the company and lists who contributed', () => {
+    const panel = buildLeadCountAttainPanel({ metric: 'architect_leads', employees, targets, breakdownLeads, range, employeeId: null, rangeLabel: 'August' })
+    expect(panel.value).toBe('3')
+    expect(panel.contrib.map((c) => c.label)).toEqual(['Asha Rani', 'Bela'])
+  })
+
+  it('still builds the scanning popup under its old name and wording', () => {
+    const panel = buildScanningLeadsAttainPanel({ employees, targets, breakdownLeads, range, employeeId: 'e1', rangeLabel: 'August' })
+    expect(panel.title).toBe('New scanning leads against personal target')
+    expect(panel.value).toBe('0')
+  })
+
+  it('is the popup for exactly the four lead-count metrics', () => {
+    expect(['scanning_leads', 'architect_leads', 'referral_leads', 'quote_sent'].every(isLeadCountMetric)).toBe(true)
+    expect(['order_value', 'won_count', 'site_visit', 'call'].some(isLeadCountMetric)).toBe(false)
+  })
+})
+
+describe('buildOverallAttainPanel across every metric', () => {
+  it('lists every metric line by line and counts a site-visit target', () => {
+    const employee = { id: 'e1', name: 'Asha Rani' }
+    const targets = [{ employee_id: 'e1', metric_name: 'site_visit', target_value: 4 }]
+    const activities = [{ employee_id: 'e1', activity_type: 'site_visit' }, { employee_id: 'e1', activity_type: 'site_visit' }]
+    const panel = buildOverallAttainPanel({ employee, targets, activities, wonStageHistory: [], breakdownLeads: [], range, rangeLabel: 'August' })
+    expect(panel.contrib).toHaveLength(11)
+    expect(panel.contrib.find((r) => r.label === 'Site Visit').value).toBe('2 / 4')
+    expect(panel.value).toBe('50%')
+    expect(panel.stats[0].sub).toBe('1 of 11 have targets')
+    expect(panel.stats.map((x) => x.label)).toContain('Order value')
+  })
+
+  it('has no Order value line or tile for a week', () => {
+    const employee = { id: 'e1', name: 'Asha Rani' }
+    const targets = [
+      { employee_id: 'e1', metric_name: 'site_visit', target_value: 4 },
+      { employee_id: 'e1', metric_name: 'order_value', target_value: 300000 },
+    ]
+    const activities = [{ employee_id: 'e1', activity_type: 'site_visit' }, { employee_id: 'e1', activity_type: 'site_visit' }]
+    const panel = buildOverallAttainPanel({ employee, targets, activities, wonStageHistory: [], breakdownLeads: [], range, rangeLabel: 'this week', metrics: metricsForPeriod('week') })
+    expect(panel.contrib.map((r) => r.label)).not.toContain('Order value')
+    expect(panel.stats.map((x) => x.label)).not.toContain('Order value')
+    expect(panel.value).toBe('50%') // the weekly order-value target is not blended
+    expect(panel.stats[0].sub).toBe('1 of 10 have targets')
   })
 })

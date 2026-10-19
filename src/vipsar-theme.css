@@ -1000,7 +1000,11 @@ a.vip-avatar:hover { text-decoration: none; color: var(--vip-on-shell); }
    Only kicks in at desktop widths; below 1024px (and always when `wide` is
    false) it's the plain vertical row list. */
 @media (min-width: 1024px) {
-  .vip-dd-attn-grid {
+  /* Two classes, not one: this element is also .vip-only-desktop, whose
+     `display: block` (section further down, same media query) sat later in
+     the file at equal weight and silently won, so the tiles never showed and
+     the buckets stacked as tall full-width rows (found 2026-10-19). */
+  .vip-dd-attn-list.vip-dd-attn-grid {
     display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px;
     background: var(--vip-line); border: 1px solid var(--vip-line);
     border-radius: var(--vip-r-field); overflow: hidden;
@@ -1272,8 +1276,8 @@ button.vip-dd-stage-row:hover { background: var(--vip-surface-soft); }
 /* exec x metric attainment heatmap (desktop-only, see .vip-only-desktop above) */
 .vip-dd-heatmap { display: flex; flex-direction: column; gap: 7px; }
 /* Column count comes from the component, not from a number typed here.
-   DashboardHeatmap builds its columns from ACTIVITY_METRIC_OPTIONS (+ Order
-   value + Overall); when that list shrank on 2026-08-09 the hardcoded repeat(7)
+   DashboardHeatmap builds its columns from METRIC_OPTIONS (+ Overall; the
+   track sizes are now set in section 51); when that list shrank on 2026-08-09 the hardcoded repeat(7)
    stayed behind, leaving every exec row ending in an empty track. Setting
    --vip-heatmap-cols from the component means the two can no longer drift.
    The fallback matches today's count so the rule still works if the property
@@ -4261,3 +4265,34 @@ a.vip-net-dir-row:hover .vip-net-dir-name { color: var(--vip-teal-dark); }
 
 .vip-trep-notes ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
 .vip-trep-notes li { font-size: 12px; line-height: 1.5; color: var(--vip-body); }
+
+/* ===========================================================================
+   51. Targets heatmap: twelve metrics in three groups (DashboardHeatmap.jsx,
+   2026-10-19)
+   Every target for the period is a column, always, under Results / Activity /
+   Leads (owner's choice). Twelve columns don't fit a 1024px screen, so the
+   grid gets a minimum width and scrolls sideways INSIDE its card, with the
+   name column pinned. The pinned cells carry the card's own background so
+   the figures pass underneath them. Tokens only — dark mode needs no block.
+   =========================================================================== */
+.vip-dd-heatmap-scroll { overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 2px; }
+/* = the name column (176) + each column's 50 and its 5px gap + 3 group gutters
+   of 6, from the column count the component publishes (12 for a month or
+   quarter, 11 for a week — no Order value): fits without scrolling from about
+   1050px wide. */
+.vip-dd-heatmap-scroll > .vip-dd-heatmap { min-width: calc(176px + var(--vip-heatmap-cols, 12) * 55px + 18px); }
+/* The name column holds a full name and the MGR badge ("Aanchal Tripathi MGR" measured 172px). */
+.vip-dd-heatmap-row { grid-template-columns: minmax(176px, 2.4fr) repeat(var(--vip-heatmap-cols, 12), minmax(50px, 1fr)); }
+.vip-dd-heatmap-pin { position: sticky; left: 0; z-index: 1; background: var(--vip-surface); }
+/* The first column of each group, on every row alike — a gutter between the
+   groups that keeps every row on the one shared grid. */
+.vip-dd-heatmap-groupstart { margin-left: 6px; }
+.vip-dd-heatmap-groups { align-items: end; }
+.vip-dd-heatmap-group {
+  min-width: 0; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--vip-ink); text-align: center; padding-bottom: 4px; border-bottom: 1px solid var(--vip-line);
+}
+.vip-dd-heatmap-scroll + .vip-dd-heatmap-legend { margin-top: 7px; }
+/* A metric list's group heading (the targets card on a phone, and an exec's
+   own card) — the same three groups as the heatmap's columns. */
+.vip-target-group-head { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--vip-muted); padding-top: 4px; }

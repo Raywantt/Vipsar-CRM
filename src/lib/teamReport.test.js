@@ -173,8 +173,11 @@ describe('buildTeamReport', () => {
     expect(amar.cells.calls.targets).toEqual([4, 5])
     expect(amar.cells.calls.targetTotal).toBe(9)
     expect(amar.cells.scanning_leads.values).toEqual([1, 1])
-    // No target metric for site visits.
-    expect(amar.cells.site_visits.targets).toBeNull()
+    // Site visits carry a target metric since 2026-10-19; none is set here.
+    expect(amar.cells.site_visits.targets).toEqual([null, null])
+    expect(amar.cells.site_visits.targetTotal).toBeNull()
+    // Revised RFQs still have no target metric.
+    expect(amar.cells.revised_rfqs.targets).toBeNull()
   })
 
   it('gives no total target unless every period has one', () => {

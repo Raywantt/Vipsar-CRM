@@ -1700,8 +1700,10 @@ the workbook: `teamReportFile.js`; reads: `teamReportQueries.js`
   period (`targets` rows for every listed period in one `.in()` read). A total
   target appears only when EVERY ticked period has one — "65 calls of a 40
   target" would set three weeks against one week's target. A Year has no target
-  period. A BDM's Architect meetings reads `bdm_architect_meetings`. Retired
-  metrics (a `site_visit` target) are not shown, as on the Dashboard.
+  period. A BDM's Architect meetings reads `bdm_architect_meetings`; a salesperson's
+  reads `architect_meeting`. Since 2026-10-19 Site visits, Architect meetings,
+  Referral leads and Architect leads carry targets too (the Dashboard's target
+  metrics); Revised RFQs still has none.
 * **The screen**: a choices card (period type, the period chips, People and
   Measures opening in place, Download Excel), the **Summary** table (everyone ×
   measures, totals over the ticked periods; zero is an em-dash except in total
@@ -2419,7 +2421,12 @@ days ago with no quote. Thresholds are named constants at the top of
   reuses the identical call.
 * `wide` switches the 5 buckets to a tile grid, **fixed at `repeat(5, 1fr)`,
   not `auto-fit`** — `attention.js` always produces exactly 5, and an
-  `auto-fit` count that doesn't divide 5 leaves a visible empty cell.
+  `auto-fit` count that doesn't divide 5 leaves a visible empty cell. **Its
+  rule is two classes (`.vip-dd-attn-list.vip-dd-attn-grid`)**: the element is
+  also `.vip-only-desktop`, whose `display: block` sat later at equal weight
+  and silently won, so the tiles never showed (found 2026-10-19) — the
+  `.vip-only-*` cascade trap again. `wide` is used for 15D/Custom and, since
+  2026-10-19, whenever the targets heatmap takes the full width.
   Below 1024px it caps to 3 buckets + a "+N more" link regardless of `wide`.
 
 #### Report cards
@@ -2508,22 +2515,52 @@ Only mounted for Week/Month/Quarter. **`metric_name` is a closed list**
 free-text pattern used for `current_stage`/`site_stage` — an arbitrary metric
 would have a target but no computable actual.
 
-The six, in render order: `scanning_leads` ("Scanning Leads" — new *leads*,
-not activities, whose source is Scanning, counted by lead owner off the
-`breakdownLeads` array the card already has, no new query),
-`client_meeting_old`, `client_meeting_new`, `call`, `rfq_raised`, and
-`order_value` (labelled "Order Value Booked" **here specifically**; the
-column and every other screen say plain "Order value").
+**Eleven metrics in three groups (owner, 2026-10-19 — the H2 targets
+workbook's per-person plan)**, in this order everywhere a target is listed
+(heatmap columns, the Set a target dropdown's `<optgroup>`s, a person's list on
+a phone, an exec's own card):
 
-**Site Visit, Architect Meeting and Bookings are no longer targetable** —
-still loggable and visible everywhere else. Any `targets` row still keyed on
-a retired metric computes no actual and needs re-entering; the same goes for
-rows keyed on the retired combined `client_meeting`.
+* **Results** — `order_value` ("Order Value Booked" **here specifically**; the
+  column and every other screen say plain "Order value"), `quote_sent` (New
+  Quotes Sent), `rfq_raised`.
+* **Activity** — `client_meeting_new`, `client_meeting_old`, `site_visit`,
+  `architect_meeting`, `call`.
+* **Leads** — `scanning_leads`, `architect_leads` (source Architect referral),
+  `referral_leads` (source Referral) — new *leads*, not activities, counted by
+  the lead's owner on the day created.
 
-`ACTIVITY_METRIC_OPTIONS` (the four activity-shaped metrics) is exported for
-`DashboardHeatmap`'s columns and `buildOverallAttainPanel` to share, so an
-edit here can't leave the heatmap and its drill-down disagreeing;
-`scanning_leads` and `order_value` are added on top at both call sites.
+**Two rulings narrow it (owner, 2026-10-19, "not significant"):**
+* **Orders won (`won_count`) is not a target for any period.** It was added
+  and taken out the same day; the Sales Exec Profile's "Bookings" tile still
+  counts orders (`computeWonCountActuals`), it just has no target behind it.
+* **Order value is not a WEEKLY target** (`notWeekly`): one order can be a
+  month's bookings. `metricsForPeriod(periodType)` is the ONE list for the
+  period on screen — the card computes it from `displayPeriod` and hands it to
+  the heatmap's columns, the phone list, an exec's card, `blendedAttainmentFor`
+  (its 4th argument) and `buildOverallAttainPanel` (`metrics`), so a week has no
+  Order value column, line or Overall share, and its popup no Order value tile.
+  The Set a target dropdown offers the same list for the period type picked
+  (`chosenMetric` falls back to the first offered one, so the value saved is
+  always one the dropdown shows).
+
+Site Visit and Architect Meeting were dropped on 2026-09-08 and **brought back
+on 2026-10-19 at the owner's word**. A `targets` row from before 2026-09-08 keyed
+on one of them shows again when that old period is stepped back to; rows keyed
+on the retired combined `client_meeting`, and any `won_count` row, compute
+nothing.
+
+**Every metric names the ONE existing rule that counts it** (`kind` in
+`targetMetrics.js`): `computeOrderValueActuals`, `computeQuoteSentActuals` ("Offers
+sent"), `computeActivityActuals` (RFQ Raised: fresh only, the desk's approval
+rule), `computeSourceLeadsActuals` (the Team Report's leads). The metric keys
+`site_visit` / `quote_sent` are keys the Sales Exec Profile's tiles already
+read, so a target set here shows there too, and the Team Report's
+Site visits / Architect meetings / Referral / Architect leads now show their
+targets. **`computeTargetActuals(inputs, showByEmployee)` is the one call** the
+card, the heatmap and `buildOverallAttainPanel` make, read per metric through
+`actualFor(m, actuals, id)` — a new metric = an entry in `METRIC_OPTIONS` with a
+`kind` (and, if it's a new kind, one branch in each). `TargetsVsActualsCard.test.js`
+pins each metric against its source function.
 
 **Actuals.** The activity metrics count straight from the same `activities`
 array `ActivityCountsCard` already fetched — no duplicate query. `order_value`
@@ -2542,9 +2579,28 @@ period. `EmployeeProfile`'s rank pill iterates a deliberately different metric
 set but keeps the same cap constant. A panel's "Line by line" rows still show
 the honest uncapped ratio; only the blended headline caps.
 
-**Views.** Owner at ≥1024px gets `DashboardHeatmap` (one row per exec, one
-column per metric plus a blended Overall). `--vip-heatmap-cols` is fed
-`COLS.length`, so adding a metric scales it. A sales exec keeps a plain
+**Views.** Owner, coordinator and a manager's Team view at ≥1024px get
+`DashboardHeatmap` (one row per exec, one column per metric plus a blended
+Overall). `--vip-heatmap-cols` is fed `COLS.length` (12 for a month or quarter,
+11 for a week), so adding a metric scales it. **Every target for the period,
+always, under Results / Activity / Leads headings** (owner's choice,
+2026-10-19), a 6px gutter on each later group's first column on every row
+(theme section 51). Twelve columns need the page's width, so **when the
+heatmap shows, the card spans the full width and Needs Attention sits under it
+as its 5-tile row** (owner's choice); a one-person view keeps the side-by-side
+`.vip-featured-row`. The grid's minimum width is computed from the column count
+(`calc(176px + cols × 55px + 18px)`, 854px for a month): it fits from about
+1050px and scrolls sideways INSIDE its card below that, the name column pinned
+(`position: sticky`, card background). An order value cell reads crore past
+₹1 Cr ("₹1.2/2.0Cr"). Cells open: activity → `buildLogPanel` (fetched on
+demand); order value → the Orders booked popup; the four lead counts
+(scanning, architect / client referral leads, quotes sent) → one
+`buildLeadCountAttainPanel` (`buildScanningLeadsAttainPanel` is now a thin
+alias); Overall → `buildOverallAttainPanel`. Verified 2026-10-19 as the owner at
+1366 / 1100 / 1024 / 375px: October's site visits, architect meetings,
+architect / client referral leads and quotes sent matched independent reads for
+four execs (lead #1572 carries a quote-sent date of 21 Oct, in the
+future, and counts from that day). A sales exec keeps a plain
 bar-list at every width, with every metric shown even at zero and
 `no target set` rendered explicitly rather than the row being omitted. Below
 1024px the owner gets one collapsed `ExecAttainmentRow` per exec (name ·

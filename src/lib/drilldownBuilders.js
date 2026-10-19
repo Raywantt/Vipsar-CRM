@@ -5,7 +5,7 @@
 // nothing in DrilldownPanel renders one, and none of these functions build
 // one.
 import { ACTIVITY_TYPES, ACTIVITY_LABELS } from './activityTypes'
-import { ACTIVITY_METRIC_OPTIONS } from './targetMetrics'
+import { METRIC_OPTIONS, SOURCE_METRIC_OPTIONS } from './targetMetrics'
 import { LEAD_STAGE_OPTIONS, stageLabel } from './leadStageOptions'
 import { LOSS_REASON_OPTIONS } from './lossReasonOptions'
 import { stageChipClass, stageFg, TONE_BAD_INK, TONE_BODY, TONE_GOOD, TONE_INK, TONE_NEUTRAL, TONE_OLIVE, TONE_WON } from './statusColors'
@@ -13,8 +13,10 @@ import { formatCurrencyCompact, formatTimeRange } from './format'
 import { parseTimestamp } from './dbTime'
 import {
   computeOrderValueActuals,
-  computeScanningLeadsActuals,
-  computeActivityActuals,
+  computeSourceLeadsActuals,
+  computeQuoteSentActuals,
+  computeTargetActuals,
+  actualFor,
   countsTowardActivityMetric,
   countedRfqsFor,
   NO_RFQ_DESK,
@@ -244,29 +246,61 @@ function buildBookedPanelCore({
   }
 }
 
-// Mirrors wonEventsInRange above but for Scanning Leads — one event per lead
-// created inside the range whose source is Scanning, dated by creation
-// rather than a stage change.
-function scanningLeadEventsInRange(breakdownLeads, range) {
-  return breakdownLeads
-    .filter((l) => l.source_type === 'scanning' && l.created_at)
-    .map((l) => ({ createdAt: new Date(l.created_at), employeeId: l.owner_employee_id }))
-    .filter((e) => e.createdAt >= range.start && e.createdAt <= range.end)
+// ---------- attain: a count of leads against a target (company-wide or one exec) ----------
+//
+// One popup for every lead-count target — Scanning, Architect referral and
+// Client referral leads (new leads of one source, dated by creation) and New
+// quotes sent (leads whose quote went to the client, dated by the quote-sent
+// day). Each metric's actual comes from the SAME function its heatmap cell
+// reads (computeSourceLeadsActuals / computeQuoteSentActuals), so the popup can
+// never say a different number from the cell that opened it. `date` is the
+// event's date for the pace chart, `count` that same rule's per-person map.
+const sourceLeadCount = (m) => ({
+  noun: m.label.toLowerCase(),
+  title: `New ${m.label.toLowerCase()}`,
+  statLabel: 'Leads',
+  note: `New leads with ${SOURCE_TYPE_OPTIONS.find((s) => s.value === m.source)?.label ?? m.source} as the source, counted by lead owner on the day created.`,
+  date: (l) => (l.source_type === m.source ? l.created_at : null),
+  count: (leads, range) => computeSourceLeadsActuals(leads, m.source, range, true),
+})
+const LEAD_COUNT_METRICS = {
+  ...Object.fromEntries(SOURCE_METRIC_OPTIONS.map((m) => [m.value, sourceLeadCount(m)])),
+  quote_sent: {
+    noun: 'quotes sent',
+    title: 'Quotes sent',
+    statLabel: 'Quotes',
+    note: 'Leads whose quote was sent to the client, counted by lead owner on the quote-sent day.',
+    date: (l) => l.quote_sent_at ?? null,
+    count: (leads, range) => computeQuoteSentActuals(leads, range, true),
+  },
+}
+// The scanning wording predates the other three and is kept word for word.
+LEAD_COUNT_METRICS.scanning_leads = { ...LEAD_COUNT_METRICS.scanning_leads, noun: 'scanning leads', title: 'New scanning leads', note: 'New leads captured with Scanning as the source, counted by lead owner.' }
+
+// The leads a metric counts in the range — one event each, for the pace chart
+// and the office filter.
+function leadCountEvents(breakdownLeads, range, metric) {
+  const cfg = LEAD_COUNT_METRICS[metric]
+  return (breakdownLeads ?? [])
+    .map((l) => ({ lead: l, at: cfg.date(l) }))
+    .filter((e) => e.at)
+    .map((e) => ({ leadId: e.lead.id, at: new Date(e.at), employeeId: e.lead.owner_employee_id }))
+    .filter((e) => e.at >= range.start && e.at <= range.end)
 }
 
-// ---------- attain: scanning leads (company-wide or one exec) ----------
-function buildScanningLeadsAttainPanelCore({ employees, targets, breakdownLeads, range, employeeId, rangeLabel, scopeLabel = 'Company', canCancelTarget = false }) {
+function buildLeadCountAttainPanelCore({ metric = 'scanning_leads', employees, targets, breakdownLeads, range, employeeId, rangeLabel, scopeLabel = 'Company', canCancelTarget = false }) {
+  const cfg = LEAD_COUNT_METRICS[metric]
   const employee = employeeId ? employees.find((e) => e.id === employeeId) : null
   const isCompanyScope = !employee && scopeLabel === 'Company'
-  const actualsByEmployee = computeScanningLeadsActuals(breakdownLeads, range, true)
+  const actualsByEmployee = cfg.count(breakdownLeads ?? [], range)
   const actual = employeeId
     ? actualsByEmployee.get(employeeId) ?? 0
     : [...actualsByEmployee.values()].reduce((s, v) => s + v, 0)
-  const targetRow = employeeId ? targetRowFor(targets, employeeId, 'scanning_leads') : null
-  const target = employeeId ? (targetRow ? Number(targetRow.target_value) : null) : companyTargetFor(targets, employees, 'scanning_leads')
+  const targetRow = employeeId ? targetRowFor(targets, employeeId, metric) : null
+  const target = employeeId ? (targetRow ? Number(targetRow.target_value) : null) : companyTargetFor(targets, employees, metric)
 
-  const events = scanningLeadEventsInRange(breakdownLeads, range).filter((e) => !employeeId || e.employeeId === employeeId)
-  const daily = dailyTotals(events, range, (e) => e.createdAt)
+  const events = leadCountEvents(breakdownLeads, range, metric).filter((e) => !employeeId || e.employeeId === employeeId)
+  const daily = dailyTotals(events, range, (e) => e.at)
   const pace = buildPaceChart(daily, target)
 
   const contrib = employeeId || !isCompanyScope
@@ -279,13 +313,13 @@ function buildScanningLeadsAttainPanelCore({ employees, targets, breakdownLeads,
 
   return {
     kind: 'attain',
-    eyebrow: employee ? `${employee.name} · scanning leads` : `${scopeLabel} · scanning leads`,
-    title: employee || !isCompanyScope ? 'New scanning leads against personal target' : 'New scanning leads against company target',
+    eyebrow: employee ? `${employee.name} · ${cfg.noun}` : `${scopeLabel} · ${cfg.noun}`,
+    title: employee || !isCompanyScope ? `${cfg.title} against personal target` : `${cfg.title} against company target`,
     value: String(actual),
     delta: target != null ? `of ${Math.round(target)} target` : null,
-    note: `${rangeLabel}. New leads captured with Scanning as the source, counted by lead owner.`,
+    note: `${rangeLabel}. ${cfg.note}`,
     stats: [
-      { label: 'Leads', value: String(actual), sub: rangeLabel, color: TONE_INK },
+      { label: cfg.statLabel, value: String(actual), sub: rangeLabel, color: TONE_INK },
       { label: 'Target', value: target != null ? String(Math.round(target)) : '—', sub: 'for this period', color: TONE_BODY },
       { label: 'Gap', value: target != null ? String(Math.max(0, Math.round(target) - actual)) : '—', sub: 'to target', color: TONE_BAD_INK },
     ],
@@ -576,45 +610,35 @@ export function shapeLeadNames(rows) {
 }
 
 // ---------- attain: one exec's blended attainment across every targetable metric (heatmap "overall" column) ----------
-// Metrics here must match DashboardHeatmap's own COLS (scanning_leads +
-// ACTIVITY_METRIC_OPTIONS + order_value) exactly — this panel is what that
-// heatmap's "Overall" cell opens, so a mismatch would show a different
-// number than the cell itself.
-export function buildOverallAttainPanel({ employee, targets, activities, rfqCounting, wonStageHistory, breakdownLeads, range, rangeLabel }) {
-  const metrics = ['scanning_leads', ...ACTIVITY_METRIC_OPTIONS.map((t) => t.value), 'order_value']
-  const orderValueActuals = computeOrderValueActuals(wonStageHistory, range, true)
-  const scanningLeadsActuals = computeScanningLeadsActuals(breakdownLeads, range, true)
-  const activityActuals = computeActivityActuals(activities, true, rfqCounting)
-  const orderActual = orderValueActuals.get(employee.id) ?? 0
-  const scanningActual = scanningLeadsActuals.get(employee.id) ?? 0
-  const rows = metrics.map((metric) => {
-    const target = targetFor(targets, employee.id, metric)
-    const actual =
-      metric === 'order_value'
-        ? orderActual
-        : metric === 'scanning_leads'
-          ? scanningActual
-          // Read from the already-computed activityActuals map (excludes
-          // revised RFQs) instead of re-deriving a raw count — same fix as
-          // DashboardHeatmap.jsx's own cells, for the same reason: this is
-          // the "Line by line" breakdown the heatmap's Overall column opens,
-          // so a raw re-derivation here would disagree with the RFQ Raised
-          // column right next to it.
-          : (activityActuals.get(employee.id)?.[metric] ?? 0)
+// Every METRIC_OPTIONS entry, read through computeTargetActuals — the same
+// call DashboardHeatmap makes for its columns. This panel is what that
+// heatmap's "Overall" cell opens, so a second way of counting any metric here
+// would show a different number from the cell beside it (it happened: RFQ
+// Raised once disagreed because this panel re-tallied revised RFQs).
+// `metrics` is the period's list (metricsForPeriod) — the heatmap passes the
+// one its own columns came from, so a week's popup has no Order value line.
+export function buildOverallAttainPanel({ employee, targets, activities, rfqCounting, wonStageHistory, breakdownLeads, range, rangeLabel, metrics = METRIC_OPTIONS }) {
+  const actuals = computeTargetActuals({ activities, rfqCounting, wonStageHistory, breakdownLeads, range }, true)
+  const orderActual = actuals.orderValueActuals.get(employee.id) ?? 0
+  const rows = metrics.map((m) => {
+    const target = targetFor(targets, employee.id, m.value)
+    const actual = actualFor(m, actuals, employee.id)
     return {
-      label: metric === 'order_value' ? 'Order value' : metric === 'scanning_leads' ? 'Scanning Leads' : ACTIVITY_LABELS[metric],
+      metric: m.value,
+      label: m.value === 'order_value' ? 'Order value' : m.label,
       actual,
       target,
       pct: target ? Math.round((actual / target) * 100) : null,
     }
   })
   const withTarget = rows.filter((r) => r.pct != null)
+  const orderRow = rows.find((r) => r.metric === 'order_value')
   // Capped at 100% per metric before averaging — the same blendedAttainmentFor
   // rule EmployeeProfile's rank pill and the heatmap cell this panel opens
   // from both use, so this headline can't disagree with either of them. The
   // "Line by line" rows below stay uncapped (a real 225% on one metric is
   // still worth showing on its own) — see blendedAttainmentFor's own comment.
-  const blended = blendedAttainmentFor(employee.id, { activityActuals, orderValueActuals, scanningLeadsActuals }, targets)
+  const blended = blendedAttainmentFor(employee.id, actuals, targets, metrics)
   const overallPct = blended == null ? null : Math.round(blended * 100)
 
   return {
@@ -625,7 +649,8 @@ export function buildOverallAttainPanel({ employee, targets, activities, rfqCoun
     note: `${rangeLabel}. Average of whichever of the ${metrics.length} metrics have a target set for ${employee.name.split(' ')[0]}, each capped at 100% so overperforming on one metric can't inflate the blend.`,
     stats: [
       { label: 'Overall', value: overallPct != null ? `${overallPct}%` : '—', sub: `${withTarget.length} of ${metrics.length} have targets`, color: TONE_INK },
-      { label: 'Order value', value: formatCurrencyCompact(orderActual), sub: rows.find((r) => r.label === 'Order value')?.target != null ? `of ${formatCurrencyCompact(rows.find((r) => r.label === 'Order value').target)}` : 'no target set', color: TONE_INK },
+      // Only where order value is a target for this kind of period (not a week).
+      ...(orderRow ? [{ label: 'Order value', value: formatCurrencyCompact(orderActual), sub: orderRow.target != null ? `of ${formatCurrencyCompact(orderRow.target)}` : 'no target set', color: TONE_INK }] : []),
     ],
     contribTitle: 'Line by line',
     // pct above is computed from the raw (possibly fractional) target for
@@ -634,7 +659,7 @@ export function buildOverallAttainPanel({ employee, targets, activities, rfqCoun
       label: r.label,
       value:
         r.target != null
-          ? r.label === 'Order value'
+          ? r.metric === 'order_value'
             ? `${formatCurrencyCompact(r.actual)} / ${formatCurrencyCompact(r.target)}`
             : `${r.actual} / ${Math.round(r.target)}`
           : `${r.actual}`,
@@ -1953,14 +1978,17 @@ export const buildBookedPanel = officeAware(buildBookedPanelCore, {
   ],
 })
 
-export const buildScanningLeadsAttainPanel = officeAware(buildScanningLeadsAttainPanelCore, {
+// `metric` (default scanning_leads) is one of LEAD_COUNT_METRICS' keys.
+export const buildLeadCountAttainPanel = officeAware(buildLeadCountAttainPanelCore, {
   hidesTargets: true,
-  leadIds: (a) =>
-    (a.breakdownLeads ?? [])
-      .filter((l) => l.source_type === 'scanning' && l.created_at && new Date(l.created_at) >= a.range.start && new Date(l.created_at) <= a.range.end)
-      .map((l) => l.id),
+  leadIds: (a) => leadCountEvents(a.breakdownLeads, a.range, a.metric ?? 'scanning_leads').map((e) => e.leadId),
   narrow: (scope, a) => [{ ...a, breakdownLeads: scope.leads(a.breakdownLeads), targets: scope.active ? [] : a.targets }],
 })
+
+export const buildScanningLeadsAttainPanel = (args) => buildLeadCountAttainPanel({ ...args, metric: 'scanning_leads' })
+
+// Whether a target metric opens buildLeadCountAttainPanel.
+export const isLeadCountMetric = (metric) => metric in LEAD_COUNT_METRICS
 
 export const buildActivitiesPanel = officeAware(buildActivitiesPanelCore, {
   hidesTargets: true,

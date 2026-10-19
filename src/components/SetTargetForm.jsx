@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { METRIC_OPTIONS, METRIC_LABELS } from '../lib/targetMetrics'
+import { METRIC_OPTIONS, METRIC_LABELS, METRIC_GROUPS, metricsForPeriod } from '../lib/targetMetrics'
 import { periodForPreset, periodRangeLabel } from '../lib/targetPeriods'
 import { insertTarget, fetchTargetsForPeriod } from '../lib/targetQueries'
 import { formatCurrencyCompact } from '../lib/format'
@@ -112,7 +112,14 @@ function SetTargetForm({ employees, displayPeriod = null, onCreated, onCancel })
   const forSelected = selectedId == null ? [] : inScope.filter((t) => t.employee_id === selectedId)
   const peopleWithTargets = new Set(inScope.map((t) => t.employee_id)).size
 
-  const canSubmit = employeeId && periodValue && metricName && targetValue !== '' && !saving
+  // Only the metrics that are a target for the period type picked (a week has
+  // no order value). Read off the offered list rather than kept in step by an
+  // effect: a <select> whose value has no matching option shows the first one
+  // while state keeps the old value, so the metric saved is always one the
+  // dropdown is showing.
+  const offered = metricsForPeriod(periodType)
+  const chosenMetric = offered.some((m) => m.value === metricName) ? metricName : offered[0].value
+  const canSubmit = employeeId && periodValue && chosenMetric && targetValue !== '' && !saving
 
   async function handleSubmit() {
     setSaving(true)
@@ -123,7 +130,7 @@ function SetTargetForm({ employees, displayPeriod = null, onCreated, onCancel })
       employeeId: Number(employeeId),
       periodType,
       periodValue: periodValue.trim(),
-      metricName,
+      metricName: chosenMetric,
       targetValue: Number(targetValue),
     })
 
@@ -195,11 +202,16 @@ function SetTargetForm({ employees, displayPeriod = null, onCreated, onCancel })
       </div>
 
       <div className="vip-grid-2" style={{ gridTemplateColumns: '1fr 90px' }}>
-        <select className="vip-select" value={metricName} onChange={(e) => setMetricName(e.target.value)}>
-          {METRIC_OPTIONS.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
+        {/* Grouped like the heatmap's columns (Results / Activity / Leads). */}
+        <select className="vip-select" value={chosenMetric} onChange={(e) => setMetricName(e.target.value)}>
+          {METRIC_GROUPS.map((g) => (
+            <optgroup key={g.key} label={g.label}>
+              {offered.filter((m) => m.group === g.key).map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <NumPadInput

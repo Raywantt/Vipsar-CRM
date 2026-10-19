@@ -970,6 +970,36 @@ function Dashboard() {
     setPanel(buildCompletenessPanel(data ?? [], scopeLabel, !seesOthersData))
   }
 
+  // Mounted in one of two arrangements below, depending on whether it shows
+  // the heatmap (seesOthersData) — one element, so the two can't drift.
+  const targetsCard = isTargetPeriod ? (
+    <TargetsVsActualsCard
+      activities={activities}
+      rfqCounting={rfqCounting}
+      wonStageHistory={wonStageHistory}
+      breakdownLeads={breakdownLeads}
+      targets={targets}
+      range={range}
+      rangeLabel={rangeLabel}
+      employees={employees}
+      showByEmployee={seesOthersData}
+      displayPeriod={targetPeriod}
+      // mergeTargetRow owns both halves of this: it drops a row
+      // saved for a period other than the one on screen, and it
+      // REPLACES rather than appends a row for the period that
+      // IS on screen (insertTarget is an upsert, so a
+      // correction updates the same database row and the stale
+      // local copy has to go). See its own comment in
+      // TargetsVsActualsCard.jsx for the two bugs the previous
+      // inline version shipped.
+      onTargetCreated={(row) => setTargets((prev) => mergeTargetRow(prev, row, targetPeriod))}
+      onOpenLog={handleOpenLog}
+      onOpenPanel={setPanel}
+      onOpenBooked={setBookedFor}
+      canCancelTarget={isOwner}
+    />
+  ) : null
+
   return (
     <div className="vip-wide vip-pad-fab-overhang">
       <DrilldownPanel panel={bookedPanel ?? sourcesPanel ?? panel} onClose={closePanel} onCancelTarget={handleCancelTarget} />
@@ -1201,34 +1231,24 @@ function Dashboard() {
           )}
 
           <div className="vip-report-grid">
-            {isTargetPeriod ? (
+            {isTargetPeriod && seesOthersData ? (
+              // The heatmap's 13 columns need the page's full width, so Needs
+              // Attention moves under it as its row of tiles — the layout it
+              // already has for 15D/Custom (owner's choice, 2026-10-19). A
+              // one-person view (an exec, a manager's "My") keeps the
+              // side-by-side row below: its card is a short list, not a grid.
+              <>
+                <div className="vip-span-2">{targetsCard}</div>
+                {!loading && (
+                  <div className="vip-span-2">
+                    <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} wide scopeLabel={scopeLabel} showListFilters={seesOthersData} snapshot={isPastPeriod} />
+                  </div>
+                )}
+              </>
+            ) : isTargetPeriod ? (
               <div className="vip-span-2">
                 <div className="vip-featured-row">
-                  <TargetsVsActualsCard
-                    activities={activities}
-                    rfqCounting={rfqCounting}
-                    wonStageHistory={wonStageHistory}
-                    breakdownLeads={breakdownLeads}
-                    targets={targets}
-                    range={range}
-                    rangeLabel={rangeLabel}
-                    employees={employees}
-                    showByEmployee={seesOthersData}
-                    displayPeriod={targetPeriod}
-                    // mergeTargetRow owns both halves of this: it drops a row
-                    // saved for a period other than the one on screen, and it
-                    // REPLACES rather than appends a row for the period that
-                    // IS on screen (insertTarget is an upsert, so a
-                    // correction updates the same database row and the stale
-                    // local copy has to go). See its own comment in
-                    // TargetsVsActualsCard.jsx for the two bugs the previous
-                    // inline version shipped.
-                    onTargetCreated={(row) => setTargets((prev) => mergeTargetRow(prev, row, targetPeriod))}
-                    onOpenLog={handleOpenLog}
-                    onOpenPanel={setPanel}
-                    onOpenBooked={setBookedFor}
-                    canCancelTarget={isOwner}
-                  />
+                  {targetsCard}
                   {!loading && <NeedsAttentionCard buckets={attentionBuckets} onOpenPanel={setPanel} scopeLabel={scopeLabel} showListFilters={seesOthersData} snapshot={isPastPeriod} />}
                 </div>
               </div>
