@@ -13,6 +13,7 @@ import LeadActivityTimeline from '../components/LeadActivityTimeline'
 import LeadRemarks from '../components/LeadRemarks'
 import OrderValueEdit from '../components/OrderValueEdit'
 import { fetchActiveSalesExecs } from '../lib/employeeQueries'
+import { fetchActiveBdms } from '../lib/bdmQueries'
 import { fetchAreas, fetchProducts } from '../lib/lookupQueries'
 import { useCachedQuery } from '../hooks/useCachedQuery'
 import { fetchLeadAfterRfqMove, fetchLeadDetail } from '../lib/leadDetailQueries'
@@ -43,6 +44,7 @@ import {
   canLogActivity,
   canOpenArchitectProfiles,
   canOpenEmployeeProfiles,
+  canReassignToBdm,
   isBdm,
   isRfqDeskRole,
   seesManagerActivityOnLeads,
@@ -177,6 +179,12 @@ function LeadDetail() {
   const areasQuery = useCachedQuery(['lookup', 'areas'], fetchAreas)
   const productsQuery = useCachedQuery(['lookup', 'products'], fetchProducts)
   const activeSalesExecs = execsQuery.result?.data ?? NO_ROWS
+  // The BDMs Reassign owner also offers — read only for the role that may hand
+  // a lead to one (the shared remembered roster, so it costs nothing if the
+  // owner has already opened Architect Network or All Leads).
+  const offersBdmOwners = canReassignToBdm(employee?.role)
+  const bdmsQuery = useCachedQuery(['bdm', 'active-bdms'], fetchActiveBdms, { enabled: offersBdmOwners })
+  const activeBdms = offersBdmOwners ? bdmsQuery.result?.data ?? NO_ROWS : NO_ROWS
   const areas = areasQuery.result?.data ?? NO_ROWS
   const products = productsQuery.result?.data ?? NO_ROWS
 
@@ -942,6 +950,7 @@ function LeadDetail() {
     // untouched for every other role, and for the owner too once the flag in
     // src/lib/selfAssignTest.js is turned off — which is the entire removal.
     activeSalesExecs: withSelfAssignTestOption(activeSalesExecs, employee),
+    activeBdms,
     onStageChanged: handleStageChanged,
     onFollowUpSaved: handleFollowUpSaved,
     onOwnerReassigned: (updatedLead, historyRow) => {

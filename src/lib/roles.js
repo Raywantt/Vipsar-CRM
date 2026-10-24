@@ -270,6 +270,16 @@ export function canOverrideDeskQuote(role) {
   return role === ROLES.OWNER
 }
 
+// Lead Detail's "Reassign owner" list offers the active business development
+// managers beside the execs — owner only (2026-10-24). A coordinator's policy
+// keeps the new owner inside their own team and a manager's hands leads to
+// execs, so for them a BDM option would be one the database refuses. The BDM
+// then owns the lead like a rep (own-data policies key on the id, not the
+// role); a BDM can never do this to themselves (bdm_leads_before_write).
+export function canReassignToBdm(role) {
+  return role === ROLES.OWNER
+}
+
 // /architects/:id — every role (owner's ruling at Step 4: architects are
 // visible company-wide, so the page is too; each role sees only the leads and
 // meetings its own RLS returns). Listed explicitly, like every list here.

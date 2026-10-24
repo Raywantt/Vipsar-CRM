@@ -66,6 +66,7 @@ function LeadQuickActions({
   canDeleteLead,
   pausedAtStage,
   activeSalesExecs,
+  activeBdms = [],
   onStageChanged,
   onFollowUpSaved,
   onOwnerReassigned,
@@ -234,6 +235,17 @@ function LeadQuickActions({
                 onClick={() => handleReassignOwner(e.id)}
               >
                 {e.name}
+              </button>
+            ))}
+            {activeBdms.map((b) => (
+              <button
+                key={`bdm-${b.id}`}
+                type="button"
+                className={ownerChoice === b.id ? 'vip-action-opt vip-active' : 'vip-action-opt'}
+                disabled={savingOwner}
+                onClick={() => handleReassignOwner(b.id)}
+              >
+                {b.name} <span className="vip-role-tag">BDM</span>
               </button>
             ))}
           </div>
