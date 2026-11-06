@@ -9,8 +9,11 @@ import {
   updateEmployeeCanExportLeads,
   fetchEmployeeDataCounts,
 } from '../lib/employeeQueries'
+import { resetEmployeePassword } from '../lib/authQueries'
 import { ROLES, ROLE_OPTIONS, canHaveCoordinator, canHaveManager, canSeeSalesDashboard, carriesOwnLeads, roleLabel } from '../lib/roles'
 import { errorMessage } from '../lib/errorMessage'
+
+const MIN_RESET_PASSWORD_LENGTH = 6 // mirrors ChangePasswordForm.jsx's own rule
 
 function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
   const [role, setRole] = useState(emp.role)
@@ -22,6 +25,15 @@ function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
   // Set when a role change would strand data — holds the counts so the
   // confirmation can state them, rather than warning in the abstract.
   const [pendingRoleChange, setPendingRoleChange] = useState(null)
+
+  // Owner-set password reset. Its own state, separate from the row's main
+  // `saving`/`error`, so typing a new password for someone can't be
+  // clobbered by (or clobber) an in-flight role/mobile save.
+  const [resettingPassword, setResettingPassword] = useState(false)
+  const [newPasswordValue, setNewPasswordValue] = useState('')
+  const [resetSaving, setResetSaving] = useState(false)
+  const [resetError, setResetError] = useState(null)
+  const [resetDone, setResetDone] = useState(false)
 
   const roleDirty = role !== emp.role
   const mobileDirty = mobile.trim() !== (emp.mobile ?? '')
@@ -149,6 +161,30 @@ function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
     onUpdated(data)
   }
 
+  async function handleResetPassword() {
+    if (newPasswordValue.length < MIN_RESET_PASSWORD_LENGTH) {
+      setResetError(`New password must be at least ${MIN_RESET_PASSWORD_LENGTH} characters.`)
+      return
+    }
+    setResetSaving(true)
+    setResetError(null)
+    const { error } = await resetEmployeePassword(emp.id, newPasswordValue)
+    setResetSaving(false)
+    if (error) {
+      setResetError(errorMessage(error))
+      return
+    }
+    setNewPasswordValue('')
+    setResetDone(true)
+  }
+
+  function closeResetPassword() {
+    setResettingPassword(false)
+    setNewPasswordValue('')
+    setResetError(null)
+    setResetDone(false)
+  }
+
   return (
     <div className="vip-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -205,6 +241,71 @@ function EmployeeRow({ emp, isSelf, coordinators, managers, onUpdated }) {
           {emp.is_active ? 'Deactivate' : 'Activate'}
         </button>
       </div>
+
+      {!isSelf && (
+        <div>
+          {!resettingPassword ? (
+            <button type="button" className="vip-btn-link" onClick={() => setResettingPassword(true)}>
+              Reset password
+            </button>
+          ) : (
+            <div className="vip-action-panel">
+              {resetDone ? (
+                <>
+                  <p className="vip-success" role="status" aria-live="polite" style={{ marginTop: 0 }}>
+                    Password changed for {emp.name}. Share it with them directly — it won't be shown again here.
+                  </p>
+                  <div className="vip-btn-row">
+                    <button type="button" className="vip-btn vip-btn-secondary vip-btn-sm" onClick={closeResetPassword}>
+                      Done
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label className="vip-field">
+                    New password for {emp.name}
+                    <input
+                      className="vip-input"
+                      type="password"
+                      autoComplete="new-password"
+                      value={newPasswordValue}
+                      onChange={(e) => {
+                        setNewPasswordValue(e.target.value)
+                        setResetError(null)
+                      }}
+                      disabled={resetSaving}
+                    />
+                  </label>
+                  <p className="vip-form-note">
+                    This sets {emp.name}'s password directly — there's no way to see their current one (Supabase
+                    never stores it in a readable form). Share the new password with them yourself once it's saved.
+                  </p>
+                  {resetError && <p className="vip-error" role="alert">{resetError}</p>}
+                  <div className="vip-btn-row">
+                    <button
+                      type="button"
+                      className="vip-btn vip-btn-secondary vip-btn-sm"
+                      onClick={handleResetPassword}
+                      disabled={resetSaving || !newPasswordValue}
+                    >
+                      {resetSaving ? 'Saving…' : 'Save password'}
+                    </button>
+                    <button
+                      type="button"
+                      className="vip-btn vip-btn-secondary vip-btn-sm"
+                      onClick={closeResetPassword}
+                      disabled={resetSaving}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* An owner has it by role, so there is nothing to switch. Gated on the
           SAVED role, like the reporting-line fields below. Only a role that
